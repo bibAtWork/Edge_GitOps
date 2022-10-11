@@ -1,0 +1,28 @@
+## Patch to allign with Pod Security Policies permitted by DHC
+## Refs.:
+##  - https://github.com/fluxcd/terraform-provider-flux/blob/main/docs/guides/customize-flux.md
+##  - https://github.com/fluxcd/flux2/pull/1300
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: all-flux-components
+spec:
+  template:
+    metadata:
+      annotations:
+        # Required by Kubernetes node autoscaler
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      securityContext:
+        runAsUser: 10000
+        fsGroup: 1337
+      containers:
+        - name: manager
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
