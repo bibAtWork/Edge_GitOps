@@ -1,5 +1,7 @@
 
 
+## Setup
+
 1. (Optional) Setup Windows-Subsystem for Linux (WSL)
 	
 	a) Open Windows Powershell in admin mode
@@ -30,6 +32,11 @@
 	c) test cluster connection
 	
 	kubectl get namespaces
+
+## Destroy
+
+1. ansible-playbook reset.yml -i inventory/single-node/hosts.ini --ask-pass --ask-become-pass
+
 
 
 ## Additional Reading
