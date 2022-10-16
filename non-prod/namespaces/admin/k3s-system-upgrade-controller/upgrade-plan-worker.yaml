@@ -1,3 +1,7 @@
+## Ref.: 
+## - https://docs.k3s.io/upgrades/automated
+## - https://github.com/rancher/system-upgrade-controller
+
 # Agent plan
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
@@ -19,5 +23,9 @@ spec:
   serviceAccountName: system-upgrade
   upgrade:
     image: rancher/k3s-upgrade
-  version: v1.24.6+k3s1
+  # The value for `channel` is assumed to be a URL that returns HTTP 302 with the last path element of the value
+  # returned in the Location header assumed to be an image tag (after munging "+" to "-").  
+  channel: https://update.k3s.io/v1-release/channels/stable  
+  # Providing a value for `version` will prevent polling/resolution of the `channel` if specified.
+  #version: v1.24.6+k3s1
   
