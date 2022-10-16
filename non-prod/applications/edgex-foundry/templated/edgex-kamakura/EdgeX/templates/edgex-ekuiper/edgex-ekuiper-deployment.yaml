@@ -1,0 +1,91 @@
+---
+# Source: EdgeX/templates/edgex-ekuiper/edgex-ekuiper-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-kuiper
+  name: edgex-kuiper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-kuiper
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-kuiper
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+      - name: prep-volumes
+        image: busybox:latest
+        command: [ "sh", "-c", "chown -Rh 1001:1001 /kuiper; exit 0" ]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 0
+          runAsGroup: 0
+        volumeMounts:
+          - mountPath: /kuiper/log
+            name: kuiper-logs
+          - mountPath: /kuiper/data
+            name: kuiper-data
+      containers:
+      - name: edgex-kuiper
+        image: lfedge/ekuiper:1.4.4-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59720
+          hostPort: 59720
+          hostIP: 127.0.0.1
+        env:
+#        - name: KUIPER__BASIC__DEBUG
+#          value: "true"
+        - name: KUIPER__BASIC__CONSOLELOG
+          value: "true"
+        - name: KUIPER__BASIC__RESTPORT
+          value: "59720"
+        - name: EDGEX__DEFAULT__SERVER
+          value: edgex-redis
+        - name: EDGEX__DEFAULT__PROTOCOL
+          value: "redis"
+        - name: EDGEX__DEFAULT__PORT
+          value: "6379"
+        - name: EDGEX__DEFAULT__TOPIC
+          value: "rules-events"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+        startupProbe:
+          tcpSocket:
+            port: 59720
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          tcpSocket:
+            port: 59720
+        volumeMounts:
+          - mountPath: /kuiper/log
+            name: kuiper-logs
+          - mountPath: /kuiper/data
+            name: kuiper-data
+
+      hostname: edgex-kuiper
+      restartPolicy: Always
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+      volumes:
+        - name: kuiper-data
+          persistentVolumeClaim:
+            claimName: kuiper-data
+        - name: kuiper-logs
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

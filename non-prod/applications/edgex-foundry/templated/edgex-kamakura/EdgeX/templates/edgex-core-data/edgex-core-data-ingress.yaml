@@ -1,0 +1,6 @@
+---
+# Source: EdgeX/templates/edgex-core-data/edgex-core-data-ingress.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#

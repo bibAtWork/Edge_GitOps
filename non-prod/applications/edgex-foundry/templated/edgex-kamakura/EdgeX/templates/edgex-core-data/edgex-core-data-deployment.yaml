@@ -1,0 +1,58 @@
+---
+# Source: EdgeX/templates/edgex-core-data/edgex-core-data-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-core-data
+  name: edgex-core-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-core-data
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-core-data
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-core-data
+        image: edgexfoundry/core-data:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59880
+          hostPort: 59880
+          hostIP: 127.0.0.1
+        env:
+        - name: SERVICE_HOST
+          value: edgex-core-data
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59880
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59880
+      hostname: edgex-core-data
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

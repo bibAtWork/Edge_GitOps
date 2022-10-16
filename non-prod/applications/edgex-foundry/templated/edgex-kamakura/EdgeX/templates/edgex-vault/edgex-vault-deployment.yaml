@@ -1,0 +1,6 @@
+---
+# Source: EdgeX/templates/edgex-vault/edgex-vault-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#

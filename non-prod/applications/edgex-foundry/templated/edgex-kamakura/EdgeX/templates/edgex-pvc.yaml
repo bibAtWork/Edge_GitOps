@@ -1,0 +1,56 @@
+---
+# Source: EdgeX/templates/edgex-pvc.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: consul-config
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 128Mi
+---
+# Source: EdgeX/templates/edgex-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: consul-data
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 128Mi
+---
+# Source: EdgeX/templates/edgex-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-data
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 512Mi
+---
+# Source: EdgeX/templates/edgex-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kuiper-data
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 128Mi

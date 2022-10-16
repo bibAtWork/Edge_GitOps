@@ -1,0 +1,56 @@
+---
+# Source: EdgeX/templates/edgex-device-rest/edgex-device-rest-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-device-rest
+  name: edgex-device-rest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-device-rest
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-device-rest
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-device-rest
+        image: edgexfoundry/device-rest:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59986
+          hostPort: 59986
+          hostIP: 127.0.0.1
+        env:
+        - name: SERVICE_HOST
+          value: edgex-device-rest
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          tcpSocket:
+            port: 59986
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          tcpSocket:
+            port: 59986
+      hostname: edgex-device-rest
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

@@ -1,0 +1,104 @@
+# get the latest helm chart from https://github.com/edgexfoundry/edgex-examples/tree/main/deployment/helm
+# ensure that curl and openssl is installed locally
+# Adjust the ./helm-values.yaml
+# helm template --name-template=edgex-kamakura --namespace edgex --values helm-values.yaml --output-dir ./templated/edgex-kamakura ./helm/2.2.0/ --include-crds 
+# dir templated\edgex-kamakura\EdgeX\templates /b /a-d /s .
+
+
+# Ref.: https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
+# Ref.: https://helm.sh/docs/chart_best_practices/
+
+resources:
+## CRDS have to be applied as first step (and old once manullay removed if not overwritten)
+
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-configmap.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-pv.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-pvc.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/dummy-postgres/dummy-postgres-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/dummy-postgres/dummy-postgres-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-appservice-rules/edgex-app-rules-engine-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-appservice-rules/edgex-app-rules-engine-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-consul/edgex-consul-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-consul/edgex-consul-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-consul/edgex-consul-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-command/edgex-core-command-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-command/edgex-core-command-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-command/edgex-core-command-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-data/edgex-core-data-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-data/edgex-core-data-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-data/edgex-core-data-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-rest/edgex-device-rest-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-rest/edgex-device-rest-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-virtual/edgex-device-virtual-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-virtual/edgex-device-virtual-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-virtual/edgex-device-virtual-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ekuiper/edgex-ekuiper-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ekuiper/edgex-ekuiper-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ekuiper/edgex-ekuiper-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-metadata/edgex-core-metadata-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-metadata/edgex-core-metadata-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-metadata/edgex-core-metadata-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-redis/edgex-redis-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-redis/edgex-redis-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-bootstrapper/edgex-security-bootstrapper-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-bootstrapper/edgex-security-bootstrapper-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-secretstore-setup/edgex-security-secretstore-setup-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-secretstore-setup/edgex-security-secretstore-setup-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-notifications/edgex-support-notifications-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-notifications/edgex-support-notifications-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-notifications/edgex-support-notifications-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ui/edgex-ui-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-vault/edgex-vault-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-vault/edgex-vault-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-configmap.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-pv.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-pvc.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/dummy-postgres/dummy-postgres-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/dummy-postgres/dummy-postgres-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-appservice-rules/edgex-app-rules-engine-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-appservice-rules/edgex-app-rules-engine-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-consul/edgex-consul-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-consul/edgex-consul-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-consul/edgex-consul-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-command/edgex-core-command-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-command/edgex-core-command-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-command/edgex-core-command-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-data/edgex-core-data-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-data/edgex-core-data-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-core-data/edgex-core-data-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-rest/edgex-device-rest-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-rest/edgex-device-rest-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-virtual/edgex-device-virtual-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-virtual/edgex-device-virtual-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-device-virtual/edgex-device-virtual-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ekuiper/edgex-ekuiper-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ekuiper/edgex-ekuiper-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ekuiper/edgex-ekuiper-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-metadata/edgex-core-metadata-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-metadata/edgex-core-metadata-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-metadata/edgex-core-metadata-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-redis/edgex-redis-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-redis/edgex-redis-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-bootstrapper/edgex-security-bootstrapper-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-bootstrapper/edgex-security-bootstrapper-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-secretstore-setup/edgex-security-secretstore-setup-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-security-secretstore-setup/edgex-security-secretstore-setup-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-notifications/edgex-support-notifications-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-notifications/edgex-support-notifications-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-notifications/edgex-support-notifications-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-ingress.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-service.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-ui/edgex-ui-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-vault/edgex-vault-deployment.yaml
+- ./templated/edgex-kamakura/EdgeX/templates/edgex-vault/edgex-vault-service.yaml
+

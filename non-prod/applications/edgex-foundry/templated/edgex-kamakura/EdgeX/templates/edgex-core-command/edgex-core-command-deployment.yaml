@@ -1,0 +1,58 @@
+---
+# Source: EdgeX/templates/edgex-core-command/edgex-core-command-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-core-command
+  name: edgex-core-command
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-core-command
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-core-command
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-core-command
+        image: edgexfoundry/core-command:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59882
+          hostPort: 59882
+          hostIP: 127.0.0.1
+        env:
+        - name: SERVICE_HOST
+          value: edgex-core-command
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59882
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59882
+      hostname: edgex-core-command
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

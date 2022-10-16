@@ -1,0 +1,66 @@
+---
+# Source: EdgeX/templates/edgex-system/edgex-sys-mgmt-agent-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-sys-mgmt-agent
+  name: edgex-sys-mgmt-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-sys-mgmt-agent
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-sys-mgmt-agent
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-sys-mgmt-agent
+        image: edgexfoundry/sys-mgmt-agent:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 58890
+          hostPort: 58890
+          hostIP: 127.0.0.1
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        env:
+        - name: SERVICE_HOST
+          value: edgex-sys-mgmt-agent
+        - name: EXECUTORPATH
+          value: "/sys-mgmt-executor"
+        - name: METRICSMECHANISM
+          value: "executor"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 58890
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 58890
+      hostname: edgex-sys-mgmt-agent
+      restartPolicy: Always
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        seLinuxOptions:
+          # needed for CentOS to provide docker access (note: Kubernetes on docker is deprecated)
+          level: "s0-s0:c0.c1023"
+          user: "unconfined_u"
+          role: "unconfined_r"

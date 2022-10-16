@@ -1,0 +1,19 @@
+---
+# Source: EdgeX/templates/edgex-device-rest/edgex-device-rest-service.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-device-rest
+  name: edgex-device-rest
+spec:
+  ports:
+  - name: "http"
+    port: 59986
+  selector:
+    org.edgexfoundry.service: edgex-device-rest
+  type: ClusterIP

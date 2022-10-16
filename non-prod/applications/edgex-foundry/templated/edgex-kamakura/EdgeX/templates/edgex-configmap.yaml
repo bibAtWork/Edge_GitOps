@@ -1,0 +1,20 @@
+---
+# Source: EdgeX/templates/edgex-configmap.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edgex-common-variables
+data:
+  CLIENTS_CORE_DATA_HOST: edgex-core-data
+  CLIENTS_CORE_METADATA_HOST: edgex-core-metadata
+  CLIENTS_CORE_COMMAND_HOST: edgex-core-command
+  CLIENTS_SUPPORT_NOTIFICATIONS_HOST: edgex-support-notifications
+  CLIENTS_SUPPORT_SCHEDULER_HOST: edgex-support-scheduler
+  MESSAGEQUEUE_HOST: edgex-redis
+  REGISTRY_HOST: edgex-core-consul
+  DATABASES_PRIMARY_HOST: edgex-redis
+  EDGEX_SECURITY_SECRET_STORE: "false"

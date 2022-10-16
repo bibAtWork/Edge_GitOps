@@ -1,0 +1,60 @@
+---
+# Source: EdgeX/templates/edgex-metadata/edgex-core-metadata-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-core-metadata
+  name: edgex-core-metadata
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-core-metadata
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-core-metadata
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-core-metadata
+        image: edgexfoundry/core-metadata:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59881
+          hostPort: 59881
+          hostIP: 127.0.0.1
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        env:
+        - name: SERVICE_HOST
+          value: edgex-core-metadata
+        - name: NOTIFICATIONS_SENDER
+          value: edgex-core-metadata
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59881
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59881
+      hostname: edgex-core-metadata
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

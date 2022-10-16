@@ -1,0 +1,66 @@
+---
+# Source: EdgeX/templates/edgex-consul/edgex-consul-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-core-consul
+  name: edgex-core-consul
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-core-consul
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-core-consul
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-core-consul
+        image: consul:1.10.10
+        imagePullPolicy: IfNotPresent
+        args: ["agent", "-ui", "-bootstrap", "-server", "-client", "0.0.0.0"]
+        ports:
+        - containerPort: 8500
+          hostPort: 8500
+          hostIP: 0.0.0.0
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          tcpSocket:
+            port: 8500
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          tcpSocket:
+            port: 8500
+        volumeMounts:
+        - mountPath: /consul/config
+          name: consul-config
+        - mountPath: /consul/data
+          name: consul-data
+
+      hostname: edgex-core-consul
+      restartPolicy: Always
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      volumes:
+      - name: consul-config
+        persistentVolumeClaim:
+          claimName: consul-config
+      - name: consul-data
+        persistentVolumeClaim:
+          claimName: consul-data

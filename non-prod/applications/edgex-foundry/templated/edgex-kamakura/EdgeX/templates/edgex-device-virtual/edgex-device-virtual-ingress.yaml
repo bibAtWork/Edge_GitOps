@@ -1,0 +1,6 @@
+---
+# Source: EdgeX/templates/edgex-device-virtual/edgex-device-virtual-ingress.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#

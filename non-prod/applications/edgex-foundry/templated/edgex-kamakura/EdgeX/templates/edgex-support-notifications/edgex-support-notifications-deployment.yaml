@@ -1,0 +1,58 @@
+---
+# Source: EdgeX/templates/edgex-support-notifications/edgex-support-notifications-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-support-notifications
+  name: edgex-support-notifications
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-support-notifications
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-support-notifications
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-support-notifications
+        image: edgexfoundry/support-notifications:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59860
+          hostPort: 59860
+          hostIP: 127.0.0.1
+        env:
+        - name: SERVICE_HOST
+          value: edgex-support-notifications
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59860
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59860
+      hostname: edgex-support-notifications
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

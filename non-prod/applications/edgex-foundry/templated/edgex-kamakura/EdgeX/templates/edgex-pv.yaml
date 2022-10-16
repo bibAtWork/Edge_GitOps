@@ -1,0 +1,72 @@
+---
+# Source: EdgeX/templates/edgex-pv.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: edgex-consul-config-volume
+spec:
+  storageClassName: ""
+  claimRef:
+    name: consul-config
+    namespace: edgex
+  capacity:
+    storage: 500Mi
+  accessModes:
+  - ReadWriteMany
+  hostPath:
+    path: "/mnt/edgex-consul-config"
+---
+# Source: EdgeX/templates/edgex-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: edgex-consul-data-volume
+spec:
+  storageClassName: ""
+  claimRef:
+    name: consul-data
+    namespace: edgex
+  capacity:
+    storage: 500Mi
+  accessModes:
+  - ReadWriteMany
+  hostPath:
+    path: "/mnt/edgex-consul-data"
+---
+# Source: EdgeX/templates/edgex-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: edgex-db-volume
+spec:
+  storageClassName: ""
+  claimRef:
+    name: db-data
+    namespace: edgex
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteMany
+  hostPath:
+    path: "/mnt/edgex-db"
+---
+# Source: EdgeX/templates/edgex-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: edgex-kuiper-data
+spec:
+  storageClassName: ""
+  claimRef:
+    name: kuiper-data
+    namespace: edgex
+  capacity:
+    storage: 128Mi
+  accessModes:
+  - ReadWriteMany
+  hostPath:
+    path: "/mnt/edgex-kuiper-data"

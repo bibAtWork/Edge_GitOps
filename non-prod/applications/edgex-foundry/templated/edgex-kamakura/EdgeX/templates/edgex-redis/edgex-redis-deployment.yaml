@@ -1,0 +1,57 @@
+---
+# Source: EdgeX/templates/edgex-redis/edgex-redis-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-redis
+  name: edgex-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-redis
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-redis
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-redis
+        image: redis:6.2.6-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 6379
+        envFrom:
+          - configMapRef:
+              name: edgex-common-variables
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          tcpSocket:
+            port: 6379
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+        volumeMounts:
+        - mountPath: /data
+          name: db-data
+      hostname: edgex-redis
+      restartPolicy: Always
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      volumes:
+      - name: db-data
+        persistentVolumeClaim:
+          claimName: db-data

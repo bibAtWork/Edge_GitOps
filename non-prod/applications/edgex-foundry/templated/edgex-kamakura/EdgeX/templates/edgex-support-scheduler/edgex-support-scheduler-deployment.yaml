@@ -1,0 +1,62 @@
+---
+# Source: EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-support-scheduler
+  name: edgex-support-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-support-scheduler
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-support-scheduler
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-support-scheduler
+        image: edgexfoundry/support-scheduler:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59861
+          hostPort: 59861
+          hostIP: 127.0.0.1
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        env:
+        - name: SERVICE_HOST
+          value: edgex-support-scheduler
+        - name: INTERVALACTIONS_SCRUBPUSHED_HOST
+          value: edgex-core-data
+        - name: INTERVALACTIONS_SCRUBAGED_HOST
+          value: edgex-core-data
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59861
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59861
+      hostname: edgex-support-scheduler
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

@@ -1,0 +1,19 @@
+---
+# Source: EdgeX/templates/edgex-metadata/edgex-core-metadata-service.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-core-metadata
+  name: edgex-core-metadata
+spec:
+  ports:
+  - name: "http"
+    port: 59881
+  selector:
+    org.edgexfoundry.service: edgex-core-metadata
+  type: ClusterIP

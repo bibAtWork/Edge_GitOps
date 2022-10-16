@@ -1,0 +1,54 @@
+---
+# Source: EdgeX/templates/edgex-ui/edgex-ui-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-ui
+  name: edgex-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-ui
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-ui
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-ui
+        image: edgexfoundry/edgex-ui:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 4000
+          hostPort: 4000
+          hostIP: 0.0.0.0
+        env:
+        - name: EDGEX_SECURITY_SECRET_STORE
+          value: "false"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 4000
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 4000
+      hostname: edgex-ui
+      restartPolicy: Always
+      securityContext:
+        runAsUser: 2002
+        runAsGroup: 2001

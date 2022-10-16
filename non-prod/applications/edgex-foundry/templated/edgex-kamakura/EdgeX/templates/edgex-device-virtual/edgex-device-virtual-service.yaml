@@ -1,0 +1,19 @@
+---
+# Source: EdgeX/templates/edgex-device-virtual/edgex-device-virtual-service.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-device-virtual
+  name: edgex-device-virtual
+spec:
+  ports:
+  - name: "59900"
+    port: 59900
+  selector:
+    org.edgexfoundry.service: edgex-device-virtual
+  type: ClusterIP

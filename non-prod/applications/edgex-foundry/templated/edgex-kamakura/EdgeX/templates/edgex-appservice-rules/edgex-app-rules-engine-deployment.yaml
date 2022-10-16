@@ -1,0 +1,63 @@
+---
+# Source: EdgeX/templates/edgex-appservice-rules/edgex-app-rules-engine-deployment.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    org.edgexfoundry.service: edgex-app-rules-engine
+  name: edgex-app-rules-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      org.edgexfoundry.service: edgex-app-rules-engine
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        org.edgexfoundry.service: edgex-app-rules-engine
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: edgex-app-rules-engine
+        image: edgexfoundry/app-service-configurable:2.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 59701
+          hostPort: 59701
+          hostIP: 127.0.0.1
+        envFrom:
+        - configMapRef:
+            name: edgex-common-variables
+        env:
+        - name: EDGEX_PROFILE
+          value: "rules-engine"
+        - name: SERVICE_HOST
+          value: edgex-app-rules-engine
+        - name: TRIGGER_EDGEXMESSAGEBUS_PUBLISHHOST_HOST
+          value: edgex-redis
+        - name: TRIGGER_EDGEXMESSAGEBUS_SUBSCRIBEHOST_HOST
+          value: edgex-redis
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        startupProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59701
+          periodSeconds: 1
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /api/v2/ping
+            port: 59701
+      hostname: edgex-app-rules-engine
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2002
+        runAsGroup: 2001

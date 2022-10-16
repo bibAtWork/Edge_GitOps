@@ -1,0 +1,6 @@
+---
+# Source: EdgeX/templates/edgex-support-scheduler/edgex-support-scheduler-ingress.yaml
+# Copyright (C) 2022 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+#
