@@ -4,16 +4,7 @@ namespace: edgex
 
 resources:
 - ./namespace.yaml
+- ./edgex-foundry
 
-#bases:
-#- ./secrets
-#- ../../base/secrets
-#- ./networking
-#- ../../base/networking
-#- ../../base/automation/flux-image-update-automation.yaml
-
-# general patches
-#patches:    
-#- path: ../../base/patches/patch-template-spec-imagePullSecrets.json 
-#  target:
-#    kind: Deployment
+bases:
+- ../../base/networking
