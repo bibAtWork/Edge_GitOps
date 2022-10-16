@@ -1,0 +1,73 @@
+---
+# Source: sealed-secrets/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sealed-secrets-controller-central
+  namespace: toBeReplaced
+  labels:
+    app.kubernetes.io/name: sealed-secrets
+    helm.sh/chart: sealed-secrets-2.6.1
+    app.kubernetes.io/instance: sealed-secrets-controller-central
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: v0.18.2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sealed-secrets
+      app.kubernetes.io/instance: sealed-secrets-controller-central
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sealed-secrets
+        app.kubernetes.io/instance: sealed-secrets-controller-central
+    spec:
+      imagePullSecrets:
+        - name: registry.app.corpintra.net-harbor-pull-secret
+      securityContext:
+        fsGroup: 65534
+      serviceAccountName: sealedsecrets-serviceaccount
+      containers:
+        - name: controller
+          command:
+            - controller
+          args:
+            - --update-status
+            - --key-prefix
+            - "sealed-secrets-key"
+          image: registry.app.corpintra.net/ghcrcache/bitnami-labs/sealed-secrets-controller:v0.18.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            limits: {}
+            requests: {}
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,29 @@
+# helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+# helm repo update sealed-secrets
+# helm search repo sealed-secrets/sealed-secrets --versions
+# helm pull sealed-secrets/sealed-secrets --version 2.6.1 --untar --untardir ./helm/2.6.1/
+# Adjust the ./helm-values.yaml
+# helm template --name-template=sealed-secrets-controller-central --namespace none --values helm-values.yaml --output-dir ./templated/0.18.2 ./helm/2.6.1/sealed-secrets/ --include-crds 
+# dir templated\0.18.2\sealed-secrets\templates /b /a-d /s
+
+
+# Ref.: https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
+# Ref.: https://helm.sh/docs/chart_best_practices/
+
+resources:
+## CRDS have to be applied as first step (and old once manullay removed if not overwritten)
+- templated/0.18.2/sealed-secrets/templates/crds/sealedsecret-crd.yaml
+
+- templated/0.18.2/sealed-secrets/templates/cluster-role-binding.yaml
+- templated/0.18.2/sealed-secrets/templates/cluster-role.yaml
+- templated/0.18.2/sealed-secrets/templates/deployment.yaml
+- templated/0.18.2/sealed-secrets/templates/role-binding.yaml
+- templated/0.18.2/sealed-secrets/templates/role.yaml
+- templated/0.18.2/sealed-secrets/templates/service-account.yaml
+- templated/0.18.2/sealed-secrets/templates/service.yaml
+
+
+#patches:
+#- target:
+#    kind: Deployment
+#  path: ../../base/patch-image-pull-secret.json
