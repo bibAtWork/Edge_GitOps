@@ -1,0 +1,45 @@
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-local
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"
+  template:
+    storageLocation: seaweedfs-local
+    ttl: 168h
+    snapshotVolumes: true
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: weekly-offsite
+  namespace: velero
+spec:
+  schedule: "0 3 * * 0"
+  template:
+    storageLocation: aws-s3
+    ttl: 2160h
+    snapshotVolumes: true
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: monthly-offsite
+  namespace: velero
+spec:
+  schedule: "0 4 1 * *"
+  template:
+    storageLocation: aws-s3
+    ttl: 8760h
+    snapshotVolumes: true
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true

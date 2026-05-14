@@ -1,0 +1,10 @@
+# Apply with: talosctl apply-config --insecure --nodes <node-ip> --file worker.yaml
+# Reuse the same secrets bundle as controlplane: --with-secrets secrets.yaml
+---
+machine:
+  type: worker
+
+cluster:
+  etcd:
+    advertisedSubnets:
+      - 192.168.1.0/24

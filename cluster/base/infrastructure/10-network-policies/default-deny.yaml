@@ -1,0 +1,21 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEntities:
+        - host
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: default-deny-egress
+spec:
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - host
+        - kube-apiserver

@@ -1,0 +1,60 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: trivy-operator
+      version: ">=0.23.0 <1.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: aqua
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    operator:
+      # Overlays patch this: 2 on 3-node, 1 on single-node
+      scanJobConcurrentLimit: 2
+      # Use the in-cluster Zot registry as a pull-through cache
+      vulnerabilityScanner:
+        enabled: true
+      configAuditScanner:
+        enabled: true
+      rbacAssessmentScanner:
+        enabled: true
+
+    trivy:
+      ignoreUnfixed: false
+      severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+    serviceMonitor:
+      enabled: false
+
+    securityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi

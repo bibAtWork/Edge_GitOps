@@ -1,0 +1,48 @@
+# Shorter local retention (4 days vs 7) because the local copy is on the same machine.
+# Machine-level failures (PSU, motherboard, OS corruption) lose both copies 1 and 2.
+# AWS S3 is the durable guard against machine-failure scenarios.
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-local
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"
+  template:
+    storageLocation: seaweedfs-local
+    ttl: 96h
+    snapshotVolumes: true
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: weekly-offsite
+  namespace: velero
+spec:
+  schedule: "0 3 * * 0"
+  template:
+    storageLocation: aws-s3
+    ttl: 2160h
+    snapshotVolumes: true
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: monthly-offsite
+  namespace: velero
+spec:
+  schedule: "0 4 1 * *"
+  template:
+    storageLocation: aws-s3
+    ttl: 8760h
+    snapshotVolumes: true
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true
