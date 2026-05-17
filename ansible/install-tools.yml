@@ -1,0 +1,19 @@
+---
+# Install all tools required to bootstrap and operate the homelab cluster.
+#
+# Usage (system-wide, requires sudo):
+#   ansible-playbook -i inventory.yml install-tools.yml
+#
+# Usage (user-local, no sudo):
+#   ansible-playbook -i inventory.yml install-tools.yml \
+#     -e tools_bin_dir=~/.local/bin -e tools_become=false
+#
+# Pin specific versions:
+#   ansible-playbook -i inventory.yml install-tools.yml \
+#     -e talosctl_version=1.9.5 -e kubectl_version=1.32.3
+
+- name: Install homelab toolchain
+  hosts: all
+  gather_facts: true
+  roles:
+    - homelab-tools

@@ -37,3 +37,7 @@ secrets.yaml
 # Age private keys
 *.key
 !.sops.yaml
+
+# Ansible retry files
+*.retry
+ansible/.ansible_retry

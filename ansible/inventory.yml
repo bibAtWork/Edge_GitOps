@@ -1,0 +1,9 @@
+---
+# Default inventory: install tools on the machine running Ansible.
+# For a remote control host, replace 'localhost' with its hostname or IP
+# and remove the connection/python_interpreter lines.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
