@@ -1,0 +1,25 @@
+# Cilium Gateway API provisions a LoadBalancer Service for the Gateway.
+# We expose that Service via Tailscale using loadBalancerClass — the operator's
+# stable trigger is loadBalancerClass on Services, not annotations on the Gateway.
+apiVersion: v1
+kind: Service
+metadata:
+  name: homelab-gateway-tailscale
+  namespace: gateway-system
+  annotations:
+    tailscale.com/hostname: homelab-gateway
+    tailscale.com/proxy-class: prod-ingress
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    gateway.networking.k8s.io/gateway-name: homelab-gateway
+  ports:
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: 443
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 80

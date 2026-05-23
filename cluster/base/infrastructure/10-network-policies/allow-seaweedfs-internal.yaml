@@ -1,0 +1,25 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-seaweedfs-internal
+  namespace: seaweedfs
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            io.kubernetes.pod.namespace: seaweedfs
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "8333"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            io.kubernetes.pod.namespace: seaweedfs

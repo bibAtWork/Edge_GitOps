@@ -1,0 +1,42 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-otel-agent-egress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-agent
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector-gateway
+            io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+    - toEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-grafana-ingress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  ingress:
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

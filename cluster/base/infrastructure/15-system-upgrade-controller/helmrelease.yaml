@@ -1,0 +1,30 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: system-upgrade-controller
+  namespace: system-upgrade
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: system-upgrade-controller
+      version: ">=0.1.0"
+      sourceRef:
+        kind: HelmRepository
+        name: rancher
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    global:
+      cattle:
+        systemDefaultRegistry: ""

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":separatePatchReleases"
+  ],
+  "flux": {
+    "enabled": true,
+    "fileMatch": ["cluster/.+\\.yaml$"]
+  },
+  "helm-values": {
+    "fileMatch": ["cluster/.+helmrelease\\.yaml$"]
+  },
+  "kubernetes": {
+    "fileMatch": ["cluster/.+\\.yaml$"]
+  },
+  "regexManagers": [
+    {
+      "description": "Ansible tool versions in group_vars/all.yml (comment-driven)",
+      "fileMatch": ["ansible/group_vars/all\\.yml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\w+_version:\\s*\"(?<currentValue>[\\d.]+)\""
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Talos Linux version in machineconfigs",
+      "fileMatch": ["cluster/overlays/.+/talos-machineconfigs/.+\\.yaml$"],
+      "matchStrings": [
+        "talosVersion:\\s*(?<currentValue>[\\w.+]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
+    },
+    {
+      "description": "talos-backup image in CronJob",
+      "fileMatch": ["cluster/base/00-bootstrap/talos-backup/cronjob\\.yaml$"],
+      "matchStrings": [
+        "image:\\s*ghcr\\.io/siderolabs/talos-backup:(?<currentValue>[\\w.-]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/siderolabs/talos-backup"
+    },
+    {
+      "description": "System Upgrade Controller plan channels",
+      "fileMatch": ["cluster/base/infrastructure/15-system-upgrade-controller/plans/.+\\.yaml$"],
+      "matchStrings": [
+        "ghcr\\.io/siderolabs/installer:(?<currentValue>[\\w.-]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/siderolabs/installer"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Disable digest updates for Talos images",
+      "matchDatasources": ["docker"],
+      "matchPackagePatterns": ["siderolabs/*"],
+      "digestUpdateType": "never"
+    },
+    {
+      "description": "Group Flux updates",
+      "matchPackagePatterns": ["fluxcd/*", "flux2"],
+      "groupName": "flux",
+      "automerge": false
+    },
+    {
+      "description": "Automerge patch updates for low-risk components",
+      "matchUpdateTypes": ["patch"],
+      "matchPackageNames": [
+        "external-dns",
+        "stakater/reloader",
+        "trivy-operator"
+      ],
+      "automerge": true,
+      "automergeType": "branch"
+    }
+  ]
+}

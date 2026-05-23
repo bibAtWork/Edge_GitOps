@@ -1,0 +1,116 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 30m
+  dependsOn:
+    - name: victoria-metrics-k8s-stack
+      namespace: monitoring
+  chart:
+    spec:
+      chart: grafana
+      version: ">=8.0.0 <9.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+
+    persistence:
+      enabled: true
+      storageClassName: seaweedfs-storage
+      size: 5Gi
+      labels:
+        velero.io/backup: "true"
+
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: VictoriaMetrics
+            type: prometheus
+            url: http://vmsingle-victoria-metrics-k8s-stack.monitoring.svc:8428
+            access: proxy
+            isDefault: true
+          - name: VictoriaLogs
+            type: victoriametrics-logs-datasource
+            url: http://vlogs-victoria-metrics-k8s-stack.monitoring.svc:9428
+            access: proxy
+          - name: VictoriaTraces
+            type: grafana-tempo-datasource
+            url: http://vtraces-victoria-metrics-k8s-stack.monitoring.svc:4318
+            access: proxy
+
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: default
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/default
+
+    dashboards:
+      default:
+        kubernetes-cluster:
+          gnetId: 7249
+          revision: 1
+          datasource: VictoriaMetrics
+        node-exporter:
+          gnetId: 1860
+          revision: 37
+          datasource: VictoriaMetrics
+        cilium-hubble:
+          gnetId: 16611
+          revision: 1
+          datasource: VictoriaMetrics
+        seaweedfs:
+          gnetId: 14817
+          revision: 1
+          datasource: VictoriaMetrics
+        velero:
+          gnetId: 15469
+          revision: 1
+          datasource: VictoriaMetrics
+        trivy-operator:
+          gnetId: 17813
+          revision: 1
+          datasource: VictoriaMetrics
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 472
+      fsGroup: 472
+      seccompProfile:
+        type: RuntimeDefault
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"

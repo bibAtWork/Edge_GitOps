@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-gateway
+  namespace: monitoring
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector-gateway
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP

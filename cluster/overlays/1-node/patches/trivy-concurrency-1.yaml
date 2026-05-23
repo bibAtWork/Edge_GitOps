@@ -1,0 +1,10 @@
+# Cap at 1: sequential scans prevent scan jobs from competing with etcd and SeaweedFS for CPU
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+spec:
+  values:
+    operator:
+      scanJobConcurrentLimit: 1
