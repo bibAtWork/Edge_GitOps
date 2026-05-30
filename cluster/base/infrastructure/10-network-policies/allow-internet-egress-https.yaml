@@ -1,0 +1,15 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-internet-egress-https-only
+spec:
+  # Allow all pods to reach the internet, but HTTPS (443/TCP) only.
+  # Pods needing plain HTTP to public endpoints must use an explicit per-namespace policy.
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
