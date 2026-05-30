@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seaweedfs-collection-routing
+  namespace: seaweedfs
+  annotations:
+    # 1-node only: pins buckets to specific volume collections for disk isolation.
+    # primary collection  → primary disk (OS + workloads)
+    # backup collection   → dedicated backup disk
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait until the base bucket-init job has created all buckets.
+        - name: wait-for-buckets
+          image: amazon/aws-cli:2.22.0
+          env:
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: seaweedfs-s3-secret
+                  key: admin_access_key_id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: seaweedfs-s3-secret
+                  key: admin_secret_access_key
+          command:
+            - /bin/sh
+            - -c
+            - |
+              S3="http://seaweedfs-s3.seaweedfs.svc:8333"
+              for bucket in etcd-backups velero-backups zot-registry pvs; do
+                until aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; do
+                  echo "Waiting for bucket: $bucket"
+                  sleep 5
+                done
+                echo "Bucket ready: $bucket"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: configure-collections
+          image: chrislusf/seaweedfs:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -euo pipefail
+              MASTER="seaweedfs-master.seaweedfs.svc:9333"
+
+              run_shell_cmd() {
+                echo "$1" | weed shell -master="$MASTER"
+              }
+
+              echo "Configuring bucket-to-collection routing for 1-node disk isolation..."
+
+              # primary collection: volumes on the primary disk
+              run_shell_cmd "s3.configure -buckets pvs -collection primary -apply"
+              run_shell_cmd "s3.configure -buckets zot-registry -collection primary -apply"
+
+              # backup collection: volumes on the dedicated backup disk
+              run_shell_cmd "s3.configure -buckets etcd-backups -collection backup -apply"
+              run_shell_cmd "s3.configure -buckets velero-backups -collection backup -apply"
+
+              echo "Collection routing configured."
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
