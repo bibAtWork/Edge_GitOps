@@ -19,7 +19,7 @@
   "regexManagers": [
     {
       "description": "Ansible tool versions in group_vars/all.yml (comment-driven)",
-      "fileMatch": ["ansible/group_vars/all\\.yml$"],
+      "fileMatch": ["bootstrap/ansible/group_vars/all\\.yml$"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\w+_version:\\s*\"(?<currentValue>[\\d.]+)\""
       ],

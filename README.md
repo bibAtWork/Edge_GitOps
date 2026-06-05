@@ -33,8 +33,10 @@ cluster/
 ├── overlays/
 │   ├── 3-node/              # ← Flux path for HA cluster
 │   └── 1-node/              # ← Flux path for single node
-terraform/                   # AWS S3 + KMS + IAM
-scripts/                     # Bootstrap runbooks
+bootstrap/
+├── ansible/                 # Ansible orchestrator + tool installer roles
+├── scripts/                 # Bootstrap runbooks (1-node, 3-node, post-deploy)
+└── terraform/               # AWS S3 + KMS + IAM for offsite backups
 ```
 
 ## Bootstrap
@@ -43,13 +45,13 @@ scripts/                     # Bootstrap runbooks
 # Prerequisites: talosctl, kubectl, flux, sops, age, terraform
 
 # 3-node HA
-./scripts/bootstrap-3node.sh
+./bootstrap/scripts/bootstrap-3node.sh
 
 # Single node
-./scripts/bootstrap-1node.sh
+./bootstrap/scripts/bootstrap-1node.sh
 ```
 
-See [`scripts/`](./scripts/) for full step-by-step runbooks.
+See [`bootstrap/scripts/`](./bootstrap/scripts/) for full step-by-step runbooks.
 
 ## Automated Patching
 

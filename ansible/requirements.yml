@@ -1,5 +1,0 @@
----
-# Install with: ansible-galaxy collection install -r ansible/requirements.yml
-collections:
-  - name: community.general
-    version: ">=9.0.0"

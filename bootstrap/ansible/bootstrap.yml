@@ -1,0 +1,189 @@
+---
+# Run the cluster bootstrap scripts with full pre-flight validation.
+#
+# ── 3-node HA ────────────────────────────────────────────────────────────────
+# ansible-playbook -i inventory.yml bootstrap.yml \
+#   -e profile=3-node \
+#   -e node1_ip=192.168.1.10 \
+#   -e node2_ip=192.168.1.11 \
+#   -e node3_ip=192.168.1.12 \
+#   -e vip=192.168.1.100 \
+#   -e github_owner=myuser \
+#   -e github_repo=homelab-cluster
+#
+# ── 1-node ───────────────────────────────────────────────────────────────────
+# ansible-playbook -i inventory.yml bootstrap.yml \
+#   -e profile=1-node \
+#   -e node_ip=192.168.1.10 \
+#   -e primary_disk=/dev/disk/by-id/ata-Samsung_SSD_... \
+#   -e backup_disk=/dev/disk/by-id/ata-WDC_... \
+#   -e github_owner=myuser \
+#   -e github_repo=homelab-cluster
+#
+# Sensitive values (GitHub token for Flux, AWS creds) are read from the
+# environment or prompted interactively — never pass them as -e arguments.
+
+- name: Bootstrap Talos Kubernetes cluster
+  hosts: all
+  gather_facts: true
+
+  vars:
+    repo_root: "{{ playbook_dir | dirname | dirname }}"
+    profile: "3-node"
+
+  vars_prompt:
+    - name: github_token
+      prompt: "GitHub personal access token (for Flux bootstrap, leave empty if already exported as GITHUB_TOKEN)"
+      private: true
+      default: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+
+  pre_tasks:
+
+    - name: Validate profile value
+      ansible.builtin.assert:
+        that:
+          - profile in ['3-node', '1-node']
+        fail_msg: "profile must be '3-node' or '1-node', got: {{ profile }}"
+
+    - name: Validate 3-node required vars
+      ansible.builtin.assert:
+        that:
+          - node1_ip is defined and node1_ip | length > 0
+          - node2_ip is defined and node2_ip | length > 0
+          - node3_ip is defined and node3_ip | length > 0
+          - vip      is defined and vip      | length > 0
+        fail_msg: "3-node profile requires: node1_ip, node2_ip, node3_ip, vip"
+      when: profile == '3-node'
+
+    - name: Validate 1-node required vars
+      ansible.builtin.assert:
+        that:
+          - node_ip      is defined and node_ip      | length > 0
+          - primary_disk is defined and primary_disk | length > 0
+          - backup_disk  is defined and backup_disk  | length > 0
+        fail_msg: "1-node profile requires: node_ip, primary_disk, backup_disk"
+      when: profile == '1-node'
+
+    - name: Validate shared required vars
+      ansible.builtin.assert:
+        that:
+          - github_owner is defined and github_owner | length > 0
+          - github_repo  is defined and github_repo  | length > 0
+          - github_token | length > 0
+        fail_msg: "Required: github_owner, github_repo, and GITHUB_TOKEN env var (or prompt)"
+
+    - name: Check all tools are installed
+      ansible.builtin.command: "which {{ item }}"
+      loop:
+        - talosctl
+        - kubectl
+        - flux
+        - sops
+        - age
+        - age-keygen
+        - terraform
+      changed_when: false
+      register: tool_check
+      failed_when: tool_check.rc != 0
+
+    - name: Show bootstrap target
+      ansible.builtin.debug:
+        msg:
+          - "Profile : {{ profile }}"
+          - "Repo    : {{ repo_root }}"
+          - >-
+            Nodes   : {{
+              [node1_ip, node2_ip, node3_ip] | join(', ')
+              if profile == '3-node' else node_ip
+            }}
+          - "GitHub  : {{ github_owner }}/{{ github_repo }}"
+
+    - name: Confirm before proceeding
+      ansible.builtin.pause:
+        prompt: |
+          Review the details above. This will:
+            1. Generate age and Talos secrets (stored locally — back them up!)
+            2. Apply Talos config to the node(s) — this WIPES the disks
+            3. Bootstrap etcd and install Flux
+            4. Run `terraform apply` to create AWS S3 buckets
+
+          Press ENTER to continue or Ctrl-C to abort
+
+  tasks:
+
+    # ── 3-node bootstrap ──────────────────────────────────────────────────────
+
+    - name: Run 3-node bootstrap script
+      ansible.builtin.shell:
+        cmd: "{{ repo_root }}/bootstrap/scripts/bootstrap-3node.sh"
+        chdir: "{{ repo_root }}"
+      environment:
+        NODE1_IP:     "{{ node1_ip }}"
+        NODE2_IP:     "{{ node2_ip }}"
+        NODE3_IP:     "{{ node3_ip }}"
+        VIP:          "{{ vip }}"
+        GITHUB_OWNER: "{{ github_owner }}"
+        GITHUB_REPO:  "{{ github_repo }}"
+        GITHUB_TOKEN: "{{ github_token }}"
+        # Pass through AWS creds for terraform — expects these in environment
+        AWS_ACCESS_KEY_ID:     "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
+        AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+        AWS_DEFAULT_REGION:    "{{ lookup('env', 'AWS_DEFAULT_REGION') | default('eu-central-1') }}"
+      when: profile == '3-node'
+      register: bootstrap_3node
+      no_log: false  # show output — bootstrap is interactive/informational
+
+    - name: Run 1-node bootstrap script
+      ansible.builtin.shell:
+        cmd: "{{ repo_root }}/bootstrap/scripts/bootstrap-1node.sh"
+        chdir: "{{ repo_root }}"
+      environment:
+        NODE_IP:      "{{ node_ip }}"
+        PRIMARY_DISK: "{{ primary_disk }}"
+        BACKUP_DISK:  "{{ backup_disk }}"
+        GITHUB_OWNER: "{{ github_owner }}"
+        GITHUB_REPO:  "{{ github_repo }}"
+        GITHUB_TOKEN: "{{ github_token }}"
+        AWS_ACCESS_KEY_ID:     "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
+        AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+        AWS_DEFAULT_REGION:    "{{ lookup('env', 'AWS_DEFAULT_REGION') | default('eu-central-1') }}"
+      when: profile == '1-node'
+      register: bootstrap_1node
+      no_log: false
+
+    - name: Run post-deploy (SeaweedFS buckets)
+      ansible.builtin.shell:
+        cmd: "{{ repo_root }}/bootstrap/scripts/post-deploy.sh"
+        chdir: "{{ repo_root }}"
+      environment:
+        PROFILE: "{{ profile }}"
+        KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') | default(ansible_env.HOME + '/.kube/config') }}"
+      register: post_deploy
+      changed_when: true
+
+  post_tasks:
+
+    - name: Bootstrap output (3-node)
+      ansible.builtin.debug:
+        msg: "{{ bootstrap_3node.stdout_lines }}"
+      when: profile == '3-node' and bootstrap_3node is defined
+
+    - name: Bootstrap output (1-node)
+      ansible.builtin.debug:
+        msg: "{{ bootstrap_1node.stdout_lines }}"
+      when: profile == '1-node' and bootstrap_1node is defined
+
+    - name: Post-deploy output
+      ansible.builtin.debug:
+        msg: "{{ post_deploy.stdout_lines }}"
+
+    - name: Final reminder
+      ansible.builtin.debug:
+        msg:
+          - "Bootstrap complete."
+          - "IMPORTANT: Back up and then delete these files from this machine:"
+          - "  {{ repo_root }}/.age.key"
+          - "  {{ repo_root }}/.talos-backup-age.key"
+          - "  {{ repo_root }}/.talos/secrets.yaml"
+          - "Store them in a password manager (Bitwarden, 1Password, etc.)."
+          - "Without them, full disaster recovery from total cluster loss is impossible."
