@@ -6,6 +6,13 @@
     ":semanticCommits",
     ":separatePatchReleases"
   ],
+  "minimumReleaseAge": "1 day",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": "6 hours",
+    "labels": ["security", "urgent"]
+  },
+  "osvVulnerabilityAlerts": true,
   "flux": {
     "enabled": true,
     "fileMatch": ["cluster/.+\\.yaml$"]
