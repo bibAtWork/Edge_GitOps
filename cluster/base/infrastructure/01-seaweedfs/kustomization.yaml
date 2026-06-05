@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - helmrelease.yaml
   - s3-secret.yaml
+  - bucket-init-job.yaml

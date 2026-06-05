@@ -18,6 +18,7 @@ resources:
   - ../../base/infrastructure/13-trivy-operator
   - ../../base/infrastructure/14-tailscale-operator
   - ../../base/infrastructure/15-system-upgrade-controller
+  - seaweedfs-collection-routing-job.yaml
 
 patches:
   - path: patches/seaweedfs-single.yaml

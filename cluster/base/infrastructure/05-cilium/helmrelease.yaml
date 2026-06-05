@@ -82,10 +82,28 @@ spec:
     # Enable L7 proxy for service mesh capabilities
     l7Proxy: true
 
-    # Encryption — wireguard in-cluster
+    # Encryption — wireguard inter-node; SPIRE mutual auth for same-node mTLS.
+    # WireGuard cannot encrypt traffic between pods on the same node (same kernel).
+    # Cilium's SPIRE integration issues SPIFFE identities and enforces mTLS
+    # for same-node pod-to-pod traffic via the Cilium proxy.
     encryption:
       enabled: true
       type: wireguard
+
+    authentication:
+      mutual:
+        spire:
+          enabled: true
+          install:
+            enabled: true
+            server:
+              dataStorage:
+                enabled: false
+
+    # Egress Gateway routes internet-bound traffic through a dedicated node.
+    # Pair with a CiliumClusterwideNetworkPolicy to enforce HTTPS-only egress.
+    egressGateway:
+      enabled: true
 
     resources:
       requests:
