@@ -13,8 +13,10 @@ kind: Namespace
 metadata:
   name: monitoring
   labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/warn: restricted
+    # prometheus-node-exporter requires hostPID, hostNetwork, and hostPath volumes.
+    # These are blocked by baseline and restricted PSS. Monitoring is a trusted
+    # system-level namespace; privileged enforcement is appropriate.
+    pod-security.kubernetes.io/enforce: privileged
 ---
 apiVersion: v1
 kind: Namespace
