@@ -63,8 +63,11 @@ kind: Namespace
 metadata:
   name: tailscale
   labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/warn: restricted
+    # tailscale-operator chart does not expose security context values;
+    # the rendered pod has no securityContext, which restricted PSS rejects.
+    # baseline is the right policy — operator manages VPN tunnels and may
+    # need network capabilities that restricted would block anyway.
+    pod-security.kubernetes.io/enforce: baseline
 ---
 apiVersion: v1
 kind: Namespace
