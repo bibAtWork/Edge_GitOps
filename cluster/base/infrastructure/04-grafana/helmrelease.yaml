@@ -6,7 +6,7 @@ metadata:
 spec:
   interval: 30m
   dependsOn:
-    - name: victoria-metrics-k8s-stack
+    - name: vmstack
       namespace: monitoring
   chart:
     spec:
@@ -44,16 +44,16 @@ spec:
         datasources:
           - name: VictoriaMetrics
             type: prometheus
-            url: http://vmsingle-victoria-metrics-k8s-stack.monitoring.svc:8428
+            url: http://vmsingle-vmstack.monitoring.svc:8428
             access: proxy
             isDefault: true
           - name: VictoriaLogs
             type: victoriametrics-logs-datasource
-            url: http://vlogs-victoria-metrics-k8s-stack.monitoring.svc:9428
+            url: http://vlogs-vmstack.monitoring.svc:9428
             access: proxy
           - name: VictoriaTraces
             type: grafana-tempo-datasource
-            url: http://vtraces-victoria-metrics-k8s-stack.monitoring.svc:4318
+            url: http://vtraces-vmstack.monitoring.svc:4318
             access: proxy
 
     dashboardProviders:
