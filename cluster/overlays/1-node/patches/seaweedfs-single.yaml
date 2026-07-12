@@ -1,6 +1,3 @@
-# Two volume servers pinned to separate physical disks.
-# etcd-backups and velero-backups land on the backup-disk volume server.
-# A primary disk failure does not destroy local backups.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -11,16 +8,7 @@ spec:
     master:
       replicaCount: 1
     volume:
-      replicaCount: 2
+      replicaCount: 1
       replication: "000"
-      dataDirs:
-        - name: primary
-          path: /data/primary
-          maxVolumes: 0
-          type: hdd
-        - name: backup
-          path: /data/backup
-          maxVolumes: 0
-          type: hdd
     filer:
       replicaCount: 1
