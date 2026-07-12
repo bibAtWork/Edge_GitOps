@@ -25,6 +25,14 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    installCRDs: true
+
+    # startupapicheck verifies the webhook after install; it times out when the
+    # webhook TLS cert isn't ready yet (cainjector needs CRDs first — bootstrap race).
+    # Disabling it avoids the race; cert-manager will self-heal once CRDs are present.
+    startupapicheck:
+      enabled: false
+
     securityContext:
       runAsNonRoot: true
       seccompProfile:
