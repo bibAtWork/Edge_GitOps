@@ -27,6 +27,12 @@ resources:
   - flux-kustomizations/config.yaml
 
 patches:
+  - path: patches/cilium-single.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: cilium
   - path: patches/seaweedfs-single.yaml
     target:
       group: helm.toolkit.fluxcd.io
