@@ -8,6 +8,7 @@ metadata:
   namespace: kube-system
 spec:
   interval: 30m
+  timeout: 15m
   chart:
     spec:
       chart: cilium
@@ -18,9 +19,11 @@ spec:
         namespace: flux-system
       interval: 12h
   install:
+    timeout: 15m
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     remediation:
       retries: 3
       remediateLastFailure: true
@@ -82,24 +85,12 @@ spec:
     # Enable L7 proxy for service mesh capabilities
     l7Proxy: true
 
-    # Encryption — wireguard inter-node; SPIRE mutual auth for same-node mTLS.
-    # WireGuard cannot encrypt traffic between pods on the same node (same kernel).
-    # Cilium's SPIRE integration issues SPIFFE identities and enforces mTLS
-    # for same-node pod-to-pod traffic via the Cilium proxy.
+    # Encryption — WireGuard encrypts inter-node traffic at the kernel level.
+    # SPIRE mTLS disabled: single-node cluster has no inter-node traffic to encrypt,
+    # and SPIRE StatefulSet startup races with Cilium agent, causing install timeouts.
     encryption:
       enabled: true
       type: wireguard
-
-    authentication:
-      enabled: true
-      mutual:
-        spire:
-          enabled: true
-          install:
-            enabled: true
-            server:
-              dataStorage:
-                enabled: false
 
     # Egress Gateway routes internet-bound traffic through a dedicated node.
     # Pair with a CiliumClusterwideNetworkPolicy to enforce HTTPS-only egress.
