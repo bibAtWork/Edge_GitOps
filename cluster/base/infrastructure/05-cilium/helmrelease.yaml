@@ -91,6 +91,7 @@ spec:
       type: wireguard
 
     authentication:
+      enabled: true
       mutual:
         spire:
           enabled: true
