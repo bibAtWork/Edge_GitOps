@@ -43,9 +43,75 @@ docs/                        # Architecture decisions, disaster recovery
 
 ## Bootstrap
 
+> **Prerequisites:** A Linux-based OS (or macOS) is required on the machine running the bootstrap. The Ansible playbook and shell scripts do not support Windows natively — use WSL2 if on Windows.
+
+### 1. Install tools
+
 ```bash
-# Install required tools (talosctl, kubectl, flux, sops, age, terraform, helm)
-ansible-playbook bootstrap/ansible/bootstrap.yml
+ansible-galaxy collection install -r bootstrap/ansible/requirements.yml
+ansible-playbook -i bootstrap/ansible/inventory.yml bootstrap/ansible/install-tools.yml
+```
+
+This installs `talosctl`, `kubectl`, `flux`, `sops`, `age`, `terraform`, and `helm` into `~/.local/bin`. Make sure that directory is on your PATH:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+---
+
+### 2. Prepare manually
+
+#### Nodes
+
+- Boot each machine from the [Talos Linux ISO](https://github.com/siderolabs/talos/releases)
+- Note the IP address(es) of the node(s)
+- For 1-node only: the bootstrap script will query the node for available disks and prompt you to choose. You can enter either a simple device path (`/dev/nvme0n1`, `/dev/sda`) or a stable by-id path (`/dev/disk/by-id/nvme-eui...`). By-id paths are preferred for production as they survive reboots without changing, but simple paths work fine.
+- Update the `advertisedSubnets` in the machine config patches to match your network before bootstrapping:
+  - 1-node: `cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml`
+  - 3-node: `cluster/overlays/3-node/talos-machineconfigs/controlplane.yaml`
+
+  ```yaml
+  cluster:
+    etcd:
+      advertisedSubnets:
+        - 192.168.178.0/24  # ← replace with your actual subnet
+  ```
+
+#### GitHub
+
+- Create (or choose) a GitHub repository to store the cluster state
+- Create a **fine-grained personal access token** scoped to that repo with:
+  - **Contents** — Read and Write
+  - **Metadata** — Read
+
+#### AWS (for offsite backups)
+
+- Ensure you have an AWS account with permissions to create S3 buckets, KMS keys, and IAM users
+
+#### Environment variables
+
+Export these before running the bootstrap:
+
+```bash
+export GITHUB_TOKEN=<your-token>
+export AWS_ACCESS_KEY_ID=<your-key>
+export AWS_SECRET_ACCESS_KEY=<your-secret>
+export AWS_DEFAULT_REGION=eu-central-1
+```
+
+If your organization uses AWS SSO, generate temporary credentials via the CLI instead:
+
+```bash
+aws sso login --profile <your-profile>
+export $(aws configure export-credentials --profile <your-profile> --format env | xargs)
+```
+
+---
+
+### 3. Run bootstrap
+
+```bash
 
 # 3-node HA
 export NODE1_IP=192.168.1.10 NODE2_IP=192.168.1.11 NODE3_IP=192.168.1.12
@@ -53,18 +119,10 @@ export VIP=192.168.1.100
 export GITHUB_OWNER=<your-org> GITHUB_REPO=<your-repo>
 ./bootstrap/scripts/bootstrap-3node.sh
 
-# Single node
+# Single node (disk selection is prompted interactively)
 export NODE_IP=192.168.1.10
-export PRIMARY_DISK=/dev/sda BACKUP_DISK=/dev/sdb
 export GITHUB_OWNER=<your-org> GITHUB_REPO=<your-repo>
 ./bootstrap/scripts/bootstrap-1node.sh
-```
-
-After bootstrap, provision AWS offsite backup targets:
-
-```bash
-export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
-./bootstrap/scripts/setup-aws.sh
 ```
 
 The bootstrap scripts handle:
@@ -73,6 +131,41 @@ The bootstrap scripts handle:
 3. etcd bootstrap, kubeconfig retrieval
 4. SOPS secret injection, Flux bootstrap from Git
 5. Terraform apply (AWS S3 + KMS + IAM)
+
+---
+
+### 4. Activate secret encryption (post-bootstrap)
+
+The bootstrap prints the generated age **public key**. Update `.sops.yaml` with it:
+
+```yaml
+creation_rules:
+  - path_regex: .*.yaml
+    encrypted_regex: ^(data|stringData)$
+    age: age1<your-public-key>
+```
+
+Then fill in the placeholder secrets across `cluster/` (look for `REPLACE_WITH_*`), encrypt, and push:
+
+```bash
+./bootstrap/scripts/encrypt-secrets.sh
+git add cluster/
+git commit -m "chore: add encrypted secrets"
+git push
+```
+
+Flux will pick up the commit and finish reconciling the cluster.
+
+---
+
+### AWS offsite backup targets
+
+After bootstrap, provision the AWS offsite backup targets:
+
+```bash
+export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
+./bootstrap/scripts/setup-aws.sh
+```
 
 SeaweedFS buckets are created automatically by the `seaweedfs-bucket-init` Job (managed by Flux).
 On 1-node, a second Job (`seaweedfs-collection-routing`) pins buckets to specific volume collections for disk isolation.

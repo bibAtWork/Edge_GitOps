@@ -19,6 +19,7 @@ resources:
   - ../../base/infrastructure/14-tailscale-operator
   - ../../base/infrastructure/15-system-upgrade-controller
   - seaweedfs-collection-routing-job.yaml
+  - patches/velero-schedules-1node.yaml
 
 patches:
   - path: patches/seaweedfs-single.yaml
@@ -43,4 +44,3 @@ patches:
       version: v2
       kind: HelmRelease
       name: trivy-operator
-  - path: patches/velero-schedules-1node.yaml
