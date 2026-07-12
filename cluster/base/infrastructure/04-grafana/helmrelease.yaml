@@ -33,7 +33,7 @@ spec:
 
     persistence:
       enabled: true
-      storageClassName: seaweedfs-storage
+      storageClassName: local-path
       size: 5Gi
       labels:
         velero.io/backup: "true"
