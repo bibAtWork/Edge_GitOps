@@ -33,9 +33,8 @@ spec:
       tag: ""
 
     persistence:
-      enabled: true
-      size: 50Gi
-      storageClassName: seaweedfs-storage
+      # zot stores image data in SeaweedFS S3; local persistence is only a cache
+      enabled: false
 
     configFiles:
       config.json: |
@@ -83,12 +82,11 @@ spec:
     securityContext:
       runAsNonRoot: true
       runAsUser: 1000
-      seccompProfile:
-        type: RuntimeDefault
-    containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
-        drop: ["ALL"]
+        drop: [ALL]
+      seccompProfile:
+        type: RuntimeDefault
 
     resources:
       requests:

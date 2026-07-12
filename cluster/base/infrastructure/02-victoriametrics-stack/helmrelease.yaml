@@ -43,7 +43,7 @@ spec:
         persistentVolume:
           enabled: true
           size: 50Gi
-          storageClassName: seaweedfs-storage
+          storageClassName: local-path
 
     victoria-logs-single:
       enabled: true
@@ -58,7 +58,7 @@ spec:
         persistentVolume:
           enabled: true
           size: 20Gi
-          storageClassName: seaweedfs-storage
+          storageClassName: local-path
 
     # VictoriaTraces (experimental — acceptable for home lab)
     victoria-traces-single:
@@ -73,7 +73,7 @@ spec:
         persistentVolume:
           enabled: true
           size: 10Gi
-          storageClassName: seaweedfs-storage
+          storageClassName: local-path
 
     grafana:
       enabled: false
