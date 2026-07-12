@@ -84,6 +84,10 @@ spec:
       limits:
         memory: 512Mi
 
+    # Flux manages CRDs via install.crds: CreateReplace above.
+    # The chart's pre-install hook job runs as root and violates restricted PSS — skip it.
+    upgradeCRDs: false
+
     metrics:
       enabled: true
       serviceMonitor:

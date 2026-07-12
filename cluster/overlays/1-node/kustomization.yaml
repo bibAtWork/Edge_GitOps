@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - ../../base/00-bootstrap
   - ../../base/infrastructure/sources
+  - ../../base/infrastructure/00-gateway-api
   - ../../base/infrastructure/00-local-path-provisioner
   - ../../base/infrastructure/01-seaweedfs
   - ../../base/infrastructure/02-victoriametrics-stack
