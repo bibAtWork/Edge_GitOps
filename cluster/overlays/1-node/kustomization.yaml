@@ -8,18 +8,23 @@ resources:
   - ../../base/infrastructure/03-otel-collector
   - ../../base/infrastructure/04-grafana
   - ../../base/infrastructure/05-cilium
-  - ../../base/infrastructure/06-cert-manager
+  # cert-manager: operator only — ClusterIssuer/Certificate in config layer (need cert-manager CRDs)
+  - ../../base/infrastructure/06-cert-manager/operator
   - ../../base/infrastructure/07-velero
   - ../../base/infrastructure/08-external-dns
   - ../../base/infrastructure/09-reloader
   - ../../base/infrastructure/10-network-policies
-  - ../../base/infrastructure/11-ingress-gateway
-  - ../../base/infrastructure/12-zot
+  # 11-ingress-gateway omitted: Gateway + Certificate need gateway-api + cert-manager CRDs (config layer)
+  # 12-zot: operator only — HTTPRoute needs gateway-api CRDs (config layer)
+  - ../../base/infrastructure/12-zot/operator
   - ../../base/infrastructure/13-trivy-operator
-  - ../../base/infrastructure/14-tailscale-operator
-  - ../../base/infrastructure/15-system-upgrade-controller
+  # 14-tailscale: operator only — ProxyClass + Service need tailscale CRDs (config layer)
+  - ../../base/infrastructure/14-tailscale-operator/operator
+  # 15-system-upgrade: operator only — Plans need system-upgrade-controller CRDs (config layer)
+  - ../../base/infrastructure/15-system-upgrade-controller/operator
   - seaweedfs-collection-routing-job.yaml
-  - patches/velero-schedules-1node.yaml
+  # Flux Kustomization that applies all CRD-dependent config after operators are deployed
+  - flux-kustomizations/config.yaml
 
 patches:
   - path: patches/seaweedfs-single.yaml
