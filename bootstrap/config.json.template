@@ -9,6 +9,7 @@
   "node": {
     "ip": "",
     "subnet": "192.168.1.0/24",
+    "_disk_comment": "Leave primary_disk/backup_disk empty to be prompted interactively during first install (maintenance mode only). Use stable by-id paths, e.g. /dev/disk/by-id/nvme-eui.002538db...",
     "primary_disk": "",
     "backup_disk": ""
   },
