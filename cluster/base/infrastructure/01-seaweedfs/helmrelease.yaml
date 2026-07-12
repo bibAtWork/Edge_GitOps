@@ -47,9 +47,12 @@ spec:
       enabled: true
       replicaCount: 1
       replication: "000"
-      data:
-        type: hostPath
-        hostPathPrefix: /var/lib/seaweedfs/volume
+      # dataDirs controls the actual data path; volume.data has no effect for this component
+      dataDirs:
+        - name: data1
+          type: hostPath
+          hostPathPrefix: /var/lib/seaweedfs/volume
+          maxVolumes: 0
       logs:
         type: hostPath
         hostPathPrefix: /var/lib/seaweedfs/volume-logs
