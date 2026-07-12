@@ -77,3 +77,10 @@ metadata:
   name: system-upgrade
   labels:
     pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cattle-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

@@ -44,16 +44,16 @@ spec:
     # DNS entries created here resolve publicly but only connect for tailnet members.
     txtOwnerId: homelab-external-dns
 
+    podSecurityContext:
+      fsGroup: 65534
     securityContext:
       runAsNonRoot: true
       runAsUser: 65534
-      fsGroup: 65534
-      seccompProfile:
-        type: RuntimeDefault
-    containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
         drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
 
     resources:
       requests:
