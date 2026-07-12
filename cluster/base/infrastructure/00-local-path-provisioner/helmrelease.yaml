@@ -11,7 +11,7 @@ spec:
       version: ">=0.0.1 <1.0.0"
       sourceRef:
         kind: HelmRepository
-        name: rancher
+        name: local-path-provisioner
         namespace: flux-system
       interval: 12h
   install:

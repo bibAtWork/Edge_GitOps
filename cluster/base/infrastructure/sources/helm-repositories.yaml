@@ -106,3 +106,12 @@ metadata:
 spec:
   interval: 12h
   url: https://rancher.github.io/charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: local-path-provisioner
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://rancher.github.io/local-path-provisioner
