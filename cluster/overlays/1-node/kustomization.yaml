@@ -13,7 +13,7 @@ resources:
   - ../../base/infrastructure/07-velero
   - ../../base/infrastructure/08-external-dns
   - ../../base/infrastructure/09-reloader
-  - ../../base/infrastructure/10-network-policies
+  # 10-network-policies omitted: CiliumNetworkPolicy/CiliumClusterwideNetworkPolicy need Cilium CRDs (config layer)
   # 11-ingress-gateway omitted: Gateway + Certificate need gateway-api + cert-manager CRDs (config layer)
   # 12-zot: operator only — HTTPRoute needs gateway-api CRDs (config layer)
   - ../../base/infrastructure/12-zot/operator
