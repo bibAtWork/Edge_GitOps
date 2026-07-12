@@ -92,6 +92,10 @@ spec:
       enabled: true
       type: wireguard
 
+    # BPF masquerade required by egressGateway (otherwise cilium-agent refuses to start).
+    bpf:
+      masquerade: true
+
     # Egress Gateway routes internet-bound traffic through a dedicated node.
     # Pair with a CiliumClusterwideNetworkPolicy to enforce HTTPS-only egress.
     egressGateway:
