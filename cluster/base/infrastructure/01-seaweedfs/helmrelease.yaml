@@ -36,12 +36,6 @@ spec:
     master:
       enabled: true
       replicaCount: 1
-      resources:
-        requests:
-          memory: "256Mi"
-          cpu: "50m"
-        limits:
-          memory: "512Mi"
       data:
         type: "existingClaim"
       logs:
@@ -55,12 +49,6 @@ spec:
         type: "existingClaim"
       logs:
         type: "existingClaim"
-      resources:
-        requests:
-          memory: "256Mi"
-          cpu: "50m"
-        limits:
-          memory: "512Mi"
 
     filer:
       enabled: true
@@ -69,12 +57,6 @@ spec:
         enabled: true
         enableAuth: true
         existingConfigSecret: seaweedfs-s3-secret
-      resources:
-        requests:
-          memory: "256Mi"
-          cpu: "50m"
-        limits:
-          memory: "512Mi"
 
     s3:
       enabled: true
