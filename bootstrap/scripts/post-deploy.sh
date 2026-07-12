@@ -23,6 +23,12 @@ SEAWEEDFS_ENDPOINT="http://seaweedfs-s3.seaweedfs.svc:8333"
 SEAWEEDFS_KEY=$(kubectl get secret seaweedfs-s3-secret -n seaweedfs -o jsonpath='{.data.admin_access_key_id}' | base64 -d)
 SEAWEEDFS_SECRET=$(kubectl get secret seaweedfs-s3-secret -n seaweedfs -o jsonpath='{.data.admin_secret_access_key}' | base64 -d)
 
+echo "Creating velero-seaweedfs-credentials secret..."
+kubectl create secret generic velero-seaweedfs-credentials \
+  -n velero \
+  --from-literal=cloud="$(printf '[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n' "${SEAWEEDFS_KEY}" "${SEAWEEDFS_SECRET}")" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 echo "Creating S3 buckets..."
 kubectl run aws-cli --rm -it \
   --image=amazon/aws-cli \

@@ -36,13 +36,19 @@ spec:
           provider: aws
           bucket: velero-backups
           default: true
+          credential:
+            name: velero-seaweedfs-credentials
+            key: cloud
           config:
             region: us-east-1
             s3ForcePathStyle: "true"
             s3Url: http://seaweedfs-s3.seaweedfs.svc:8333
         - name: aws-s3
           provider: aws
-          bucket: REPLACE_WITH_VELERO_BUCKET_NAME
+          bucket: homelab-velero-backups-offsite
+          credential:
+            name: velero-aws-credentials
+            key: cloud
           config:
             region: eu-central-1
 
@@ -52,7 +58,6 @@ spec:
 
     credentials:
       useSecret: false
-      extraSecretRef: velero-aws-credentials
 
     initContainers:
       - name: velero-plugin-for-aws
