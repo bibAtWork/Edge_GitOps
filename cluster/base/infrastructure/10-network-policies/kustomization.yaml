@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - default-deny.yaml
+  - allow-cluster-internal.yaml
   - allow-dns.yaml
   - allow-velero-egress.yaml
   - allow-seaweedfs-internal.yaml
