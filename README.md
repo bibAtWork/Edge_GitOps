@@ -115,7 +115,7 @@ $EDITOR bootstrap/config.json
   "node":      { "ip": "192.168.1.10", "subnet": "192.168.1.0/24",
                  "primary_disk": "/dev/disk/by-id/...",
                  "backup_disk":  "/dev/disk/by-id/..." },
-  "github":    { "owner": "...", "repo": "...", "token": "..." },
+  "github":    { "owner": "...", "repo": "...", "branch": "main", "token": "..." },
   "aws":       { "region": "eu-central-1", "access_key_id": "...", "secret_access_key": "..." },
   "cloudflare":{ "api_token": "..." },
   "tailscale": { "oauth_client_id": "...", "oauth_client_secret": "..." },

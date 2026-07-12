@@ -53,7 +53,8 @@ export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
 : "${GITHUB_REPO:?github.repo is required in config.json}"
 : "${GITHUB_TOKEN:?github.token is required in config.json}"
 
-GITHUB_BRANCH="${GITHUB_BRANCH:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
+_cfg_branch="$(_cfg 'github.branch')"
+GITHUB_BRANCH="${GITHUB_BRANCH:-${_cfg_branch:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}}"
 TALOS_VERSION="${TALOS_VERSION:-}"
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-}"
 
