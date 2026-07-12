@@ -4,8 +4,9 @@ kind: Namespace
 metadata:
   name: seaweedfs
   labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/warn: restricted
+    # SeaweedFS is the storage provider itself — needs hostPath for data dirs and
+    # may run privileged containers (CSI driver). Cannot use baseline PSS.
+    pod-security.kubernetes.io/enforce: privileged
 ---
 apiVersion: v1
 kind: Namespace
