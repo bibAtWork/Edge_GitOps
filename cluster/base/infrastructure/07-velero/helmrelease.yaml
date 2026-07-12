@@ -64,17 +64,8 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-      - name: velero-plugin-for-csi
-        image: velero/velero-plugin-for-csi:v0.7.0
-        volumeMounts:
-          - mountPath: /target
-            name: plugins
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-
-    features: EnableCSI
+    # velero-plugin-for-csi removed: velero v1.14+ has built-in CSI support;
+    # loading the external plugin causes a duplicate-registration crash.
 
     securityContext:
       runAsNonRoot: true
