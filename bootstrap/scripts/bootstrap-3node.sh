@@ -16,6 +16,7 @@ set -euo pipefail
 : "${VIP:?VIP is required (virtual IP or first node IP)}"
 : "${GITHUB_OWNER:?GITHUB_OWNER is required}"
 : "${GITHUB_REPO:?GITHUB_REPO is required}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TALOS_DIR="${REPO_ROOT}/cluster/overlays/3-node/talos-machineconfigs"
@@ -100,6 +101,7 @@ kubectl create secret generic talos-backup-age \
 flux bootstrap github \
   --owner="${GITHUB_OWNER}" \
   --repository="${GITHUB_REPO}" \
+  --branch="${GITHUB_BRANCH}" \
   --path="cluster/overlays/3-node" \
   --personal \
   --components-extra=image-reflector-controller,image-automation-controller

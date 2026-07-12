@@ -58,10 +58,8 @@
     - name: Validate 1-node required vars
       ansible.builtin.assert:
         that:
-          - node_ip      is defined and node_ip      | length > 0
-          - primary_disk is defined and primary_disk | length > 0
-          - backup_disk  is defined and backup_disk  | length > 0
-        fail_msg: "1-node profile requires: node_ip, primary_disk, backup_disk"
+          - node_ip is defined and node_ip | length > 0
+        fail_msg: "1-node profile requires: node_ip"
       when: profile == '1-node'
 
     - name: Validate shared required vars
@@ -122,9 +120,10 @@
         NODE2_IP:     "{{ node2_ip }}"
         NODE3_IP:     "{{ node3_ip }}"
         VIP:          "{{ vip }}"
-        GITHUB_OWNER: "{{ github_owner }}"
-        GITHUB_REPO:  "{{ github_repo }}"
-        GITHUB_TOKEN: "{{ github_token }}"
+        GITHUB_OWNER:  "{{ github_owner }}"
+        GITHUB_REPO:   "{{ github_repo }}"
+        GITHUB_BRANCH: "{{ github_branch | default('main') }}"
+        GITHUB_TOKEN:  "{{ github_token }}"
         # Pass through AWS creds for terraform — expects these in environment
         AWS_ACCESS_KEY_ID:     "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
         AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
@@ -139,11 +138,12 @@
         chdir: "{{ repo_root }}"
       environment:
         NODE_IP:      "{{ node_ip }}"
-        PRIMARY_DISK: "{{ primary_disk }}"
-        BACKUP_DISK:  "{{ backup_disk }}"
-        GITHUB_OWNER: "{{ github_owner }}"
-        GITHUB_REPO:  "{{ github_repo }}"
-        GITHUB_TOKEN: "{{ github_token }}"
+        PRIMARY_DISK: "{{ primary_disk | default('') }}"
+        BACKUP_DISK:  "{{ backup_disk | default('') }}"
+        GITHUB_OWNER:  "{{ github_owner }}"
+        GITHUB_REPO:   "{{ github_repo }}"
+        GITHUB_BRANCH: "{{ github_branch | default('main') }}"
+        GITHUB_TOKEN:  "{{ github_token }}"
         AWS_ACCESS_KEY_ID:     "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
         AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
         AWS_DEFAULT_REGION:    "{{ lookup('env', 'AWS_DEFAULT_REGION') | default('eu-central-1') }}"
