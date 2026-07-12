@@ -15,9 +15,44 @@
 
 set -euo pipefail
 
-: "${NODE_IP:?NODE_IP is required}"
-: "${GITHUB_OWNER:?GITHUB_OWNER is required}"
-: "${GITHUB_REPO:?GITHUB_REPO is required}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CONFIG_FILE="${REPO_ROOT}/bootstrap/config.json"
+
+# Read a dotted-path key from config.json (e.g. _cfg 'node.ip')
+_cfg() {
+  python3 - "${CONFIG_FILE}" "$1" <<'PYEOF'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+v = cfg
+for k in sys.argv[2].split("."):
+    v = v.get(k, "") if isinstance(v, dict) else ""
+print(v if isinstance(v, str) else "")
+PYEOF
+}
+
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+  echo "ERROR: bootstrap/config.json not found."
+  echo "Copy bootstrap/config.json.template to bootstrap/config.json and fill in values."
+  exit 1
+fi
+
+# Env vars override config.json values (backward-compatible)
+NODE_IP="${NODE_IP:-$(_cfg 'node.ip')}"
+GITHUB_OWNER="${GITHUB_OWNER:-$(_cfg 'github.owner')}"
+GITHUB_REPO="${GITHUB_REPO:-$(_cfg 'github.repo')}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-$(_cfg 'github.token')}"
+PRIMARY_DISK="${PRIMARY_DISK:-$(_cfg 'node.primary_disk')}"
+BACKUP_DISK="${BACKUP_DISK:-$(_cfg 'node.backup_disk')}"
+AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$(_cfg 'aws.access_key_id')}"
+AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-$(_cfg 'aws.secret_access_key')}"
+AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-$(_cfg 'aws.region')}"
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
+
+: "${NODE_IP:?node.ip is required in config.json}"
+: "${GITHUB_OWNER:?github.owner is required in config.json}"
+: "${GITHUB_REPO:?github.repo is required in config.json}"
+: "${GITHUB_TOKEN:?github.token is required in config.json}"
+
 GITHUB_BRANCH="${GITHUB_BRANCH:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 TALOS_VERSION="${TALOS_VERSION:-}"
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-}"
@@ -33,7 +68,6 @@ if [[ -n "${TALOS_VERSION}" && -z "${KUBERNETES_VERSION}" ]]; then
   fi
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TALOS_DIR="${REPO_ROOT}/cluster/overlays/1-node/talos-machineconfigs"
 TALOSCONFIG_PATH="${REPO_ROOT}/.talos/generated/talosconfig"
 
@@ -98,6 +132,15 @@ else
 fi
 
 TALOS_BACKUP_PUBLIC_KEY=$(grep 'public key' "${REPO_ROOT}/.talos-backup-age.key" | awk '{print $4}')
+
+echo ""
+echo "=== Applying config.json to cluster files ==="
+python3 "${REPO_ROOT}/bootstrap/scripts/apply-config.py" \
+  --age-public-key "${TALOS_BACKUP_PUBLIC_KEY}" \
+  --no-encrypt
+
+# Encrypt all secrets that have been filled in
+"${REPO_ROOT}/bootstrap/scripts/encrypt-secrets.sh"
 
 # ── Phase 2: Talos Config Generation ─────────────────────────────────────────
 echo ""
@@ -198,6 +241,12 @@ case "${_state}" in
     talosctl kubeconfig --nodes "${NODE_IP}" --force
     _wait_until "Kubernetes API" 300 kubectl get nodes
     _state="k8s-ready"
+
+    # Inject the generated talosconfig into the system-upgrade-controller secret
+    python3 "${REPO_ROOT}/bootstrap/scripts/apply-config.py" \
+      --talosconfig "${TALOSCONFIG_PATH}" \
+      --no-encrypt
+    "${REPO_ROOT}/bootstrap/scripts/encrypt-secrets.sh"
     ;;&
   k8s-ready|flux-ready)
     echo "Talos and Kubernetes already up — skipping to Flux"
@@ -248,7 +297,20 @@ echo "=== Phase 5: AWS S3 Setup ==="
 
 cd "${REPO_ROOT}/bootstrap/terraform"
 terraform init -input=false
-terraform apply -auto-approve
+terraform apply -auto-approve \
+  -var="cluster_name=$(_cfg 'cluster.name')" \
+  -var="aws_region=$(_cfg 'aws.region')"
+
+# Capture IAM credentials from Terraform output and fill Velero secret
+VELERO_KEY=$(terraform output -raw velero_access_key_id)
+VELERO_SECRET=$(terraform output -raw velero_secret_access_key)
+cd "${REPO_ROOT}"
+
+python3 "${REPO_ROOT}/bootstrap/scripts/apply-config.py" \
+  --velero-access-key "${VELERO_KEY}" \
+  --velero-secret-key "${VELERO_SECRET}" \
+  --no-encrypt
+"${REPO_ROOT}/bootstrap/scripts/encrypt-secrets.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
