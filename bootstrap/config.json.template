@@ -1,0 +1,46 @@
+{
+  "_readme": "Copy this file to bootstrap/config.json (gitignored), fill in all values, then run bootstrap-1node.sh. The script reads from this file — no manual YAML editing needed.",
+
+  "cluster": {
+    "name": "homelab",
+    "letsencrypt_email": ""
+  },
+
+  "node": {
+    "ip": "",
+    "subnet": "192.168.1.0/24",
+    "primary_disk": "",
+    "backup_disk": ""
+  },
+
+  "github": {
+    "owner": "",
+    "repo": "",
+    "token": ""
+  },
+
+  "aws": {
+    "region": "eu-central-1",
+    "access_key_id": "",
+    "secret_access_key": ""
+  },
+
+  "cloudflare": {
+    "api_token": ""
+  },
+
+  "tailscale": {
+    "oauth_client_id": "",
+    "oauth_client_secret": ""
+  },
+
+  "seaweedfs": {
+    "_comment": "Leave empty to auto-generate random credentials on first run.",
+    "admin_access_key_id": "",
+    "admin_secret_access_key": ""
+  },
+
+  "grafana": {
+    "admin_password": ""
+  }
+}
