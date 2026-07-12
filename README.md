@@ -85,6 +85,23 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
   - **Contents** — Read and Write
   - **Metadata** — Read
 
+#### Cloudflare (for TLS certs and DNS)
+
+- Create a **Custom API Token** at `dash.cloudflare.com/profile/api-tokens` with:
+  - **Zone > Zone — Read**
+  - **Zone > DNS — Edit**
+  - Scoped to the specific zone(s) you're managing (use the "Edit zone DNS" template as a starting point)
+- You will add this token to `cluster/base/infrastructure/06-cert-manager/operator/cloudflare-secret.yaml` and `cluster/base/infrastructure/08-external-dns/cloudflare-secret.yaml` (SOPS-encrypted)
+- Update the `REPLACE_WITH_YOUR_EMAIL` placeholder in `cluster/base/infrastructure/06-cert-manager/config/clusterissuer.yaml` with your email before pushing
+
+#### Tailscale (for VPN access)
+
+- Create an **OAuth client** at `login.tailscale.com/admin/settings/oauth` with:
+  - **Devices — Read & Write**
+  - **Auth Keys — Write**
+- Add the device tag (e.g. `tag:k8s`) to your tailnet's ACL `tagOwners` before the operator starts
+- You will add the `client_id` / `client_secret` to `cluster/base/infrastructure/14-tailscale-operator/operator/tailscale-oauth-secret.yaml` (SOPS-encrypted)
+
 #### AWS (for offsite backups)
 
 - Ensure you have an AWS account with permissions to create S3 buckets, KMS keys, and IAM users
@@ -130,11 +147,24 @@ The bootstrap scripts handle:
 2. Talos machine config generation + apply
 3. etcd bootstrap, kubeconfig retrieval
 4. SOPS secret injection, Flux bootstrap from Git
-5. Terraform apply (AWS S3 + KMS + IAM)
+5. Terraform apply (AWS S3 + KMS + IAM for offsite backups)
 
 ---
 
-### 4. Activate secret encryption (post-bootstrap)
+### 4. Run post-deploy tasks
+
+After Flux has reconciled SeaweedFS (check: `kubectl get helmrelease -n seaweedfs`):
+
+```bash
+PROFILE=1-node ./bootstrap/scripts/post-deploy.sh
+# or: PROFILE=3-node ./bootstrap/scripts/post-deploy.sh
+```
+
+This creates the required SeaweedFS S3 buckets (`etcd-backups`, `velero-backups`, `zot-registry`) and the `velero-seaweedfs-credentials` Kubernetes secret that Velero uses to authenticate against the local SeaweedFS S3 endpoint. On 1-node it also configures bucket-to-collection routing to isolate backup data to the backup disk.
+
+---
+
+### 5. Activate secret encryption (post-bootstrap)
 
 The bootstrap prints the generated age **public key**. Update `.sops.yaml` with it:
 
@@ -145,7 +175,20 @@ creation_rules:
     age: age1<your-public-key>
 ```
 
-Then fill in the placeholder secrets across `cluster/` (look for `REPLACE_WITH_*`), encrypt, and push:
+Then fill in the placeholder secrets across `cluster/` (search for `REPLACE_WITH_*`):
+
+- **`REPLACE_WITH_YOUR_EMAIL`** in `cluster/base/infrastructure/06-cert-manager/config/clusterissuer.yaml` — your Let's Encrypt registration email
+- **Cloudflare API token** in `cluster/base/infrastructure/06-cert-manager/operator/cloudflare-secret.yaml` and `cluster/base/infrastructure/08-external-dns/cloudflare-secret.yaml`
+- **Tailscale OAuth** (`client_id`, `client_secret`) in the tailscale namespace secret
+- **Velero AWS credentials** in `velero/velero-aws-credentials` — the `cloud` key must be an AWS credentials file (not `key:secret`):
+
+  ```ini
+  [default]
+  aws_access_key_id = <id from terraform output>
+  aws_secret_access_key = <secret from terraform output>
+  ```
+
+Encrypt and push:
 
 ```bash
 ./bootstrap/scripts/encrypt-secrets.sh
@@ -160,15 +203,16 @@ Flux will pick up the commit and finish reconciling the cluster.
 
 ### AWS offsite backup targets
 
-After bootstrap, provision the AWS offsite backup targets:
+AWS resources (S3 buckets, KMS key, IAM users) are provisioned by the bootstrap script (Phase 5 — `terraform apply`). The Terraform outputs include the IAM access key and secret for the Velero and talos-backup IAM users; store these as SOPS-encrypted secrets as described in the step above.
+
+If you need to re-run Terraform independently (e.g. to add a second cluster):
 
 ```bash
 export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 ./bootstrap/scripts/setup-aws.sh
 ```
 
-SeaweedFS buckets are created automatically by the `seaweedfs-bucket-init` Job (managed by Flux).
-On 1-node, a second Job (`seaweedfs-collection-routing`) pins buckets to specific volume collections for disk isolation.
+SeaweedFS buckets (`etcd-backups`, `velero-backups`, `zot-registry`) are created by `post-deploy.sh` (step 4 above), not by Flux. On 1-node, `post-deploy.sh` also pins each bucket to a specific SeaweedFS volume collection for disk isolation.
 
 ## Encryption & Security
 
@@ -186,6 +230,8 @@ On 1-node, a second Job (`seaweedfs-collection-routing`) pins buckets to specifi
 ### Network policies
 
 Default deny-all ingress/egress with explicit allow rules:
+
+- **Cluster-internal**: all pod-to-pod and pod-to-service traffic within the cluster (required for DNS, Flux controllers, and service mesh)
 - DNS (port 53)
 - Velero egress (AWS S3)
 - SeaweedFS internal cluster traffic
