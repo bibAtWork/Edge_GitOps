@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # cert-manager: ClusterIssuer + ACME keys (cert-manager.io CRDs)
+  - ../../base/infrastructure/06-cert-manager/config
+  # ingress gateway: Gateway (gateway.networking.k8s.io) + wildcard Certificate (cert-manager.io)
+  - ../../base/infrastructure/11-ingress-gateway
+  # zot: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/12-zot/config
+  # tailscale: ProxyClass (tailscale.com) + Service that uses it
+  - ../../base/infrastructure/14-tailscale-operator/config
+  # system-upgrade: Plans (upgrade.cattle.io)
+  - ../../base/infrastructure/15-system-upgrade-controller/config
+  # velero Schedules (velero.io) — 1-node specific retention
+  - velero-schedules.yaml

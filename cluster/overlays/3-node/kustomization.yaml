@@ -18,6 +18,7 @@ resources:
   - ../../base/infrastructure/13-trivy-operator
   - ../../base/infrastructure/14-tailscale-operator
   - ../../base/infrastructure/15-system-upgrade-controller
+  - patches/velero-schedules-ha.yaml
 
 patches:
   - path: patches/seaweedfs-ha.yaml
@@ -42,4 +43,3 @@ patches:
       version: v2
       kind: HelmRelease
       name: trivy-operator
-  - path: patches/velero-schedules-ha.yaml
