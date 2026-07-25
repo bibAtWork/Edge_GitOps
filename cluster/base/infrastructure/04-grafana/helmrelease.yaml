@@ -96,6 +96,9 @@ spec:
           revision: 1
           datasource: VictoriaMetrics
 
+    initChownData:
+      enabled: false
+
     securityContext:
       runAsNonRoot: true
       runAsUser: 472
