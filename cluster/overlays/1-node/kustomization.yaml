@@ -27,6 +27,7 @@ resources:
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml
+  - flux-system/gotk-sync.yaml
 
 patches:
   - path: patches/cilium-single.yaml
