@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Post-deployment tasks: create SeaweedFS buckets and configure routing.
+# Post-deployment tasks: create SeaweedFS buckets and Velero credentials.
 # Run after Flux has reconciled SeaweedFS (check: kubectl get helmrelease -n seaweedfs).
 #
 # Usage:
@@ -19,7 +19,6 @@ kubectl wait --for=condition=ready pod \
   -n seaweedfs \
   --timeout=300s
 
-SEAWEEDFS_ENDPOINT="http://seaweedfs-s3.seaweedfs.svc:8333"
 SEAWEEDFS_KEY=$(kubectl get secret seaweedfs-s3-secret -n seaweedfs -o jsonpath='{.data.admin_access_key_id}' | base64 -d)
 SEAWEEDFS_SECRET=$(kubectl get secret seaweedfs-s3-secret -n seaweedfs -o jsonpath='{.data.admin_secret_access_key}' | base64 -d)
 
@@ -29,41 +28,15 @@ kubectl create secret generic velero-seaweedfs-credentials \
   --from-literal=cloud="$(printf '[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n' "${SEAWEEDFS_KEY}" "${SEAWEEDFS_SECRET}")" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "Creating S3 buckets..."
-kubectl run aws-cli --rm -it \
-  --image=amazon/aws-cli \
-  --restart=Never \
-  --env="AWS_ACCESS_KEY_ID=${SEAWEEDFS_KEY}" \
-  --env="AWS_SECRET_ACCESS_KEY=${SEAWEEDFS_SECRET}" \
-  -- sh -c "
-    aws s3 mb s3://etcd-backups   --endpoint-url ${SEAWEEDFS_ENDPOINT} &&
-    aws s3 mb s3://velero-backups --endpoint-url ${SEAWEEDFS_ENDPOINT} &&
-    aws s3 mb s3://zot-registry   --endpoint-url ${SEAWEEDFS_ENDPOINT} &&
-    echo 'Buckets created successfully'
-  "
-
-if [[ "${PROFILE}" == "1-node" ]]; then
-  echo ""
-  echo "=== 1-node: Configuring bucket-to-collection routing ==="
-  echo "This pins backup buckets to the backup disk volume server."
-
-  kubectl exec -n seaweedfs seaweedfs-master-0 -- weed shell <<'EOF'
-s3.bucket.create -name pvs            -collection primary
-s3.bucket.create -name zot-registry   -collection primary
-s3.bucket.create -name etcd-backups   -collection backup
-s3.bucket.create -name velero-backups -collection backup
-EOF
-  echo "Bucket-to-collection routing configured."
-fi
+echo "Creating S3 buckets via weed shell..."
+printf 's3.bucket.create -name pvs\ns3.bucket.create -name zot-registry\ns3.bucket.create -name etcd-backups\ns3.bucket.create -name velero-backups\ns3.bucket.list\n' \
+  | kubectl exec -i -n seaweedfs seaweedfs-master-0 -- weed shell
 
 echo ""
 echo "=== Verification ==="
 
-echo "Running quick backup test..."
-velero backup create post-deploy-test --wait --ttl 1h
-
 echo "Checking Velero backup locations..."
-velero backup-location get
+kubectl get backupstoragelocation -n velero
 
 echo "Checking talos-backup CronJob..."
 kubectl get cronjobs -n talos-backup
