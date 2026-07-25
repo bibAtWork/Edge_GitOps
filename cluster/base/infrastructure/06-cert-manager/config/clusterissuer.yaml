@@ -5,7 +5,7 @@ metadata:
   name: letsencrypt-prod
 spec:
   acme:
-    email: REPLACE_WITH_YOUR_EMAIL
+    email: andreas.biberacher@linux.com
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
@@ -22,7 +22,7 @@ metadata:
   name: letsencrypt-staging
 spec:
   acme:
-    email: REPLACE_WITH_YOUR_EMAIL
+    email: andreas.biberacher@linux.com
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-staging-account-key

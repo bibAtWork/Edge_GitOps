@@ -17,7 +17,7 @@ cluster:
 
   etcd:
     advertisedSubnets:
-      - 192.168.1.0/24
+      - 192.168.178.0/24
 
   # Cilium is bootstrapped inline so the cluster has a CNI before Flux runs.
   # Flux's HelmRelease (05-cilium) manages the full configuration after bootstrap.
