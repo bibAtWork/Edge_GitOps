@@ -9,3 +9,4 @@ resources:
   - allow-monitoring.yaml
   - allow-talos-backup.yaml
   - allow-internet-egress-https.yaml
+  - allow-coredns-egress.yaml
