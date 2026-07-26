@@ -76,6 +76,12 @@ spec:
       repository: ghcr.io/project-zot/zot-linux-amd64
       tag: ""
 
+    # S3 storage initialization can be slow; give Zot 5 minutes before giving up
+    startupProbe:
+      failureThreshold: 30
+      periodSeconds: 10
+      initialDelaySeconds: 10
+
     persistence:
       # zot stores image data in SeaweedFS S3; local persistence is only a cache
       enabled: false
