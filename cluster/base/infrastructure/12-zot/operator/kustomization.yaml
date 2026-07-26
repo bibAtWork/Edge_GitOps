@@ -4,3 +4,4 @@ resources:
   - helmrelease.yaml
   - config-configmap.yaml
   - htpasswd-secret.yaml
+  - s3-credentials-secret.yaml

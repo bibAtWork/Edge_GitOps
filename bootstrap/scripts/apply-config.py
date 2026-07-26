@@ -226,6 +226,15 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ SeaweedFS S3 credentials")
 
+    # Zot S3 credentials — same admin key/secret, in the zot namespace so the pod can mount them
+    path = cluster / "base/infrastructure/12-zot/operator/s3-credentials-secret.yaml"
+    if replace_in_file(path, {
+        "REPLACE_WITH_ADMIN_KEY":    sw_key,
+        "REPLACE_WITH_ADMIN_SECRET": sw_sec,
+    }):
+        changed.append(str(path.relative_to(REPO_ROOT)))
+        print(f"  ✓ Zot S3 credentials")
+
     # Grafana admin password
     path = cluster / "base/infrastructure/04-grafana/admin-secret.yaml"
     if replace_in_file(path, {"REPLACE_WITH_SECURE_PASSWORD": grafana}):

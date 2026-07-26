@@ -51,6 +51,17 @@ spec:
                           secretName: zot-htpasswd
                     containers:
                       - name: zot
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: zot-s3-credentials
+                                key: access_key_id
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: zot-s3-credentials
+                                key: secret_access_key
                         volumeMounts:
                           - name: zot-config
                             mountPath: /etc/zot
