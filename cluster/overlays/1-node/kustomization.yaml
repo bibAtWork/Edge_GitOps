@@ -58,3 +58,9 @@ patches:
       version: v2
       kind: HelmRelease
       name: trivy-operator
+  - path: patches/coredns-upstream-dns.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: coredns
+      namespace: kube-system
