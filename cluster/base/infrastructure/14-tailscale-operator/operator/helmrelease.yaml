@@ -41,8 +41,7 @@ spec:
         - tag:k8s-operator
 
     proxyConfig:
-      defaultTags:
-        - tag:k8s-operator
+      defaultTags: tag:k8s-operator
 
     securityContext:
       runAsNonRoot: true
