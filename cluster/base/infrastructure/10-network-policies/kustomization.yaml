@@ -8,6 +8,7 @@ resources:
   - allow-seaweedfs-internal.yaml
   - allow-monitoring.yaml
   - allow-talos-backup.yaml
+  - allow-zot-egress.yaml
   - allow-internet-egress-https.yaml
   - allow-coredns-egress.yaml
   - allow-gateway-world-ingress.yaml

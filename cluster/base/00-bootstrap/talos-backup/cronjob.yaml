@@ -11,6 +11,9 @@ spec:
   jobTemplate:
     spec:
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: talos-backup
         spec:
           restartPolicy: OnFailure
           serviceAccountName: talos-backup

@@ -1,12 +1,12 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: allow-talos-backup-egress
-  namespace: talos-backup
+  name: allow-zot-egress
+  namespace: zot
 spec:
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: talos-backup
+      app.kubernetes.io/name: zot
   egress:
     - toEndpoints:
         - matchLabels:
@@ -15,13 +15,6 @@ spec:
       toPorts:
         - ports:
             - port: "8333"
-              protocol: TCP
-    - toFQDNs:
-        - matchPattern: "*.s3.amazonaws.com"
-        - matchPattern: "s3.amazonaws.com"
-      toPorts:
-        - ports:
-            - port: "443"
               protocol: TCP
     - toEndpoints:
         - matchLabels:
