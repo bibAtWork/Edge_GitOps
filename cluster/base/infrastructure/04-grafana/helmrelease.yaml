@@ -41,20 +41,17 @@ spec:
     datasources:
       datasources.yaml:
         apiVersion: 1
+        deleteDatasources:
+          - name: VictoriaLogs
+            orgId: 1
+          - name: VictoriaTraces
+            orgId: 1
         datasources:
           - name: VictoriaMetrics
             type: prometheus
-            url: http://vmsingle-vmstack.monitoring.svc:8428
+            url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428
             access: proxy
             isDefault: true
-          - name: VictoriaLogs
-            type: victoriametrics-logs-datasource
-            url: http://vlogs-vmstack.monitoring.svc:9428
-            access: proxy
-          - name: VictoriaTraces
-            type: grafana-tempo-datasource
-            url: http://vtraces-vmstack.monitoring.svc:4318
-            access: proxy
 
     dashboardProviders:
       dashboardproviders.yaml:
