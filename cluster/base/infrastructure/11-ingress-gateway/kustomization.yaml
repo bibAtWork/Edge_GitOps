@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - gateway.yaml
   - wildcard-cert.yaml
+  - http-redirect.yaml
