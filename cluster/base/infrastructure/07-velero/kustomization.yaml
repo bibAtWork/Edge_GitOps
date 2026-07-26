@@ -3,4 +3,5 @@ kind: Kustomization
 resources:
   - helmrelease.yaml
   - aws-secret.yaml
+  - seaweedfs-secret.yaml
   - backupstoragelocations.yaml
