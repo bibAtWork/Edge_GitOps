@@ -106,6 +106,18 @@ spec:
     egressGateway:
       enabled: true
 
+    prometheus:
+      enabled: true
+      port: 9962
+      serviceMonitor:
+        enabled: false
+
+    operator:
+      prometheus:
+        enabled: true
+        serviceMonitor:
+          enabled: false
+
     resources:
       requests:
         cpu: 100m
