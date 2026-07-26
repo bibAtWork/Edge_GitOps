@@ -5,6 +5,17 @@ metadata:
   namespace: kube-system
 data:
   Corefile: |
+    # Split DNS zone for Tailscale clients: resolves *.homelab.data-harness.org
+    # to the Tailscale gateway via CNAME. Tailscale admin must point
+    # homelab.data-harness.org to this CoreDNS instance (homelab-dns device).
+    homelab.data-harness.org:53 {
+        template IN A homelab.data-harness.org {
+            answer "{{ .Name }} 60 IN CNAME homelab-gateway.olm-dominant.ts.net."
+        }
+        template IN AAAA homelab.data-harness.org {
+            rcode NOERROR
+        }
+    }
     .:53 {
         errors
         health {

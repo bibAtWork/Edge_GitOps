@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - proxyclasses.yaml
   - expose-gateway.yaml
+  - expose-coredns.yaml
