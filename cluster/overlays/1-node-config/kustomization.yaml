@@ -19,3 +19,5 @@ resources:
   - ../../base/infrastructure/15-system-upgrade-controller/config
   # velero Schedules (velero.io) — 1-node specific retention
   - velero-schedules.yaml
+  # NodePort services for LAN access without domain/Tailscale
+  - nodeport-services.yaml
