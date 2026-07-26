@@ -37,12 +37,14 @@ spec:
   values:
     operatorConfig:
       hostname: homelab-operator
+      defaultTags:
+        - tag:k8s-operator
 
     securityContext:
       runAsNonRoot: true
       allowPrivilegeEscalation: false
       capabilities:
-        drop: ["ALL"]
+        drop: [ALL]
       seccompProfile:
         type: RuntimeDefault
 
