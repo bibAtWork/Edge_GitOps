@@ -7,6 +7,10 @@ resources:
   - ../../base/infrastructure/06-cert-manager/config
   # ingress gateway: Gateway (gateway.networking.k8s.io) + wildcard Certificate (cert-manager.io)
   - ../../base/infrastructure/11-ingress-gateway
+  # grafana: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/04-grafana/config
+  # cilium: Hubble UI HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/05-cilium/config
   # zot: HTTPRoute (gateway.networking.k8s.io)
   - ../../base/infrastructure/12-zot/config
   # tailscale: ProxyClass (tailscale.com) + Service that uses it
