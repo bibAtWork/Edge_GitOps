@@ -48,5 +48,10 @@
 
   "grafana": {
     "admin_password": ""
+  },
+
+  "zot": {
+    "_comment": "Leave empty to auto-generate a random password on first run.",
+    "admin_password": ""
   }
 }

@@ -134,9 +134,10 @@ def main() -> None:
     ts_sec  = get(cfg, "tailscale", "oauth_client_secret")
     grafana = get(cfg, "grafana", "admin_password")
 
-    # SeaweedFS: auto-generate if not set and save back to config.json
+    # SeaweedFS + Zot: auto-generate if not set and save back to config.json
     sw_key = get(cfg, "seaweedfs", "admin_access_key_id", required=False)
     sw_sec = get(cfg, "seaweedfs", "admin_secret_access_key", required=False)
+    zot_pw = get(cfg, "zot", "admin_password", required=False)
     modified_cfg = False
     if not sw_key:
         sw_key = random_credential(20)
@@ -148,6 +149,11 @@ def main() -> None:
         cfg.setdefault("seaweedfs", {})["admin_secret_access_key"] = sw_sec
         modified_cfg = True
         print("  auto-generated seaweedfs.admin_secret_access_key")
+    if not zot_pw:
+        zot_pw = random_credential(24)
+        cfg.setdefault("zot", {})["admin_password"] = zot_pw
+        modified_cfg = True
+        print("  auto-generated zot.admin_password")
     if modified_cfg:
         save_config(cfg)
 
@@ -225,6 +231,37 @@ def main() -> None:
     if replace_in_file(path, {"REPLACE_WITH_SECURE_PASSWORD": grafana}):
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Grafana admin password")
+
+    # Zot htpasswd — generate apr1 hash, write the unencrypted secret file.
+    # encrypt-secrets.sh will SOPS-encrypt it afterward.
+    def _apr1_hash(password: str) -> str:
+        import subprocess, shutil
+        if shutil.which("openssl"):
+            result = subprocess.run(
+                ["openssl", "passwd", "-apr1", password],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        raise RuntimeError("openssl not found; cannot generate htpasswd hash")
+
+    path = cluster / "base/infrastructure/12-zot/operator/htpasswd-secret.yaml"
+    htpasswd_line = f"admin:{_apr1_hash(zot_pw)}"
+    new_secret = (
+        "apiVersion: v1\n"
+        "kind: Secret\n"
+        "metadata:\n"
+        "  name: zot-htpasswd\n"
+        "  namespace: zot\n"
+        "stringData:\n"
+        "  htpasswd: |\n"
+        f"    {htpasswd_line}\n"
+    )
+    existing = path.read_text() if path.exists() else ""
+    if new_secret != existing:
+        path.write_text(new_secret)
+        changed.append(str(path.relative_to(REPO_ROOT)))
+        print(f"  ✓ Zot htpasswd")
 
     # talos-backup: SeaweedFS credentials (same key/secret as above)
     path = cluster / "base/00-bootstrap/talos-backup/secret.yaml"
