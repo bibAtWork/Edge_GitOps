@@ -63,11 +63,9 @@ kind: Namespace
 metadata:
   name: tailscale
   labels:
-    # tailscale-operator chart does not expose security context values;
-    # the rendered pod has no securityContext, which restricted PSS rejects.
-    # baseline is the right policy — operator manages VPN tunnels and may
-    # need network capabilities that restricted would block anyway.
-    pod-security.kubernetes.io/enforce: baseline
+    # Proxy pods (sysctler + tailscale containers) require privileged: true
+    # to configure network interfaces and routing. baseline rejects this.
+    pod-security.kubernetes.io/enforce: privileged
 ---
 apiVersion: v1
 kind: Namespace
