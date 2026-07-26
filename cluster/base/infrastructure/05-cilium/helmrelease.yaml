@@ -96,6 +96,11 @@ spec:
     bpf:
       masquerade: true
 
+    # L2 announcements — ARP-based IP announcement for LB services on the LAN.
+    # Required for CiliumL2AnnouncementPolicy to work.
+    l2announcements:
+      enabled: true
+
     # Egress Gateway routes internet-bound traffic through a dedicated node.
     # Pair with a CiliumClusterwideNetworkPolicy to enforce HTTPS-only egress.
     egressGateway:
