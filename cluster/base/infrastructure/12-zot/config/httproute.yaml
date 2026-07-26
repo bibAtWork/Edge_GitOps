@@ -8,7 +8,7 @@ spec:
     - name: homelab-gateway
       namespace: gateway-system
   hostnames:
-    - zot.data-harness.org
+    - zot.homelab.data-harness.org
   rules:
     - matches:
         - path:
