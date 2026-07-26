@@ -25,6 +25,40 @@ spec:
       retries: 3
       remediateLastFailure: true
     cleanupOnFail: true
+  # The zot chart (v0.1.x) has no configFiles/secretFiles template support.
+  # postRenderers patches the StatefulSet to mount the config ConfigMap and
+  # htpasswd Secret that are deployed alongside this HelmRelease.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: StatefulSet
+              name: zot
+            patch: |
+              - op: add
+                path: /spec/template/spec/volumes/-
+                value:
+                  name: zot-config
+                  configMap:
+                    name: zot-config
+              - op: add
+                path: /spec/template/spec/volumes/-
+                value:
+                  name: zot-auth
+                  secret:
+                    secretName: zot-htpasswd
+              - op: add
+                path: /spec/template/spec/containers/0/volumeMounts/-
+                value:
+                  name: zot-config
+                  mountPath: /etc/zot
+                  readOnly: true
+              - op: add
+                path: /spec/template/spec/containers/0/volumeMounts/-
+                value:
+                  name: zot-auth
+                  mountPath: /secret
+                  readOnly: true
   values:
     replicaCount: 1
 
@@ -35,49 +69,6 @@ spec:
     persistence:
       # zot stores image data in SeaweedFS S3; local persistence is only a cache
       enabled: false
-
-    configFiles:
-      config.json: |
-        {
-          "distSpecVersion": "1.1.0",
-          "storage": {
-            "rootDirectory": "/var/lib/registry",
-            "storageDriver": {
-              "name": "s3",
-              "region": "us-east-1",
-              "regionEndpoint": "http://seaweedfs-s3.seaweedfs.svc:8333",
-              "bucket": "zot-registry",
-              "forcepathstyle": true,
-              "skipverify": true
-            }
-          },
-          "http": {
-            "address": "0.0.0.0",
-            "port": "5000",
-            "auth": {
-              "htpasswd": {
-                "path": "/secret/htpasswd"
-              }
-            }
-          },
-          "log": {
-            "level": "info"
-          },
-          "extensions": {
-            "search": {
-              "enable": true
-            },
-            "ui": {
-              "enable": true
-            },
-            "metrics": {
-              "enable": true,
-              "prometheus": {
-                "path": "/metrics"
-              }
-            }
-          }
-        }
 
     securityContext:
       runAsNonRoot: true
