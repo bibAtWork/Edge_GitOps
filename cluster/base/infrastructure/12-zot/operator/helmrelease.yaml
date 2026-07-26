@@ -35,30 +35,29 @@ spec:
               kind: StatefulSet
               name: zot
             patch: |
-              - op: add
-                path: /spec/template/spec/volumes/-
-                value:
-                  name: zot-config
-                  configMap:
-                    name: zot-config
-              - op: add
-                path: /spec/template/spec/volumes/-
-                value:
-                  name: zot-auth
-                  secret:
-                    secretName: zot-htpasswd
-              - op: add
-                path: /spec/template/spec/containers/0/volumeMounts/-
-                value:
-                  name: zot-config
-                  mountPath: /etc/zot
-                  readOnly: true
-              - op: add
-                path: /spec/template/spec/containers/0/volumeMounts/-
-                value:
-                  name: zot-auth
-                  mountPath: /secret
-                  readOnly: true
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: zot
+              spec:
+                template:
+                  spec:
+                    volumes:
+                      - name: zot-config
+                        configMap:
+                          name: zot-config
+                      - name: zot-auth
+                        secret:
+                          secretName: zot-htpasswd
+                    containers:
+                      - name: zot
+                        volumeMounts:
+                          - name: zot-config
+                            mountPath: /etc/zot
+                            readOnly: true
+                          - name: zot-auth
+                            mountPath: /secret
+                            readOnly: true
   values:
     replicaCount: 1
 
