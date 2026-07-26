@@ -7,10 +7,10 @@ metadata:
   namespace: gateway-system
 spec:
   secretName: homelab-wildcard-tls
-  commonName: "*.REPLACE_WITH_DOMAIN"
+  commonName: "*.data-harness.org"
   dnsNames:
-    - REPLACE_WITH_DOMAIN
-    - "*.REPLACE_WITH_DOMAIN"
+    - data-harness.org
+    - "*.data-harness.org"
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer
