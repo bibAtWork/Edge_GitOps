@@ -76,7 +76,7 @@ Create (or choose) a GitHub repository and a **fine-grained personal access toke
 
 #### Cloudflare (for TLS certs and DNS)
 
-Create a **Custom API Token** at `dash.cloudflare.com/profile/api-tokens` (the "Edit zone DNS" template works) with:
+Create a **Custom API Token** at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) (the "Edit zone DNS" template works) with:
 
 - **Zone > Zone — Read**
 - **Zone > DNS — Edit**
