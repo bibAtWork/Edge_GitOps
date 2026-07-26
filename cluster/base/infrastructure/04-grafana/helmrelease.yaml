@@ -80,10 +80,6 @@ spec:
           gnetId: 16611
           revision: 1
           datasource: VictoriaMetrics
-        seaweedfs:
-          gnetId: 14817
-          revision: 1
-          datasource: VictoriaMetrics
         velero:
           gnetId: 15469
           revision: 1
@@ -106,11 +102,11 @@ spec:
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
-        drop: ["ALL"]
+        drop: [ALL]
 
     resources:
       requests:
-        memory: "256Mi"
-        cpu: "100m"
+        memory: 256Mi
+        cpu: 100m
       limits:
-        memory: "512Mi"
+        memory: 512Mi
