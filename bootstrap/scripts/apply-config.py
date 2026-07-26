@@ -122,6 +122,7 @@ def main() -> None:
     # ── User-provided values ───────────────────────────────────────────────────
 
     email   = get(cfg, "cluster", "letsencrypt_email")
+    domain  = get(cfg, "cluster", "domain")
     subnet  = get(cfg, "node", "subnet")
     cf      = get(cfg, "cloudflare", "api_token")
     ts_id   = get(cfg, "tailscale", "oauth_client_id")
@@ -146,6 +147,21 @@ def main() -> None:
         save_config(cfg)
 
     print("=== Applying config.json to cluster files ===")
+
+    # Domain substitution — wildcard cert + all HTTPRoutes
+    domain_files = [
+        cluster / "base/infrastructure/11-ingress-gateway/wildcard-cert.yaml",
+        cluster / "base/infrastructure/12-zot/config/httproute.yaml",
+        cluster / "base/infrastructure/04-grafana/config/httproute.yaml",
+        cluster / "base/infrastructure/05-cilium/config/httproute.yaml",
+    ]
+    domain_changed = False
+    for path in domain_files:
+        if replace_in_file(path, {"REPLACE_WITH_DOMAIN": domain}):
+            changed.append(str(path.relative_to(REPO_ROOT)))
+            domain_changed = True
+    if domain_changed:
+        print(f"  ✓ Domain ({domain}) applied to wildcard cert + HTTPRoutes")
 
     # cert-manager ClusterIssuer — not a secret, not SOPS-encrypted
     path = cluster / "base/infrastructure/06-cert-manager/config/clusterissuer.yaml"

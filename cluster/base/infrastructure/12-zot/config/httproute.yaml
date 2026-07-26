@@ -8,7 +8,7 @@ spec:
     - name: homelab-gateway
       namespace: gateway-system
   hostnames:
-    - "zot.yourdomain.com"
+    - zot.REPLACE_WITH_DOMAIN
   rules:
     - matches:
         - path:

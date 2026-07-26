@@ -3,7 +3,8 @@
 
   "cluster": {
     "name": "homelab",
-    "letsencrypt_email": ""
+    "letsencrypt_email": "",
+    "domain": ""
   },
 
   "node": {

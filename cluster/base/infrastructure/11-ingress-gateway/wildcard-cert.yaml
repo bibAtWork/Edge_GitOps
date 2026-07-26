@@ -7,10 +7,10 @@ metadata:
   namespace: gateway-system
 spec:
   secretName: homelab-wildcard-tls
-  commonName: "*.yourdomain.com"
+  commonName: "*.REPLACE_WITH_DOMAIN"
   dnsNames:
-    - "yourdomain.com"
-    - "*.yourdomain.com"
+    - REPLACE_WITH_DOMAIN
+    - "*.REPLACE_WITH_DOMAIN"
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer
