@@ -68,9 +68,7 @@ spec:
         hostPathPrefix: /var/lib/seaweedfs/filer-logs
       s3:
         enabled: true
-        # Auth disabled until secret is formatted with seaweedfs_s3_config JSON key.
-        # Primary auth boundary is the Cilium network policy on port 8333.
-        enableAuth: false
+        enableAuth: true
 
     # Use filer's embedded S3 endpoint on port 8333; standalone s3 Deployment is redundant.
     s3:
