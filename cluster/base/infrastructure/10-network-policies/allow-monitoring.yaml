@@ -35,5 +35,4 @@ spec:
       app.kubernetes.io/name: grafana
   ingress:
     - fromEntities:
-        - world
-        - host
+        - ingress
