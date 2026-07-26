@@ -1,0 +1,64 @@
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cilium-agent
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      k8s-app: cilium
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cilium-operator
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      io.cilium/app: operator
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: trivy-operator
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - trivy-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-operator
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: velero
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - velero
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: velero
+  endpoints:
+    - port: http-monitoring
+      path: /metrics
