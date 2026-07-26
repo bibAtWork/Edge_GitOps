@@ -48,6 +48,7 @@ def save_config(cfg: dict) -> None:
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
+    os.chmod(CONFIG_FILE, 0o600)
 
 
 def get(cfg: dict, *keys: str, required: bool = True) -> str:
@@ -234,6 +235,15 @@ def main() -> None:
     }):
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Zot S3 credentials")
+
+    # Velero SeaweedFS credentials — for the local backup storage location
+    path = cluster / "base/infrastructure/07-velero/seaweedfs-secret.yaml"
+    if replace_in_file(path, {
+        "REPLACE_WITH_ADMIN_KEY":    sw_key,
+        "REPLACE_WITH_ADMIN_SECRET": sw_sec,
+    }):
+        changed.append(str(path.relative_to(REPO_ROOT)))
+        print(f"  ✓ Velero SeaweedFS credentials")
 
     # Grafana admin password
     path = cluster / "base/infrastructure/04-grafana/admin-secret.yaml"
