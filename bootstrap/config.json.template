@@ -5,7 +5,9 @@
     "name": "homelab",
     "letsencrypt_email": "",
     "domain": "",
-    "subdomain": ""
+    "subdomain": "",
+    "_gateway_ip_comment": "A free LAN IP for the gateway (e.g. node_ip with last octet 200). Cilium announces it via ARP so domain names resolve on the LAN.",
+    "gateway_ip": ""
   },
 
   "node": {

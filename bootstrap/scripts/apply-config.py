@@ -121,13 +121,14 @@ def main() -> None:
 
     # ── User-provided values ───────────────────────────────────────────────────
 
-    email     = get(cfg, "cluster", "letsencrypt_email")
-    domain    = get(cfg, "cluster", "domain")
-    subdomain = get(cfg, "cluster", "subdomain", required=False)
+    email      = get(cfg, "cluster", "letsencrypt_email")
+    domain     = get(cfg, "cluster", "domain")
+    subdomain  = get(cfg, "cluster", "subdomain", required=False)
+    gateway_ip = get(cfg, "cluster", "gateway_ip", required=False)
     # If a subdomain is set, all service hostnames live under <subdomain>.<domain>.
     # The wildcard cert covers *.<subdomain>.<domain>.
     effective_domain = f"{subdomain}.{domain}" if subdomain else domain
-    subnet  = get(cfg, "node", "subnet")
+    subnet    = get(cfg, "node", "subnet")
     cf      = get(cfg, "cloudflare", "api_token")
     ts_id   = get(cfg, "tailscale", "oauth_client_id")
     ts_sec  = get(cfg, "tailscale", "oauth_client_secret")
@@ -166,6 +167,13 @@ def main() -> None:
             domain_changed = True
     if domain_changed:
         print(f"  ✓ Domain ({effective_domain}) applied to wildcard cert + HTTPRoutes")
+
+    # Cilium LB IPAM — assign a dedicated LAN IP to the gateway
+    if gateway_ip:
+        path = cluster / "overlays/1-node-config/lb-ipam.yaml"
+        if replace_in_file(path, {"REPLACE_WITH_GATEWAY_IP": gateway_ip}):
+            changed.append(str(path.relative_to(REPO_ROOT)))
+            print(f"  ✓ Gateway LAN IP ({gateway_ip}) applied to lb-ipam.yaml")
 
     # cert-manager ClusterIssuer — not a secret, not SOPS-encrypted
     path = cluster / "base/infrastructure/06-cert-manager/config/clusterissuer.yaml"
