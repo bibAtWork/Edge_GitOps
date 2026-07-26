@@ -168,12 +168,15 @@ def main() -> None:
     if domain_changed:
         print(f"  ✓ Domain ({effective_domain}) applied to wildcard cert + HTTPRoutes")
 
-    # Cilium LB IPAM — assign a dedicated LAN IP to the gateway
+    # Cilium LB IPAM + Tailscale subnet router — both use the gateway LAN IP
     if gateway_ip:
-        path = cluster / "overlays/1-node-config/lb-ipam.yaml"
-        if replace_in_file(path, {"REPLACE_WITH_GATEWAY_IP": gateway_ip}):
-            changed.append(str(path.relative_to(REPO_ROOT)))
-            print(f"  ✓ Gateway LAN IP ({gateway_ip}) applied to lb-ipam.yaml")
+        for path in [
+            cluster / "overlays/1-node-config/lb-ipam.yaml",
+            cluster / "base/infrastructure/14-tailscale-operator/config/subnet-router.yaml",
+        ]:
+            if replace_in_file(path, {"REPLACE_WITH_GATEWAY_IP": gateway_ip}):
+                changed.append(str(path.relative_to(REPO_ROOT)))
+                print(f"  ✓ Gateway LAN IP ({gateway_ip}) applied to {path.name}")
 
     # cert-manager ClusterIssuer — not a secret, not SOPS-encrypted
     path = cluster / "base/infrastructure/06-cert-manager/config/clusterissuer.yaml"

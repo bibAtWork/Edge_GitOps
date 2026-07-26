@@ -43,3 +43,9 @@ patches:
       version: v2
       kind: HelmRelease
       name: trivy-operator
+  - path: patches/subnet-router-ha.yaml
+    target:
+      group: tailscale.com
+      version: v1alpha1
+      kind: Connector
+      name: homelab-subnet-router
