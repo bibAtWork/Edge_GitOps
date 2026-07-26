@@ -121,8 +121,12 @@ def main() -> None:
 
     # ── User-provided values ───────────────────────────────────────────────────
 
-    email   = get(cfg, "cluster", "letsencrypt_email")
-    domain  = get(cfg, "cluster", "domain")
+    email     = get(cfg, "cluster", "letsencrypt_email")
+    domain    = get(cfg, "cluster", "domain")
+    subdomain = get(cfg, "cluster", "subdomain", required=False)
+    # If a subdomain is set, all service hostnames live under <subdomain>.<domain>.
+    # The wildcard cert covers *.<subdomain>.<domain>.
+    effective_domain = f"{subdomain}.{domain}" if subdomain else domain
     subnet  = get(cfg, "node", "subnet")
     cf      = get(cfg, "cloudflare", "api_token")
     ts_id   = get(cfg, "tailscale", "oauth_client_id")
@@ -157,11 +161,11 @@ def main() -> None:
     ]
     domain_changed = False
     for path in domain_files:
-        if replace_in_file(path, {"REPLACE_WITH_DOMAIN": domain}):
+        if replace_in_file(path, {"REPLACE_WITH_DOMAIN": effective_domain}):
             changed.append(str(path.relative_to(REPO_ROOT)))
             domain_changed = True
     if domain_changed:
-        print(f"  ✓ Domain ({domain}) applied to wildcard cert + HTTPRoutes")
+        print(f"  ✓ Domain ({effective_domain}) applied to wildcard cert + HTTPRoutes")
 
     # cert-manager ClusterIssuer — not a secret, not SOPS-encrypted
     path = cluster / "base/infrastructure/06-cert-manager/config/clusterissuer.yaml"
