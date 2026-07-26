@@ -21,3 +21,5 @@ resources:
   - velero-schedules.yaml
   # NodePort services for LAN access without domain/Tailscale
   - nodeport-services.yaml
+  # Cilium LB IPAM: assigns a dedicated LAN IP to the gateway + announces it via ARP
+  - lb-ipam.yaml
