@@ -49,6 +49,13 @@ spec:
       # bitnami chart 18.x sets readOnlyRootFilesystem: true by default.
       containerSecurityContext:
         readOnlyRootFilesystem: false
+      # pgvecto.rs vector extension requires more memory than bitnami's 192Mi default.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
       persistence:
         storageClass: local-path
         accessMode: ReadWriteOnce
