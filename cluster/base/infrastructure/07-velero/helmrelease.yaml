@@ -31,7 +31,12 @@ spec:
     cleanupOnFail: true
   values:
     configuration:
-      volumeSnapshotLocation: []
+      # The chart creates an invalid "default" VSL when this list is empty.
+      # Retain seaweedfs-csi as a placeholder to satisfy the template; it is
+      # never used because all schedules set snapshotVolumes: false.
+      volumeSnapshotLocation:
+        - name: seaweedfs-csi
+          provider: csi
       backupStorageLocation:
         - name: seaweedfs-local
           provider: aws
