@@ -89,3 +89,21 @@ metadata:
   name: cattle-system
   labels:
     pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+  labels:
+    # Bitnami postgresql init container runs as root to chown the data directory.
+    # baseline allows this via runAsUser override; restricted blocks it.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paperless
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: baseline
