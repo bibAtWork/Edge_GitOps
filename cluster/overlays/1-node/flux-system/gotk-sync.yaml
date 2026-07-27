@@ -14,7 +14,6 @@ spec:
   url: ssh://git@github.com/bibAtWork/Edge_GitOps
   verify:
     mode: HEAD
-    provider: ssh
     secretRef:
       name: flux-git-verify
 ---
