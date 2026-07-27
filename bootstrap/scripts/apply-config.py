@@ -251,21 +251,34 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Grafana admin password")
 
-    # Zot htpasswd — generate apr1 hash, write the unencrypted secret file.
+    # Zot htpasswd — generate bcrypt hash, write the unencrypted secret file.
     # encrypt-secrets.sh will SOPS-encrypt it afterward.
-    def _apr1_hash(password: str) -> str:
-        import subprocess, shutil
-        if shutil.which("openssl"):
+    # bcrypt is used instead of apr1 (MD5) for stronger hashing.
+    # Password is passed in-process (not via argv) to avoid /proc exposure.
+    def _bcrypt_hash(password: str) -> str:
+        try:
+            import bcrypt as _bcrypt  # pip install bcrypt
+            hashed = _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt(rounds=12))
+            return hashed.decode("utf-8")
+        except ImportError:
+            pass
+        import shutil, subprocess
+        if shutil.which("htpasswd"):
+            # -B bcrypt, -n stdout, -i read password from stdin (avoids /proc exposure)
             result = subprocess.run(
-                ["openssl", "passwd", "-apr1", password],
-                capture_output=True, text=True
+                ["htpasswd", "-B", "-n", "-i", "admin"],
+                input=password,
+                capture_output=True, text=True,
             )
             if result.returncode == 0:
-                return result.stdout.strip()
-        raise RuntimeError("openssl not found; cannot generate htpasswd hash")
+                return result.stdout.strip().split(":", 1)[1]
+        raise RuntimeError(
+            "Cannot generate bcrypt hash: install 'bcrypt' Python package "
+            "(pip install bcrypt) or ensure 'htpasswd' is on PATH"
+        )
 
     path = cluster / "base/infrastructure/12-zot/operator/htpasswd-secret.yaml"
-    htpasswd_line = f"admin:{_apr1_hash(zot_pw)}"
+    htpasswd_line = f"admin:{_bcrypt_hash(zot_pw)}"
     new_secret = (
         "apiVersion: v1\n"
         "kind: Secret\n"
