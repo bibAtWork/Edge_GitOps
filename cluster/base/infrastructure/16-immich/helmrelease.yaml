@@ -8,8 +8,6 @@ spec:
   dependsOn:
     - name: immich-postgresql
       namespace: immich
-    - name: immich-redis
-      namespace: immich
   chart:
     spec:
       chart: immich
@@ -36,13 +34,20 @@ spec:
           port: 5432
           name: immich
           username: immich
-        redis:
-          host: immich-redis-master
-          port: 6379
       persistence:
         library:
           # Pre-created PVC required by chart checks.yaml; chart does not provision it.
           existingClaim: immich-library
+
+    # The chart auto-sets REDIS_HOSTNAME=immich-valkey; enable the bundled Valkey.
+    valkey:
+      enabled: true
+      persistence:
+        data:
+          type: persistentVolumeClaim
+          storageClass: local-path
+          accessMode: ReadWriteOnce
+          size: 1Gi
 
     server:
       resources:
@@ -69,9 +74,7 @@ spec:
       persistence:
         cache:
           enabled: true
+          type: persistentVolumeClaim
           storageClass: local-path
           accessMode: ReadWriteOnce
           size: 10Gi
-
-    # redis sub-chart removed in chart 0.10.0; deployed via immich-redis HelmRelease.
-    # Connection configured via immich.configuration.redis above.
