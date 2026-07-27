@@ -1,0 +1,72 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: paperless-ngx
+  namespace: paperless
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: paperless-ngx
+      sourceRef:
+        kind: HelmRepository
+        name: gabe565
+        namespace: flux-system
+      interval: 12h
+  install:
+    timeout: 10m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 10m
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    env:
+      PAPERLESS_URL: https://paperless.homelab.data-harness.org
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_MAIL: bibatwork@gmail.com
+      PAPERLESS_OCR_LANGUAGES: eng+deu
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+
+    envFrom:
+      - secretRef:
+          name: paperless-secret
+
+    persistence:
+      data:
+        enabled: true
+        storageClass: local-path
+        size: 5Gi
+        labels:
+          velero.io/backup: "true"
+      media:
+        enabled: true
+        storageClass: local-path
+        size: 50Gi
+        labels:
+          velero.io/backup: "true"
+      consume:
+        enabled: true
+        storageClass: local-path
+        size: 10Gi
+      export:
+        enabled: true
+        storageClass: local-path
+        size: 5Gi
+
+    redis:
+      enabled: true
+      master:
+        persistence:
+          storageClass: local-path
+          size: 1Gi
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
