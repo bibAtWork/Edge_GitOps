@@ -45,6 +45,10 @@ spec:
         adminPasswordKey: db-admin-password
 
     primary:
+      # The immich postgres image writes to /etc/postgresql during init;
+      # bitnami chart 18.x sets readOnlyRootFilesystem: true by default.
+      containerSecurityContext:
+        readOnlyRootFilesystem: false
       persistence:
         storageClass: local-path
         accessMode: ReadWriteOnce
