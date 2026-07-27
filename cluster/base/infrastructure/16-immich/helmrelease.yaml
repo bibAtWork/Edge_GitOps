@@ -1,0 +1,85 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: immich
+      sourceRef:
+        kind: HelmRepository
+        name: immich
+        namespace: flux-system
+      interval: 12h
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    immich:
+      configuration: {}
+
+    server:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+      persistence:
+        library:
+          enabled: true
+          storageClass: local-path
+          size: 100Gi
+          labels:
+            velero.io/backup: "true"
+
+    machine-learning:
+      enabled: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 2Gi
+      persistence:
+        cache:
+          enabled: true
+          storageClass: local-path
+          size: 10Gi
+
+    postgresql:
+      enabled: true
+      primary:
+        persistence:
+          storageClass: local-path
+          size: 10Gi
+          labels:
+            velero.io/backup: "true"
+      global:
+        postgresql:
+          auth:
+            username: immich
+            database: immich
+            existingSecret: immich-db-secret
+            secretKeys:
+              userPasswordKey: db-password
+              adminPasswordKey: db-admin-password
+
+    redis:
+      enabled: true
+      architecture: standalone
+      auth:
+        enabled: false
+      master:
+        persistence:
+          storageClass: local-path
+          size: 1Gi
