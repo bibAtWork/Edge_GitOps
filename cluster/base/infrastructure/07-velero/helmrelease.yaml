@@ -61,6 +61,12 @@ spec:
     credentials:
       useSecret: false
 
+    # Kopia writes its repository config/cache to $HOME. UID 65534 has HOME=/nonexistent
+    # (which doesn't exist), so Kopia fails. /scratch is an existing emptyDir in the pod.
+    extraEnvVars:
+      - name: HOME
+        value: /scratch
+
     # node-agent DaemonSet reads PV data from /var/lib/kubelet/pods for Kopia
     # file system backup. Runs as root with privileged: true (velero namespace
     # PSS is set to privileged). deployNodeAgent is the top-level enable switch;
