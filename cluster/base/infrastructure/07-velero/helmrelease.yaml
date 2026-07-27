@@ -51,13 +51,28 @@ spec:
             key: cloud
           config:
             region: eu-central-1
-
-      volumeSnapshotLocation:
-        - name: seaweedfs-csi
-          provider: csi
+            serverSideEncryption: AES256
 
     credentials:
       useSecret: false
+
+    # node-agent runs as root with privileged: true so it can traverse
+    # /var/lib/kubelet/pods and read PV data for Kopia file system backup.
+    # The velero namespace PSS is set to privileged to allow this.
+    nodeAgent:
+      enabled: true
+      podVolumePath: /var/lib/kubelet/pods
+      privileged: true
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
 
     initContainers:
       - name: velero-plugin-for-aws
@@ -68,7 +83,7 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
-            drop: ["ALL"]
+            drop: [ALL]
     # velero-plugin-for-csi removed: velero v1.14+ has built-in CSI support;
     # loading the external plugin causes a duplicate-registration crash.
 
@@ -81,7 +96,7 @@ spec:
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
-        drop: ["ALL"]
+        drop: [ALL]
 
     resources:
       requests:
