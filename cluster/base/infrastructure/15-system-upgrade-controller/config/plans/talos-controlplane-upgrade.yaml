@@ -8,7 +8,7 @@ metadata:
   name: talos-controlplane
   namespace: system-upgrade
 spec:
-  channel: https://api.github.com/repos/siderolabs/talos/releases/latest
+  version: v1.13.6
   exclusive: true
   nodeSelector:
     matchLabels:
@@ -22,7 +22,7 @@ spec:
       path: /var/run/secrets/talos
   cordon: true
   upgrade:
-    image: ghcr.io/siderolabs/talosctl:latest
+    image: ghcr.io/siderolabs/talosctl:v1.13.6
     command:
       - /bin/sh
       - -c
