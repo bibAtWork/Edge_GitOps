@@ -39,22 +39,26 @@ spec:
       data:
         enabled: true
         storageClass: local-path
+        accessMode: ReadWriteOnce
         size: 5Gi
         labels:
           velero.io/backup: "true"
       media:
         enabled: true
         storageClass: local-path
+        accessMode: ReadWriteOnce
         size: 50Gi
         labels:
           velero.io/backup: "true"
       consume:
         enabled: true
         storageClass: local-path
+        accessMode: ReadWriteOnce
         size: 10Gi
       export:
         enabled: true
         storageClass: local-path
+        accessMode: ReadWriteOnce
         size: 5Gi
 
     redis:

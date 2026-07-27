@@ -38,6 +38,7 @@ spec:
         library:
           enabled: true
           storageClass: local-path
+          accessMode: ReadWriteOnce
           size: 100Gi
           labels:
             velero.io/backup: "true"
@@ -54,6 +55,7 @@ spec:
         cache:
           enabled: true
           storageClass: local-path
+          accessMode: ReadWriteOnce
           size: 10Gi
 
     postgresql:
@@ -61,6 +63,7 @@ spec:
       primary:
         persistence:
           storageClass: local-path
+          accessMode: ReadWriteOnce
           size: 10Gi
           labels:
             velero.io/backup: "true"
