@@ -28,12 +28,6 @@ spec:
     cleanupOnFail: true
   values:
     immich:
-      configuration:
-        database:
-          host: immich-postgresql
-          port: 5432
-          name: immich
-          username: immich
       persistence:
         library:
           # Pre-created PVC required by chart checks.yaml; chart does not provision it.
@@ -56,8 +50,13 @@ spec:
           memory: 256Mi
         limits:
           memory: 1Gi
-      extraEnvVars:
-        - name: DB_PASSWORD
+      # bjw-s env format; immich reads DB connection from DB_* env vars, not config file
+      env:
+        DB_HOSTNAME: immich-postgresql
+        DB_PORT: "5432"
+        DB_DATABASE_NAME: immich
+        DB_USERNAME: immich
+        DB_PASSWORD:
           valueFrom:
             secretKeyRef:
               name: immich-db-secret
