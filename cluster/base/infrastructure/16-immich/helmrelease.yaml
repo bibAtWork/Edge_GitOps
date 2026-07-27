@@ -26,6 +26,10 @@ spec:
   values:
     immich:
       configuration: {}
+      persistence:
+        library:
+          # Pre-created PVC required by chart checks.yaml; chart does not provision it.
+          existingClaim: immich-library
 
     server:
       resources:
@@ -34,14 +38,6 @@ spec:
           memory: 256Mi
         limits:
           memory: 1Gi
-      persistence:
-        library:
-          enabled: true
-          storageClass: local-path
-          accessMode: ReadWriteOnce
-          size: 100Gi
-          labels:
-            velero.io/backup: "true"
 
     machine-learning:
       enabled: true
