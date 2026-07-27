@@ -61,11 +61,12 @@ spec:
     credentials:
       useSecret: false
 
-    # node-agent runs as root with privileged: true so it can traverse
-    # /var/lib/kubelet/pods and read PV data for Kopia file system backup.
-    # The velero namespace PSS is set to privileged to allow this.
+    # node-agent DaemonSet reads PV data from /var/lib/kubelet/pods for Kopia
+    # file system backup. Runs as root with privileged: true (velero namespace
+    # PSS is set to privileged). deployNodeAgent is the top-level enable switch;
+    # the nodeAgent block holds pod configuration.
+    deployNodeAgent: true
     nodeAgent:
-      enabled: true
       podVolumePath: /var/lib/kubelet/pods
       privileged: true
       tolerations:
