@@ -5,5 +5,5 @@ metadata:
   namespace: flux-system
 type: Opaque
 stringData:
-  allowed_signers: |
-    57631430+bibAtWork@users.noreply.github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJYbSyQvLi0l/MJFIuaHSp4Oo/YPFUvUp5tcXSpQb4bk
+  gitops-signing.sshpub: |
+    ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJYbSyQvLi0l/MJFIuaHSp4Oo/YPFUvUp5tcXSpQb4bk
