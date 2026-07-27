@@ -106,3 +106,21 @@ metadata:
 spec:
   interval: 12h
   url: https://rancher.github.io/charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: immich
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://immich-app.github.io/immich-charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: gabe565
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://charts.gabe565.com
