@@ -1,6 +1,23 @@
 # Allow Cilium Gateway (embedded Envoy, not a cluster pod) to reach backend services.
 # The "ingress" Cilium entity is NOT included in the "cluster" entity, so it needs
-# explicit allowance on each service exposed via an HTTPRoute on the gateway.
+# explicit allowance.
+#
+# allow-cluster-internal only covers ingress (fromEntities: cluster). When its
+# egress rule (toEntities: cluster) was removed in the network-policy hardening
+# commit, the reserved:ingress endpoint lost all egress permission to backends.
+# This ClusterwideNetworkPolicy restores it, scoped only to the gateway proxy.
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-gateway-backend-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      reserved.ingress: ""
+  egress:
+    - toEndpoints:
+        - {}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
