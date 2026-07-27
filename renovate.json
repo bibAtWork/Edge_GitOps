@@ -6,11 +6,13 @@
     ":semanticCommits",
     ":separatePatchReleases"
   ],
-  "minimumReleaseAge": "1 day",
+  "baseBranches": ["ops/talos_linux"],
+  "labels": ["renovate"],
+  "minimumReleaseAge": "48 hours",
   "vulnerabilityAlerts": {
     "enabled": true,
-    "minimumReleaseAge": "6 hours",
-    "labels": ["security", "urgent"]
+    "minimumReleaseAge": null,
+    "labels": ["renovate", "security"]
   },
   "osvVulnerabilityAlerts": true,
   "flux": {
@@ -62,6 +64,18 @@
   ],
   "packageRules": [
     {
+      "description": "Label major updates — CI workflow uses this to skip Trivy auto-merge",
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major-update"],
+      "automerge": false
+    },
+    {
+      "description": "Label minor/patch updates — CI Trivy gate evaluates auto-merge eligibility",
+      "matchUpdateTypes": ["minor", "patch"],
+      "addLabels": ["minor-update"],
+      "automerge": false
+    },
+    {
       "description": "Disable digest updates for Talos images",
       "matchDatasources": ["docker"],
       "matchPackagePatterns": ["siderolabs/*"],
@@ -74,15 +88,14 @@
       "automerge": false
     },
     {
-      "description": "Automerge patch updates for low-risk components",
+      "description": "Route all patch updates through Trivy gate (no Renovate-side automerge)",
       "matchUpdateTypes": ["patch"],
       "matchPackageNames": [
         "external-dns",
         "stakater/reloader",
         "trivy-operator"
       ],
-      "automerge": true,
-      "automergeType": "branch"
+      "automerge": false
     }
   ]
 }
