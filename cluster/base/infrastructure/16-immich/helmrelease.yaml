@@ -27,6 +27,23 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Top-level controllers block is shared by all immich components (bjw-s v5 pattern).
+    # DB_* env vars must go here — this is where the chart comment says to add them.
+    controllers:
+      main:
+        containers:
+          main:
+            env:
+              DB_HOSTNAME: immich-postgresql
+              DB_PORT: "5432"
+              DB_DATABASE_NAME: immich
+              DB_USERNAME: immich
+              DB_PASSWORD:
+                valueFrom:
+                  secretKeyRef:
+                    name: immich-db-secret
+                    key: db-password
+
     immich:
       persistence:
         library:
@@ -50,17 +67,6 @@ spec:
           memory: 256Mi
         limits:
           memory: 1Gi
-      # bjw-s env format; immich reads DB connection from DB_* env vars, not config file
-      env:
-        DB_HOSTNAME: immich-postgresql
-        DB_PORT: "5432"
-        DB_DATABASE_NAME: immich
-        DB_USERNAME: immich
-        DB_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: immich-db-secret
-              key: db-password
 
     machine-learning:
       enabled: true
