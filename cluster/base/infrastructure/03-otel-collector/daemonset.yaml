@@ -71,6 +71,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 65534
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
             seccompProfile:
@@ -81,6 +82,8 @@ spec:
             - name: varlogpods
               mountPath: /var/log/pods
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           ports:
             - containerPort: 4317
               protocol: TCP
@@ -93,3 +96,5 @@ spec:
         - name: varlogpods
           hostPath:
             path: /var/log/pods
+        - name: tmp
+          emptyDir: {}

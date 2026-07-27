@@ -17,6 +17,14 @@ spec:
         spec:
           restartPolicy: OnFailure
           serviceAccountName: talos-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: tmp
+              emptyDir: {}
           containers:
             - name: talos-backup
               image: ghcr.io/siderolabs/talos-backup:v0.1.0-beta.2
@@ -48,7 +56,11 @@ spec:
                       key: secret-key
               securityContext:
                 allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
                 seccompProfile:
                   type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
