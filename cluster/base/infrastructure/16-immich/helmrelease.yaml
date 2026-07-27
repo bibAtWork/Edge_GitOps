@@ -5,6 +5,9 @@ metadata:
   namespace: immich
 spec:
   interval: 30m
+  dependsOn:
+    - name: immich-postgresql
+      namespace: immich
   chart:
     spec:
       chart: immich
@@ -25,7 +28,15 @@ spec:
     cleanupOnFail: true
   values:
     immich:
-      configuration: {}
+      configuration:
+        database:
+          host: immich-postgresql
+          port: 5432
+          name: immich
+          username: immich
+        redis:
+          host: immich-redis-master
+          port: 6379
       persistence:
         library:
           # Pre-created PVC required by chart checks.yaml; chart does not provision it.
@@ -38,6 +49,12 @@ spec:
           memory: 256Mi
         limits:
           memory: 1Gi
+      extraEnvVars:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: immich-db-secret
+              key: db-password
 
     machine-learning:
       enabled: true
@@ -53,25 +70,6 @@ spec:
           storageClass: local-path
           accessMode: ReadWriteOnce
           size: 10Gi
-
-    postgresql:
-      enabled: true
-      primary:
-        persistence:
-          storageClass: local-path
-          accessMode: ReadWriteOnce
-          size: 10Gi
-          labels:
-            velero.io/backup: "true"
-      global:
-        postgresql:
-          auth:
-            username: immich
-            database: immich
-            existingSecret: immich-db-secret
-            secretKeys:
-              userPasswordKey: db-password
-              adminPasswordKey: db-admin-password
 
     redis:
       enabled: true
