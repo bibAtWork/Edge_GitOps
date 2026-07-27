@@ -17,6 +17,10 @@ resources:
   - ../../base/infrastructure/14-tailscale-operator/config
   # system-upgrade: Plans (upgrade.cattle.io)
   - ../../base/infrastructure/15-system-upgrade-controller/config
+  # immich: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/16-immich/config
+  # paperless-ngx: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/17-paperless-ngx/config
   # velero Schedules (velero.io) — 1-node specific retention
   - velero-schedules.yaml
   # NodePort services for LAN access without domain/Tailscale
