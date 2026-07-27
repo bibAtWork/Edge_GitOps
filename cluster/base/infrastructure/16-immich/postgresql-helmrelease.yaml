@@ -24,11 +24,17 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    global:
+      # Immich ships its own postgres image with pgvecto.rs; bitnami chart 18.x+
+      # requires this flag to allow non-bitnami container images.
+      security:
+        allowInsecureImages: true
+
     # Immich requires PostgreSQL with pgvecto.rs; use the official Immich image.
     image:
       registry: ghcr.io
       repository: immich-app/postgres
-      tag: "16-vectorchord0.3.0-pgvectors0.3.0"
+      tag: 16-vectorchord0.3.0-pgvectors0.3.0
 
     auth:
       username: immich
