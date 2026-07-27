@@ -47,6 +47,11 @@ spec:
         app.kubernetes.io/name: otel-agent
     spec:
       serviceAccountName: otel-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -63,11 +68,11 @@ spec:
               memory: "300Mi"
               cpu: "200m"
           securityContext:
-            runAsNonRoot: false
+            runAsNonRoot: true
+            runAsUser: 65534
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-              add: ["DAC_READ_SEARCH"]
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
@@ -78,10 +83,8 @@ spec:
               readOnly: true
           ports:
             - containerPort: 4317
-              hostPort: 4317
               protocol: TCP
             - containerPort: 4318
-              hostPort: 4318
               protocol: TCP
       volumes:
         - name: config
