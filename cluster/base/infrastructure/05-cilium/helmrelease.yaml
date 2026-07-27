@@ -85,6 +85,13 @@ spec:
     # Enable L7 proxy for service mesh capabilities
     l7Proxy: true
 
+    # Host Firewall — required for the Cilium Gateway API L7LB to correctly identify
+    # the source security identity of external (non-pod) connections. Without this,
+    # the BPF NIC ingress hook does not set socket marks for external traffic, so
+    # cilium.bpf_metadata gets identity 0 (unknown) and cilium.l7policy denies it.
+    hostFirewall:
+      enabled: true
+
     # Encryption — WireGuard encrypts inter-node traffic at the kernel level.
     # SPIRE mTLS disabled: single-node cluster has no inter-node traffic to encrypt,
     # and SPIRE StatefulSet startup races with Cilium agent, causing install timeouts.
