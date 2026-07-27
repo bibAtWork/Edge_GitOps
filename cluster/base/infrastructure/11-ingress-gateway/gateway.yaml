@@ -11,7 +11,16 @@ spec:
       protocol: HTTPS
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - monitoring
+                  - zot
+                  - kube-system
+                  - gateway-system
       tls:
         mode: Terminate
         certificateRefs:
