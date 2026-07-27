@@ -8,6 +8,8 @@ spec:
   dependsOn:
     - name: immich-postgresql
       namespace: immich
+    - name: immich-redis
+      namespace: immich
   chart:
     spec:
       chart: immich
@@ -71,12 +73,5 @@ spec:
           accessMode: ReadWriteOnce
           size: 10Gi
 
-    redis:
-      enabled: true
-      architecture: standalone
-      auth:
-        enabled: false
-      master:
-        persistence:
-          storageClass: local-path
-          size: 1Gi
+    # redis sub-chart removed in chart 0.10.0; deployed via immich-redis HelmRelease.
+    # Connection configured via immich.configuration.redis above.
