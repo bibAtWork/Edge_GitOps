@@ -63,10 +63,18 @@ spec:
 
     redis:
       enabled: true
+      # bitnami/redis:7.4.2-debian-12-r0 is not on Docker Hub yet; use AWS ECR Public mirror
+      global:
+        imageRegistry: public.ecr.aws
+      image:
+        registry: public.ecr.aws
+        repository: bitnami/redis
+        tag: 7.4.2-debian-12-r0
       master:
         persistence:
           storageClass: local-path
           size: 1Gi
+          accessMode: ReadWriteOnce
 
     resources:
       requests:
