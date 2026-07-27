@@ -12,7 +12,8 @@ spec:
   template:
     storageLocation: seaweedfs-local
     ttl: 96h
-    snapshotVolumes: true
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
     includedNamespaces:
       - "*"
     includeClusterResources: true
@@ -27,7 +28,8 @@ spec:
   template:
     storageLocation: aws-s3
     ttl: 2160h
-    snapshotVolumes: true
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
     includedNamespaces:
       - "*"
     includeClusterResources: true
@@ -42,7 +44,8 @@ spec:
   template:
     storageLocation: aws-s3
     ttl: 8760h
-    snapshotVolumes: true
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
     includedNamespaces:
       - "*"
     includeClusterResources: true
