@@ -71,15 +71,20 @@ cluster:
                     - name: KUBERNETES_SERVICE_PORT
                       value: "6443"
                   command:
-                    - cilium
-                    - install
-                    - --set=ipam.mode=kubernetes
-                    - --set=kubeProxyReplacement=true
-                    - --set=gatewayAPI.enabled=true
-                    - --set=hubble.enabled=true
-                    - --set=encryption.enabled=true
-                    - --set=encryption.type=wireguard
-                    - --set=securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}"
-                    - --set=securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}"
-                    - --set=cgroup.autoMount.enabled=false
-                    - --set=cgroup.hostRoot=/sys/fs/cgroup
+                    - /bin/sh
+                    - -c
+                    - |
+                      set -e
+                      cilium install \
+                        --set=ipam.mode=kubernetes \
+                        --set=kubeProxyReplacement=true \
+                        --set=gatewayAPI.enabled=true \
+                        --set=hubble.enabled=true \
+                        --set=encryption.enabled=true \
+                        --set=encryption.type=wireguard \
+                        '--set=securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}' \
+                        '--set=securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}' \
+                        --set=cgroup.autoMount.enabled=false \
+                        --set=cgroup.hostRoot=/sys/fs/cgroup
+                      kubectl delete clusterrolebinding cilium-install --ignore-not-found
+                      kubectl delete serviceaccount cilium-install -n kube-system --ignore-not-found
