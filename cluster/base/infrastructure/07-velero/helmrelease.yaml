@@ -51,7 +51,6 @@ spec:
             key: cloud
           config:
             region: eu-central-1
-            serverSideEncryption: AES256
 
     credentials:
       useSecret: false
