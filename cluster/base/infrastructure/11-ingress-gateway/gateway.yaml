@@ -21,6 +21,8 @@ spec:
                   - zot
                   - kube-system
                   - gateway-system
+                  - immich
+                  - paperless
       tls:
         mode: Terminate
         certificateRefs:
