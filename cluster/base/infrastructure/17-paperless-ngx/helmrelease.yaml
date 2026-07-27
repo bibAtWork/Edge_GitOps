@@ -63,13 +63,12 @@ spec:
 
     redis:
       enabled: true
-      # bitnami/redis:7.4.2-debian-12-r0 is not on Docker Hub yet; use AWS ECR Public mirror
-      global:
-        imageRegistry: public.ecr.aws
+      # bitnami/redis:7.4.2-debian-12-r0 pinned by chart 20.7.0 doesn't exist on Docker Hub yet.
+      # Use latest which is cached on the node and passes bitnami's registry validation.
       image:
-        registry: public.ecr.aws
+        registry: docker.io
         repository: bitnami/redis
-        tag: 7.4.2-debian-12-r0
+        tag: "latest"
       master:
         persistence:
           storageClass: local-path
