@@ -4,7 +4,7 @@ metadata:
   name: gateway-pool
 spec:
   blocks:
-    - cidr: REPLACE_WITH_GATEWAY_IP/32
+    - cidr: 192.168.178.200/32
   serviceSelector:
     matchLabels:
       io.cilium.gateway/owning-gateway: homelab-gateway
