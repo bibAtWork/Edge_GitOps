@@ -1,0 +1,29 @@
+# Allow Cilium Gateway (embedded Envoy, not a cluster pod) to reach backend services.
+# The "ingress" Cilium entity is NOT included in the "cluster" entity, so it needs
+# explicit allowance on each service exposed via an HTTPRoute on the gateway.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: zot
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: zot
+  ingress:
+    - fromEntities:
+        - ingress
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: kube-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: hubble-ui
+  ingress:
+    - fromEntities:
+        - ingress

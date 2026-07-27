@@ -18,6 +18,9 @@ spec:
         - ports:
             - port: "8333"
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
   egress:
     - toEndpoints:
         - matchLabels:

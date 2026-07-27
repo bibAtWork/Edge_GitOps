@@ -8,10 +8,11 @@ spec:
   # restores cluster-internal communication that default-deny blocks.
   # External access is still controlled by allow-internet-egress-https-only
   # and namespace-specific ingress policies.
+  # Allow ingress from any cluster endpoint (pods + nodes).
+  # This is intentionally kept broad on the ingress side: it prevents traffic from
+  # the internet but allows all intra-cluster services to reach any pod.
+  # Per-namespace and cross-namespace EGRESS policies live in separate files.
   endpointSelector: {}
   ingress:
     - fromEntities:
-        - cluster
-  egress:
-    - toEntities:
         - cluster
