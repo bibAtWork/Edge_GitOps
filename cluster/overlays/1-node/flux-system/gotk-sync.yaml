@@ -12,6 +12,11 @@ spec:
   secretRef:
     name: flux-system
   url: ssh://git@github.com/bibAtWork/Edge_GitOps
+  verify:
+    mode: HEAD
+    provider: ssh
+    secretRef:
+      name: flux-git-verify
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
