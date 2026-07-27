@@ -14,7 +14,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 ## Stack
 
 - **OS**: Talos Linux (immutable, no SSH, API-driven)
-- **CNI**: Cilium (Gateway API, Hubble, kube-proxy replacement, WireGuard + SPIRE mTLS)
+- **CNI**: Cilium (Gateway API, Hubble, kube-proxy replacement, WireGuard configured)
 - **GitOps**: FluxCD v2 + SOPS/Age encrypted secrets
 - **Storage**: SeaweedFS (S3-compatible, CSI driver)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
@@ -233,8 +233,8 @@ export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 
 | Layer | Mechanism |
 |---|---|
-| Inter-node pod traffic | WireGuard (transparent, no per-app config) |
-| Same-node pod traffic | Cilium SPIRE mutual TLS (SPIFFE identities) |
+| Inter-node pod traffic | WireGuard configured but no-op on single-node (no inter-node traffic) |
+| Same-node pod traffic | No pod-to-pod encryption (SPIRE mTLS disabled — races with Cilium bootstrap) |
 | Internet-bound egress | HTTPS-only enforced via `CiliumClusterwideNetworkPolicy` |
 | etcd snapshots at rest | Age encryption (talos-backup keypair) |
 | Git secrets at rest | SOPS + Age (SOPS keypair) |
