@@ -5,3 +5,4 @@ resources:
   - helmrelease.yaml
   - library-pvc.yaml
   - db-secret.yaml
+  - cilium-policy.yaml
