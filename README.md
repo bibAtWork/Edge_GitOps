@@ -349,13 +349,26 @@ on `enp2s0`. Packets arrive at the Cilium gateway proxy (`reserved:ingress`) wit
 (unknown) instead of a valid Cilium identity. The `cilium.l7policy` Envoy filter denies
 identity-0 connections → HTTP 403 for all Tailscale-routed traffic.
 
-**Workaround:** `allow-gateway-world-ingress` uses `fromEntities: all` so the L7 proxy accepts
-identity-0 connections. Backend services remain protected by their own `fromEntities: ingress`
-policies.
+**Workaround:** `allow-gateway-world-ingress` is deleted so the gateway proxy has zero ingress
+policies, causing Cilium to set `enforce_policy_on_l7lb: false` in the `bpf_metadata` filter —
+skipping the source-identity check entirely. The gateway LB IP (`192.168.178.200`) is a private
+LAN address and not routable from the internet, so the network boundary provides the missing
+restriction. Backend services remain protected by their own `fromEntities: ingress` policies.
 
-**Long-term fix:** Replace the Connector with per-service Tailscale LoadBalancer proxies
-(`loadBalancerClass: tailscale`). These use userspace TCP proxying, so each connection arrives
-from the proxy pod's cluster identity — covered by `fromEntities: cluster` without needing
-`all`. Alternatively, switch to Envoy Gateway with `hostNetwork: true` bound to `tailscale0`
-(bypasses Cilium's L7 proxy entirely — see [k8rn](https://github.com/michaelbeaumont/k8rn)
-for a reference implementation).
+**Long-term fix (Option A):** Replace the Connector with per-service Tailscale LoadBalancer
+proxies (`loadBalancerClass: tailscale`). These use userspace TCP proxying so each connection
+arrives from the proxy pod's cluster identity — covered by `fromEntities: cluster`. Then
+reinstate `allow-gateway-world-ingress` with:
+
+```yaml
+fromCIDR:
+  - 192.168.178.0/24   # LAN
+  - 100.64.0.0/10      # Tailscale — RFC 6598 CGNAT range, permanently assigned to Tailscale;
+                       # the /10 block is static but individual device IPs within it are not
+```
+
+This restores `enforce_policy_on_l7lb: true` with a tight source-IP allowlist.
+
+**Long-term fix (Option B):** Switch to Envoy Gateway with `hostNetwork: true` bound to
+`tailscale0` (bypasses Cilium's L7 proxy entirely — see
+[k8rn](https://github.com/michaelbeaumont/k8rn) for a reference implementation).
