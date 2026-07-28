@@ -26,6 +26,9 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    service:
+      appProtocol: kubernetes.io/http
+
     admin:
       existingSecret: grafana-admin
       userKey: admin-user
