@@ -1,0 +1,14 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-gateway-world-ingress
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: reserved.ingress
+        operator: Exists
+  ingress:
+    - fromEntities:
+        - world
+        - host
+        - cluster

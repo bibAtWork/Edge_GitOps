@@ -4,8 +4,8 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: default-deny-ingress
 spec:
-  # Exclude reserved:ingress so the Cilium gateway proxy has zero ingress policies,
-  # which sets enforce_policy_on_l7lb=false in the bpf_metadata listener filter.
+  # Exclude reserved:ingress — the gateway proxy has its own dedicated ingress policy
+  # (allow-gateway-world-ingress). The default-deny must not overlap with it.
   endpointSelector:
     matchExpressions:
       - key: reserved.ingress

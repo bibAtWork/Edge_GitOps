@@ -344,31 +344,27 @@ See [`docs/architecture.md`](./docs/architecture.md) for full design decisions a
 
 **Area:** Cilium / Tailscale
 
-**Problem:** The Tailscale Connector uses kernel IP forwarding, which bypasses `cil_from_netdev`
-on `enp2s0`. Packets arrive at the Cilium gateway proxy (`reserved:ingress`) with identity 0
-(unknown) instead of a valid Cilium identity. The `cilium.l7policy` Envoy filter denies
-identity-0 connections → HTTP 403 for all Tailscale-routed traffic.
+**Root cause:** The Tailscale Connector pod uses kernel IP forwarding. Forwarded packets exit
+via the pod's lxc veth, triggering `cil_from_container` — not `cil_from_netdev` on `enp2s0`.
+`cil_from_container` does not write to the per-session proxy map (`cilium_proxy_map4`) that
+Envoy's `bpf_metadata` filter reads to determine source identity. `bpf_metadata` finds no map
+entry → identity 0 (unknown) → `cilium.l7policy` denies with HTTP 403.
 
-**Workaround:** `allow-gateway-world-ingress` is deleted so the gateway proxy has zero ingress
-policies, causing Cilium to set `enforce_policy_on_l7lb: false` in the `bpf_metadata` filter —
-skipping the source-identity check entirely. The gateway LB IP (`192.168.178.200`) is a private
-LAN address and not routable from the internet, so the network boundary provides the missing
-restriction. Backend services remain protected by their own `fromEntities: ingress` policies.
+LAN clients hit `enp2s0` directly → `cil_from_netdev` fires → writes world identity (2) to the
+per-session map → TPROXY delivers the connection to Envoy with identity 2 → allowed.
 
-**Long-term fix (Option A):** Replace the Connector with per-service Tailscale LoadBalancer
-proxies (`loadBalancerClass: tailscale`). These use userspace TCP proxying so each connection
-arrives from the proxy pod's cluster identity — covered by `fromEntities: cluster`. Then
-reinstate `allow-gateway-world-ingress` with:
+**Current state:** `allow-gateway-world-ingress` with `fromEntities: [world, host, cluster]`
+is in place. `enforce_policy_on_l7lb: true` is always set by Cilium 1.19.6 for Gateway API
+listeners regardless of ingress-policy count (confirmed by investigation — the earlier theory
+that deleting this policy would flip it to `false` is incorrect for this Cilium version). LAN
+access works. Tailscale remains broken.
 
-```yaml
-fromCIDR:
-  - 192.168.178.0/24   # LAN
-  - 100.64.0.0/10      # Tailscale — RFC 6598 CGNAT range, permanently assigned to Tailscale;
-                       # the /10 block is static but individual device IPs within it are not
-```
+**Fix (Option A — standalone hostNetwork connector):** The Tailscale Kubernetes operator's
+`ProxyClass` CRD does not expose `hostNetwork`. Deploy a standalone StatefulSet running
+`tailscaled` with `spec.hostNetwork: true` (replacing the `Connector` CRD resource). With
+`hostNetwork: true`, tailscaled creates `tailscale0` in the host network namespace; forwarded
+packets then traverse `enp2s0` with source identity 2 (world) → gateway accepts them.
 
-This restores `enforce_policy_on_l7lb: true` with a tight source-IP allowlist.
-
-**Long-term fix (Option B):** Switch to Envoy Gateway with `hostNetwork: true` bound to
+**Fix (Option B — Envoy Gateway):** Switch to Envoy Gateway with `hostNetwork: true` bound to
 `tailscale0` (bypasses Cilium's L7 proxy entirely — see
 [k8rn](https://github.com/michaelbeaumont/k8rn) for a reference implementation).
