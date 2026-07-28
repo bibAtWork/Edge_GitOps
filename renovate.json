@@ -76,7 +76,8 @@
       "description": "Disable digest updates for Talos images",
       "matchDatasources": ["docker"],
       "matchPackagePatterns": ["siderolabs/*"],
-      "digestUpdateType": "never"
+      "matchUpdateTypes": ["digest"],
+      "enabled": false
     },
     {
       "description": "Group Flux updates",
