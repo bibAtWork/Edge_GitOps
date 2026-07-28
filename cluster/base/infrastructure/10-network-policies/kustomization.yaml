@@ -14,5 +14,4 @@ resources:
   - allow-zot-egress.yaml
   - allow-internet-egress-https.yaml
   - allow-coredns-egress.yaml
-  - allow-gateway-world-ingress.yaml
   - allow-tailscale-egress.yaml

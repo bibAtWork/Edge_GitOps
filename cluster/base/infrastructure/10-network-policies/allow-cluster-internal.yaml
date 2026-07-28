@@ -12,7 +12,13 @@ spec:
   # This is intentionally kept broad on the ingress side: it prevents traffic from
   # the internet but allows all intra-cluster services to reach any pod.
   # Per-namespace and cross-namespace EGRESS policies live in separate files.
-  endpointSelector: {}
+  # Exclude reserved:ingress (Cilium gateway proxy). With any ingress policy applied
+  # to that endpoint, bpf_metadata sets enforce_policy_on_l7lb=true and then
+  # cilium.l7policy denies external connections because they arrive with identity 0.
+  endpointSelector:
+    matchExpressions:
+      - key: reserved.ingress
+        operator: DoesNotExist
   ingress:
     - fromEntities:
         - cluster
