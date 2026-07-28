@@ -65,6 +65,14 @@ spec:
     gatewayAPI:
       enabled: true
       enableAlpn: true
+      # hostNetwork: when true, Envoy binds directly on host interfaces instead of
+      # using the BPF L7LB path (192.168.178.200:443 → 127.0.0.1:13870). Without
+      # this, external TCP connections don't go through cil_sock4_connect, so
+      # bpf_metadata can't resolve their source identity from the per-session BPF
+      # map, and assigns identity 0. cilium.l7policy then denies every external
+      # HTTP request regardless of the ingress NetworkPolicy configured on EP 298.
+      hostNetwork:
+        enabled: true
 
     # Hubble — network observability
     hubble:
