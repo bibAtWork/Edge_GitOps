@@ -12,6 +12,4 @@ spec:
       reserved.ingress: ""
   ingress:
     - fromEntities:
-        - world
-        - host
-        - cluster
+        - all
