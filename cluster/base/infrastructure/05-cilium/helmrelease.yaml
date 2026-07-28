@@ -65,14 +65,6 @@ spec:
     gatewayAPI:
       enabled: true
       enableAlpn: true
-      # hostNetwork: when true, Envoy binds directly on host interfaces instead of
-      # using the BPF L7LB path (192.168.178.200:443 → 127.0.0.1:13870). Without
-      # this, external TCP connections don't go through cil_sock4_connect, so
-      # bpf_metadata can't resolve their source identity from the per-session BPF
-      # map, and assigns identity 0. cilium.l7policy then denies every external
-      # HTTP request regardless of the ingress NetworkPolicy configured on EP 298.
-      hostNetwork:
-        enabled: true
 
     # Hubble — network observability
     hubble:
@@ -94,10 +86,18 @@ spec:
     # Enable L7 proxy for service mesh capabilities
     l7Proxy: true
 
-    # Host Firewall — required for the Cilium Gateway API L7LB to correctly identify
-    # the source security identity of external (non-pod) connections. Without this,
-    # the BPF NIC ingress hook does not set socket marks for external traffic, so
-    # cilium.bpf_metadata gets identity 0 (unknown) and cilium.l7policy denies it.
+    # Native routing: disables VXLAN tunnel and attaches cil_from_netdev TC hook to
+    # the physical NIC (enp2s0). This is required for the Cilium Gateway API L7LB to
+    # correctly identify external connections. In tunnel mode, cil_from_netdev never
+    # runs on the physical NIC, so external packets have no Cilium metadata when they
+    # arrive at the iptables TPROXY rule — the per-session identity map is not
+    # populated, and bpf_metadata reads identity 0. With native routing, cil_from_netdev
+    # fires on enp2s0, looks up the source IP in ipcache (world=2), writes the identity
+    # to the per-session map, sets the proxy mark, and TPROXY fires correctly.
+    routingMode: native
+    ipv4NativeRoutingCIDR: 10.244.0.0/24
+
+    # Host firewall: enforces Cilium network policies on host-level traffic.
     hostFirewall:
       enabled: true
 
