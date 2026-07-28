@@ -19,7 +19,10 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: default-deny-egress
 spec:
-  endpointSelector: {}
+  endpointSelector:
+    matchExpressions:
+      - key: reserved.ingress
+        operator: DoesNotExist
   egress:
     - toEntities:
         - host

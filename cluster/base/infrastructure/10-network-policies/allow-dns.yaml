@@ -3,7 +3,10 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-dns-egress
 spec:
-  endpointSelector: {}
+  endpointSelector:
+    matchExpressions:
+      - key: reserved.ingress
+        operator: DoesNotExist
   egress:
     - toEndpoints:
         - matchLabels:
