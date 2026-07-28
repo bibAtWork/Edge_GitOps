@@ -140,3 +140,23 @@ spec:
         memory: 512Mi
       limits:
         memory: 1Gi
+
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Service
+              name: hubble-ui
+              namespace: kube-system
+            patch: |
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: hubble-ui
+                namespace: kube-system
+              spec:
+                ports:
+                  - name: http
+                    port: 80
+                    protocol: TCP
+                    appProtocol: kubernetes.io/http
