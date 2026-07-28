@@ -1,0 +1,98 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":separatePatchReleases"
+  ],
+  "baseBranches": ["ops/talos_linux"],
+  "labels": ["renovate"],
+  "minimumReleaseAge": "48 hours",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": null,
+    "labels": ["renovate", "security"]
+  },
+  "osvVulnerabilityAlerts": true,
+  "flux": {
+    "enabled": true,
+    "fileMatch": ["cluster/.+\\.yaml$"]
+  },
+  "helm-values": {
+    "fileMatch": ["cluster/.+helmrelease\\.yaml$"]
+  },
+  "kubernetes": {
+    "fileMatch": ["cluster/.+\\.yaml$"]
+  },
+  "regexManagers": [
+    {
+      "description": "Ansible tool versions in group_vars/all.yml (comment-driven)",
+      "fileMatch": ["bootstrap/ansible/group_vars/all\\.yml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\w+_version:\\s*\"(?<currentValue>[\\d.]+)\""
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "talos-backup image in CronJob",
+      "fileMatch": ["cluster/base/00-bootstrap/talos-backup/cronjob\\.yaml$"],
+      "matchStrings": [
+        "image:\\s*ghcr\\.io/siderolabs/talos-backup:(?<currentValue>[\\w.-]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/siderolabs/talos-backup"
+    },
+    {
+      "description": "Talos version in SUC upgrade plans (spec.version drives the installer tag via SYSTEM_UPGRADE_PLAN_LATEST_VERSION)",
+      "fileMatch": ["cluster/base/infrastructure/15-system-upgrade-controller/config/plans/.+\\.yaml$"],
+      "matchStrings": [
+        "version:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group all Talos ecosystem updates into one PR",
+      "matchPackageNames": ["siderolabs/talos", "ghcr.io/siderolabs/talosctl", "ghcr.io/siderolabs/talos-backup"],
+      "groupName": "talos",
+      "automerge": false
+    },
+    {
+      "description": "Label major updates — CI workflow uses this to skip Trivy auto-merge",
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major-update"],
+      "automerge": false
+    },
+    {
+      "description": "Label minor/patch updates — CI Trivy gate evaluates auto-merge eligibility",
+      "matchUpdateTypes": ["minor", "patch"],
+      "addLabels": ["minor-update"],
+      "automerge": false
+    },
+    {
+      "description": "Disable digest updates for Talos images",
+      "matchDatasources": ["docker"],
+      "matchPackagePatterns": ["siderolabs/*"],
+      "digestUpdateType": "never"
+    },
+    {
+      "description": "Group Flux updates",
+      "matchPackagePatterns": ["fluxcd/*", "flux2"],
+      "groupName": "flux",
+      "automerge": false
+    },
+    {
+      "description": "Route all patch updates through Trivy gate (no Renovate-side automerge)",
+      "matchUpdateTypes": ["patch"],
+      "matchPackageNames": [
+        "external-dns",
+        "stakater/reloader",
+        "trivy-operator"
+      ],
+      "automerge": false
+    }
+  ]
+}
