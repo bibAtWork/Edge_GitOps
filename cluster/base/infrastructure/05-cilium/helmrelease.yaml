@@ -64,6 +64,7 @@ spec:
     # Gateway API support
     gatewayAPI:
       enabled: true
+      enableAlpn: true
 
     # Hubble — network observability
     hubble:
