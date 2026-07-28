@@ -18,6 +18,9 @@ spec:
   egress:
     - toEndpoints:
         - {}
+    - toEntities:
+        - world
+        - host
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
