@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:base",
+    "config:recommended",
     ":dependencyDashboard",
     ":semanticCommits",
     ":separatePatchReleases"
@@ -35,15 +35,6 @@
       "versioningTemplate": "semver"
     },
     {
-      "description": "Talos Linux version in machineconfigs",
-      "fileMatch": ["cluster/overlays/.+/talos-machineconfigs/.+\\.yaml$"],
-      "matchStrings": [
-        "talosVersion:\\s*(?<currentValue>[\\w.+]+)"
-      ],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "siderolabs/talos"
-    },
-    {
       "description": "talos-backup image in CronJob",
       "fileMatch": ["cluster/base/00-bootstrap/talos-backup/cronjob\\.yaml$"],
       "matchStrings": [
@@ -53,16 +44,22 @@
       "depNameTemplate": "ghcr.io/siderolabs/talos-backup"
     },
     {
-      "description": "System Upgrade Controller plan channels",
-      "fileMatch": ["cluster/base/infrastructure/15-system-upgrade-controller/plans/.+\\.yaml$"],
+      "description": "Talos version in SUC upgrade plans (spec.version drives the installer tag via SYSTEM_UPGRADE_PLAN_LATEST_VERSION)",
+      "fileMatch": ["cluster/base/infrastructure/15-system-upgrade-controller/config/plans/.+\\.yaml$"],
       "matchStrings": [
-        "ghcr\\.io/siderolabs/installer:(?<currentValue>[\\w.-]+)"
+        "version:\\s*(?<currentValue>v[\\d.]+)"
       ],
-      "datasourceTemplate": "docker",
-      "depNameTemplate": "ghcr.io/siderolabs/installer"
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
     }
   ],
   "packageRules": [
+    {
+      "description": "Group all Talos ecosystem updates into one PR",
+      "matchPackageNames": ["siderolabs/talos", "ghcr.io/siderolabs/talosctl", "ghcr.io/siderolabs/talos-backup"],
+      "groupName": "talos",
+      "automerge": false
+    },
     {
       "description": "Label major updates — CI workflow uses this to skip Trivy auto-merge",
       "matchUpdateTypes": ["major"],
