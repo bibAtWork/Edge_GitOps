@@ -32,6 +32,20 @@ spec:
     - kustomize:
         patches:
           - target:
+              kind: Service
+              name: zot
+            patch: |
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: zot
+              spec:
+                ports:
+                  - name: zot
+                    port: 5000
+                    protocol: TCP
+                    appProtocol: kubernetes.io/http
+          - target:
               kind: StatefulSet
               name: zot
             patch: |
