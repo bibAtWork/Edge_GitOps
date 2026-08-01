@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscaled-subnet-router
+  namespace: tailscale
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscaled-subnet-router
+  namespace: tailscale
+rules:
+  # create cannot be scoped to resourceNames (k8s limitation) — mitigated by
+  # pre-creating the secret below so this verb is only exercised on first boot.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch"]
+    resourceNames: ["tailscaled-subnet-router-state"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscaled-subnet-router
+  namespace: tailscale
+subjects:
+  - kind: ServiceAccount
+    name: tailscaled-subnet-router
+    namespace: tailscale
+roleRef:
+  kind: Role
+  name: tailscaled-subnet-router
+  apiGroup: rbac.authorization.k8s.io
+---
+# Pre-created so the SA's unrestricted create is never exercised after first boot.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tailscaled-subnet-router-state
+  namespace: tailscale
+---
+# hostNetwork: true puts tailscale0 in the host network namespace.
+# Forwarded packets from Tailscale clients then traverse enp2s0 via
+# cil_from_netdev, which writes identity=2 (world) into cilium_proxy_map4.
+# Envoy's bpf_metadata filter finds the entry and allows the request.
+#
+# The Connector CRD cannot expose hostNetwork — this StatefulSet replaces it.
+#
+# First boot: authenticates via the OAuth client secret (TS_AUTHKEY), registers
+# a device named "homelab-router", and advertises 192.168.178.200/32.
+# The route must be approved once in the Tailscale admin console (or via ACL).
+# Subsequent restarts reuse state from the tailscaled-subnet-router-state Secret.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tailscaled-subnet-router
+  namespace: tailscale
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tailscaled-subnet-router
+  serviceName: tailscaled-subnet-router
+  template:
+    metadata:
+      labels:
+        app: tailscaled-subnet-router
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: tailscaled-subnet-router
+      containers:
+        - name: tailscaled
+          image: tailscale/tailscale:v1.98.9
+          env:
+            - name: TS_KUBE_SECRET
+              value: tailscaled-subnet-router-state
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: tailscale-oauth
+                  key: client_secret
+            - name: TS_HOSTNAME
+              value: homelab-router
+            - name: TS_ROUTES
+              value: "192.168.178.200/32"
+            - name: TS_USERSPACE
+              value: "false"
+            - name: TS_AUTH_ONCE
+              value: "true"
+            - name: TS_EXTRA_ARGS
+              value: "--advertise-tags=tag:k8s-operator"
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_MODULE
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: tun
+              mountPath: /dev/net/tun
+      volumes:
+        - name: tun
+          hostPath:
+            path: /dev/net/tun

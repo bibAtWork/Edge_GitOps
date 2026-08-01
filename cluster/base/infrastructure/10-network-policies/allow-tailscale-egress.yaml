@@ -1,4 +1,4 @@
-# Tailscale subnet router requires WireGuard UDP (41641), STUN UDP (3478) for NAT
+﻿# Tailscale subnet router requires WireGuard UDP (41641), STUN UDP (3478) for NAT
 # traversal, and ICMP for latency probing / DERP server selection.
 # HTTPS egress to the Tailscale control plane is already covered by
 # allow-internet-egress-https-only (TCP 443 to world, all pods).
@@ -10,7 +10,7 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      tailscale.com/parent-resource: homelab-subnet-router
+      app: tailscaled-subnet-router
   egress:
     - toEntities:
         - world
