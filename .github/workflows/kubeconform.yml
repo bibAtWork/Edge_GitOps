@@ -1,0 +1,53 @@
+name: Kubeconform
+
+on:
+  pull_request:
+    branches: [ops/talos_linux]
+    paths:
+      - 'cluster/**/*.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        overlay: [1-node, 3-node]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kubeconform
+        run: |
+          VERSION=$(curl -sL https://api.github.com/repos/yannh/kubeconform/releases/latest \
+            | jq -r '.tag_name')
+          curl -sL "https://github.com/yannh/kubeconform/releases/download/${VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kubeconform
+          echo "kubeconform $(kubeconform -v)"
+
+      - name: Install kustomize
+        run: |
+          VERSION=$(curl -sL 'https://api.github.com/repos/kubernetes-sigs/kustomize/releases?per_page=20' \
+            | jq -r '[.[] | select(.tag_name | startswith("kustomize/"))] | first | .tag_name | ltrimstr("kustomize/")')
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kustomize
+          echo "kustomize $(kustomize version)"
+
+      - name: Build and validate ${{ matrix.overlay }} overlay
+        run: |
+          # Build the full rendered manifest, then strip SOPS-encrypted documents
+          # before feeding to kubeconform — SOPS adds a root-level `sops:` key
+          # that would trigger strict-mode failures on every secret.
+          kustomize build cluster/overlays/${{ matrix.overlay }} \
+            | yq 'select(.sops == null)' \
+            | kubeconform \
+                -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+                -ignore-missing-schemas \
+                -strict \
+                -summary \
+                -output pretty \
+                -
