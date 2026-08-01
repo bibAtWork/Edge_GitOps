@@ -18,6 +18,7 @@ resources:
   - ../../base/infrastructure/13-trivy-operator
   - ../../base/infrastructure/14-tailscale-operator
   - ../../base/infrastructure/15-system-upgrade-controller
+  - ../../base/infrastructure/18-flux-notifications
   - patches/velero-schedules-ha.yaml
 
 patches:
