@@ -1,7 +1,7 @@
 # Tool versions — update these or override with -e var=value on the CLI.
 # Renovate bumps these automatically; the preceding-line comments drive datasource lookup.
 # renovate: datasource=github-releases depName=siderolabs/talos
-talosctl_version:  "1.13.6"
+talosctl_version:  "1.13.7"
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 kubectl_version:   "1.36.3"
 # renovate: datasource=github-releases depName=fluxcd/flux2
