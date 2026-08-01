@@ -243,8 +243,15 @@ jobs:
           found          = os.environ.get('FOUND', 'false') == 'true'
           pr_labels      = json.loads(os.environ.get('PR_LABELS', '[]'))
           is_minor_label = 'minor-update' in pr_labels
+          manual_review  = 'manual-review' in pr_labels
 
-          if not found:
+          if manual_review:
+              merge  = False
+              cond_a = False
+              cond_b = True
+              cond_c = True
+              note   = 'manual-review label present — bootstrap updates require human sign-off'
+          elif not found:
               # Chart-only update (no image diff): auto-merge all minor/patch
               merge  = is_minor_label
               cond_a = is_minor_label
@@ -298,6 +305,7 @@ jobs:
 
           VERDICT="### ⏸️ Manual review required"
           [ "$SHOULD_MERGE" = "true" ] && VERDICT="### ✅ Auto-merging"
+          echo "$DECISION_NOTE" | grep -q "manual-review" && VERDICT="### 🔒 Manual review required — bootstrap update (reflects last known-good bootstrap state)"
 
           if [ "$FOUND" = "true" ]; then
             CAND_ROW=""
