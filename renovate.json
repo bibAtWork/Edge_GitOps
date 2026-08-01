@@ -106,6 +106,12 @@
       "matchPackageNames": ["velero", "velero/velero-plugin-for-aws"],
       "groupName": "velero",
       "automerge": false
+    },
+    {
+      "description": "Bootstrap updates always require manual review — bootstrap/ reflects the last known-good state a successful bootstrap was run against.",
+      "matchFileNames": ["bootstrap/**"],
+      "automerge": false,
+      "addLabels": ["manual-review"]
     }
   ]
 }
