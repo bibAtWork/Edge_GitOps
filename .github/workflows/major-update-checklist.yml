@@ -1,0 +1,50 @@
+name: Major Update Checklist
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [ops/talos_linux]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  checklist:
+    if: |
+      contains(github.event.pull_request.labels.*.name, 'major-update') &&
+      github.actor == 'renovate[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Post checklist (once per PR)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          existing=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("Major Update Review Checklist")))] | length')
+
+          if [ "$existing" -gt 0 ]; then
+            echo "Checklist already posted — skipping"
+            exit 0
+          fi
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "## 📋 Major Update Review Checklist
+
+This is a **major version update** (\`major-update\` label). Auto-merge is **disabled** — a human must review and merge this PR.
+
+### Before merging
+
+- [ ] Read the upstream changelog / release notes for all skipped versions
+- [ ] Check \`helmrelease.yaml\` values against the new chart's \`values.yaml\` schema — look for renamed or removed fields
+- [ ] Verify CRD schema changes (if the chart ships CRDs) — confirm existing resources still conform to the new schema
+- [ ] For stateful workloads (databases, object storage): confirm a Velero backup completed successfully before merging
+- [ ] Confirm no network policy changes are needed for the new version
+
+### After merging
+
+- [ ] Watch Flux reconciliation: \`kubectl get helmreleases -A\` should reach \`READY=True\`
+- [ ] Spot-check the workload is healthy (pod running, UI reachable, logs clean)
+
+> ⚠️ The Trivy CVE gate does not run on major updates. This checklist is the only gate."
