@@ -97,7 +97,6 @@ spec:
               add:
                 - NET_ADMIN
                 - NET_RAW
-                - SYS_MODULE
           resources:
             requests:
               cpu: 50m
