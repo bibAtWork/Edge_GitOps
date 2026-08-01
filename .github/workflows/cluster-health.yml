@@ -1,0 +1,49 @@
+name: Cluster Health Check
+
+# Runs every 6 hours and can be triggered manually.
+# Requires a self-hosted runner on the homelab network (or one connected
+# via Tailscale) that already has kubectl configured with cluster access.
+# Register a runner in Settings → Actions → Runners and label it "homelab".
+#
+# To run on-demand before a major update:
+#   gh workflow run cluster-health.yml -f mode=pre-update
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Check mode'
+        required: false
+        default: monitor
+        type: choice
+        options: [monitor, pre-update]
+      group:
+        description: 'Limit to group(s): flux storage backup etcd certs network apps (space-separated, empty = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: ${{ github.event.inputs.mode || 'monitor' }}
+    runs-on: [self-hosted, homelab]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ops/talos_linux
+
+      - name: Run cluster health checks
+        env:
+          MODE: ${{ github.event.inputs.mode || 'monitor' }}
+          GROUP: ${{ github.event.inputs.group || '' }}
+        run: |
+          ARGS="--mode $MODE"
+          if [ -n "$GROUP" ]; then
+            ARGS="$ARGS --group $GROUP"
+          fi
+          python3 scripts/cluster-health.py $ARGS
