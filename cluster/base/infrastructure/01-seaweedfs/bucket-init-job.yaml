@@ -26,7 +26,7 @@ spec:
               echo "SeaweedFS S3 is up."
       containers:
         - name: create-buckets
-          image: amazon/aws-cli:2.22.0
+          image: amazon/aws-cli:2.22.35
           env:
             - name: AWS_DEFAULT_REGION
               value: us-east-1
