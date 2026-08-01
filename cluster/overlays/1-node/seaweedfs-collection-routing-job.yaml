@@ -16,7 +16,7 @@ spec:
       initContainers:
         # Wait until the base bucket-init job has created all buckets.
         - name: wait-for-buckets
-          image: amazon/aws-cli:2.22.0
+          image: amazon/aws-cli:2.36.11
           env:
             - name: AWS_DEFAULT_REGION
               value: us-east-1
