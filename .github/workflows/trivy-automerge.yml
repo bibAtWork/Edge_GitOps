@@ -1,4 +1,4 @@
-name: Trivy CVE gate
+﻿name: Trivy CVE gate
 
 on:
   pull_request:
@@ -27,7 +27,7 @@ jobs:
       - name: Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin v0.58.0
+            | sh -s -- -b /usr/local/bin
 
       - name: Install crane (registry tag lister)
         run: |
@@ -229,38 +229,58 @@ jobs:
       # ── Step 6: evaluate merge decision ──────────────────────────────────────
       - name: Evaluate auto-merge decision
         id: decision
-        if: steps.images.outputs.found == 'true'
         env:
-          IS_MINOR: ${{ steps.version.outputs.is_minor }}
-          OLD_CVSS: ${{ steps.scan_old.outputs.max_cvss }}
-          NEW_CVSS: ${{ steps.scan_new.outputs.max_cvss }}
-          NO_BETTER: ${{ steps.check_3b.outputs.no_better }}
+          FOUND:      ${{ steps.images.outputs.found }}
+          IS_MINOR:   ${{ steps.version.outputs.is_minor }}
+          OLD_CVSS:   ${{ steps.scan_old.outputs.max_cvss }}
+          NEW_CVSS:   ${{ steps.scan_new.outputs.max_cvss }}
+          NO_BETTER:  ${{ steps.check_3b.outputs.no_better }}
+          PR_LABELS:  ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           python3 - <<'PY'
-          import os
+          import os, json
 
-          cond_a = os.environ.get('IS_MINOR', 'false') == 'true'          # minor version
-          cond_b = os.environ.get('NO_BETTER', 'true') == 'true'          # no better minor
-          cond_c = float(os.environ.get('OLD_CVSS') or 0) >= 8.0          # current CVE ≥ 8.0
-          merge  = cond_a and cond_b and cond_c
+          found          = os.environ.get('FOUND', 'false') == 'true'
+          pr_labels      = json.loads(os.environ.get('PR_LABELS', '[]'))
+          is_minor_label = 'minor-update' in pr_labels
+
+          if not found:
+              # Chart-only update (no image diff): auto-merge all minor/patch
+              merge  = is_minor_label
+              cond_a = is_minor_label
+              cond_b = True
+              cond_c = True
+              note   = 'chart-only update — no image CVE scan needed'
+          else:
+              is_minor  = os.environ.get('IS_MINOR', 'false') == 'true'
+              old_cvss  = float(os.environ.get('OLD_CVSS') or 0)
+              new_cvss  = float(os.environ.get('NEW_CVSS') or 0)
+              no_better = os.environ.get('NO_BETTER', 'true') == 'true'
+
+              cond_a = is_minor                 # minor/patch version bump
+              cond_b = no_better                # no newer minor with lower CVE exists
+              cond_c = new_cvss <= old_cvss     # update doesn't worsen CVE posture
+              merge  = cond_a and cond_b and cond_c
+              note   = f'old_cvss={old_cvss} new_cvss={new_cvss}'
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"should_merge={'true' if merge else 'false'}\n")
               f.write(f"cond_a={'true' if cond_a else 'false'}\n")
               f.write(f"cond_b={'true' if cond_b else 'false'}\n")
               f.write(f"cond_c={'true' if cond_c else 'false'}\n")
+              f.write(f"decision_note={note}\n")
 
-          print(f'3a minor:      {cond_a}')
-          print(f'3b no-better:  {cond_b}')
-          print(f'3c CVE≥8.0:    {cond_c}  (score {os.environ.get("OLD_CVSS")})')
+          print(f'3a minor/patch:       {cond_a}')
+          print(f'3b no-better-minor:   {cond_b}')
+          print(f'3c CVE not worsened:  {cond_c}  ({note})')
           print(f'→  {"AUTO-MERGE" if merge else "MANUAL REVIEW"}')
           PY
 
       # ── Step 7: post CVE report as PR comment ────────────────────────────────
       - name: Post CVE report
-        if: steps.images.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          FOUND:        ${{ steps.images.outputs.found }}
           OLD_IMAGE:    ${{ steps.images.outputs.old }}
           NEW_IMAGE:    ${{ steps.images.outputs.new }}
           OLD_CVSS:     ${{ steps.scan_old.outputs.max_cvss }}
@@ -272,31 +292,39 @@ jobs:
           NOTE_3B:      ${{ steps.check_3b.outputs.note }}
           LATEST_CAND:  ${{ steps.check_3b.outputs.latest_candidate }}
           LATEST_CVSS:  ${{ steps.check_3b.outputs.latest_cvss }}
+          DECISION_NOTE: ${{ steps.decision.outputs.decision_note }}
         run: |
           icon() { [ "$1" = "true" ] && echo "✅" || echo "❌"; }
 
           VERDICT="### ⏸️ Manual review required"
           [ "$SHOULD_MERGE" = "true" ] && VERDICT="### ✅ Auto-merging"
 
-          CAND_ROW=""
-          [ -n "$LATEST_CAND" ] && CAND_ROW="
+          if [ "$FOUND" = "true" ]; then
+            CAND_ROW=""
+            [ -n "$LATEST_CAND" ] && CAND_ROW="
           | **Best newer available** | \`$LATEST_CAND\` | **$LATEST_CVSS** |"
+            IMAGE_SECTION="| | Image | Max CVSS (CRITICAL+HIGH) |
+          |---|---|---|
+          | **Current** | \`$OLD_IMAGE\` | **$OLD_CVSS** |
+          | **Proposed** | \`$NEW_IMAGE\` | **$NEW_CVSS** |$CAND_ROW"
+            COND_C_LABEL="**3c** Update doesn't worsen CVE posture"
+          else
+            IMAGE_SECTION="_Chart-only update — no image diff detected, CVE scan skipped._"
+            COND_C_LABEL="**3c** N/A (chart-only)"
+          fi
 
           gh pr comment ${{ github.event.pull_request.number }} --body "## 🔍 Trivy CVE Gate
 
-          | | Image | Max CVSS (CRITICAL+HIGH) |
-          |---|---|---|
-          | **Current** | \`$OLD_IMAGE\` | **$OLD_CVSS** |
-          | **Proposed** | \`$NEW_IMAGE\` | **$NEW_CVSS** |$CAND_ROW
+          $IMAGE_SECTION
 
           ### Auto-merge conditions
           | | Rule | Met? |
           |---|---|---|
           | $(icon $COND_A) | **3a** Minor/patch version bump | $COND_A |
           | $(icon $COND_B) | **3b** No newer minor with lower CVE | $COND_B |
-          | $(icon $COND_C) | **3c** Current image CVE ≥ 8.0 | $COND_C (score: $OLD_CVSS) |
+          | $(icon $COND_C) | $COND_C_LABEL | $COND_C |
 
-          > $NOTE_3B
+          > $DECISION_NOTE
 
           $VERDICT"
 
