@@ -21,10 +21,13 @@
     "fileMatch": ["cluster/.+\\.yaml$"]
   },
   "helm-values": {
-    "fileMatch": ["cluster/.+helmrelease\\.yaml$"]
+    "fileMatch": [
+      "cluster/base/infrastructure/07-velero/helmrelease\\.yaml$",
+      "cluster/base/infrastructure/16-immich/postgresql-helmrelease\\.yaml$"
+    ]
   },
   "kubernetes": {
-    "fileMatch": ["cluster/.+\\.yaml$"]
+    "fileMatch": ["cluster/(?!.*helmrelease\\.yaml$).+\\.yaml$"]
   },
   "regexManagers": [
     {
