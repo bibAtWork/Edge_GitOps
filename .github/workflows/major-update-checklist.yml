@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   checklist:
-    if: |
+    if: >-
       contains(github.event.pull_request.labels.*.name, 'major-update') &&
       github.actor == 'renovate[bot]'
     runs-on: ubuntu-latest
