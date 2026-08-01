@@ -1,4 +1,4 @@
-# Edge GitOps — Talos Kubernetes Home Lab
+﻿# Edge GitOps — Talos Kubernetes Home Lab
 
 Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD GitOps.
 
@@ -340,31 +340,4 @@ See [`docs/architecture.md`](./docs/architecture.md) for full design decisions a
 
 ## Technical Debt
 
-### TD-001 — Cilium gateway proxy: Tailscale identity-0 403
-
-**Area:** Cilium / Tailscale
-
-**Root cause:** The Tailscale Connector pod uses kernel IP forwarding. Forwarded packets exit
-via the pod's lxc veth, triggering `cil_from_container` — not `cil_from_netdev` on `enp2s0`.
-`cil_from_container` does not write to the per-session proxy map (`cilium_proxy_map4`) that
-Envoy's `bpf_metadata` filter reads to determine source identity. `bpf_metadata` finds no map
-entry → identity 0 (unknown) → `cilium.l7policy` denies with HTTP 403.
-
-LAN clients hit `enp2s0` directly → `cil_from_netdev` fires → writes world identity (2) to the
-per-session map → TPROXY delivers the connection to Envoy with identity 2 → allowed.
-
-**Current state:** `allow-gateway-world-ingress` with `fromEntities: [world, host, cluster]`
-is in place. `enforce_policy_on_l7lb: true` is always set by Cilium 1.19.6 for Gateway API
-listeners regardless of ingress-policy count (confirmed by investigation — the earlier theory
-that deleting this policy would flip it to `false` is incorrect for this Cilium version). LAN
-access works. Tailscale remains broken.
-
-**Fix (Option A — standalone hostNetwork connector):** The Tailscale Kubernetes operator's
-`ProxyClass` CRD does not expose `hostNetwork`. Deploy a standalone StatefulSet running
-`tailscaled` with `spec.hostNetwork: true` (replacing the `Connector` CRD resource). With
-`hostNetwork: true`, tailscaled creates `tailscale0` in the host network namespace; forwarded
-packets then traverse `enp2s0` with source identity 2 (world) → gateway accepts them.
-
-**Fix (Option B — Envoy Gateway):** Switch to Envoy Gateway with `hostNetwork: true` bound to
-`tailscale0` (bypasses Cilium's L7 proxy entirely — see
-[k8rn](https://github.com/michaelbeaumont/k8rn) for a reference implementation).
+_No open items._

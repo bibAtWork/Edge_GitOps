@@ -1,6 +1,16 @@
-apiVersion: tailscale.com/v1alpha1
-kind: Connector
+apiVersion: apps/v1
+kind: StatefulSet
 metadata:
-  name: homelab-subnet-router
+  name: tailscaled-subnet-router
+  namespace: tailscale
 spec:
   replicas: 3
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: tailscaled-subnet-router
+              topologyKey: kubernetes.io/hostname
