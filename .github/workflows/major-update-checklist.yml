@@ -30,21 +30,25 @@ jobs:
             exit 0
           fi
 
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "## 📋 Major Update Review Checklist
+          {
+            echo '## Major Update Review Checklist'
+            echo ''
+            echo 'This is a **major version update** (`major-update` label). Auto-merge is **disabled** — a human must review and merge this PR.'
+            echo ''
+            echo '### Before merging'
+            echo ''
+            echo '- [ ] Read the upstream changelog / release notes for all skipped versions'
+            echo "- [ ] Check \`helmrelease.yaml\` values against the new chart's \`values.yaml\` schema — look for renamed or removed fields"
+            echo '- [ ] Verify CRD schema changes (if the chart ships CRDs) — confirm existing resources still conform to the new schema'
+            echo '- [ ] For stateful workloads (databases, object storage): confirm a Velero backup completed successfully before merging'
+            echo '- [ ] Confirm no network policy changes are needed for the new version'
+            echo ''
+            echo '### After merging'
+            echo ''
+            echo '- [ ] Watch Flux reconciliation: `kubectl get helmreleases -A` should reach `READY=True`'
+            echo '- [ ] Spot-check the workload is healthy (pod running, UI reachable, logs clean)'
+            echo ''
+            echo '> The Trivy CVE gate does not run on major updates. This checklist is the only gate.'
+          } > /tmp/checklist.md
 
-This is a **major version update** (\`major-update\` label). Auto-merge is **disabled** — a human must review and merge this PR.
-
-### Before merging
-
-- [ ] Read the upstream changelog / release notes for all skipped versions
-- [ ] Check \`helmrelease.yaml\` values against the new chart's \`values.yaml\` schema — look for renamed or removed fields
-- [ ] Verify CRD schema changes (if the chart ships CRDs) — confirm existing resources still conform to the new schema
-- [ ] For stateful workloads (databases, object storage): confirm a Velero backup completed successfully before merging
-- [ ] Confirm no network policy changes are needed for the new version
-
-### After merging
-
-- [ ] Watch Flux reconciliation: \`kubectl get helmreleases -A\` should reach \`READY=True\`
-- [ ] Spot-check the workload is healthy (pod running, UI reachable, logs clean)
-
-> ⚠️ The Trivy CVE gate does not run on major updates. This checklist is the only gate."
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/checklist.md
