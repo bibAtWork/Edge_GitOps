@@ -2,3 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - standard-install.yaml
+  - cilium-gateway-api-compat.yaml
+patches:
+  - path: referencegrant-v1-patch.yaml
+    target:
+      group: apiextensions.k8s.io
+      version: v1
+      kind: CustomResourceDefinition
+      name: referencegrants.gateway.networking.k8s.io
