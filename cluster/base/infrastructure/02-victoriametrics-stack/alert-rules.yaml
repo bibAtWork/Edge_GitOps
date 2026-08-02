@@ -1,0 +1,28 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cilium-gateway-health
+  namespace: monitoring
+spec:
+  groups:
+    - name: cilium.gateway
+      interval: 30s
+      rules:
+        # Fires when cilium.l7policy denies connections at the Envoy L7 proxy.
+        # Root causes: missing egress CCNP on reserved:ingress, wrong source identity
+        # from bpf_metadata (L3 TUN bug), or NPDS allowlist misconfiguration.
+        # See Agent.md for the full diagnostic procedure.
+        - alert: CiliumL7PolicyAccessDenied
+          expr: rate(envoy_cilium_access_denied[2m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cilium.l7policy is dropping {{ printf \"%.1f\" $value }} conn/s"
+            description: >-
+              The Cilium Envoy L7 proxy is denying connections. This typically means a
+              missing or misconfigured CiliumNetworkPolicy on the gateway ingress entity.
+              Check: (1) allow-gateway-world-ingress CCNP exists, (2)
+              allow-gateway-egress-to-cluster CCNP exists, (3) run
+              'cilium-dbg envoy admin logging set global debug' and inspect logs for
+              source_identity and DROP entries.
