@@ -93,5 +93,16 @@ spec:
 
     vmalert:
       spec:
-        extraArgs:
-          notifier.blackhole: "true"
+        # Send alerts to Grafana's built-in Alertmanager-compatible API.
+        # Contact points and routing are configured in Grafana UI / provisioning.
+        notifiers:
+          # HTTP is intentional: cluster-internal traffic between pods in the same
+          # namespace; Grafana is not exposed outside the cluster on this endpoint.
+          - url: "http://grafana.monitoring.svc:80/api/alertmanager/grafana" # nosonar
+            basicAuth:
+              username:
+                name: grafana-admin
+                key: admin-user
+              password:
+                name: grafana-admin
+                key: admin-password
