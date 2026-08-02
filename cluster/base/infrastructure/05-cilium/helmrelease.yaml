@@ -27,6 +27,10 @@ spec:
     remediation:
       retries: 3
       remediateLastFailure: true
+      # rollback is the default strategy; stating it explicitly documents the intent.
+      # A Helm rollback restarts the DaemonSet (template hash changes), which clears
+      # kernel-pinned BPF maps left by the failed upgrade — no extra force flag needed.
+      strategy: rollback
     cleanupOnFail: true
   values:
     # kube-proxy replacement — requires Talos to boot with no kube-proxy
