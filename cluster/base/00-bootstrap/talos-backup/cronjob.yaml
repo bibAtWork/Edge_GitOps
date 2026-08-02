@@ -55,6 +55,7 @@ spec:
                       name: seaweedfs-s3-creds
                       key: secret-key
               securityContext:
+                runAsNonRoot: true
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities:
