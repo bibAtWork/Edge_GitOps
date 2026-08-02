@@ -12,3 +12,6 @@ spec:
         - world
         - host
         - cluster
+    - fromCIDRSet:
+        - cidr: 192.168.0.0/16   # RFC 1918 LAN access
+        - cidr: 100.64.0.0/10   # Tailscale CGNAT
