@@ -41,21 +41,27 @@ metadata:
   name: tailscaled-subnet-router-state
   namespace: tailscale
 ---
-# Subnet routing via Tailscale userspace mode + Cilium socket LB.
+# Subnet routing via Tailscale kernel mode + Cilium cil_from_netdev on tailscale0.
 #
-# WHY userspace (not kernel) mode:
-#   Kernel mode (TS_USERSPACE=false) forwards packets: tailscale0 → enp2s0 →
-#   Fritz!Box switch → enp2s0. The Fritz!Box drops same-port hairpin (src MAC =
-#   dst MAC), so the packet never reaches cil_from_netdev. TPROXY never fires.
+# WHY kernel (not userspace) mode:
+#   Userspace mode (TS_USERSPACE=true) proxies TCP via Go's net.Dial(), which goes
+#   through Cilium's cgroup-level socket LB. However, the identity Cilium assigns to
+#   the tailscaled process's socket connections is identity 0 (unknown), not world (2)
+#   or host (1). Identity 0 cannot appear in any NPDS allowlist — even
+#   fromEntities:all does not include it — so cilium.l7policy denies with 403.
 #
-#   Userspace mode (TS_USERSPACE=true) instead proxies each TCP connection at the
-#   application level via Go's net.Dial(192.168.178.200:443). Cilium's cgroup-
-#   level socket LB (active for all processes via kubeProxyReplacement: true)
-#   intercepts that connect() and redirects it to 127.0.0.1:19349 (Envoy). The
-#   hostNetwork: true pod runs as host identity (1), which is in the NPDS allowlist
-#   on the reserved:ingress endpoint. cilium.l7policy passes the request. Envoy
-#   detects TLS via transport-protocol filter chain match, terminates TLS, and
-#   routes by SNI/Host header.
+#   Kernel mode (TS_USERSPACE=false) forwards decrypted Tailscale packets via the
+#   tailscale0 TUN interface. Cilium's devices config includes tailscale0, so
+#   cil_from_netdev (TC INGRESS) fires on that interface. It looks up the Tailscale
+#   client source IP in ipcache (0.0.0.0/0 → world=2), writes world identity to the
+#   proxy map, and marks the packet MARK_MAGIC_TO_PROXY. IP rule 9 then redirects
+#   marked packets to loopback (table 2004: local default dev lo) → TPROXY socket
+#   → Envoy, where bpf_metadata reads identity 2 and cilium.l7policy allows it.
+#
+#   The Fritz!Box same-port hairpin (which would drop packets whose src MAC = dst MAC
+#   = enp2s0 MAC if the kernel tried to forward via enp2s0) is completely bypassed:
+#   the BPF redirect in TC INGRESS fires BEFORE the kernel's IP forwarding decision,
+#   so the packet goes directly to loopback and never exits enp2s0.
 #
 # The Connector CRD cannot expose hostNetwork — this StatefulSet replaces it.
 #
@@ -98,7 +104,7 @@ spec:
             - name: TS_ROUTES
               value: "192.168.178.200/32"
             - name: TS_USERSPACE
-              value: "true"
+              value: "false"
             - name: TS_AUTH_ONCE
               value: "true"
             - name: TS_EXTRA_ARGS

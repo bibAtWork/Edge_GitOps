@@ -97,6 +97,19 @@ spec:
     routingMode: native
     ipv4NativeRoutingCIDR: 10.244.0.0/24
 
+    # Explicitly list devices so cil_from_netdev attaches to tailscale0 as well as
+    # enp2s0. Without tailscale0 in this list, Tailscale-forwarded packets arrive at
+    # the TPROXY socket with identity 0 (bpf_metadata finds no proxy map entry), and
+    # cilium.l7policy denies with 403 because identity 0 cannot appear in any NPDS
+    # allowlist — even fromEntities:all does not include it.
+    #
+    # With cil_from_netdev on tailscale0 (TC INGRESS), the BPF program fires BEFORE
+    # the kernel's IP forwarding decision. It writes world identity (2) to the proxy
+    # map, marks the packet MARK_MAGIC_TO_PROXY, and IP rule 9 redirects it to
+    # loopback → TPROXY socket → Envoy. The packet never exits enp2s0, so the
+    # Fritz!Box same-port hairpin is completely bypassed.
+    devices: "enp2s0,tailscale0"
+
     # Host firewall: enforces Cilium network policies on host-level traffic.
     hostFirewall:
       enabled: true
