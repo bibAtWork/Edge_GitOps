@@ -41,10 +41,21 @@ metadata:
   name: tailscaled-subnet-router-state
   namespace: tailscale
 ---
-# hostNetwork: true puts tailscale0 in the host network namespace.
-# Forwarded packets from Tailscale clients then traverse enp2s0 via
-# cil_from_netdev, which writes identity=2 (world) into cilium_proxy_map4.
-# Envoy's bpf_metadata filter finds the entry and allows the request.
+# Subnet routing via Tailscale userspace mode + Cilium socket LB.
+#
+# WHY userspace (not kernel) mode:
+#   Kernel mode (TS_USERSPACE=false) forwards packets: tailscale0 → enp2s0 →
+#   Fritz!Box switch → enp2s0. The Fritz!Box drops same-port hairpin (src MAC =
+#   dst MAC), so the packet never reaches cil_from_netdev. TPROXY never fires.
+#
+#   Userspace mode (TS_USERSPACE=true) instead proxies each TCP connection at the
+#   application level via Go's net.Dial(192.168.178.200:443). Cilium's cgroup-
+#   level socket LB (active for all processes via kubeProxyReplacement: true)
+#   intercepts that connect() and redirects it to 127.0.0.1:19349 (Envoy). The
+#   hostNetwork: true pod runs as host identity (1), which is in the NPDS allowlist
+#   on the reserved:ingress endpoint. cilium.l7policy passes the request. Envoy
+#   detects TLS via transport-protocol filter chain match, terminates TLS, and
+#   routes by SNI/Host header.
 #
 # The Connector CRD cannot expose hostNetwork — this StatefulSet replaces it.
 #
@@ -87,7 +98,9 @@ spec:
             - name: TS_ROUTES
               value: "192.168.178.200/32"
             - name: TS_USERSPACE
-              value: "false"
+              value: "true"
+            - name: TS_TAILSCALED_EXTRA_ARGS
+              value: "--netfilter-mode=off"
             - name: TS_AUTH_ONCE
               value: "true"
             - name: TS_EXTRA_ARGS
