@@ -3,15 +3,14 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-gateway-world-ingress
 spec:
+  # matchLabels with the colon form correctly targets reserved:ingress.
+  # matchExpressions with key: reserved.ingress and operator: Exists also works but requires
+  # a full policy reconciliation cycle; matchLabels is more reliable.
   endpointSelector:
-    matchExpressions:
-      - key: reserved.ingress
-        operator: Exists
+    matchLabels:
+      reserved:ingress: ""
   ingress:
     - fromEntities:
         - world
         - host
         - cluster
-    - fromCIDRSet:
-        - cidr: 192.168.0.0/16   # RFC 1918 LAN access
-        - cidr: 100.64.0.0/10   # Tailscale CGNAT
