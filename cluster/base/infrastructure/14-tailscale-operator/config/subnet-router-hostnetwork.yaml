@@ -99,8 +99,6 @@ spec:
               value: "192.168.178.200/32"
             - name: TS_USERSPACE
               value: "true"
-            - name: TS_TAILSCALED_EXTRA_ARGS
-              value: "--netfilter-mode=off"
             - name: TS_AUTH_ONCE
               value: "true"
             - name: TS_EXTRA_ARGS
