@@ -16,4 +16,5 @@ resources:
   - allow-internet-egress-https.yaml
   - allow-coredns-egress.yaml
 
+  - allow-gateway-egress-to-cluster.yaml
   - allow-tailscale-egress.yaml
