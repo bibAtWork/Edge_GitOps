@@ -4,8 +4,12 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: default-deny-ingress
 spec:
-  # Exclude reserved:ingress — the gateway proxy has its own dedicated ingress policy
-  # (allow-gateway-world-ingress). The default-deny must not overlap with it.
+  # Exclude reserved:ingress — the gateway proxy must have NO ingress policy.
+  # Any ingress policy on reserved:ingress triggers bpf_metadata enforce_policy_on_l7lb=true,
+  # which causes cilium.l7policy to enforce based on NPDS. In Cilium 1.20, world identities
+  # are not correctly added to the NPDS for the ingress endpoint, so external traffic gets 403.
+  # With no policy, enforce_policy_on_l7lb=false and cilium.l7policy skips enforcement.
+  # Security boundary is maintained by allow-gateway-ingress (backends only accept from ingress entity).
   endpointSelector:
     matchExpressions:
       - key: reserved.ingress

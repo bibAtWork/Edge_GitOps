@@ -6,7 +6,6 @@ resources:
   - allow-intra-namespace-egress.yaml
   - allow-cross-namespace-egress.yaml
   - allow-gateway-ingress.yaml
-  - allow-gateway-world-ingress.yaml
   - allow-dns.yaml
   - allow-velero-egress.yaml
   - allow-seaweedfs-internal.yaml
