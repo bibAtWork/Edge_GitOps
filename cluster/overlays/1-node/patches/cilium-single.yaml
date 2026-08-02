@@ -4,6 +4,14 @@ metadata:
   name: cilium
   namespace: kube-system
 spec:
+  upgrade:
+    # Roll back automatically if a Cilium upgrade leaves the HelmRelease unhealthy.
+    # force: true restarts the DaemonSet so BPF state from the old version is cleared;
+    # without it a partial upgrade can leave agents in inconsistent routing mode.
+    rollback:
+      enable: true
+      force: true
+      timeout: 10m
   values:
     operator:
       replicas: 1
