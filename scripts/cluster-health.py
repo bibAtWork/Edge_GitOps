@@ -553,8 +553,7 @@ def check_apps(cl: Cluster) -> List[Result]:
 
     # Each entry: (display_name, namespace, kind, resource_name, severity)
     workloads = [
-        ("VictoriaMetrics",    "monitoring",    "statefulsets",  "vmsingle-vmstack-victoria-metrics-k8s-stack", "warning"),
-        ("VictoriaLogs",       "monitoring",    "statefulsets",  "vlogs-vmstack-victoria-metrics-k8s-stack",    "warning"),
+        ("VictoriaMetrics",    "monitoring",    "deployments",   "vmsingle-vmstack-victoria-metrics-k8s-stack", "warning"),
         ("Grafana",            "monitoring",    "deployments",   "grafana",                                     "warning"),
         ("OTel agent",         "monitoring",    "daemonsets",    "otel-agent",                                  "warning"),
         ("OTel gateway",       "monitoring",    "deployments",   "otel-collector-gateway",                      "warning"),
