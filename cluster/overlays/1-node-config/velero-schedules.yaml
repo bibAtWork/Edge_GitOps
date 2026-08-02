@@ -16,6 +16,8 @@ spec:
     defaultVolumesToFsBackup: true
     includedNamespaces:
       - "*"
+    excludedNamespaces:
+      - cattle-system
     includeClusterResources: true
 ---
 apiVersion: velero.io/v1
@@ -32,6 +34,8 @@ spec:
     defaultVolumesToFsBackup: true
     includedNamespaces:
       - "*"
+    excludedNamespaces:
+      - cattle-system
     includeClusterResources: true
 ---
 apiVersion: velero.io/v1
@@ -48,4 +52,6 @@ spec:
     defaultVolumesToFsBackup: true
     includedNamespaces:
       - "*"
+    excludedNamespaces:
+      - cattle-system
     includeClusterResources: true
