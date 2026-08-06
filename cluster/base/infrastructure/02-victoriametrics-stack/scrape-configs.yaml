@@ -78,3 +78,48 @@ spec:
   endpoints:
     - port: http-monitoring
       path: /metrics
+---
+# cert-manager exposes certificate and ACME metrics on port 9402 of each component service.
+# The controller service is the primary source of certmanager_certificate_* metrics.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: cert-manager
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      relabelings:
+        - targetLabel: job
+          replacement: cert-manager
+---
+# Flux controllers all expose Prometheus metrics on port 8080 (http-prom).
+# A single VMPodScrape with app.kubernetes.io/part-of=flux covers all controllers
+# (helm, kustomize, source, notification, image-reflector, image-automation).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: flux-controllers
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: flux
+  podMetricsEndpoints:
+    - port: http-prom
+      path: /metrics
+      relabelings:
+        - targetLabel: job
+          replacement: flux
+        - sourceLabels: [__meta_kubernetes_pod_label_app]
+          targetLabel: controller
