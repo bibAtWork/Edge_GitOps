@@ -12,6 +12,10 @@ data:
     translates them to the signal-cli-rest-api /v2/send format, and
     forwards to the signal-cli sidecar on localhost:8080.
 
+    Recipients are built from two optional env vars — at least one must be set:
+      SIGNAL_RECIPIENTS:          comma-separated phone numbers (+49123456789)
+      SIGNAL_RECIPIENT_USERNAMES: comma-separated Signal aliases  (alice.42,bob.07)
+
     Health check: GET /health → 200 OK
     """
     import os
@@ -29,15 +33,28 @@ data:
 
     SIGNAL_API = os.environ.get("SIGNAL_API_URL", "http://localhost:8080")
     SIGNAL_SENDER = os.environ["SIGNAL_SENDER"]
-    SIGNAL_RECIPIENTS = [r.strip() for r in os.environ["SIGNAL_RECIPIENTS"].split(",")]
 
-    SEVERITY_EMOJI = {"critical": "🚨", "warning": "⚠️", "info": "ℹ️"}
+    def _parse_list(env_key: str) -> list[str]:
+        raw = os.environ.get(env_key, "").strip()
+        return [v.strip() for v in raw.split(",") if v.strip()] if raw else []
+
+    # signal-cli-rest-api /v2/send accepts both +phonenumber and alias.XX in
+    # the same recipients array — merge both sources into one list.
+    SIGNAL_RECIPIENTS = _parse_list("SIGNAL_RECIPIENTS") + _parse_list("SIGNAL_RECIPIENT_USERNAMES")
+
+    if not SIGNAL_RECIPIENTS:
+        raise RuntimeError(
+            "No recipients configured. Set SIGNAL_RECIPIENTS (phone numbers) "
+            "and/or SIGNAL_RECIPIENT_USERNAMES (Signal aliases) in the secret."
+        )
+
+    SEVERITY_EMOJI = {"critical": "\U0001f6a8", "warning": "⚠️", "info": "ℹ️"}
 
 
     def format_message(body: dict) -> str:
         status = body.get("status", "unknown").upper()
         alerts = body.get("alerts", [])
-        lines = [f"🔔 Homelab Alert [{status}]"]
+        lines = [f"\U0001f514 Homelab Alert [{status}]"]
         for alert in alerts:
             labels = alert.get("labels", {})
             annotations = alert.get("annotations", {})

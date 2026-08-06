@@ -15,6 +15,7 @@ spec:
       labels:
         app.kubernetes.io/name: signal-alertmanager
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -40,8 +41,11 @@ spec:
             requests:
               cpu: 50m
               memory: 256Mi
+              ephemeral-storage: 100Mi
             limits:
+              cpu: 500m
               memory: 512Mi
+              ephemeral-storage: 500Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -76,8 +80,13 @@ spec:
                 secretKeyRef:
                   name: signal-credentials
                   key: SIGNAL_RECIPIENTS
+            - name: SIGNAL_RECIPIENT_USERNAMES
+              valueFrom:
+                secretKeyRef:
+                  name: signal-credentials
+                  key: SIGNAL_RECIPIENT_USERNAMES
             - name: SIGNAL_API_URL
-              value: "http://localhost:8080"
+              value: http://localhost:8080 # nosonar
           volumeMounts:
             - name: adapter-script
               mountPath: /scripts
@@ -85,8 +94,11 @@ spec:
             requests:
               cpu: 10m
               memory: 32Mi
+              ephemeral-storage: 50Mi
             limits:
+              cpu: 100m
               memory: 64Mi
+              ephemeral-storage: 100Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -105,4 +117,4 @@ spec:
         - name: adapter-script
           configMap:
             name: signal-webhook-adapter
-            defaultMode: 0755
+            defaultMode: 493  # 0755 octal
