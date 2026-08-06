@@ -1,0 +1,44 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  values:
+    # Load Telegram bot token and chat ID as env vars from the SOPS-encrypted
+    # Secret in 04-grafana/config/. Grafana substitutes $VAR placeholders in
+    # provisioning files at startup, so the contact point below references them
+    # without embedding plaintext credentials in the HelmRelease.
+    envFromSecret: telegram-credentials
+
+    alerting:
+      contactpoints.yaml:
+        apiVersion: 1
+        contactPoints:
+          - orgId: 1
+            name: Telegram
+            receivers:
+              - uid: telegram
+                type: telegram
+                disableResolveMessage: false
+                settings:
+                  bottoken: $TELEGRAM_BOT_TOKEN
+                  chatid: $TELEGRAM_CHAT_ID
+
+      # warning → 4h repeat; critical → 1h repeat.
+      policies.yaml:
+        apiVersion: 1
+        policies:
+          - orgId: 1
+            receiver: Telegram
+            group_by:
+              - alertname
+              - namespace
+            group_wait: 30s
+            group_interval: 5m
+            repeat_interval: 4h
+            routes:
+              - matchers:
+                  - severity = critical
+                receiver: Telegram
+                repeat_interval: 1h

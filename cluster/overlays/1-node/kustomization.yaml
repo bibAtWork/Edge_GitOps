@@ -26,7 +26,6 @@ resources:
   - ../../base/infrastructure/15-system-upgrade-controller/operator
   - ../../base/infrastructure/16-immich
   - ../../base/infrastructure/17-paperless-ngx
-  - ../../base/infrastructure/18-signal-alertmanager
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml
@@ -61,6 +60,12 @@ patches:
       version: v2
       kind: HelmRelease
       name: trivy-operator
+  - path: patches/grafana-telegram.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: grafana
   - path: patches/coredns-upstream-dns.yaml
     target:
       version: v1
