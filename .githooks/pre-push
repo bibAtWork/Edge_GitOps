@@ -8,6 +8,8 @@ set -e
 FAILED=0
 
 while IFS= read -r file; do
+  # Skip files that no longer exist — a deleted secret does not need a SOPS block.
+  [ -f "$file" ] || continue
   if ! grep -q '^sops:' "$file" 2>/dev/null; then
     echo "ERROR: $file appears unencrypted (no 'sops:' block found)" >&2
     FAILED=1
@@ -17,6 +19,7 @@ done < <(git diff --name-only HEAD @{u} 2>/dev/null | grep -E '^cluster/.*secret
 # Also check staged-only (first push on a branch has no upstream yet)
 if ! git rev-parse @{u} >/dev/null 2>&1; then
   while IFS= read -r file; do
+    [ -f "$file" ] || continue
     if ! grep -q '^sops:' "$file" 2>/dev/null; then
       echo "ERROR: $file appears unencrypted (no 'sops:' block found)" >&2
       FAILED=1
