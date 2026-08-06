@@ -52,7 +52,7 @@ spec:
         datasources:
           - name: VictoriaMetrics
             type: prometheus
-            url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428
+            url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428 # nosonar
             access: proxy
             isDefault: true
 
@@ -87,6 +87,41 @@ spec:
           gnetId: 17813
           revision: 1
           datasource: VictoriaMetrics
+
+    alerting:
+      # Provisions the Signal webhook as Grafana's built-in Alertmanager contact point.
+      # Alertmanager → signal-alertmanager adapter → signal-cli-rest-api → Signal.
+      contactpoints.yaml:
+        apiVersion: 1
+        contactPoints:
+          - orgId: 1
+            name: Signal
+            receivers:
+              - uid: signal
+                type: webhook
+                disableResolveMessage: false
+                settings:
+                  url: "http://signal-alertmanager.monitoring.svc:9093/webhook" # nosonar
+                  httpMethod: POST
+
+      # Root notification policy: all alert groups route to Signal by default.
+      # warning severity: repeat every 4h; critical: repeat every 1h.
+      policies.yaml:
+        apiVersion: 1
+        policies:
+          - orgId: 1
+            receiver: Signal
+            group_by:
+              - alertname
+              - namespace
+            group_wait: 30s
+            group_interval: 5m
+            repeat_interval: 4h
+            routes:
+              - matchers:
+                  - severity = critical
+                receiver: Signal
+                repeat_interval: 1h
 
     initChownData:
       enabled: false

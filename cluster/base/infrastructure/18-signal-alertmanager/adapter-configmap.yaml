@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signal-webhook-adapter
+  namespace: monitoring
+data:
+  adapter.py: |
+    #!/usr/bin/env python3
+    """Grafana webhook → signal-cli-rest-api adapter.
+
+    Receives Grafana/Alertmanager-format webhooks on :9093/webhook,
+    translates them to the signal-cli-rest-api /v2/send format, and
+    forwards to the signal-cli sidecar on localhost:8080.
+
+    Health check: GET /health → 200 OK
+    """
+    import os
+    import json
+    import logging
+    import urllib.request
+    import urllib.error
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    log = logging.getLogger(__name__)
+
+    SIGNAL_API = os.environ.get("SIGNAL_API_URL", "http://localhost:8080")
+    SIGNAL_SENDER = os.environ["SIGNAL_SENDER"]
+    SIGNAL_RECIPIENTS = [r.strip() for r in os.environ["SIGNAL_RECIPIENTS"].split(",")]
+
+    SEVERITY_EMOJI = {"critical": "🚨", "warning": "⚠️", "info": "ℹ️"}
+
+
+    def format_message(body: dict) -> str:
+        status = body.get("status", "unknown").upper()
+        alerts = body.get("alerts", [])
+        lines = [f"🔔 Homelab Alert [{status}]"]
+        for alert in alerts:
+            labels = alert.get("labels", {})
+            annotations = alert.get("annotations", {})
+            name = labels.get("alertname", "Alert")
+            severity = labels.get("severity", "")
+            summary = annotations.get("summary", "")
+            emoji = SEVERITY_EMOJI.get(severity, "•")
+            lines.append(f"\n{emoji} [{severity.upper()}] {name}")
+            if summary:
+                lines.append(f"   {summary}")
+        return "\n".join(lines)
+
+
+    class WebhookHandler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            log.info(fmt, *args)
+
+        def do_POST(self):
+            if self.path != "/webhook":
+                self.send_response(404)
+                self.end_headers()
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length)) if length else {}
+                text = format_message(body)
+                payload = json.dumps({
+                    "message": text,
+                    "number": SIGNAL_SENDER,
+                    "recipients": SIGNAL_RECIPIENTS,
+                }).encode()
+                req = urllib.request.Request(
+                    f"{SIGNAL_API}/v2/send",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    log.info("Signal API %s: %s", resp.status, resp.read())
+                self.send_response(200)
+                self.end_headers()
+            except Exception as exc:
+                log.error("Failed to forward alert: %s", exc)
+                self.send_response(500)
+                self.end_headers()
+
+        def do_GET(self):
+            if self.path == "/health":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+
+    if __name__ == "__main__":
+        log.info(
+            "Signal webhook adapter: sender=%s recipients=%s",
+            SIGNAL_SENDER,
+            SIGNAL_RECIPIENTS,
+        )
+        HTTPServer(("0.0.0.0", 9093), WebhookHandler).serve_forever()
