@@ -57,7 +57,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "No successful Velero backup in {{ printf \"%.0f\" ($value | divf 3600) }}h"
+            summary: "No successful Velero backup in {{ $value | humanizeDuration }}"
             description: >-
               No successful Velero backup for schedule {{ $labels.schedule }} in over 25 hours.
               Check: kubectl get schedule -n velero and kubectl get backup -n velero --sort-by=.metadata.creationTimestamp.
@@ -78,7 +78,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Certificate {{ $labels.name }}/{{ $labels.namespace }} expires in {{ printf \"%.0f\" ($value | divf 86400) }} days"
+            summary: "Certificate {{ $labels.name }}/{{ $labels.namespace }} expires in {{ $value | humanizeDuration }}"
             description: >-
               Certificate {{ $labels.name }} in namespace {{ $labels.namespace }} expires in less than 14 days.
               Check: kubectl describe certificate -n {{ $labels.namespace }} {{ $labels.name }}
@@ -89,7 +89,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "CRITICAL: Certificate {{ $labels.name }}/{{ $labels.namespace }} expires in {{ printf \"%.0f\" ($value | divf 3600) }}h"
+            summary: "CRITICAL: Certificate {{ $labels.name }}/{{ $labels.namespace }} expires in {{ $value | humanizeDuration }}"
             description: >-
               Certificate {{ $labels.name }} in namespace {{ $labels.namespace }} expires in less than 3 days.
               Manual renewal may be required: kubectl delete certificaterequest -n {{ $labels.namespace }} --all
