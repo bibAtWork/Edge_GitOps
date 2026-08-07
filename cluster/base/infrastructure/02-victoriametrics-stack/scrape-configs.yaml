@@ -96,7 +96,7 @@ spec:
   endpoints:
     - port: http-metrics
       path: /metrics
-      relabelings:
+      relabelConfigs:
         - targetLabel: job
           replacement: cert-manager
 ---
@@ -118,7 +118,7 @@ spec:
   podMetricsEndpoints:
     - port: http-prom
       path: /metrics
-      relabelings:
+      relabelConfigs:
         - targetLabel: job
           replacement: flux
         - sourceLabels: [__meta_kubernetes_pod_label_app]
