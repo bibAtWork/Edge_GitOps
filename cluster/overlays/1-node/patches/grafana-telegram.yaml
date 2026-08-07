@@ -38,6 +38,64 @@ spec:
                   # (A plain -1004444712571 would be an integer after toYaml strips quotes.)
                   chatid: '"-1004444712571"' # trunk-ignore(yamllint/quoted-strings)
 
+      # Grafana-native alert rule — always fires (vector(1) > 0) so we can
+      # verify the full Grafana → Telegram notification pipeline end-to-end.
+      # Remove rules.yaml and this comment once Telegram delivery is confirmed.
+      rules.yaml:
+        apiVersion: 1
+        groups:
+          - orgId: 1
+            name: alert-pipeline-test
+            folder: Alerting
+            interval: 1m
+            rules:
+              - uid: alert-pipeline-test
+                title: AlertPipelineTest
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      datasource:
+                        type: prometheus
+                        uid: victoriametrics
+                      expr: vector(1)
+                      instant: true
+                      refId: A
+                  - refId: B
+                    datasourceUid: __expr__
+                    model:
+                      conditions:
+                        - evaluator:
+                            params:
+                              - 0
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params:
+                              - A
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: __expr__
+                      refId: B
+                      type: classic_conditions
+                for: 0s
+                labels:
+                  severity: warning
+                annotations:
+                  summary: Alert pipeline test — remove rules.yaml once Telegram confirmed
+                noDataState: NoData
+                execErrState: Error
+                isPaused: false
+
       # warning → 4h repeat; critical → 1h repeat.
       policies.yaml:
         apiVersion: 1
