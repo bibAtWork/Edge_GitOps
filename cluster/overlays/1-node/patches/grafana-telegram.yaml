@@ -33,10 +33,9 @@ spec:
                 disableResolveMessage: false
                 settings:
                   bottoken: $TELEGRAM_BOT_TOKEN
-                  # Single-quoted YAML so the value contains literal double-quote chars.
-                  # toYaml preserves them; Grafana YAML-parses the chatid as a string.
-                  # (A plain -1004444712571 would be an integer after toYaml strips quotes.)
-                  chatid: '"-1004444712571"' # trunk-ignore(yamllint/quoted-strings)
+                  # Quoted so YAML doesn't parse as integer; go-yaml v3 (Helm's toYaml)
+                  # preserves the string type in the ConfigMap output.
+                  chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
 
       # Grafana-native alert rule — always fires (vector(1) > 0) so we can
       # verify the full Grafana → Telegram notification pipeline end-to-end.
