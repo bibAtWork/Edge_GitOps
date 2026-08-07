@@ -18,6 +18,12 @@ spec:
     podAnnotations:
       reloader.stakater.com/auto: "true"
 
+    # Disable experimental step-mode so the Prometheus alertmanager dispatch
+    # loop runs (and its error logs are visible for diagnosing Telegram 400s).
+    grafana.ini:
+      feature_toggles:
+        alertingNotificationsStepMode: false
+
     # Chart 10.x adds alerting files to the main ConfigMap but omits the
     # volume mounts. Mount them explicitly via extraVolumeMounts using the
     # existing "config" volume (the grafana ConfigMap).
