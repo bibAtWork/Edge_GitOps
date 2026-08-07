@@ -5,20 +5,18 @@ metadata:
   namespace: monitoring
 spec:
   values:
-    # Grafana Helm chart 10.x dropped envFromSecret support. Use individual
-    # env entries with valueFrom.secretKeyRef instead. Grafana substitutes
-    # $VAR placeholders in provisioning files at startup.
-    env:
+    # envValueFrom injects secret keys as env vars via valueFrom.secretKeyRef.
+    # Grafana substitutes $VAR placeholders in provisioning files at startup.
+    # (env: only supports plain strings; envFromSecret is ignored in chart 10.x)
+    envValueFrom:
       TELEGRAM_BOT_TOKEN:
-        valueFrom:
-          secretKeyRef:
-            name: telegram-credentials
-            key: TELEGRAM_BOT_TOKEN
+        secretKeyRef:
+          name: telegram-credentials
+          key: TELEGRAM_BOT_TOKEN
       TELEGRAM_CHAT_ID:
-        valueFrom:
-          secretKeyRef:
-            name: telegram-credentials
-            key: TELEGRAM_CHAT_ID
+        secretKeyRef:
+          name: telegram-credentials
+          key: TELEGRAM_CHAT_ID
 
     # Reloader restarts Grafana whenever telegram-credentials is rotated.
     podAnnotations:
