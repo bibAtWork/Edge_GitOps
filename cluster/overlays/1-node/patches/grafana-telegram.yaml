@@ -48,7 +48,7 @@ spec:
             folder: Alerting
             interval: 1m
             rules:
-              - uid: alert-pipeline-test
+              - uid: alert-pipeline-test-v2
                 title: AlertPipelineTest
                 condition: B
                 data:
@@ -64,6 +64,7 @@ spec:
                       expr: vector(1)
                       instant: true
                       refId: A
+                      legendFormat: v2
                   - refId: B
                     datasourceUid: __expr__
                     model:
