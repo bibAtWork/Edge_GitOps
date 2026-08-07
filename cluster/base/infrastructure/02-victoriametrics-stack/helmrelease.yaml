@@ -93,7 +93,8 @@ spec:
 
     vmalert:
       spec:
-        # No notifiers: alert evaluation is handled by Grafana's native alerting
-        # engine, which evaluates PromQL rules directly against VictoriaMetrics.
-        # VMAlert continues to run for recording rules only.
-        {}
+        # No external notifiers: alert evaluation and routing is handled by
+        # Grafana's native alerting engine. VMAlert runs for recording rules only.
+        # notifier.blackhole suppresses the chart's "no notifier configured" error.
+        extraArgs:
+          notifier.blackhole: "true"
