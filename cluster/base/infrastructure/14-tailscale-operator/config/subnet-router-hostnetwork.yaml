@@ -108,7 +108,7 @@ spec:
             - name: TS_AUTH_ONCE
               value: "true"
             - name: TS_EXTRA_ARGS
-              value: "--advertise-tags=tag:k8s-operator"
+              value: "--advertise-tags=tag:k8s-operator --snat-subnet-routes=false"
           securityContext:
             capabilities:
               add:
