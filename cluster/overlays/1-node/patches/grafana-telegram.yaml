@@ -58,11 +58,3 @@ spec:
                   - severity = critical
                 receiver: Telegram
                 repeat_interval: 1h
-
-    extraVolumeMounts:
-      - name: config
-        mountPath: /etc/grafana/provisioning/alerting/contactpoints.yaml
-        subPath: contactpoints.yaml
-      - name: config
-        mountPath: /etc/grafana/provisioning/alerting/policies.yaml
-        subPath: policies.yaml
