@@ -18,12 +18,6 @@ spec:
     podAnnotations:
       reloader.stakater.com/auto: "true"
 
-    # Disable experimental step-mode so the Prometheus alertmanager dispatch
-    # loop runs (and its error logs are visible for diagnosing Telegram 400s).
-    grafana.ini:
-      feature_toggles:
-        alertingNotificationsStepMode: false
-
     # Chart 10.x adds alerting files to the main ConfigMap but omits the
     # volume mounts. Mount them explicitly via extraVolumeMounts using the
     # existing "config" volume (the grafana ConfigMap).
@@ -101,6 +95,10 @@ spec:
                 noDataState: NoData
                 execErrState: Error
                 isPaused: false
+                # Direct step-mode delivery bypasses alertmanager routing and the
+                # nflog fingerprint collision caused by the simplified routing hash.
+                notification_settings:
+                  receiver: Telegram
 
       # repeat_interval: 2m during pipeline testing; change to 4h once confirmed.
       policies.yaml:
