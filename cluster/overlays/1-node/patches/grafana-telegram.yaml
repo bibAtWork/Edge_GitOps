@@ -5,17 +5,28 @@ metadata:
   namespace: monitoring
 spec:
   values:
-    # Load Telegram bot token and chat ID as env vars from the SOPS-encrypted
-    # Secret in 04-grafana/config/. Grafana substitutes $VAR placeholders in
-    # provisioning files at startup, so the contact point below references them
-    # without embedding plaintext credentials in the HelmRelease.
-    envFromSecret: telegram-credentials
+    # Grafana Helm chart 10.x dropped envFromSecret support. Use individual
+    # env entries with valueFrom.secretKeyRef instead. Grafana substitutes
+    # $VAR placeholders in provisioning files at startup.
+    env:
+      TELEGRAM_BOT_TOKEN:
+        valueFrom:
+          secretKeyRef:
+            name: telegram-credentials
+            key: TELEGRAM_BOT_TOKEN
+      TELEGRAM_CHAT_ID:
+        valueFrom:
+          secretKeyRef:
+            name: telegram-credentials
+            key: TELEGRAM_CHAT_ID
 
-    # Reloader restarts Grafana whenever telegram-credentials is rotated so
-    # the provisioning env vars are always current.
+    # Reloader restarts Grafana whenever telegram-credentials is rotated.
     podAnnotations:
       reloader.stakater.com/auto: "true"
 
+    # Chart 10.x adds alerting files to the main ConfigMap but omits the
+    # volume mounts. Mount them explicitly via extraVolumeMounts using the
+    # existing "config" volume (the grafana ConfigMap).
     alerting:
       contactpoints.yaml:
         apiVersion: 1
@@ -47,3 +58,11 @@ spec:
                   - severity = critical
                 receiver: Telegram
                 repeat_interval: 1h
+
+    extraVolumeMounts:
+      - name: config
+        mountPath: /etc/grafana/provisioning/alerting/contactpoints.yaml
+        subPath: contactpoints.yaml
+      - name: config
+        mountPath: /etc/grafana/provisioning/alerting/policies.yaml
+        subPath: policies.yaml
