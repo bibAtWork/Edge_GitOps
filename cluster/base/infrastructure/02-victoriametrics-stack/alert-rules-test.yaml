@@ -1,0 +1,19 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: alert-pipeline-test
+  namespace: monitoring
+spec:
+  groups:
+    - name: test
+      interval: 15s
+      rules:
+        # Synthetic always-firing rule to verify VMAlert → Grafana → Telegram routing.
+        # Remove this file once end-to-end delivery is confirmed.
+        - alert: AlertPipelineTest
+          expr: vector(1) > 0
+          for: 0s
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alert pipeline test — delete alert-rules-test.yaml once confirmed"
