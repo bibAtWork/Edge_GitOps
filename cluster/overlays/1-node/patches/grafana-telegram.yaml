@@ -50,3 +50,11 @@ spec:
                   - severity = critical
                 receiver: Telegram
                 repeat_interval: 1h
+
+      deleteRules.yaml:
+        apiVersion: 1
+        deleteRules:
+          - orgId: 1
+            uid: alert-pipeline-test
+          - orgId: 1
+            uid: alert-pipeline-test-v2
