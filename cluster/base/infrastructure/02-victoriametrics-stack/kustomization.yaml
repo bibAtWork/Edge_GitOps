@@ -4,4 +4,3 @@ resources:
   - helmrelease.yaml
   - scrape-configs.yaml
   - alert-rules.yaml
-  - alert-rules-test.yaml
