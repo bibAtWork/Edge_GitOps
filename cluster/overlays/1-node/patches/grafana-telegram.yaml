@@ -5,18 +5,14 @@ metadata:
   namespace: monitoring
 spec:
   values:
-    # envValueFrom injects secret keys as env vars via valueFrom.secretKeyRef.
-    # Grafana substitutes $VAR placeholders in provisioning files at startup.
-    # (env: only supports plain strings; envFromSecret is ignored in chart 10.x)
+    # envValueFrom injects TELEGRAM_BOT_TOKEN via secretKeyRef so Grafana can
+    # substitute $TELEGRAM_BOT_TOKEN in contactpoints.yaml at startup.
+    # chatid is a literal string (not env-var) — see comment below for why.
     envValueFrom:
       TELEGRAM_BOT_TOKEN:
         secretKeyRef:
           name: telegram-credentials
           key: TELEGRAM_BOT_TOKEN
-      TELEGRAM_CHAT_ID:
-        secretKeyRef:
-          name: telegram-credentials
-          key: TELEGRAM_CHAT_ID
 
     # Reloader restarts Grafana whenever telegram-credentials is rotated.
     podAnnotations:
@@ -37,11 +33,10 @@ spec:
                 disableResolveMessage: false
                 settings:
                   bottoken: $TELEGRAM_BOT_TOKEN
-                  # Quotes are intentional: after $TELEGRAM_CHAT_ID is substituted,
-                  # "-1004444712571" must remain a YAML string — without quotes the
-                  # negative number would be parsed as an integer and Grafana's
-                  # Telegram integration would fail (chatid field expects string).
-                  chatid: "$TELEGRAM_CHAT_ID" # trunk-ignore(yamllint/quoted-strings)
+                  # Single-quoted YAML so the value contains literal double-quote chars.
+                  # toYaml preserves them; Grafana YAML-parses the chatid as a string.
+                  # (A plain -1004444712571 would be an integer after toYaml strips quotes.)
+                  chatid: '"-1004444712571"' # trunk-ignore(yamllint/quoted-strings)
 
       # warning → 4h repeat; critical → 1h repeat.
       policies.yaml:
