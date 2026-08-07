@@ -95,7 +95,7 @@ spec:
                 execErrState: Error
                 isPaused: false
 
-      # warning → 4h repeat; critical → 1h repeat.
+      # repeat_interval: 2m during pipeline testing; change to 4h once confirmed.
       policies.yaml:
         apiVersion: 1
         policies:
@@ -105,8 +105,8 @@ spec:
               - alertname
               - namespace
             group_wait: 30s
-            group_interval: 5m
-            repeat_interval: 4h
+            group_interval: 1m
+            repeat_interval: 2m
             routes:
               - matchers:
                   - severity = critical
