@@ -11,6 +11,11 @@ spec:
     # without embedding plaintext credentials in the HelmRelease.
     envFromSecret: telegram-credentials
 
+    # Reloader restarts Grafana whenever telegram-credentials is rotated so
+    # the provisioning env vars are always current.
+    podAnnotations:
+      reloader.stakater.com/auto: "true"
+
     alerting:
       contactpoints.yaml:
         apiVersion: 1
