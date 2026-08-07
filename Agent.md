@@ -170,6 +170,75 @@ do not rely on the conntrack fallback.
 
 ---
 
+## Grafana 10.5+ native alerting — notification delivery
+
+Grafana 10.5.15 ships with two feature flags **enabled by default** that change the entire
+notification dispatch path. Ignoring them causes alerts to fire in VictoriaMetrics but
+silently disappear before reaching the contact point.
+
+### `alertingNotificationsStepMode=true` (default in 10.5+)
+
+Alerts are dispatched through a new "step-mode" execution path rather than the traditional
+Prometheus Alertmanager dispatch loop. The old dispatcher goroutine still starts, but it no
+longer produces the usual `ngalert.notifier component=alertmanager` dispatch logs, so its
+silence looks like a bug rather than an intentional change.
+
+**Required**: every alert rule that should send a notification must declare the contact point
+directly on the rule:
+
+```yaml
+notification_settings:
+  receiver: Telegram   # must match the contact point name exactly
+```
+
+Without this, step-mode does not know where to deliver, and the traditional alertmanager
+routing tree is never consulted.
+
+### `alertingUseNewSimplifiedRoutingHashAlgorithm=true` (default in 10.5+)
+
+Changes how Grafana hashes alert groups for the notification log (nflog). A stale nflog
+entry (e.g., from a previous failed delivery with a 4-hour repeat_interval) will produce
+a fingerprint collision under the new algorithm. The alertmanager dispatcher sees the group
+as "already notified, next at T+4h" and silently skips every subsequent dispatch until the
+window expires — even across pod restarts, because nflog is persisted in Grafana's SQLite KV
+store (`alertmanagernotifications` key) on the PVC.
+
+Symptoms: alert fires, `ALERTS` metric shows `state="firing"`, but no message arrives and
+no dispatcher logs appear. Changing repeat_interval or restarting the pod has no effect.
+
+**Fix**: use `notification_settings: receiver: <name>` on the alert rule (see above). This
+bypasses the alertmanager routing tree and nflog entirely, delivering directly via step-mode.
+
+### `chatid` must be a YAML-quoted string in Helm values
+
+go-yaml v3 (used by Helm's `toYaml`) auto-quotes integer-looking strings during marshaling.
+A Telegram chat ID like `-1004444712571` must be written as a YAML single-quoted string so
+the VALUE itself is a plain string (no embedded double quotes):
+
+```yaml
+# CORRECT — value is the string -1004444712571
+chatid: '-1004444712571'   # trunk-ignore(yamllint/quoted-strings)
+
+# WRONG — value is the string "-1004444712571" (with literal double quotes)
+# This makes Grafana send chat_id="-1004444712571" to Telegram → 400 Bad Request
+chatid: '"-1004444712571"'
+```
+
+go-yaml v3 will re-quote the plain string during `toYaml`, producing `"-1004444712571"` in
+the ConfigMap, which Grafana parses as the clean string `-1004444712571`. The embedded-quote
+variant adds a second layer of quoting and sends the extra characters to the Telegram API.
+
+### Provisioning checklist for new contact points
+
+- [ ] `chatid` (or any numeric-looking string) is single-quoted WITHOUT embedded double quotes
+- [ ] `bottoken: $TELEGRAM_BOT_TOKEN` — env-var substitution in provisioning files requires
+      the var to be in `envValueFrom` (not `env`) so it is available at provisioning time
+- [ ] Every alert rule that should notify includes `notification_settings: receiver: <name>`
+- [ ] After first deployment, wait for the configmap to render and the pod to restart before
+      expecting any messages — `reloader.stakater.com/auto: "true"` handles subsequent rotations
+
+---
+
 ## Prevention checklist for future policy changes
 
 Before adding or removing any `CiliumNetworkPolicy` or `CiliumClusterwideNetworkPolicy`
