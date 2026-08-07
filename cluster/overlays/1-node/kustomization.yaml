@@ -26,6 +26,7 @@ resources:
   - ../../base/infrastructure/15-system-upgrade-controller/operator
   - ../../base/infrastructure/16-immich
   - ../../base/infrastructure/17-paperless-ngx
+  - ../../base/infrastructure/18-flux-notifications
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml

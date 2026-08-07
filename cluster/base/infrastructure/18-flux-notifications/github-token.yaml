@@ -1,0 +1,12 @@
+# Encrypt with SOPS before committing:
+#   sops --encrypt --in-place cluster/base/infrastructure/18-flux-notifications/github-token.yaml
+#
+# The token needs:  repo:status  scope only (no write access to code).
+# Create at: https://github.com/settings/tokens/new?scopes=repo:status
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flux-github-token
+  namespace: flux-system
+stringData:
+  token: ghp_REPLACE_WITH_PAT
