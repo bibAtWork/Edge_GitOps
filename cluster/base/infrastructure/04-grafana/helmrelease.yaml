@@ -52,7 +52,6 @@ spec:
         datasources:
           - name: VictoriaMetrics
             type: prometheus
-            uid: victoriametrics
             url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428 # nosonar
             access: proxy
             isDefault: true

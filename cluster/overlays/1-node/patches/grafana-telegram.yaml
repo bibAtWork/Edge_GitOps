@@ -57,11 +57,11 @@ spec:
                     relativeTimeRange:
                       from: 300
                       to: 0
-                    datasourceUid: victoriametrics
+                    datasourceUid: P4169E866C3094E38
                     model:
                       datasource:
                         type: prometheus
-                        uid: victoriametrics
+                        uid: P4169E866C3094E38
                       expr: vector(1)
                       instant: true
                       refId: A
