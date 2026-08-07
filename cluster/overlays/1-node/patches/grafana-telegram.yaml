@@ -37,7 +37,11 @@ spec:
                 disableResolveMessage: false
                 settings:
                   bottoken: $TELEGRAM_BOT_TOKEN
-                  chatid: $TELEGRAM_CHAT_ID
+                  # Quotes are intentional: after $TELEGRAM_CHAT_ID is substituted,
+                  # "-1004444712571" must remain a YAML string — without quotes the
+                  # negative number would be parsed as an integer and Grafana's
+                  # Telegram integration would fail (chatid field expects string).
+                  chatid: "$TELEGRAM_CHAT_ID" # trunk-ignore(yamllint/quoted-strings)
 
       # warning → 4h repeat; critical → 1h repeat.
       policies.yaml:
