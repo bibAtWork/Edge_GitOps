@@ -7,7 +7,9 @@ spec:
   values:
     # envValueFrom injects TELEGRAM_BOT_TOKEN via secretKeyRef so Grafana can
     # substitute $TELEGRAM_BOT_TOKEN in contactpoints.yaml at startup.
-    # chatid is a literal string (not env-var) — see comment below for why.
+    # chatid is a literal string — Helm's toYaml (go-yaml v3) quotes integer-
+    # looking strings, so '-1004444712571' becomes "-1004444712571" in the
+    # ConfigMap and Grafana parses it as a string, not an int.
     envValueFrom:
       TELEGRAM_BOT_TOKEN:
         secretKeyRef:
@@ -18,9 +20,6 @@ spec:
     podAnnotations:
       reloader.stakater.com/auto: "true"
 
-    # Chart 10.x adds alerting files to the main ConfigMap but omits the
-    # volume mounts. Mount them explicitly via extraVolumeMounts using the
-    # existing "config" volume (the grafana ConfigMap).
     alerting:
       contactpoints.yaml:
         apiVersion: 1
@@ -33,74 +32,8 @@ spec:
                 disableResolveMessage: false
                 settings:
                   bottoken: $TELEGRAM_BOT_TOKEN
-                  # Quoted so YAML doesn't parse as integer; go-yaml v3 (Helm's toYaml)
-                  # preserves the string type in the ConfigMap output.
                   chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
 
-      # Grafana-native alert rule — always fires (vector(1) > 0) so we can
-      # verify the full Grafana → Telegram notification pipeline end-to-end.
-      # Remove rules.yaml and this comment once Telegram delivery is confirmed.
-      rules.yaml:
-        apiVersion: 1
-        groups:
-          - orgId: 1
-            name: alert-pipeline-test
-            folder: Alerting
-            interval: 1m
-            rules:
-              - uid: alert-pipeline-test-v2
-                title: AlertPipelineTestV2
-                condition: B
-                data:
-                  - refId: A
-                    relativeTimeRange:
-                      from: 300
-                      to: 0
-                    datasourceUid: P4169E866C3094E38
-                    model:
-                      datasource:
-                        type: prometheus
-                        uid: P4169E866C3094E38
-                      expr: vector(1)
-                      instant: true
-                      refId: A
-                      legendFormat: v2
-                  - refId: B
-                    datasourceUid: __expr__
-                    model:
-                      conditions:
-                        - evaluator:
-                            params:
-                              - 0
-                            type: gt
-                          operator:
-                            type: and
-                          query:
-                            params:
-                              - A
-                          reducer:
-                            params: []
-                            type: last
-                          type: query
-                      datasource:
-                        type: __expr__
-                        uid: __expr__
-                      refId: B
-                      type: classic_conditions
-                for: 0s
-                labels:
-                  severity: warning
-                annotations:
-                  summary: Alert pipeline test — remove rules.yaml once Telegram confirmed
-                noDataState: NoData
-                execErrState: Error
-                isPaused: false
-                # Direct step-mode delivery bypasses alertmanager routing and the
-                # nflog fingerprint collision caused by the simplified routing hash.
-                notification_settings:
-                  receiver: Telegram
-
-      # repeat_interval: 2m during pipeline testing; change to 4h once confirmed.
       policies.yaml:
         apiVersion: 1
         policies:
@@ -110,8 +43,8 @@ spec:
               - alertname
               - namespace
             group_wait: 30s
-            group_interval: 1m
-            repeat_interval: 2m
+            group_interval: 5m
+            repeat_interval: 4h
             routes:
               - matchers:
                   - severity = critical
