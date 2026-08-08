@@ -126,12 +126,29 @@ spec:
       serviceMonitor:
         enabled: false
 
-  # node-agent runs kopia to back up PVCs. kopia tries to create $HOME/.config/kopia
-  # and the image's root user has HOME=/nonexistent (unwritable). Patch the DaemonSet
-  # directly since the chart exposes no env-var injection for node-agent.
+  # velero and node-agent both use kopia, which tries to create $HOME/.config/kopia.
+  # uid 65534 (nobody) has HOME=/nonexistent in the distroless image — unwritable.
+  # Patch both the Deployment and DaemonSet since chart v12.1.0 ignores extraEnvVars
+  # for these components (extraEnvVars expects a map but helm silently drops lists).
   postRenderers:
     - kustomize:
         patches:
+          - target:
+              kind: Deployment
+              name: velero
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: velero
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: velero
+                        env:
+                          - name: HOME
+                            value: /scratch
           - target:
               kind: DaemonSet
               name: node-agent
