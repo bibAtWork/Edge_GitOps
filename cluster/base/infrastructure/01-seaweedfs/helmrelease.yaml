@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: seaweedfs
-      version: 3.68.0
+      version: 4.41.0
       sourceRef:
         kind: HelmRepository
         name: seaweedfs
@@ -25,17 +25,17 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # v4 moved app-specific globals under global.seaweedfs to avoid collisions when
+    # used as a subchart. Image tag moved to a top-level image block.
     global:
-      createClusterRole: true
-      registry: ""
-      repository: ""
-      imageName: chrislusf/seaweedfs
-      imageTag: "latest"
-      imagePullPolicy: IfNotPresent
+      seaweedfs:
+        createClusterRole: true
+
+    image:
+      tag: "latest"
 
     master:
       enabled: true
-      replicaCount: 1
       data:
         type: hostPath
         hostPathPrefix: /var/lib/seaweedfs/master
@@ -45,7 +45,6 @@ spec:
 
     volume:
       enabled: true
-      replicaCount: 1
       replication: "000"
       # dataDirs controls the actual data path; volume.data has no effect for this component
       dataDirs:
@@ -59,7 +58,6 @@ spec:
 
     filer:
       enabled: true
-      replicaCount: 1
       data:
         type: hostPath
         hostPathPrefix: /var/lib/seaweedfs/filer
@@ -69,6 +67,9 @@ spec:
       s3:
         enabled: true
         enableAuth: true
+        # Use our SOPS-managed secret directly so v4's pre-upgrade hook does not
+        # overwrite it. The secret must contain a seaweedfs_s3_config key.
+        existingConfigSecret: seaweedfs-s3-secret
         # Enable virtual-hosted-style bucket addressing so that S3 clients
         # that ignore USE_PATH_STYLE (e.g. talos-backup v0.1.0-beta.2) can
         # reach buckets via <bucket>.seaweedfs-s3.seaweedfs.svc:8333.
@@ -77,8 +78,3 @@ spec:
     # Use filer's embedded S3 endpoint on port 8333; standalone s3 Deployment is redundant.
     s3:
       enabled: false
-
-    csi:
-      enabled: true
-      controller:
-        replicas: 1
