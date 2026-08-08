@@ -32,7 +32,7 @@ spec:
         createClusterRole: true
 
     image:
-      tag: "latest"
+      tag: "4.40"
 
     master:
       enabled: true

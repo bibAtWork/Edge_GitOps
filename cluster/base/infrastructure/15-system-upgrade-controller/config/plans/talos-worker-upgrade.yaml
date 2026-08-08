@@ -18,7 +18,7 @@ spec:
   cordon: true
   # Workers run after control-plane plan to prevent simultaneous cluster disruption
   prepare:
-    image: ghcr.io/siderolabs/talosctl:latest
+    image: ghcr.io/siderolabs/talosctl:v1.13.8
     command:
       - /bin/sh
       - -c
@@ -27,7 +27,7 @@ spec:
           --talosconfig /var/run/secrets/talos/talosconfig \
           --nodes "${SYSTEM_UPGRADE_NODE_IP}"
   upgrade:
-    image: ghcr.io/siderolabs/talosctl:latest
+    image: ghcr.io/siderolabs/talosctl:v1.13.8
     command:
       - /bin/sh
       - -c
