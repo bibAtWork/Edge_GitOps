@@ -39,6 +39,9 @@ spec:
       # not useful on a single-node homelab.
       infraAssessmentScannerEnabled: false
       clusterComplianceEnabled: false
+      # Emit one trivy_vulnerability_id time series per CVE with vuln_id, severity,
+      # and score labels so VMAlert can alert on CVSS score >= 8.5.
+      metricsVulnIdEnabled: true
 
     trivy:
       ignoreUnfixed: false
