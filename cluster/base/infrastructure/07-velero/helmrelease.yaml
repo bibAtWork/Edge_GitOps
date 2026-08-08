@@ -125,3 +125,26 @@ spec:
       enabled: true
       serviceMonitor:
         enabled: false
+
+  # node-agent runs kopia to back up PVCs. kopia tries to create $HOME/.config/kopia
+  # and the image's root user has HOME=/nonexistent (unwritable). Patch the DaemonSet
+  # directly since the chart exposes no env-var injection for node-agent.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: node-agent
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: node-agent
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: node-agent
+                        env:
+                          - name: HOME
+                            value: /scratch
