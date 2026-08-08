@@ -1,0 +1,47 @@
+# Step 2 of PG16→PG17 migration: restore the dump into the freshly initialized PG17 instance.
+# Only apply AFTER:
+#   - immich-postgresql-0 is Ready with the PG17 image
+#   - the dump-job completed successfully
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: immich-pg-restore
+  namespace: immich
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: restore
+          image: ghcr.io/immich-app/postgres:17-vectorchord0.3.0-pgvectors0.3.0
+          command: [sh, -c]
+          args:
+            - |
+              set -euo pipefail
+              echo "Restoring dump into PG17 at immich-postgresql:5432..."
+              gunzip -c /dump/immich.sql.gz | psql -h immich-postgresql -U postgres postgres
+              echo "Restore complete."
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich-db-secret
+                  key: db-admin-password
+          volumeMounts:
+            - name: dump
+              mountPath: /dump
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: dump
+          persistentVolumeClaim:
+            claimName: immich-pg-dump

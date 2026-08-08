@@ -1,0 +1,47 @@
+# Step 1 of PG16→PG17 migration: dump all data from the running PG16 instance.
+# Runs alongside the live PG16 pod — do NOT delete PG16 before this completes.
+# The dump lands in /dump/immich.sql.gz on the immich-pg-dump PVC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: immich-pg-dump
+  namespace: immich
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: dump
+          # Use the same PG16 image as the running server for client compatibility.
+          image: ghcr.io/immich-app/postgres:16-vectorchord0.3.0-pgvectors0.3.0
+          command: [sh, -c]
+          args:
+            - |
+              set -euo pipefail
+              echo "Dumping all databases from immich-postgresql:5432..."
+              pg_dumpall -h immich-postgresql -U postgres | gzip > /dump/immich.sql.gz
+              echo "Done — dump size: $(du -sh /dump/immich.sql.gz | cut -f1)"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich-db-secret
+                  key: db-admin-password
+          volumeMounts:
+            - name: dump
+              mountPath: /dump
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: dump
+          persistentVolumeClaim:
+            claimName: immich-pg-dump

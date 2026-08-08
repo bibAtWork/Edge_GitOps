@@ -34,7 +34,7 @@ spec:
     image:
       registry: ghcr.io
       repository: immich-app/postgres
-      tag: 16-vectorchord0.3.0-pgvectors0.3.0
+      tag: 17-vectorchord0.3.0-pgvectors0.3.0
 
     auth:
       username: immich
