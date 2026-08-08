@@ -1,7 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
     ":dependencyDashboard",
     ":semanticCommits",
     ":separatePatchReleases"
@@ -9,7 +8,6 @@
   "baseBranches": ["ops/talos_linux"],
   "labels": ["renovate"],
   "minimumReleaseAge": "48 hours",
-  "prHourlyLimit": 0,
   "vulnerabilityAlerts": {
     "enabled": true,
     "minimumReleaseAge": null,
@@ -21,13 +19,10 @@
     "fileMatch": ["cluster/.+\\.yaml$"]
   },
   "helm-values": {
-    "fileMatch": [
-      "cluster/base/infrastructure/07-velero/helmrelease\\.yaml$",
-      "cluster/base/infrastructure/16-immich/postgresql-helmrelease\\.yaml$"
-    ]
+    "fileMatch": ["cluster/.+helmrelease\\.yaml$"]
   },
   "kubernetes": {
-    "fileMatch": ["cluster/(?!.*helmrelease\\.yaml$).+\\.yaml$"]
+    "enabled": false
   },
   "regexManagers": [
     {
@@ -98,23 +93,6 @@
         "trivy-operator"
       ],
       "automerge": false
-    },
-    {
-      "description": "Docker images: propose the latest minor directly instead of patch first. The Trivy gate evaluates safety, so splitting patch/minor just creates queue build-up.",
-      "matchDatasources": ["docker"],
-      "separateMinorPatch": false
-    },
-    {
-      "description": "Group velero chart and AWS plugin so they always update in lockstep — plugin version must match the chart's app version.",
-      "matchPackageNames": ["velero", "velero/velero-plugin-for-aws"],
-      "groupName": "velero",
-      "automerge": false
-    },
-    {
-      "description": "Bootstrap updates always require manual review — bootstrap/ reflects the last known-good state a successful bootstrap was run against.",
-      "matchFileNames": ["bootstrap/**"],
-      "automerge": false,
-      "addLabels": ["manual-review"]
     }
   ]
 }
