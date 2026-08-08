@@ -53,6 +53,9 @@ spec:
     # The chart auto-sets REDIS_HOSTNAME=immich-valkey; enable the bundled Valkey.
     valkey:
       enabled: true
+      defaultPodOptions:
+        annotations:
+          backup.velero.io/excluded-volumes: data
       persistence:
         data:
           type: persistentVolumeClaim
@@ -70,6 +73,9 @@ spec:
 
     machine-learning:
       enabled: true
+      defaultPodOptions:
+        annotations:
+          backup.velero.io/excluded-volumes: cache
       resources:
         requests:
           cpu: 100m
