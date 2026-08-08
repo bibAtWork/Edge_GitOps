@@ -25,12 +25,17 @@ spec:
           volumes:
             - name: tmp
               emptyDir: {}
+            - name: talosconfig
+              secret:
+                secretName: talosconfig
           containers:
             - name: talos-backup
               image: ghcr.io/siderolabs/talos-backup:v0.1.0-beta.2
               env:
                 - name: HOME
                   value: /tmp
+                - name: TALOSCONFIG
+                  value: /talosconfig/talosconfig
                 - name: AGE_X25519_PUBLIC_KEY
                   valueFrom:
                     secretKeyRef:
@@ -41,11 +46,11 @@ spec:
                 - name: USE_PATH_STYLE
                   value: "true"
                 - name: CUSTOM_S3_ENDPOINT
-                  value: "http://seaweedfs-s3.seaweedfs.svc:8333"
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
                 - name: AWS_REGION
-                  value: "us-east-1"
+                  value: us-east-1
                 - name: BUCKET
-                  value: "etcd-backups"
+                  value: etcd-backups
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
@@ -67,3 +72,6 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
+                - name: talosconfig
+                  mountPath: /talosconfig
+                  readOnly: true
