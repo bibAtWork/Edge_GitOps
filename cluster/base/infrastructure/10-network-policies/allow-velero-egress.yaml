@@ -4,9 +4,11 @@ metadata:
   name: allow-velero-egress
   namespace: velero
 spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: velero
+  # Velero spawns ephemeral data-mover pods (velero.io/pod-volume-backup label) and
+  # repo-maintenance job pods (velero.io/repo-name label) that do NOT carry the
+  # app.kubernetes.io/name=velero label but still need to reach SeaweedFS and AWS S3.
+  # Select all pods in the namespace so every job type is covered.
+  endpointSelector: {}
   egress:
     - toEndpoints:
         - matchLabels:
@@ -17,9 +19,9 @@ spec:
             - port: "8333"
               protocol: TCP
     - toFQDNs:
-        - matchPattern: "*.s3.amazonaws.com"
-        - matchPattern: "s3.amazonaws.com"
-        - matchPattern: "*.s3.eu-central-1.amazonaws.com"
+        - matchPattern: '*.s3.amazonaws.com'
+        - matchPattern: s3.amazonaws.com
+        - matchPattern: '*.s3.eu-central-1.amazonaws.com'
       toPorts:
         - ports:
             - port: "443"
