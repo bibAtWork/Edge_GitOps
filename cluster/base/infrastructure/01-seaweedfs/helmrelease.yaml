@@ -69,6 +69,10 @@ spec:
       s3:
         enabled: true
         enableAuth: true
+        # Enable virtual-hosted-style bucket addressing so that S3 clients
+        # that ignore USE_PATH_STYLE (e.g. talos-backup v0.1.0-beta.2) can
+        # reach buckets via <bucket>.seaweedfs-s3.seaweedfs.svc:8333.
+        domainName: seaweedfs-s3.seaweedfs.svc.cluster.local
 
     # Use filer's embedded S3 endpoint on port 8333; standalone s3 Deployment is redundant.
     s3:

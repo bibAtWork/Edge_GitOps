@@ -22,6 +22,14 @@ spec:
             runAsUser: 65534
             seccompProfile:
               type: RuntimeDefault
+          # v0.1.0-beta.2 ignores USE_PATH_STYLE and always uses virtual-hosted style
+          # (bucket.endpoint). Map the virtual-hosted hostname to the ClusterIP so DNS
+          # resolves and SeaweedFS receives the request on the correct service.
+          hostAliases:
+            - ip: 10.96.118.47
+              hostnames:
+                - etcd-backups.seaweedfs-s3.seaweedfs.svc
+                - etcd-backups.seaweedfs-s3.seaweedfs.svc.cluster.local
           volumes:
             - name: tmp
               emptyDir: {}
