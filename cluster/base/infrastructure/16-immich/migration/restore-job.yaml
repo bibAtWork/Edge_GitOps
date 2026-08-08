@@ -12,22 +12,26 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       containers:
         - name: restore
           image: ghcr.io/immich-app/postgres:17-vectorchord0.3.0-pgvectors0.3.0
-          command: [sh, -c]
+          command: [bash, -c]
           args:
             - |
               set -euo pipefail
-              echo "Restoring dump into PG17 at immich-postgresql:5432..."
-              gunzip -c /dump/immich.sql.gz | psql -h immich-postgresql -U postgres postgres
+              echo "Restoring immich database into PG17 at immich-postgresql:5432..."
+              # Bitnami PG17 init already created the immich user and empty database.
+              # Use --single-transaction for atomicity; redirect errors to stderr.
+              gunzip -c /dump/immich.sql.gz \
+                | psql -h immich-postgresql -U immich -d immich --single-transaction
               echo "Restore complete."
           env:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
                   name: immich-db-secret
-                  key: db-admin-password
+                  key: db-password
           volumeMounts:
             - name: dump
               mountPath: /dump
@@ -39,8 +43,10 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+              ephemeral-storage: 100Mi
             limits:
               memory: 1Gi
+              ephemeral-storage: 256Mi
       volumes:
         - name: dump
           persistentVolumeClaim:

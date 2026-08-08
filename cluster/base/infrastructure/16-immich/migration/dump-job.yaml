@@ -11,23 +11,28 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       containers:
         - name: dump
           # Use the same PG16 image as the running server for client compatibility.
           image: ghcr.io/immich-app/postgres:16-vectorchord0.3.0-pgvectors0.3.0
-          command: [sh, -c]
+          command: [bash, -c]
           args:
             - |
               set -euo pipefail
-              echo "Dumping all databases from immich-postgresql:5432..."
-              pg_dumpall -h immich-postgresql -U postgres | gzip > /dump/immich.sql.gz
+              echo "Dumping immich database from immich-postgresql:5432..."
+              # pg_dump as the immich user (database owner). PG17 recreates the
+              # role and empty database via Bitnami init scripts; we only need data.
+              pg_dump -h immich-postgresql -U immich -d immich \
+                --no-owner --no-acl \
+                | gzip > /dump/immich.sql.gz
               echo "Done — dump size: $(du -sh /dump/immich.sql.gz | cut -f1)"
           env:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
                   name: immich-db-secret
-                  key: db-admin-password
+                  key: db-password
           volumeMounts:
             - name: dump
               mountPath: /dump
@@ -39,8 +44,10 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+              ephemeral-storage: 100Mi
             limits:
               memory: 512Mi
+              ephemeral-storage: 256Mi
       volumes:
         - name: dump
           persistentVolumeClaim:

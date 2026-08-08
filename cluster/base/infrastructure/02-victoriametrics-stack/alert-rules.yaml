@@ -118,34 +118,3 @@ spec:
               The Flux {{ $labels.controller }} controller has {{ printf "%.0f" $value }} reconciliation errors
               in the last 5 minutes.
               Check: kubectl get kustomization,helmrelease -A | grep -v True
----
-# Requires trivy-operator metricsVulnIdEnabled: true (13-trivy-operator/helmrelease.yaml).
-# The trivy_vulnerability_id gauge emits one series per CVE per container image,
-# with a score label containing the CVSS v3 base score as a decimal string.
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMRule
-metadata:
-  name: trivy-vulnerability-alerts
-  namespace: monitoring
-spec:
-  groups:
-    - name: trivy.vulnerabilities
-      interval: 15m
-      rules:
-        - alert: ImageHighCVSS
-          expr: |
-            trivy_vulnerability_id{score=~"8\.[5-9]|9\.[0-9]|10(\.0)?"}
-          for: 1h
-          labels:
-            severity: warning
-          annotations:
-            summary: >-
-              {{ $labels.image_repository }}:{{ $labels.image_tag }} —
-              {{ $labels.vuln_id }} (score {{ $labels.score }}, {{ $labels.severity }})
-            description: >-
-              Namespace {{ $labels.namespace }} resource {{ $labels.name }}
-              (container {{ $labels.container_name }}) is running image
-              {{ $labels.image_repository }}:{{ $labels.image_tag }}
-              with vulnerability {{ $labels.vuln_id }} (CVSS {{ $labels.score }}).
-              Fixed in: {{ $labels.fixed_version }}.
-              Check: kubectl get vulnerabilityreport -n {{ $labels.namespace }} -o wide
