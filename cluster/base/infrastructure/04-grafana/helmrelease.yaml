@@ -51,6 +51,7 @@ spec:
             orgId: 1
         datasources:
           - name: VictoriaMetrics
+            uid: victoriametrics
             type: prometheus
             url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428 # nosonar
             access: proxy
@@ -87,6 +88,66 @@ spec:
           gnetId: 17813
           revision: 1
           datasource: VictoriaMetrics
+
+    alerting:
+      rules.yaml:
+        apiVersion: 1
+        groups:
+          - orgId: 1
+            name: Trivy CVE Alerts
+            folder: Security
+            interval: 15m
+            rules:
+              - uid: trivy-high-cvss
+                title: ImageHighCVSS
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'trivy_vulnerability_id{score=~"8\\.[5-9]|9\\.[0-9]|10(\\.0)?"}'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    {{ $labels.image_repository }}:{{ $labels.image_tag }} —
+                    {{ $labels.vuln_id }} score {{ $labels.score }} ({{ $labels.severity }})
+                  description: >-
+                    {{ $labels.namespace }}/{{ $labels.name }}
+                    (container {{ $labels.container_name }}) has CVE
+                    {{ $labels.vuln_id }} with CVSS score {{ $labels.score }}.
+                    Fixed in: {{ $labels.fixed_version }}.
+                labels:
+                  severity: warning
+                isPaused: false
 
     initChownData:
       enabled: false
