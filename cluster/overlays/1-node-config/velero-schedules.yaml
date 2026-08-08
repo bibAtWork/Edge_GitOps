@@ -1,6 +1,19 @@
-# Shorter local retention (4 days vs 7) because the local copy is on the same machine.
-# Machine-level failures (PSU, motherboard, OS corruption) lose both copies 1 and 2.
-# AWS S3 is the durable guard against machine-failure scenarios.
+# Only back up namespaces with irreplaceable user data — everything else is
+# recoverable from the GitOps repository via Flux reconciliation.
+#
+# immich: PostgreSQL DB (photo metadata/albums/faces) + photo library files
+# paperless: document database + scanned document files
+#
+# Deliberately excluded:
+#   - monitoring: Grafana config is fully provisioned from git (dashboards via
+#     gnetId, alerts/contact points via Helm values); VictoriaMetrics holds
+#     scraped metrics (historical data, not application state)
+#   - zot: OCI image cache, rebuildable from upstream registries
+#   - All other namespaces: Flux recreates all workload resources from git
+#   - includeClusterResources: CRDs, ClusterRoles, etc. are all in git
+#
+# Shorter local retention (4 days) because local = same machine.
+# AWS S3 is the durable guard against machine-level failures.
 ---
 apiVersion: velero.io/v1
 kind: Schedule
@@ -15,10 +28,12 @@ spec:
     snapshotVolumes: false
     defaultVolumesToFsBackup: true
     includedNamespaces:
-      - "*"
-    excludedNamespaces:
-      - cattle-system
-    includeClusterResources: true
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
 ---
 apiVersion: velero.io/v1
 kind: Schedule
@@ -33,10 +48,12 @@ spec:
     snapshotVolumes: false
     defaultVolumesToFsBackup: true
     includedNamespaces:
-      - "*"
-    excludedNamespaces:
-      - cattle-system
-    includeClusterResources: true
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
 ---
 apiVersion: velero.io/v1
 kind: Schedule
@@ -51,7 +68,9 @@ spec:
     snapshotVolumes: false
     defaultVolumesToFsBackup: true
     includedNamespaces:
-      - "*"
-    excludedNamespaces:
-      - cattle-system
-    includeClusterResources: true
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
