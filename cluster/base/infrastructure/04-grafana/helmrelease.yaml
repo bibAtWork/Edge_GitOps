@@ -170,7 +170,7 @@ spec:
                       to: 0
                     datasourceUid: victorialogs
                     model:
-                      expr: 'count_over_time({kubernetes_cluster_name="homelab"} |= "OOMKilling" [10m])'
+                      expr: '{kubernetes_cluster_name="homelab"} "OOMKilling" | count()'
                       instant: true
                       range: false
                       refId: A
@@ -217,7 +217,7 @@ spec:
                       to: 0
                     datasourceUid: victorialogs
                     model:
-                      expr: 'count_over_time({kubernetes_namespace_name="monitoring", kubernetes_container_name="grafana"} |= "Invalid username or password" [5m])'
+                      expr: '{kubernetes_namespace_name="monitoring", kubernetes_container_name="grafana"} "Invalid username or password" | count()'
                       instant: true
                       range: false
                       refId: A
@@ -321,7 +321,7 @@ spec:
                       to: 0
                     datasourceUid: victorialogs
                     model:
-                      expr: 'count_over_time({kubernetes_namespace_name="falco"} | json | priority:in("Critical", "Emergency", "Alert") [5m])'
+                      expr: '{kubernetes_namespace_name="falco"} | unpack_json | priority:in("Critical", "Emergency", "Alert") | count()'
                       instant: true
                       range: false
                       refId: A
@@ -368,7 +368,7 @@ spec:
                       to: 0
                     datasourceUid: victorialogs
                     model:
-                      expr: 'count_over_time({kubernetes_namespace_name="kubescape"} |= "failed" [2h])'
+                      expr: '{kubernetes_namespace_name="kubescape"} "failed" | count()'
                       instant: true
                       range: false
                       refId: A
