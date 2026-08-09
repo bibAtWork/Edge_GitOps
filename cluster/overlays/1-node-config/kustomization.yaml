@@ -21,6 +21,8 @@ resources:
   - ../../base/infrastructure/16-immich/config
   # paperless-ngx: HTTPRoute (gateway.networking.k8s.io)
   - ../../base/infrastructure/17-paperless-ngx/config
+  # kyverno: ClusterPolicy (kyverno.io) — needs Kyverno CRDs from 19-kyverno HelmRelease
+  - ../../base/infrastructure/19-kyverno/config
   # velero Schedules (velero.io) — 1-node specific retention
   - velero-schedules.yaml
   # NodePort services for LAN access without domain/Tailscale
