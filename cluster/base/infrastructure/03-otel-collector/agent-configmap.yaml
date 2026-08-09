@@ -70,7 +70,7 @@ data:
 
     exporters:
       prometheusremotewrite:
-        endpoint: http://vmsingle-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/write
+        endpoint: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/write
       otlp/gateway:
         endpoint: otel-collector-gateway.monitoring.svc:4317
         tls:
