@@ -123,3 +123,19 @@ spec:
           replacement: flux
         - sourceLabels: [__meta_kubernetes_pod_label_app]
           targetLabel: controller
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: falco
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - falco
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falco
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics

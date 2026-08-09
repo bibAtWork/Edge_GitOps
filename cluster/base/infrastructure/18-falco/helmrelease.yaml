@@ -1,0 +1,51 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: falco
+  namespace: falco
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: falco
+      version: 4.3.0
+      sourceRef:
+        kind: HelmRepository
+        name: falcosecurity
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    driver:
+      kind: modern_ebpf
+
+    collectors:
+      enabled: true
+      kubernetes:
+        enabled: true
+
+    falco:
+      json_output: true
+      log_level: info
+      metrics:
+        enabled: true
+        interval: 15m
+        output_rule: true
+        resource_utilization_enabled: true
+      webserver:
+        enabled: true
+        listen_port: 8765
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
