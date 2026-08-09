@@ -50,6 +50,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
+        supplementalGroups: [0]
         seccompProfile:
           type: RuntimeDefault
       tolerations:
@@ -82,6 +83,9 @@ spec:
             - name: varlogpods
               mountPath: /var/log/pods
               readOnly: true
+            - name: varlogkubeaudit
+              mountPath: /var/log/kubernetes/audit
+              readOnly: true
             - name: tmp
               mountPath: /tmp
           ports:
@@ -96,5 +100,8 @@ spec:
         - name: varlogpods
           hostPath:
             path: /var/log/pods
+        - name: varlogkubeaudit
+          hostPath:
+            path: /var/log/kubernetes/audit
         - name: tmp
           emptyDir: {}
