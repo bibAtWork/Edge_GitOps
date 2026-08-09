@@ -41,6 +41,9 @@ spec:
       labels:
         velero.io/backup: "true"
 
+    plugins:
+      - victoriametrics-logs-datasource
+
     datasources:
       datasources.yaml:
         apiVersion: 1
@@ -51,6 +54,12 @@ spec:
             url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428 # nosonar
             access: proxy
             isDefault: true
+          - name: VictoriaLogs
+            uid: victorialogs
+            type: victoriametrics-logs-datasource
+            url: http://vlogs-victoria-metrics-k8s-stack.monitoring.svc:9428 # nosonar
+            access: proxy
+            isDefault: false
 
     dashboardProviders:
       dashboardproviders.yaml:
@@ -142,6 +151,106 @@ spec:
                     (container {{ "{{" }} $labels.container_name }}) has CVE
                     {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.score }}.
                     Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                labels:
+                  severity: warning
+                isPaused: false
+
+          - orgId: 1
+            name: Log Security Alerts
+            folder: Security
+            interval: 5m
+            rules:
+              - uid: log-oomkilled
+                title: PodOOMKilled
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_cluster_name="homelab"} |= "OOMKilling" [10m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1m
+                annotations:
+                  summary: Pod OOM-killed in cluster
+                  description: >-
+                    A pod was OOM-killed. Check:
+                    kubectl get events -A --field-selector reason=OOMKilling
+                labels:
+                  severity: warning
+                isPaused: false
+
+              - uid: log-grafana-auth-fail
+                title: GrafanaAuthFailures
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_namespace_name="monitoring", kubernetes_container_name="grafana"} |= "Invalid username or password" [5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [5]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 2m
+                annotations:
+                  summary: >-
+                    {{ "{{" }} $value }} failed Grafana login attempts in 5 min
+                  description: >-
+                    More than 5 failed authentication attempts on Grafana in the last 5 minutes.
+                    Check logs: kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
                 labels:
                   severity: warning
                 isPaused: false
