@@ -20,6 +20,9 @@ data:
           - /var/log/pods/*/*/*.log
         include_file_path: true
         operators:
+          - type: regex_parser
+            parse_from: attributes["log.file.path"]
+            regex: '^/var/log/pods/(?P<kubernetes_namespace_name>[^_/]+)_(?P<kubernetes_pod_name>[^_/]+)_[^/]+/(?P<kubernetes_container_name>[^/]+)/'
           - type: json_parser
             if: 'body matches "^{"'
           - type: regex_parser

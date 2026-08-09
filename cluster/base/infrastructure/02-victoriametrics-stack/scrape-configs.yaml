@@ -139,3 +139,20 @@ spec:
   podMetricsEndpoints:
     - port: metrics
       path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: kyverno
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kyverno
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kyverno
+      app.kubernetes.io/component: admissioncontroller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
