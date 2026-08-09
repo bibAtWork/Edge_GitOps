@@ -48,7 +48,7 @@ spec:
     victoria-logs-single:
       enabled: true
       server:
-        retentionPeriod: "30d"
+        retentionPeriod: "90d"
         resources:
           requests:
             memory: "256Mi"
@@ -57,7 +57,7 @@ spec:
             memory: "1Gi"
         persistentVolume:
           enabled: true
-          size: 20Gi
+          size: 40Gi
           storageClassName: local-path
 
     # VictoriaTraces (experimental — acceptable for home lab)
