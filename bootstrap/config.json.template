@@ -53,5 +53,10 @@
   "zot": {
     "_comment": "Leave empty to auto-generate a random password on first run.",
     "admin_password": ""
+  },
+
+  "etcd": {
+    "_comment": "Leave empty to auto-generate a random AES-256-CBC key for etcd secrets encryption at rest. Once set, DO NOT change — rotating requires re-encrypting all etcd secrets with: kubectl get secrets -A -o json | kubectl replace -f -",
+    "encryption_key": ""
   }
 }

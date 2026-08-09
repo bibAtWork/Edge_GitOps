@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -155,6 +156,15 @@ def main() -> None:
         cfg.setdefault("zot", {})["admin_password"] = zot_pw
         modified_cfg = True
         print("  auto-generated zot.admin_password")
+
+    etcd_enc_key = get(cfg, "etcd", "encryption_key", required=False)
+    if not etcd_enc_key:
+        # 32 random bytes → base64 gives a 44-char string; used as the AES-CBC key
+        etcd_enc_key = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+        cfg.setdefault("etcd", {})["encryption_key"] = etcd_enc_key
+        modified_cfg = True
+        print("  auto-generated etcd.encryption_key (AES-256-CBC, stored in config.json)")
+
     if modified_cfg:
         save_config(cfg)
 
@@ -196,9 +206,11 @@ def main() -> None:
         cluster / "overlays/1-node/talos-machineconfigs/controlplane.yaml",
         cluster / "overlays/3-node/talos-machineconfigs/controlplane.yaml",
     ]:
-        if patch_subnet(mc, subnet):
+        patched = patch_subnet(mc, subnet)
+        patched |= replace_in_file(mc, {"REPLACE_WITH_ETCD_ENCRYPTION_KEY": etcd_enc_key})
+        if patched:
             changed.append(str(mc.relative_to(REPO_ROOT)))
-            print(f"  ✓ etcd advertisedSubnets in {mc.parent.parent.name}")
+            print(f"  ✓ machineconfig patched in {mc.parent.parent.name}")
 
     # Cloudflare token (cert-manager + external-dns)
     for path in [
