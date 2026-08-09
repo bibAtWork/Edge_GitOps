@@ -97,6 +97,49 @@ spec:
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
+  name: trivy-config-security
+  namespace: monitoring
+spec:
+  groups:
+    - name: trivy.configaudit
+      interval: 1h
+      rules:
+        - alert: TrivyConfigAuditCritical
+          expr: sum(trivy_resource_configaudits{severity="CRITICAL"}) > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} CRITICAL config-audit findings"
+            description: >-
+              Trivy config-audit found {{ $value }} CRITICAL-severity misconfigurations.
+              Run: kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp
+
+        - alert: TrivyRBACCritical
+          expr: sum(trivy_resource_rbacassessments{severity="CRITICAL"}) > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} CRITICAL RBAC assessment findings"
+            description: >-
+              Trivy RBAC scanner found {{ $value }} CRITICAL-severity permission issues.
+              Run: kubectl get rbacassessmentreports -A
+
+        - alert: TrivyExposedSecret
+          expr: sum(trivy_resource_exposedsecrets) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} exposed secret(s) detected in images"
+            description: >-
+              Trivy found {{ $value }} exposed secret(s) embedded in container images or filesystems.
+              Run: kubectl get exposedsecretreports -A
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
   name: flux-health
   namespace: monitoring
 spec:
