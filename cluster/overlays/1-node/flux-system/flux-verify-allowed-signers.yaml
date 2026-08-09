@@ -3,6 +3,9 @@ kind: Secret
 metadata:
   name: flux-git-verify
   namespace: flux-system
+  annotations:
+    gitops.homelab/sops-skip: "true"
+    gitops.homelab/sops-skip-reason: "contains only a public SSH key — non-sensitive by definition"
 type: Opaque
 stringData:
   gitops-signing.sshpub: |

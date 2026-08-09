@@ -22,6 +22,7 @@ jobs:
           python3 - <<'PY'
           import sys, pathlib, yaml
 
+          SKIP_ANNOTATION = 'gitops.homelab/sops-skip'
           errors = []
           for path in sorted(pathlib.Path('cluster').rglob('*.yaml')):
               try:
@@ -31,6 +32,9 @@ jobs:
               try:
                   for doc in yaml.safe_load_all(content):
                       if not doc or doc.get('kind') != 'Secret':
+                          continue
+                      annotations = (doc.get('metadata') or {}).get('annotations') or {}
+                      if annotations.get(SKIP_ANNOTATION) == 'true':
                           continue
                       has_data = bool(doc.get('data') or doc.get('stringData'))
                       encrypted = 'sops' in doc
