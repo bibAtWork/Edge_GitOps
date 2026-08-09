@@ -142,34 +142,51 @@ print(f"  Written to {config_file}")
 PYEOF
 }
 
-if [[ ! -f "${CONFIG_FILE}" ]]; then
+echo ""
+if [[ -f "${CONFIG_FILE}" ]]; then
+  echo "  1) Use existing bootstrap/config.json"
+  echo "  2) Re-enter parameters interactively  (overwrites config.json)"
+  echo "  3) Load from an existing file         (overwrites config.json)"
   echo ""
+  read -rp "Choice [1/2/3]: " _init_choice
+  _cfg_key="${_init_choice}"
+else
   echo "bootstrap/config.json not found."
   echo ""
-  echo "  1) Enter all parameters interactively (creates config.json for future runs)"
-  echo "  2) Load from an existing config file"
+  echo "  1) Enter all parameters interactively (creates config.json)"
+  echo "  2) Load from an existing file"
   echo ""
   read -rp "Choice [1/2]: " _init_choice
+  # remap so "1=wizard, 2=file" aligns with the has-file branch numbering
   case "${_init_choice}" in
-    1)
-      _config_wizard
-      ;;
-    2)
-      read -rp "  Path to config file: " _cfg_src
-      if [[ ! -f "${_cfg_src}" ]]; then
-        echo "ERROR: File not found: ${_cfg_src}"
-        exit 1
-      fi
-      cp "${_cfg_src}" "${CONFIG_FILE}"
-      chmod 600 "${CONFIG_FILE}"
-      echo "  Loaded config from ${_cfg_src}"
-      ;;
-    *)
-      echo "ERROR: Invalid choice. Run the script again."
-      exit 1
-      ;;
+    1) _cfg_key=2 ;;
+    2) _cfg_key=3 ;;
+    *) _cfg_key="${_init_choice}" ;;
   esac
 fi
+
+case "${_cfg_key}" in
+  1)
+    echo "  Using existing config.json"
+    ;;
+  2)
+    _config_wizard
+    ;;
+  3)
+    read -rp "  Path to config file: " _cfg_src
+    if [[ ! -f "${_cfg_src}" ]]; then
+      echo "ERROR: File not found: ${_cfg_src}"
+      exit 1
+    fi
+    cp "${_cfg_src}" "${CONFIG_FILE}"
+    chmod 600 "${CONFIG_FILE}"
+    echo "  Loaded config from ${_cfg_src}"
+    ;;
+  *)
+    echo "ERROR: Invalid choice. Run the script again."
+    exit 1
+    ;;
+esac
 
 # Env vars override config.json values (backward-compatible)
 NODE_IP="${NODE_IP:-$(_cfg 'node.ip')}"
