@@ -103,7 +103,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'trivy_vulnerability_id{score=~"8\\.[5-9]|9\\.[0-9]|10(\\.0)?"}'
+                      expr: 'trivy_vulnerability_id{score=~"8[.][5-9]|9[.][0-9]|10[.]0"}'
                       instant: true
                       range: false
                       refId: A
