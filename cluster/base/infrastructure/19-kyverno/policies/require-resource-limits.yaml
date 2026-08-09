@@ -1,0 +1,42 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      All containers must specify memory limits to prevent any single workload
+      from exhausting node memory and triggering OOM kills on other pods.
+      CPU limits are optional since CPU throttling is preferable to OOM kills.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-memory-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaceSelector:
+                matchExpressions:
+                  - key: kubernetes.io/metadata.name
+                    operator: NotIn
+                    values:
+                      - kube-system
+                      - flux-system
+                      - kyverno
+      validate:
+        message: "All containers must specify resources.limits.memory."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    memory: "?*"
+            =(initContainers):
+              - resources:
+                  limits:
+                    memory: "?*"
