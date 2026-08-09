@@ -46,6 +46,11 @@
     "admin_secret_access_key": ""
   },
 
+  "flux_notifications": {
+    "_comment": "GitHub PAT with repo:status scope only — used by Flux to post commit status on reconciliation failure.",
+    "github_status_token": ""
+  },
+
   "grafana": {
     "admin_password": ""
   },

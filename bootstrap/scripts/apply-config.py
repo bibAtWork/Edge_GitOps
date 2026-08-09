@@ -263,6 +263,14 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Grafana admin password")
 
+    # Flux GitHub status notifications token (repo:status scope only)
+    flux_gh_token = get(cfg, "flux_notifications", "github_status_token", required=False)
+    if flux_gh_token:
+        path = cluster / "base/infrastructure/21-flux-notifications/github-token.yaml"
+        if replace_in_file(path, {"REPLACE_WITH_GITHUB_STATUS_TOKEN": flux_gh_token}):
+            changed.append(str(path.relative_to(REPO_ROOT)))
+            print(f"  ✓ Flux GitHub status token")
+
     # Zot htpasswd — generate bcrypt hash, write the unencrypted secret file.
     # encrypt-secrets.sh will SOPS-encrypt it afterward.
     # bcrypt is used instead of apr1 (MD5) for stronger hashing.
