@@ -27,9 +27,9 @@ data:
 
     exporters:
       otlphttp/victorialogs:
-        endpoint: http://vlogs-victoria-metrics-k8s-stack.monitoring.svc:9428
+        endpoint: http://vlsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:9428/insert/opentelemetry
       otlphttp/victoriatraces:
-        endpoint: http://vtraces-victoria-metrics-k8s-stack.monitoring.svc:4318
+        endpoint: http://vtsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:10428/insert/opentelemetry
 
     service:
       pipelines:
