@@ -30,10 +30,145 @@ print(v if isinstance(v, str) else "")
 PYEOF
 }
 
+# ── Config wizard (runs only when config.json is absent) ─────────────────────
+_config_wizard() {
+  local _wn _we _wd _wsub _wgw _wni _wsnet
+  local _wgho _wghr _wghb _wght
+  local _war _wak _was _wcf _wtsi _wtss _wgpw
+
+  echo ""
+  echo "── Cluster ───────────────────────────────────────────────────────────────"
+  read -rp "  Cluster name [homelab]: " _wn;          _wn="${_wn:-homelab}"
+  read -rp "  Let's Encrypt email: " _we
+  read -rp "  Domain (e.g. example.com): " _wd
+  read -rp "  Subdomain prefix (optional, e.g. lab): " _wsub
+  read -rp "  Gateway LAN IP (optional, e.g. 192.168.1.200): " _wgw
+
+  echo ""
+  echo "── Node ──────────────────────────────────────────────────────────────────"
+  read -rp "  Node IP: " _wni
+  read -rp "  Node LAN subnet [192.168.1.0/24]: " _wsnet; _wsnet="${_wsnet:-192.168.1.0/24}"
+
+  echo ""
+  echo "── GitHub ────────────────────────────────────────────────────────────────"
+  read -rp "  GitHub owner (user or org): " _wgho
+  read -rp "  GitHub repo name [Edge_GitOps]: " _wghr;    _wghr="${_wghr:-Edge_GitOps}"
+  read -rp "  GitHub branch [main]: " _wghb;              _wghb="${_wghb:-main}"
+  read -rsp "  GitHub personal access token: " _wght; echo ""
+
+  echo ""
+  echo "── AWS ───────────────────────────────────────────────────────────────────"
+  read -rp "  AWS region [eu-central-1]: " _war;          _war="${_war:-eu-central-1}"
+  read -rsp "  AWS access key ID: " _wak; echo ""
+  read -rsp "  AWS secret access key: " _was; echo ""
+
+  echo ""
+  echo "── Cloudflare ────────────────────────────────────────────────────────────"
+  read -rsp "  Cloudflare API token: " _wcf; echo ""
+
+  echo ""
+  echo "── Tailscale ─────────────────────────────────────────────────────────────"
+  read -rp "  Tailscale OAuth client ID: " _wtsi
+  read -rsp "  Tailscale OAuth client secret: " _wtss; echo ""
+
+  echo ""
+  echo "── Grafana ───────────────────────────────────────────────────────────────"
+  read -rsp "  Grafana admin password: " _wgpw; echo ""
+
+  echo ""
+  echo "  SeaweedFS and Zot credentials will be auto-generated."
+  echo ""
+
+  # Write config.json via Python — values passed through env vars to avoid shell injection
+  _WN="$_wn" _WE="$_we" _WD="$_wd" _WSUB="$_wsub" _WGW="$_wgw" \
+  _WNI="$_wni" _WSNET="$_wsnet" \
+  _WGHO="$_wgho" _WGHR="$_wghr" _WGHB="$_wghb" _WGHT="$_wght" \
+  _WAR="$_war" _WAK="$_wak" _WAS="$_was" \
+  _WCF="$_wcf" _WTSI="$_wtsi" _WTSS="$_wtss" \
+  _WGPW="$_wgpw" \
+  python3 - "${CONFIG_FILE}" <<'PYEOF'
+import json, os, sys
+
+e = os.environ.get
+config_file = sys.argv[1]
+cfg = {
+  "cluster": {
+    "name":              e("_WN", "homelab"),
+    "letsencrypt_email": e("_WE", ""),
+    "domain":            e("_WD", ""),
+    "subdomain":         e("_WSUB", ""),
+    "gateway_ip":        e("_WGW", ""),
+  },
+  "node": {
+    "ip":           e("_WNI", ""),
+    "subnet":       e("_WSNET", "192.168.1.0/24"),
+    "primary_disk": "",
+    "backup_disk":  "",
+  },
+  "github": {
+    "owner":  e("_WGHO", ""),
+    "repo":   e("_WGHR", ""),
+    "branch": e("_WGHB", "main"),
+    "token":  e("_WGHT", ""),
+  },
+  "aws": {
+    "region":            e("_WAR", "eu-central-1"),
+    "access_key_id":     e("_WAK", ""),
+    "secret_access_key": e("_WAS", ""),
+  },
+  "cloudflare": {
+    "api_token": e("_WCF", ""),
+  },
+  "tailscale": {
+    "oauth_client_id":     e("_WTSI", ""),
+    "oauth_client_secret": e("_WTSS", ""),
+  },
+  "seaweedfs": {
+    "admin_access_key_id":     "",
+    "admin_secret_access_key": "",
+  },
+  "grafana": {
+    "admin_password": e("_WGPW", ""),
+  },
+  "zot": {
+    "admin_password": "",
+  },
+}
+with open(config_file, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+os.chmod(config_file, 0o600)
+print(f"  Written to {config_file}")
+PYEOF
+}
+
 if [[ ! -f "${CONFIG_FILE}" ]]; then
-  echo "ERROR: bootstrap/config.json not found."
-  echo "Copy bootstrap/config.json.template to bootstrap/config.json and fill in values."
-  exit 1
+  echo ""
+  echo "bootstrap/config.json not found."
+  echo ""
+  echo "  1) Enter all parameters interactively (creates config.json for future runs)"
+  echo "  2) Load from an existing config file"
+  echo ""
+  read -rp "Choice [1/2]: " _init_choice
+  case "${_init_choice}" in
+    1)
+      _config_wizard
+      ;;
+    2)
+      read -rp "  Path to config file: " _cfg_src
+      if [[ ! -f "${_cfg_src}" ]]; then
+        echo "ERROR: File not found: ${_cfg_src}"
+        exit 1
+      fi
+      cp "${_cfg_src}" "${CONFIG_FILE}"
+      chmod 600 "${CONFIG_FILE}"
+      echo "  Loaded config from ${_cfg_src}"
+      ;;
+    *)
+      echo "ERROR: Invalid choice. Run the script again."
+      exit 1
+      ;;
+  esac
 fi
 
 # Env vars override config.json values (backward-compatible)
@@ -295,6 +430,43 @@ fi
 # ── Phase 5: AWS S3 Setup ─────────────────────────────────────────────────────
 echo ""
 echo "=== Phase 5: AWS S3 Setup ==="
+
+_cluster_name="$(_cfg 'cluster.name')"
+_etcd_bucket="${_cluster_name}-etcd-backups-offsite"
+_velero_bucket="${_cluster_name}-velero-backups-offsite"
+
+_existing_buckets=()
+if aws s3api head-bucket --bucket "${_etcd_bucket}" 2>/dev/null; then
+  _existing_buckets+=("${_etcd_bucket}")
+fi
+if aws s3api head-bucket --bucket "${_velero_bucket}" 2>/dev/null; then
+  _existing_buckets+=("${_velero_bucket}")
+fi
+
+if [[ ${#_existing_buckets[@]} -gt 0 ]]; then
+  echo ""
+  echo "The following S3 buckets already exist and may contain backup data:"
+  for _b in "${_existing_buckets[@]}"; do echo "  - ${_b}"; done
+  echo ""
+  echo "  1) Restore cluster from existing backups  (disaster recovery)"
+  echo "  2) Continue with fresh install            (new backups will overwrite old ones over time)"
+  echo ""
+  read -rp "Choice [1/2]: " _s3_choice
+  case "${_s3_choice}" in
+    1)
+      echo ""
+      python3 "${REPO_ROOT}/bootstrap/scripts/dr.py" full --profile 1-node
+      exit 0
+      ;;
+    2)
+      echo "  Proceeding — existing bucket data preserved; terraform reconciles configuration only."
+      ;;
+    *)
+      echo "ERROR: Invalid choice."
+      exit 1
+      ;;
+  esac
+fi
 
 cd "${REPO_ROOT}/bootstrap/terraform"
 terraform init -input=false
