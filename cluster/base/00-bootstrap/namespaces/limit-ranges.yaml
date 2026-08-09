@@ -1,0 +1,147 @@
+---
+# LimitRanges provide default resource requests/limits for containers that do not
+# specify them. Required when a ResourceQuota enforces limits.memory (or requests.*)
+# on the namespace — without defaults, any third-party pod without explicit resources
+# is denied by the quota before it can start.
+#
+# Defaults are intentionally low (lightweight background jobs); production workloads
+# should always declare their own explicit resource requests and limits.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: monitoring
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: seaweedfs
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: velero
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 128Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: cert-manager
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 128Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: external-dns
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 128Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: zot
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 128Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: trivy-system
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: tailscale
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 128Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: immich
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: paperless
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
