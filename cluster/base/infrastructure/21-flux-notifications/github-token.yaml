@@ -1,0 +1,30 @@
+# Encrypt with SOPS before committing:
+#   sops --encrypt --in-place cluster/base/infrastructure/21-flux-notifications/github-token.yaml
+#
+# The token needs:  repo:status  scope only (no write access to code).
+# Create at: https://github.com/settings/tokens/new?scopes=repo:status
+#
+# apply-config.py reads flux_notifications.github_status_token from bootstrap/config.json
+# and substitutes REPLACE_WITH_GITHUB_STATUS_TOKEN automatically.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: flux-github-token
+    namespace: flux-system
+stringData:
+    token: ENC[AES256_GCM,data:uXg/dmA2dVMSZ9MsPcJlo3JErMwXtOZNeiWexqti88TYBDBQuTxR0A==,iv:J6Um1sOmDYrs16JbWX8CdTeNqFn+RWuXCTRDM5CGQGE=,tag:iNCsmT4o47enAjXVTmlZjw==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBtL3BGc2hra1pMd1I2dVBX
+            VEZ0UXloOS91T05YOWIxM25oR0FXcFR6R1NvCm01ckpqOXMwa0RENFFqZ0I2TlFu
+            dUNOM25FblJUQ3pjSlBWbzg5Rno1N1UKLS0tIGNlQ0JNN0RQV1NOcFJBVC9QNWtZ
+            a1NNMEVSZ3NBbzVQOWo0K1BpRXI2SjgKGnXrhtY7zpJ/tMYPjCLRLOLwt4aUV/pA
+            ox2fYEaoKRWKoBJ4VDfy13ogdUSdk+fXY6lbTtMFbz8m/G7u0NdcXQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1wgk7g6rwkm2xjq08vj66aa53rxhdxvzjldrurkukcfuacxxxj34svculzn
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-08-09T12:43:42Z"
+    mac: ENC[AES256_GCM,data:8G5+/DnEa4Unnk5h0LEL5bPG4XVpbqiOhhNgNMxR7n+yFUWY5buY/YXqrieqsucWJct1AfWz5UXphsZIeLaOuIzDir0oeGoiIodneOIBleq26M+DkckIJ3l7J7mebiaatEzZRqF92TgCmj5LM0B3EowQnr4SBSKhldcnjgNOiWg=,iv:OwOWv2kFh49UqBy8XA6Iv7UO1fUBkytBEjJnDfLOpbw=,tag:gyOvnI+1MCVSNCFWv6hBTA==,type:str]
+    version: 3.13.3
