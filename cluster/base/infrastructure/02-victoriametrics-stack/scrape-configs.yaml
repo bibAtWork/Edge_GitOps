@@ -137,7 +137,7 @@ spec:
     matchLabels:
       app.kubernetes.io/name: falco
   podMetricsEndpoints:
-    - port: metrics
+    - port: web
       path: /metrics
 ---
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -151,8 +151,7 @@ spec:
       - kyverno
   selector:
     matchLabels:
-      app.kubernetes.io/name: kyverno
-      app.kubernetes.io/component: admissioncontroller
+      app.kubernetes.io/name: kyverno-admission-controller
   podMetricsEndpoints:
-    - port: metrics
+    - port: metrics-port
       path: /metrics
