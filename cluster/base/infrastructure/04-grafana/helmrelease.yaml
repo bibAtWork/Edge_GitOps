@@ -255,6 +255,157 @@ spec:
                   severity: warning
                 isPaused: false
 
+          - orgId: 1
+            name: Security Tool Alerts
+            folder: Security
+            interval: 5m
+            rules:
+              - uid: kyverno-policy-violation
+                title: KyvernoPolicyViolation
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'increase(kyverno_policy_results_total{result="fail"}[5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Kyverno policy violation in
+                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.resource_namespace }}
+                  description: >-
+                    Policy {{ "{{" }} $labels.policy_name }} failed for resource
+                    {{ "{{" }} $labels.resource_kind }}/{{ "{{" }} $labels.resource_name }}
+                    in namespace {{ "{{" }} $labels.resource_namespace }}.
+                    Check: kubectl get policyreport -A
+                labels:
+                  severity: warning
+                isPaused: false
+
+              - uid: falco-critical-event
+                title: FalcoCriticalEvent
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_namespace_name="falco"} | json | priority:in("Critical", "Emergency", "Alert") [5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: Falco detected a critical runtime security event
+                  description: >-
+                    Falco fired a Critical/Emergency/Alert-priority rule.
+                    Check: kubectl logs -n falco ds/falco --since=5m | grep -E '"priority":"(Critical|Emergency|Alert)"'
+                labels:
+                  severity: critical
+                isPaused: false
+
+              - uid: kubescape-scan-findings
+                title: KubescapeScanFindings
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 7200
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_namespace_name="kubescape"} |= "failed" [2h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: kubescape weekly scan found failed controls
+                  description: >-
+                    The weekly kubescape CIS/MITRE scan found control failures.
+                    Query full results in VictoriaLogs:
+                    {kubernetes_namespace_name="kubescape"} |= "failed"
+                labels:
+                  severity: warning
+                isPaused: false
+
     initChownData:
       enabled: false
 
