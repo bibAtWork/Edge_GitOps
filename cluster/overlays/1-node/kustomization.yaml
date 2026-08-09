@@ -28,6 +28,7 @@ resources:
   - ../../base/infrastructure/17-paperless-ngx
   - ../../base/infrastructure/18-falco
   - ../../base/infrastructure/19-kyverno
+  - ../../base/infrastructure/20-kubescape
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml
