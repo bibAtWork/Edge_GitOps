@@ -144,3 +144,36 @@ spec:
   egress:
     - toEndpoints:
         - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+  namespace: falco
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+  namespace: kyverno
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+  namespace: kubescape
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - {}
