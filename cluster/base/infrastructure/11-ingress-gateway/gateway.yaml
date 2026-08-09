@@ -23,6 +23,7 @@ spec:
                   - gateway-system
                   - immich
                   - paperless
+                  - schenkmatch
       tls:
         mode: Terminate
         certificateRefs:
