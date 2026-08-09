@@ -28,6 +28,16 @@ data:
             timestamp:
               parse_from: attributes.time
               layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+      filelog/audit:
+        include:
+          - /var/log/kubernetes/audit/audit.log
+        include_file_path: true
+        operators:
+          - type: json_parser
+            timestamp:
+              parse_from: attributes.requestReceivedTimestamp
+              layout_type: strptime
+              layout: '%Y-%m-%dT%H:%M:%S.%fZ'
       otlp:
         protocols:
           grpc:
@@ -70,7 +80,7 @@ data:
           processors: [memory_limiter, batch, resource]
           exporters: [prometheusremotewrite]
         logs:
-          receivers: [filelog]
+          receivers: [filelog, filelog/audit]
           processors: [memory_limiter, batch, resource]
           exporters: [otlp/gateway]
         traces:
