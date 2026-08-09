@@ -162,7 +162,7 @@ spec:
             rules:
               - uid: log-oomkilled
                 title: PodOOMKilled
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -177,8 +177,20 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: threshold
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
                       conditions:
                         - evaluator:
                             params: [0]
@@ -186,7 +198,7 @@ spec:
                           operator:
                             type: and
                           query:
-                            params: [A]
+                            params: [C]
                           reducer:
                             params: []
                             type: last
@@ -194,7 +206,7 @@ spec:
                       datasource:
                         type: __expr__
                         uid: '-100'
-                      expression: A
+                      expression: B
                 noDataState: OK
                 execErrState: Error
                 for: 1m
@@ -209,7 +221,7 @@ spec:
 
               - uid: log-grafana-auth-fail
                 title: GrafanaAuthFailures
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -224,8 +236,20 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: threshold
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
                       conditions:
                         - evaluator:
                             params: [5]
@@ -233,7 +257,7 @@ spec:
                           operator:
                             type: and
                           query:
-                            params: [A]
+                            params: [C]
                           reducer:
                             params: []
                             type: last
@@ -241,7 +265,7 @@ spec:
                       datasource:
                         type: __expr__
                         uid: '-100'
-                      expression: A
+                      expression: B
                 noDataState: OK
                 execErrState: Error
                 for: 2m
@@ -313,7 +337,7 @@ spec:
 
               - uid: falco-critical-event
                 title: FalcoCriticalEvent
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -328,8 +352,20 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: threshold
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
                       conditions:
                         - evaluator:
                             params: [0]
@@ -337,7 +373,7 @@ spec:
                           operator:
                             type: and
                           query:
-                            params: [A]
+                            params: [C]
                           reducer:
                             params: []
                             type: last
@@ -345,7 +381,7 @@ spec:
                       datasource:
                         type: __expr__
                         uid: '-100'
-                      expression: A
+                      expression: B
                 noDataState: OK
                 execErrState: Error
                 for: 0m
@@ -360,7 +396,7 @@ spec:
 
               - uid: kubescape-scan-findings
                 title: KubescapeScanFindings
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -375,8 +411,20 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: threshold
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
                       conditions:
                         - evaluator:
                             params: [0]
@@ -384,7 +432,7 @@ spec:
                           operator:
                             type: and
                           query:
-                            params: [A]
+                            params: [C]
                           reducer:
                             params: []
                             type: last
@@ -392,7 +440,7 @@ spec:
                       datasource:
                         type: __expr__
                         uid: '-100'
-                      expression: A
+                      expression: B
                 noDataState: OK
                 execErrState: Error
                 for: 0m
