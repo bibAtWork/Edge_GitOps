@@ -362,6 +362,29 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print("  ✓ Grafana OAuth client secret")
 
+    path = cluster / "base/infrastructure/23-dex/static-clients-secret.yaml"
+    new_static_clients_secret = (
+        "apiVersion: v1\n"
+        "kind: Secret\n"
+        "metadata:\n"
+        "  name: dex-static-clients\n"
+        "  namespace: dex\n"
+        "stringData:\n"
+        "  values.yaml: |\n"
+        "    config:\n"
+        "      staticClients:\n"
+        "        - id: grafana\n"
+        f'          secret: "{dex_client_secret}"\n'
+        "          redirectURIs:\n"
+        f'            - https://grafana.{effective_domain}/login/generic_oauth\n'
+        "          name: Grafana\n"
+    )
+    existing = path.read_text() if path.exists() else ""
+    if new_static_clients_secret != existing:
+        path.write_text(new_static_clients_secret)
+        changed.append(str(path.relative_to(REPO_ROOT)))
+        print("  ✓ Dex static clients (grafana OIDC client with redirect URI)")
+
     # talos-backup: SeaweedFS credentials (same key/secret as above)
     path = cluster / "base/00-bootstrap/talos-backup/secret.yaml"
     replacements = {
