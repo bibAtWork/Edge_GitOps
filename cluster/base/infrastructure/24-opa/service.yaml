@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa
+  namespace: security
+  labels:
+    app.kubernetes.io/name: opa
+spec:
+  selector:
+    app.kubernetes.io/name: opa
+  ports:
+    - name: grpc-authz
+      port: 9191
+      targetPort: grpc-authz
+      protocol: TCP

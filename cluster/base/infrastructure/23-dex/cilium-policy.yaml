@@ -1,0 +1,26 @@
+---
+# Allow Dex pods to reach each other within the namespace.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+  namespace: dex
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - {}
+---
+# Allow the Cilium gateway to reach Dex (HTTPS listener on port 5556 via HTTPRoute).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: dex
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: dex
+  ingress:
+    - fromEntities:
+        - ingress

@@ -1,0 +1,251 @@
+# CiliumClusterwideEnvoyConfig: injects an HTTP filter chain into Cilium's Envoy
+# for every service listed in spec.services.  Traffic from the gateway to each
+# backend traverses this chain:
+#
+#   [gateway pod] → local-rate-limit → jwt-authn → lua(baggage) → ext_authz(OPA) → [backend pod]
+#
+# Layer roles:
+#   local_ratelimit  – token-bucket per Envoy instance; no external call; cheapest guard.
+#   jwt_authn        – validates Bearer tokens issued by Dex; extracts sub/email as headers;
+#                      allow_missing_or_failed lets browser OIDC flows pass (no JWT in cookie).
+#   lua              – reads x-jwt-email + x-forwarded-for → sets W3C Baggage header so all
+#                      downstream services receive user identity for distributed tracing.
+#   ext_authz(OPA)   – receives JWT claims via filter metadata; makes policy decisions;
+#                      currently allow-all with identity enrichment (tighten in configmap.yaml).
+#
+# End-to-end tracing: the HCM tracing config maps x-jwt-email/x-jwt-sub/x-forwarded-for
+# to OTel span attributes user.id, user.sub, client.ip on every request.
+#
+# Future – Coraza WAF:
+#   Add envoy.filters.http.wasm (before local_ratelimit) with the coraza-proxy-wasm filter
+#   and an OWASP CRS ruleset mounted from a ConfigMap.  See CORAZA-WAF.md for details.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideEnvoyConfig
+metadata:
+  name: gateway-authz
+spec:
+  services:
+    - name: grafana
+      namespace: monitoring
+    - name: immich-server
+      namespace: immich
+    - name: paperless-ngx
+      namespace: paperless
+    - name: schenkmatch
+      namespace: schenkmatch
+    - name: zot
+      namespace: zot
+    - name: hubble-ui
+      namespace: kube-system
+
+  resources:
+    # ── Listener ────────────────────────────────────────────────────────────
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: gateway-authz
+      filter_chains:
+        - filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: gateway_authz
+
+              # RDS: Cilium's xDS provides route configs for all listed services.
+              rds:
+                config_source:
+                  resource_api_version: V3
+                  api_config_source:
+                    api_type: GRPC
+                    transport_api_version: V3
+                    grpc_services:
+                      - envoy_grpc:
+                          cluster_name: xds-grpc-cilium
+                route_config_name: gateway-authz
+
+              # OTel tracing — maps JWT headers to span attributes for end-to-end user tracing.
+              tracing:
+                provider:
+                  name: envoy.tracers.opentelemetry
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+                    grpc_service:
+                      envoy_grpc:
+                        cluster_name: otel_grpc
+                      timeout: 1s
+                    service_name: cilium-gateway-authz
+                custom_tags:
+                  - tag: user.id
+                    request_header:
+                      name: x-jwt-email
+                      default_value: anonymous
+                  - tag: user.sub
+                    request_header:
+                      name: x-jwt-sub
+                      default_value: anonymous
+                  - tag: client.ip
+                    request_header:
+                      name: x-forwarded-for
+
+              http_filters:
+                # 1. Local rate limit — runs first; no external call; cheapest guard.
+                #    Default: 60 requests per minute per Envoy instance (single-node homelab).
+                #    To set per-route limits, use HTTPRoute annotations or per-virtualhost config.
+                - name: envoy.filters.http.local_ratelimit
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                    stat_prefix: gateway_authz_rl
+                    token_bucket:
+                      max_tokens: 60
+                      tokens_per_fill: 60
+                      fill_interval: 60s
+                    filter_enabled:
+                      default_value:
+                        numerator: 100
+                        denominator: HUNDRED
+                    filter_enforced:
+                      default_value:
+                        numerator: 100
+                        denominator: HUNDRED
+                    response_headers_to_add:
+                      - header:
+                          key: x-ratelimit-limit
+                          value: "60"
+                        keep_empty_value: false
+
+                # 2. JWT authentication — validates Bearer tokens issued by Dex.
+                #    allow_missing_or_failed: browser OIDC flows (no Authorization header) pass through;
+                #    apps (Grafana, Immich, Paperless) handle their own auth via native OIDC.
+                #    API clients sending "Authorization: Bearer <token>" are fully validated.
+                - name: envoy.filters.http.jwt_authn
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                    providers:
+                      dex:
+                        issuer: https://dex.homelab.data-harness.org
+                        remote_jwks:
+                          http_uri:
+                            # Internal URL for JWKS — avoids external round-trip.
+                            uri: http://dex.dex.svc.cluster.local:5556/keys
+                            cluster: dex_jwks
+                            timeout: 5s
+                          cache_duration:
+                            seconds: 300
+                        forward: true
+                        from_headers:
+                          - name: Authorization
+                            value_prefix: "Bearer "
+                        # Extract JWT claims as trusted request headers.
+                        # These headers are forwarded to OPA (as filter metadata) and to backends.
+                        claim_to_headers:
+                          - claim_name: sub
+                            header_name: x-jwt-sub
+                          - claim_name: email
+                            header_name: x-jwt-email
+                    rules:
+                      - match:
+                          prefix: /
+                        requires:
+                          requires_any:
+                            requirements:
+                              - provider_name: dex
+                              - allow_missing_or_failed: {}
+
+                # 3. Lua — compose W3C Baggage header for distributed tracing identity propagation.
+                #    All downstream services receive user.id and client.ip via the baggage header.
+                - name: envoy.filters.http.lua
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                    inline_code: |
+                      function envoy_on_request(request_handle)
+                        local email = request_handle:headers():get("x-jwt-email") or "anonymous"
+                        local xff   = request_handle:headers():get("x-forwarded-for") or ""
+                        local ip    = xff:match("([^,]+)") or "unknown"
+                        ip = ip:match("^%s*(.-)%s*$")
+                        request_handle:headers():replace(
+                          "baggage",
+                          "user.id=" .. email .. ",client.ip=" .. ip
+                        )
+                      end
+                      function envoy_on_response(response_handle)
+                      end
+
+                # 4. OPA ext_authz — fine-grained policy enforcement.
+                #    Receives JWT claims via filter metadata (envoy.filters.http.jwt_authn).
+                #    Current policy: allow-all + identity header enrichment (see 24-opa/configmap.yaml).
+                #    Tighten by editing the Rego policy without redeploying this config.
+                - name: envoy.filters.http.ext_authz
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                    grpc_service:
+                      envoy_grpc:
+                        cluster_name: opa_authz
+                      timeout: 5s
+                    transport_api_version: V3
+                    # Pass JWT filter metadata to OPA so policies can read verified claims.
+                    metadata_context_namespaces:
+                      - envoy.filters.http.jwt_authn
+                    failure_mode_allow: true
+
+                # 5. Router — must be last.
+                - name: envoy.filters.http.router
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+    # ── Upstream clusters ────────────────────────────────────────────────────
+
+    # OPA gRPC ext_authz endpoint.
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: opa_authz
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: opa_authz
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: opa.security.svc.cluster.local
+                    port_value: 9191
+
+    # Dex JWKS endpoint — used by jwt_authn to fetch and cache signing keys.
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: dex_jwks
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: dex_jwks
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: dex.dex.svc.cluster.local
+                    port_value: 5556
+
+    # OTel collector gRPC endpoint — receives spans from the tracer provider.
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: otel_grpc
+      connect_timeout: 1s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: otel_grpc
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: otel-collector-gateway.monitoring.svc.cluster.local
+                    port_value: 4317
