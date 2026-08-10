@@ -29,7 +29,7 @@ spec:
       storage:
         type: kubernetes
         config:
-          inClusterConfig: true
+          inCluster: true
 
       web:
         http: 0.0.0.0:5556
