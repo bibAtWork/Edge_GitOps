@@ -63,5 +63,11 @@
   "etcd": {
     "_comment": "Leave empty to auto-generate a random AES-256-CBC key for etcd secrets encryption at rest. Once set, DO NOT change — rotating requires re-encrypting all etcd secrets with: kubectl get secrets -A -o json | kubectl replace -f -",
     "encryption_key": ""
+  },
+
+  "dex": {
+    "_comment": "Leave grafana_client_secret empty to auto-generate. admin_password is required — it becomes the Dex built-in admin account (admin@homelab.internal).",
+    "grafana_client_secret": "",
+    "admin_password": ""
   }
 }

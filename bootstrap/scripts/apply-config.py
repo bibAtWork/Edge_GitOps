@@ -165,6 +165,15 @@ def main() -> None:
         modified_cfg = True
         print("  auto-generated etcd.encryption_key (AES-256-CBC, stored in config.json)")
 
+    dex_client_secret = get(cfg, "dex", "grafana_client_secret", required=False)
+    if not dex_client_secret:
+        dex_client_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
+        cfg.setdefault("dex", {})["grafana_client_secret"] = dex_client_secret
+        modified_cfg = True
+        print("  auto-generated dex.grafana_client_secret")
+
+    dex_admin_password = get(cfg, "dex", "admin_password")
+
     if modified_cfg:
         save_config(cfg)
 
@@ -176,6 +185,7 @@ def main() -> None:
         cluster / "base/infrastructure/12-zot/config/httproute.yaml",
         cluster / "base/infrastructure/04-grafana/config/httproute.yaml",
         cluster / "base/infrastructure/05-cilium/config/httproute.yaml",
+        cluster / "base/infrastructure/23-dex/config/httproute.yaml",
     ]
     domain_changed = False
     for path in domain_files:
@@ -314,6 +324,43 @@ def main() -> None:
         path.write_text(new_secret)
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Zot htpasswd")
+
+    # Dex OIDC secrets — write whole-file (like Zot htpasswd) so this works even when
+    # the committed file is already SOPS-encrypted from a prior bootstrap run.
+    # _bcrypt_hash is already defined above for the Zot htpasswd block.
+    dex_admin_hash = _bcrypt_hash(dex_admin_password)
+    path = cluster / "base/infrastructure/23-dex/secret.yaml"
+    new_dex_secret = (
+        "apiVersion: v1\n"
+        "kind: Secret\n"
+        "metadata:\n"
+        "  name: dex-secrets\n"
+        "  namespace: dex\n"
+        "stringData:\n"
+        f'  grafana-client-secret: "{dex_client_secret}"\n'
+        f'  admin-password-hash: "{dex_admin_hash}"\n'
+    )
+    existing = path.read_text() if path.exists() else ""
+    if new_dex_secret != existing:
+        path.write_text(new_dex_secret)
+        changed.append(str(path.relative_to(REPO_ROOT)))
+        print("  ✓ Dex secrets (grafana-client-secret + admin bcrypt hash)")
+
+    path = cluster / "base/infrastructure/04-grafana/grafana-oauth-secret.yaml"
+    new_grafana_oauth_secret = (
+        "apiVersion: v1\n"
+        "kind: Secret\n"
+        "metadata:\n"
+        "  name: grafana-oauth-secret\n"
+        "  namespace: monitoring\n"
+        "stringData:\n"
+        f'  GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{dex_client_secret}"\n'
+    )
+    existing = path.read_text() if path.exists() else ""
+    if new_grafana_oauth_secret != existing:
+        path.write_text(new_grafana_oauth_secret)
+        changed.append(str(path.relative_to(REPO_ROOT)))
+        print("  ✓ Grafana OAuth client secret")
 
     # talos-backup: SeaweedFS credentials (same key/secret as above)
     path = cluster / "base/00-bootstrap/talos-backup/secret.yaml"
