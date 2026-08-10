@@ -1,0 +1,12 @@
+---
+# Allow OPA pods to reach each other within the security namespace.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+  namespace: security
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - {}

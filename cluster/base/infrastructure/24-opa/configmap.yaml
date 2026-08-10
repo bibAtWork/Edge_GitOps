@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policies
+  namespace: security
+data:
+  main.rego: |
+    package envoy.authz
+
+    import rego.v1
+    import input.attributes.request.http as http
+
+    # JWT claims injected into filter metadata by Cilium's jwt_authn filter.
+    # Present only when the request carried a valid JWT from Dex.
+    jwt := input.attributes.metadata_context.filter_metadata["envoy.filters.http.jwt_authn"]["verified_jwt"]
+
+    # --- Allow rules ---
+
+    # Authenticated API request: JWT was valid → add user identity headers for downstream services.
+    allow := {
+        "allowed": true,
+        "headers": {
+            "x-authenticated-user": jwt.email,
+            "x-authenticated-sub":  jwt.sub
+        }
+    } if {
+        jwt.sub
+    }
+
+    # Unauthenticated request: no valid JWT present.
+    # Browser OIDC flows (redirects, callbacks) and apps with their own auth pass through here.
+    # To enforce JWT for all requests, remove this rule and replace with a 401 denial.
+    allow := {"allowed": true} if {
+        not jwt
+    }
+
+    # --- Policy extension points (uncomment to enforce) ---
+    #
+    # Deny unauthenticated requests (enforce JWT for all paths):
+    # default allow := {
+    #     "allowed": false,
+    #     "http_status": 401,
+    #     "body": "{\"error\":\"Authentication required\"}",
+    #     "headers": {"content-type": "application/json"}
+    # }
+    #
+    # Restrict Grafana admin paths to users with 'admin' group:
+    # allow := {"allowed": false, "http_status": 403, "body": "Forbidden"} if {
+    #     startswith(http.path, "/api/admin/")
+    #     not "admin" in jwt.groups
+    # }
