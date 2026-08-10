@@ -427,3 +427,23 @@ spec:
         cpu: 100m
       limits:
         memory: 512Mi
+
+    # Inject GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET from grafana-oauth-secret into Grafana's env.
+    # Grafana config below references it via $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}.
+    envFromSecret: grafana-oauth-secret
+
+    grafana.ini:
+      auth.generic_oauth:
+        enabled: true
+        name: Homelab SSO
+        allow_sign_up: true
+        scopes: openid email profile groups
+        auth_url: https://dex.homelab.data-harness.org/auth
+        token_url: https://dex.homelab.data-harness.org/token
+        api_url: https://dex.homelab.data-harness.org/userinfo
+        client_id: grafana
+        client_secret: "$__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
+        # Map Dex groups to Grafana roles; users in 'admin' group become Grafana Admins.
+        role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || 'Viewer'"
+        use_pkce: true
+        auto_login: false
