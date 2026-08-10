@@ -22,6 +22,10 @@ spec:
       retries: 3
       remediateLastFailure: true
     cleanupOnFail: true
+  valuesFrom:
+    - kind: Secret
+      name: dex-static-clients
+      valuesKey: values.yaml
   values:
     config:
       issuer: https://dex.homelab.data-harness.org
@@ -48,13 +52,6 @@ spec:
       # See: https://dexidp.io/docs/connectors/
       enablePasswordDB: true
 
-      staticClients:
-        - id: grafana
-          secret: "${DEX_GRAFANA_CLIENT_SECRET}"
-          redirectURIs:
-            - https://grafana.homelab.data-harness.org/login/generic_oauth
-          name: Grafana
-
       staticPasswords:
         - email: admin@homelab.internal
           hashFromEnv: DEX_ADMIN_PASSWORD_HASH
@@ -62,11 +59,6 @@ spec:
           userID: "00000000-0000-0000-0000-000000000001"
 
     envVars:
-      - name: DEX_GRAFANA_CLIENT_SECRET
-        valueFrom:
-          secretKeyRef:
-            name: dex-secrets
-            key: grafana-client-secret
       - name: DEX_ADMIN_PASSWORD_HASH
         valueFrom:
           secretKeyRef:
