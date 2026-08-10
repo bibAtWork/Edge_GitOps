@@ -481,6 +481,9 @@ spec:
     envFromSecret: grafana-oauth-secret
 
     grafana.ini:
+      server:
+        root_url: https://grafana.homelab.data-harness.org
+
       auth.generic_oauth:
         enabled: true
         name: Homelab SSO
