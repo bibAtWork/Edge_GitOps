@@ -3,5 +3,4 @@ kind: Kustomization
 resources:
   - helmrelease.yaml
   - admin-secret.yaml
-  # grafana-oauth-secret.yaml: create and SOPS-encrypt manually before merging.
-  # See PR #83 description for the required Secret format (name: grafana-oauth-secret).
+  - grafana-oauth-secret.yaml
