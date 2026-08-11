@@ -171,8 +171,8 @@ spec:
                     datasourceUid: victorialogs
                     model:
                       expr: '{kubernetes_cluster_name="homelab"} "OOMKilling" | count()'
-                      instant: true
-                      range: false
+                      instant: false
+                      range: true
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
@@ -217,8 +217,8 @@ spec:
                     datasourceUid: victorialogs
                     model:
                       expr: '{kubernetes_namespace_name="monitoring", kubernetes_container_name="grafana"} "Invalid username or password" | count()'
-                      instant: true
-                      range: false
+                      instant: false
+                      range: true
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
@@ -320,8 +320,8 @@ spec:
                     datasourceUid: victorialogs
                     model:
                       expr: '{kubernetes_namespace_name="falco"} ~"\"priority\":\"(Critical|Emergency|Alert)\"" | count()'
-                      instant: true
-                      range: false
+                      instant: false
+                      range: true
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
@@ -366,8 +366,8 @@ spec:
                     datasourceUid: victorialogs
                     model:
                       expr: '{kubernetes_namespace_name="kubescape"} "failed" | count()'
-                      instant: true
-                      range: false
+                      instant: false
+                      range: true
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
