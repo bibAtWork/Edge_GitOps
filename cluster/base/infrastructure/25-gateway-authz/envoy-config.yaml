@@ -1,31 +1,29 @@
 # CiliumClusterwideEnvoyConfig: injects an HTTP filter chain into Cilium's Envoy
-# for every service listed in spec.services.  Traffic from the gateway to each
-# backend traverses this chain:
+# for traffic to every service listed in spec.services.
 #
-#   [gateway pod] → global-rate-limit → jwt-authn → lua(baggage) → ext_authz(OPA) → [backend pod]
+# Filter chain (per request):
+#   local_ratelimit → ext_authz(OPA) → cilium.l7policy → router
 #
-# Layer roles:
-#   ratelimit        – per-client-IP token bucket backed by Valkey; shared across all nodes so
-#                      limits are consistent regardless of which node handles the request.
-#                      Descriptors: (client_ip, host) → per-service per-IP limits.
-#   jwt_authn        – validates Bearer tokens issued by Dex; extracts sub/email as headers;
-#                      allow_missing_or_failed lets browser OIDC flows pass (no JWT in cookie).
-#   lua              – reads x-jwt-email + x-forwarded-for → sets W3C Baggage header so all
-#                      downstream services receive user identity for distributed tracing.
-#   ext_authz(OPA)   – receives JWT claims via filter metadata; enforces:
-#                        · deny invalid Bearer tokens (401)
-#                        · deny non-admin access to Grafana /api/admin/* (403)
-#                        · deny non-admin access to hubble-ui (403)
-#                        · add x-authenticated-user/sub headers for all valid JWTs
+# Design notes:
+#   · local_ratelimit: per-node token bucket (60 req/min); no external call.
+#     Scales horizontally — each node independently enforces 60 req/min.
+#   · ext_authz(OPA): enforces Rego policies from 24-opa/configmap.yaml.
+#     failure_mode_allow: if OPA is unavailable, native app auth still applies.
+#   · cilium.l7policy: auto-injected by Cilium for L7 network policy enforcement.
+#   · router: Cilium's xDS provides per-service route configs (RDS).
 #
-# Inline route_config (instead of RDS) is required so that virtual-host-level
-# rate_limits actions can be configured.  Cilium's Envoy does not re-intercept
-# connections that originate from its own proxy, so STRICT_DNS clusters pointing
-# to backend service DNS names are loop-free.
+# Note: jwt_authn omitted — Cilium 1.20's Go proto registry does not include
+# envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication and the config
+# fails with "unexpected token {" during deserialization. OPA receives raw headers
+# (x-jwt-sub, x-jwt-email) and the Authorization header for policy evaluation.
 #
-# Future – Coraza WAF:
-#   Add envoy.filters.http.wasm (before ratelimit) with the coraza-proxy-wasm filter
-#   and an OWASP CRS ruleset mounted from a ConfigMap.  See CORAZA-WAF.md for details.
+# CLUSTER DNS LIMITATION: Cilium's Envoy runs on host network and uses host DNS,
+# which cannot resolve *.svc.cluster.local names. Clusters for OPA and OTel use
+# their stable ClusterIPs directly (Cilium's BPF LB handles the DNAT to pod IPs).
+# The dex cluster reuses the gateway's existing EDS cluster to avoid duplication.
+#
+# Future — Coraza WAF:
+#   Add envoy.filters.http.wasm (before local_ratelimit) with coraza-proxy-wasm.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideEnvoyConfig
 metadata:
@@ -56,193 +54,39 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
               stat_prefix: gateway_authz
 
-              # Inline route config — required for per-virtual-host rate_limits actions.
-              # Each virtual host matches by Host/:authority header and routes to the
-              # corresponding backend cluster via STRICT_DNS.
-              route_config:
-                name: gateway-authz
-                virtual_hosts:
-                  - name: grafana
-                    domains: ["grafana.homelab.data-harness.org"]
-                    rate_limits:
-                      - actions:
-                          - request_headers:
-                              header_name: "x-forwarded-for"
-                              descriptor_key: client_ip
-                          - request_headers:
-                              header_name: ":authority"
-                              descriptor_key: host
-                    routes:
-                      - match: {prefix: /}
-                        route: {cluster: grafana}
-
-                  - name: immich
-                    domains: ["immich.homelab.data-harness.org"]
-                    rate_limits:
-                      - actions:
-                          - request_headers:
-                              header_name: "x-forwarded-for"
-                              descriptor_key: client_ip
-                          - request_headers:
-                              header_name: ":authority"
-                              descriptor_key: host
-                    routes:
-                      - match: {prefix: /}
-                        route: {cluster: immich}
-
-                  - name: paperless
-                    domains: ["paperless.homelab.data-harness.org"]
-                    rate_limits:
-                      - actions:
-                          - request_headers:
-                              header_name: "x-forwarded-for"
-                              descriptor_key: client_ip
-                          - request_headers:
-                              header_name: ":authority"
-                              descriptor_key: host
-                    routes:
-                      - match: {prefix: /}
-                        route: {cluster: paperless}
-
-                  - name: schenkmatch
-                    domains: ["schenkmatch.homelab.data-harness.org"]
-                    rate_limits:
-                      - actions:
-                          - request_headers:
-                              header_name: "x-forwarded-for"
-                              descriptor_key: client_ip
-                          - request_headers:
-                              header_name: ":authority"
-                              descriptor_key: host
-                    routes:
-                      - match: {prefix: /}
-                        route: {cluster: schenkmatch}
-
-                  - name: zot
-                    domains: ["zot.homelab.data-harness.org"]
-                    rate_limits:
-                      - actions:
-                          - request_headers:
-                              header_name: "x-forwarded-for"
-                              descriptor_key: client_ip
-                          - request_headers:
-                              header_name: ":authority"
-                              descriptor_key: host
-                    routes:
-                      - match: {prefix: /}
-                        route: {cluster: zot}
-
-                  - name: hubble
-                    domains: ["hubble.homelab.data-harness.org"]
-                    rate_limits:
-                      - actions:
-                          - request_headers:
-                              header_name: "x-forwarded-for"
-                              descriptor_key: client_ip
-                          - request_headers:
-                              header_name: ":authority"
-                              descriptor_key: host
-                    routes:
-                      - match: {prefix: /}
-                        route: {cluster: hubble}
-
-              # OTel tracing — maps JWT headers to span attributes for end-to-end user tracing.
-              tracing:
-                provider:
-                  name: envoy.tracers.opentelemetry
-                  typed_config:
-                    "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
-                    grpc_service:
-                      envoy_grpc:
-                        cluster_name: otel_grpc
-                      timeout: 1s
-                    service_name: cilium-gateway-authz
-                custom_tags:
-                  - tag: user.id
-                    request_header:
-                      name: x-jwt-email
-                      default_value: anonymous
-                  - tag: user.sub
-                    request_header:
-                      name: x-jwt-sub
-                      default_value: anonymous
-                  - tag: client.ip
-                    request_header:
-                      name: x-forwarded-for
+              rds:
+                config_source:
+                  resource_api_version: V3
+                  api_config_source:
+                    api_type: GRPC
+                    transport_api_version: V3
+                    grpc_services:
+                      - envoy_grpc:
+                          cluster_name: xds-grpc-cilium
+                route_config_name: gateway-authz
 
               http_filters:
-                # 1. Global rate limit — shared Valkey counter, consistent across all nodes.
-                #    Descriptor: (client_ip=x-forwarded-for, host=:authority)
-                #    Per-service limits defined in ratelimit-config.yaml ConfigMap.
-                #    failure_mode_deny: false → fail open if ratelimit service is down.
-                - name: envoy.filters.http.ratelimit
+                # 1. Local rate limit: token bucket, 60 req/min per Envoy instance.
+                - name: envoy.filters.http.local_ratelimit
                   typed_config:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
-                    domain: gateway
-                    failure_mode_deny: false
-                    enable_x_ratelimit_headers: DRAFT_VERSION_03
-                    rate_limit_service:
-                      grpc_service:
-                        envoy_grpc:
-                          cluster_name: ratelimit_grpc
-                        timeout: 250ms
-                      transport_api_version: V3
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                    stat_prefix: gateway_authz_rl
+                    token_bucket:
+                      max_tokens: 60
+                      tokens_per_fill: 60
+                      fill_interval: 60s
+                    filter_enabled:
+                      default_value:
+                        numerator: 100
+                        denominator: HUNDRED
+                    filter_enforced:
+                      default_value:
+                        numerator: 100
+                        denominator: HUNDRED
 
-                # 2. JWT authentication — validates Bearer tokens issued by Dex.
-                #    allow_missing_or_failed: browser OIDC flows (no Authorization header) pass through;
-                #    apps (Grafana, Immich, Paperless) handle their own auth via native OIDC.
-                #    API clients sending "Authorization: Bearer <token>" are fully validated.
-                - name: envoy.filters.http.jwt_authn
-                  typed_config:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
-                    providers:
-                      dex:
-                        issuer: https://dex.homelab.data-harness.org
-                        remote_jwks:
-                          http_uri:
-                            uri: http://dex.dex.svc.cluster.local:5556/keys # nosonar
-                            cluster: dex_jwks
-                            timeout: 5s
-                          cache_duration:
-                            seconds: 300
-                        forward: true
-                        from_headers:
-                          - name: Authorization
-                            value_prefix: "Bearer "
-                        claim_to_headers:
-                          - claim_name: sub
-                            header_name: x-jwt-sub
-                          - claim_name: email
-                            header_name: x-jwt-email
-                    rules:
-                      - match:
-                          prefix: /
-                        requires:
-                          requires_any:
-                            requirements:
-                              - provider_name: dex
-                              - allow_missing_or_failed: {}
-
-                # 3. Lua — compose W3C Baggage header for distributed tracing identity propagation.
-                - name: envoy.filters.http.lua
-                  typed_config:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-                    inline_code: |
-                      function envoy_on_request(request_handle)
-                        local email = request_handle:headers():get("x-jwt-email") or "anonymous"
-                        local xff   = request_handle:headers():get("x-forwarded-for") or ""
-                        local ip    = xff:match("([^,]+)") or "unknown"
-                        ip = ip:match("^%s*(.-)%s*$")
-                        request_handle:headers():replace(
-                          "baggage",
-                          "user.id=" .. email .. ",client.ip=" .. ip
-                        )
-                      end
-                      function envoy_on_response(response_handle)
-                      end
-
-                # 4. OPA ext_authz — fine-grained policy enforcement.
-                #    Policies defined in 24-opa/configmap.yaml (edit Rego without redeployment).
+                # 2. OPA ext_authz: enforces Rego policies in 24-opa/configmap.yaml.
+                #    failure_mode_allow: if OPA is unavailable, requests pass through
+                #    (native app auth and Cilium network policies still apply).
                 - name: envoy.filters.http.ext_authz
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
@@ -255,131 +99,21 @@ spec:
                       - envoy.filters.http.jwt_authn
                     failure_mode_allow: true
 
-                # 5. Router — must be last.
+                # 4. Router (must be last).
                 - name: envoy.filters.http.router
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
-    # ── Backend clusters (STRICT_DNS → service ClusterIP DNS) ───────────────
-    # Cilium does not re-intercept connections originating from its own Envoy proxy,
-    # so these STRICT_DNS clusters are loop-free even though the services are in spec.services.
+    # ── Upstream clusters ────────────────────────────────────────────────────
 
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: grafana
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: grafana
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: grafana.monitoring.svc.cluster.local
-                    port_value: 80
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: immich
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: immich
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: immich-server.immich.svc.cluster.local
-                    port_value: 2283
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: paperless
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: paperless
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: paperless-ngx.paperless.svc.cluster.local
-                    port_value: 8000
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: schenkmatch
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: schenkmatch
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: schenkmatch.schenkmatch.svc.cluster.local
-                    port_value: 3000
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: zot
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: zot
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: zot.zot.svc.cluster.local
-                    port_value: 5000
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: hubble
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: hubble
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: hubble-ui.kube-system.svc.cluster.local
-                    port_value: 80
-
-    # ── Shared service clusters ──────────────────────────────────────────────
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: ratelimit_grpc
-      connect_timeout: 250ms
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      typed_extension_protocol_options:
-        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-          explicit_http_config:
-            http2_protocol_options: {}
-      load_assignment:
-        cluster_name: ratelimit_grpc
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: ratelimit.security.svc.cluster.local
-                    port_value: 8081
-
+    # OPA gRPC ext_authz. STATIC + ClusterIP: Cilium Envoy runs on host network
+    # and cannot resolve *.svc.cluster.local via host DNS; Cilium's BPF LB DNAT's
+    # the ClusterIP to the pod. ClusterIPs are stable for the service lifetime.
+    # If OPA's ClusterIP changes (service recreate), update this address.
     - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
       name: opa_authz
       connect_timeout: 5s
-      type: STRICT_DNS
+      type: STATIC
       lb_policy: ROUND_ROBIN
       typed_extension_protocol_options:
         envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
@@ -393,40 +127,6 @@ spec:
             - endpoint:
                 address:
                   socket_address:
-                    address: opa.security.svc.cluster.local
+                    # kubectl get svc -n security opa -o jsonpath='{.spec.clusterIP}'
+                    address: 10.102.123.91
                     port_value: 9191
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: dex_jwks
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: dex_jwks
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: dex.dex.svc.cluster.local
-                    port_value: 5556
-
-    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
-      name: otel_grpc
-      connect_timeout: 1s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      typed_extension_protocol_options:
-        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-          explicit_http_config:
-            http2_protocol_options: {}
-      load_assignment:
-        cluster_name: otel_grpc
-        endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: otel-collector-gateway.monitoring.svc.cluster.local
-                    port_value: 4317
