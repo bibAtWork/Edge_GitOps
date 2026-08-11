@@ -8,7 +8,7 @@ data:
     package envoy.authz
 
     import rego.v1
-    import input.attributes.request.http as http
+    import input.attributes.request.http as req_http
 
     # JWT claims injected into filter metadata by Cilium's jwt_authn filter.
     # Present only when the request carried a valid JWT from Dex.
@@ -27,7 +27,7 @@ data:
 
     # Request carries an Authorization: Bearer header (API client, not browser OIDC flow).
     has_bearer if {
-        startswith(http.headers.authorization, "Bearer ")
+        startswith(req_http.headers.authorization, "Bearer ")
     }
 
     is_admin if {
@@ -36,8 +36,8 @@ data:
 
     # Grafana admin API — requires admin role regardless of call type.
     is_grafana_admin_path if {
-        http.host == "grafana.homelab.data-harness.org"
-        startswith(http.path, "/api/admin/")
+        req_http.host == "grafana.homelab.data-harness.org"
+        startswith(req_http.path, "/api/admin/")
     }
 
     identity_headers := {
@@ -85,7 +85,7 @@ data:
         "body": "{\"error\":\"Forbidden\"}",
         "headers": {"content-type": "application/json"},
     } if {
-        http.host in admin_only_apps
+        req_http.host in admin_only_apps
         not is_admin
     } else := {
         "allowed": true,
