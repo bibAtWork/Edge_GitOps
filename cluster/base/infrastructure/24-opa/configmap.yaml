@@ -8,44 +8,88 @@ data:
     package envoy.authz
 
     import rego.v1
-    import input.attributes.request.http as http
+    import input.attributes.request.http as req_http
 
     # JWT claims injected into filter metadata by Cilium's jwt_authn filter.
     # Present only when the request carried a valid JWT from Dex.
     jwt := input.attributes.metadata_context.filter_metadata["envoy.filters.http.jwt_authn"]["verified_jwt"]
 
-    # --- Allow rules ---
+    # ── Role mapping ──────────────────────────────────────────────────────────
+    # Dex staticPasswords do not support groups, so roles are mapped by email here.
+    # To add an admin, append their Dex email to this set.
+    admin_emails := {"admin@homelab.internal"}
 
-    # Authenticated API request: JWT was valid → add user identity headers for downstream services.
+    # Apps that require an admin JWT even for browser (non-Bearer) access.
+    # These have no native OIDC integration, so OPA is the only auth layer.
+    admin_only_apps := {"hubble.homelab.data-harness.org"}
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    # Request carries an Authorization: Bearer header (API client, not browser OIDC flow).
+    has_bearer if {
+        startswith(req_http.headers.authorization, "Bearer ")
+    }
+
+    is_admin if {
+        jwt.email in admin_emails
+    }
+
+    # Grafana admin API — requires admin role regardless of call type.
+    is_grafana_admin_path if {
+        req_http.host == "grafana.homelab.data-harness.org"
+        startswith(req_http.path, "/api/admin/")
+    }
+
+    identity_headers := {
+        "x-authenticated-user": jwt.email,
+        "x-authenticated-sub":  jwt.sub,
+    }
+
+    # ── Policy (else-chain = priority order) ─────────────────────────────────
+    #
+    # 1. Invalid Bearer token: Authorization header present but JWT validation failed.
+    #    → 401. Client sent a bad/expired token; they should re-authenticate.
+    #
+    # 2. Valid JWT on a Grafana admin path without admin role → 403.
+    #
+    # 3. Valid JWT on an admin-only app (hubble-ui) without admin role → 403.
+    #    Browser requests to admin-only apps with no JWT also hit this rule because
+    #    hubble-ui has no native OIDC — restrict at the OPA layer.
+    #
+    # 4. Valid JWT, no special restriction → allow + inject identity headers.
+    #
+    # 5. Default: no Authorization header → browser OIDC flow.
+    #    Apps (Grafana, Immich, Paperless) handle their own session auth natively.
+    #    Allow through; jwt_authn already passed with allow_missing_or_failed.
+
     allow := {
-        "allowed": true,
-        "headers": {
-            "x-authenticated-user": jwt.email,
-            "x-authenticated-sub":  jwt.sub
-        }
+        "allowed": false,
+        "http_status": 401,
+        "body": "{\"error\":\"Invalid or expired token\"}",
+        "headers": {"content-type": "application/json"},
+    } if {
+        has_bearer
+        not jwt.sub
+    } else := {
+        "allowed": false,
+        "http_status": 403,
+        "body": "{\"error\":\"Forbidden\"}",
+        "headers": {"content-type": "application/json"},
     } if {
         jwt.sub
-    }
-
-    # Unauthenticated request: no valid JWT present.
-    # Browser OIDC flows (redirects, callbacks) and apps with their own auth pass through here.
-    # To enforce JWT for all requests, remove this rule and replace with a 401 denial.
-    allow := {"allowed": true} if {
-        not jwt
-    }
-
-    # --- Policy extension points (uncomment to enforce) ---
-    #
-    # Deny unauthenticated requests (enforce JWT for all paths):
-    # default allow := {
-    #     "allowed": false,
-    #     "http_status": 401,
-    #     "body": "{\"error\":\"Authentication required\"}",
-    #     "headers": {"content-type": "application/json"}
-    # }
-    #
-    # Restrict Grafana admin paths to users with 'admin' group:
-    # allow := {"allowed": false, "http_status": 403, "body": "Forbidden"} if {
-    #     startswith(http.path, "/api/admin/")
-    #     not "admin" in jwt.groups
-    # }
+        is_grafana_admin_path
+        not is_admin
+    } else := {
+        "allowed": false,
+        "http_status": 403,
+        "body": "{\"error\":\"Forbidden\"}",
+        "headers": {"content-type": "application/json"},
+    } if {
+        req_http.host in admin_only_apps
+        not is_admin
+    } else := {
+        "allowed": true,
+        "headers": identity_headers,
+    } if {
+        jwt.sub
+    } else := {"allowed": true}
