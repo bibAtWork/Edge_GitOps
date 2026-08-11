@@ -1,0 +1,34 @@
+#!/bin/sh
+# Fail push if any secret file in cluster/ is missing SOPS encryption.
+# A SOPS-encrypted file contains "sops:" in the YAML document; a plaintext
+# secret does not. This prevents accidental commit of decrypted credentials.
+
+set -e
+
+FAILED=0
+
+while IFS= read -r file; do
+  # Skip files that no longer exist — a deleted secret does not need a SOPS block.
+  [ -f "$file" ] || continue
+  if ! grep -q '^sops:' "$file" 2>/dev/null; then
+    echo "ERROR: $file appears unencrypted (no 'sops:' block found)" >&2
+    FAILED=1
+  fi
+done < <(git diff --name-only HEAD @{u} 2>/dev/null | grep -E '^cluster/.*secret.*\.ya?ml$' || true)
+
+# Also check staged-only (first push on a branch has no upstream yet)
+if ! git rev-parse @{u} >/dev/null 2>&1; then
+  while IFS= read -r file; do
+    [ -f "$file" ] || continue
+    if ! grep -q '^sops:' "$file" 2>/dev/null; then
+      echo "ERROR: $file appears unencrypted (no 'sops:' block found)" >&2
+      FAILED=1
+    fi
+  done < <(git diff --name-only "$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD)" HEAD | grep -E '^cluster/.*secret.*\.ya?ml$' || true)
+fi
+
+if [ "$FAILED" -eq 1 ]; then
+  echo "Push blocked: encrypt all secret files with SOPS before pushing." >&2
+  echo "  sops --encrypt --in-place <file>" >&2
+  exit 1
+fi

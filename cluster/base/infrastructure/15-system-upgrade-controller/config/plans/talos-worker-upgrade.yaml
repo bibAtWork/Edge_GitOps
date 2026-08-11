@@ -1,0 +1,40 @@
+# Worker node upgrade plan — runs after control-plane plan completes.
+# On single-node (no dedicated workers), this plan selects zero nodes and is a no-op.
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: talos-worker
+  namespace: system-upgrade
+spec:
+  channel: https://api.github.com/repos/siderolabs/talos/releases/latest
+  exclusive: true
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
+  secrets:
+    - name: talos-credentials
+      path: /var/run/secrets/talos
+  cordon: true
+  # Workers run after control-plane plan to prevent simultaneous cluster disruption
+  prepare:
+    image: ghcr.io/siderolabs/talosctl:v1.13.8
+    command:
+      - /bin/sh
+      - -c
+      - |
+        talosctl version \
+          --talosconfig /var/run/secrets/talos/talosconfig \
+          --nodes "${SYSTEM_UPGRADE_NODE_IP}"
+  upgrade:
+    image: ghcr.io/siderolabs/talosctl:v1.13.8
+    command:
+      - /bin/sh
+      - -c
+      - |
+        talosctl upgrade \
+          --talosconfig /var/run/secrets/talos/talosconfig \
+          --nodes "${SYSTEM_UPGRADE_NODE_IP}" \
+          --image "ghcr.io/siderolabs/installer:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
+          --preserve=true \
+          --wait=true

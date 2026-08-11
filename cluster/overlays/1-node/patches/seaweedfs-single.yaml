@@ -1,0 +1,14 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: seaweedfs
+  namespace: seaweedfs
+spec:
+  values:
+    master:
+      replicaCount: 1
+    volume:
+      replicaCount: 1
+      replication: "000"
+    filer:
+      replicaCount: 1

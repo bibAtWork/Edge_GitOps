@@ -1,0 +1,63 @@
+# HA overlay patch: longer local retention (7 days instead of 4) because with
+# 3 nodes the local SeaweedFS copy survives single-node failures. Scope is
+# intentionally identical to the 1-node overlay — see velero-schedules.yaml.
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-local
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"
+  template:
+    storageLocation: seaweedfs-local
+    ttl: 168h
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
+    includedNamespaces:
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: weekly-offsite
+  namespace: velero
+spec:
+  schedule: "0 3 * * 0"
+  template:
+    storageLocation: aws-s3
+    ttl: 2160h
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
+    includedNamespaces:
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: monthly-offsite
+  namespace: velero
+spec:
+  schedule: "0 4 1 * *"
+  template:
+    storageLocation: aws-s3
+    ttl: 8760h
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
+    includedNamespaces:
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io

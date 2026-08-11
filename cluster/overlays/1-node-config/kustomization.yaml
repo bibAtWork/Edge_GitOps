@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # network policies: CiliumNetworkPolicy + CiliumClusterwideNetworkPolicy (cilium.io CRDs)
+  - ../../base/infrastructure/10-network-policies
+  # cert-manager: ClusterIssuer + ACME keys (cert-manager.io CRDs)
+  - ../../base/infrastructure/06-cert-manager/config
+  # ingress gateway: Gateway (gateway.networking.k8s.io) + wildcard Certificate (cert-manager.io)
+  - ../../base/infrastructure/11-ingress-gateway
+  # grafana: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/04-grafana/config
+  # cilium: Hubble UI HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/05-cilium/config
+  # zot: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/12-zot/config
+  # tailscale: ProxyClass (tailscale.com) + Service that uses it
+  - ../../base/infrastructure/14-tailscale-operator/config
+  # system-upgrade: Plans (upgrade.cattle.io)
+  - ../../base/infrastructure/15-system-upgrade-controller/config
+  # immich: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/16-immich/config
+  # paperless-ngx: HTTPRoute (gateway.networking.k8s.io)
+  - ../../base/infrastructure/17-paperless-ngx/config
+  # kyverno: ClusterPolicy (kyverno.io) — needs Kyverno CRDs from 19-kyverno HelmRelease
+  - ../../base/infrastructure/19-kyverno/config
+  # velero Schedules (velero.io) — 1-node specific retention
+  - velero-schedules.yaml
+  # NodePort services for LAN access without domain/Tailscale
+  - nodeport-services.yaml
+  # Cilium LB IPAM: assigns a dedicated LAN IP to the gateway + announces it via ARP
+  - lb-ipam.yaml

@@ -1,0 +1,80 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: seaweedfs
+  namespace: seaweedfs
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: seaweedfs
+      version: 4.41.0
+      sourceRef:
+        kind: HelmRepository
+        name: seaweedfs
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # v4 moved app-specific globals under global.seaweedfs to avoid collisions when
+    # used as a subchart. Image tag moved to a top-level image block.
+    global:
+      seaweedfs:
+        createClusterRole: true
+
+    image:
+      tag: "4.40"
+
+    master:
+      enabled: true
+      data:
+        type: hostPath
+        hostPathPrefix: /var/lib/seaweedfs/master
+      logs:
+        type: hostPath
+        hostPathPrefix: /var/lib/seaweedfs/master-logs
+
+    volume:
+      enabled: true
+      replication: "000"
+      # dataDirs controls the actual data path; volume.data has no effect for this component
+      dataDirs:
+        - name: data1
+          type: hostPath
+          hostPathPrefix: /var/lib/seaweedfs/volume
+          maxVolumes: 0
+      logs:
+        type: hostPath
+        hostPathPrefix: /var/lib/seaweedfs/volume-logs
+
+    filer:
+      enabled: true
+      data:
+        type: hostPath
+        hostPathPrefix: /var/lib/seaweedfs/filer
+      logs:
+        type: hostPath
+        hostPathPrefix: /var/lib/seaweedfs/filer-logs
+      s3:
+        enabled: true
+        enableAuth: true
+        # Use our SOPS-managed secret directly so v4's pre-upgrade hook does not
+        # overwrite it. The secret must contain a seaweedfs_s3_config key.
+        existingConfigSecret: seaweedfs-s3-secret
+        # Enable virtual-hosted-style bucket addressing so that S3 clients
+        # that ignore USE_PATH_STYLE (e.g. talos-backup v0.1.0-beta.2) can
+        # reach buckets via <bucket>.seaweedfs-s3.seaweedfs.svc:8333.
+        domainName: seaweedfs-s3.seaweedfs.svc.cluster.local
+
+    # Use filer's embedded S3 endpoint on port 8333; standalone s3 Deployment is redundant.
+    s3:
+      enabled: false

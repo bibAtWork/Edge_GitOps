@@ -1,0 +1,280 @@
+---
+# Map Ansible architecture names to the naming convention used by most tool releases.
+- name: Set architecture variable
+  ansible.builtin.set_fact:
+    arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+    os:   "{{ 'darwin' if ansible_system == 'Darwin' else 'linux' }}"
+
+- name: Install system packages (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name:
+      - curl
+      - unzip
+      - tar
+      - gzip
+      - jq
+      - git
+      - bash
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install system packages (RHEL/Fedora)
+  ansible.builtin.dnf:
+    name:
+      - curl
+      - unzip
+      - tar
+      - gzip
+      - jq
+      - git
+      - bash
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+- name: Install system packages (macOS via Homebrew)
+  community.general.homebrew:
+    name:
+      - curl
+      - jq
+      - git
+    state: present
+  when: ansible_system == "Darwin"
+
+- name: Ensure install directory exists
+  ansible.builtin.file:
+    path: "{{ tools_bin_dir }}"
+    state: directory
+    mode: "0755"
+  become: "{{ tools_become }}"
+
+# ─── talosctl ────────────────────────────────────────────────────────────────
+
+- name: Check talosctl version
+  ansible.builtin.command: talosctl version --client --short
+  register: talosctl_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install talosctl
+  ansible.builtin.get_url:
+    url: "https://github.com/siderolabs/talos/releases/download/v{{ talosctl_version }}/talosctl-{{ os }}-{{ arch }}"
+    dest: "{{ tools_bin_dir }}/talosctl"
+    mode: "0755"
+    force: true
+  become: "{{ tools_become }}"
+  when: >
+    talosctl_installed.rc != 0 or
+    talosctl_version not in (talosctl_installed.stdout | default(''))
+
+# ─── kubectl ─────────────────────────────────────────────────────────────────
+
+- name: Check kubectl version
+  ansible.builtin.command: kubectl version --client --output=json
+  register: kubectl_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install kubectl
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/v{{ kubectl_version }}/bin/{{ os }}/{{ arch }}/kubectl"
+    dest: "{{ tools_bin_dir }}/kubectl"
+    mode: "0755"
+    force: true
+  become: "{{ tools_become }}"
+  when: >
+    kubectl_installed.rc != 0 or
+    kubectl_version not in (kubectl_installed.stdout | default(''))
+
+# ─── flux ────────────────────────────────────────────────────────────────────
+
+- name: Check flux version
+  ansible.builtin.command: flux version --client
+  register: flux_installed
+  changed_when: false
+  failed_when: false
+
+- name: Download flux archive
+  ansible.builtin.get_url:
+    url: "https://github.com/fluxcd/flux2/releases/download/v{{ flux_version }}/flux_{{ flux_version }}_{{ os }}_{{ arch }}.tar.gz"
+    dest: "/tmp/flux.tar.gz"
+    mode: "0644"
+    force: true
+  when: >
+    flux_installed.rc != 0 or
+    flux_version not in (flux_installed.stdout | default(''))
+
+- name: Extract and install flux
+  ansible.builtin.unarchive:
+    src: /tmp/flux.tar.gz
+    dest: "{{ tools_bin_dir }}"
+    remote_src: true
+    include:
+      - flux
+    mode: "0755"
+  become: "{{ tools_become }}"
+  when: >
+    flux_installed.rc != 0 or
+    flux_version not in (flux_installed.stdout | default(''))
+
+# ─── SOPS ────────────────────────────────────────────────────────────────────
+
+- name: Check sops version
+  ansible.builtin.command: sops --version
+  register: sops_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install sops
+  ansible.builtin.get_url:
+    url: "https://github.com/getsops/sops/releases/download/v{{ sops_version }}/sops-v{{ sops_version }}.{{ os }}.{{ arch }}"
+    dest: "{{ tools_bin_dir }}/sops"
+    mode: "0755"
+    force: true
+  become: "{{ tools_become }}"
+  when: >
+    sops_installed.rc != 0 or
+    sops_version not in (sops_installed.stdout | default(''))
+
+# ─── age / age-keygen ────────────────────────────────────────────────────────
+
+- name: Check age version
+  ansible.builtin.command: age --version
+  register: age_installed
+  changed_when: false
+  failed_when: false
+
+- name: Download age archive
+  ansible.builtin.get_url:
+    url: "https://github.com/FiloSottile/age/releases/download/v{{ age_version }}/age-v{{ age_version }}-{{ os }}-{{ arch }}.tar.gz"
+    dest: "/tmp/age.tar.gz"
+    mode: "0644"
+    force: true
+  when: >
+    age_installed.rc != 0 or
+    age_version not in (age_installed.stdout | default(''))
+
+- name: Extract age archive to /tmp
+  ansible.builtin.unarchive:
+    src: /tmp/age.tar.gz
+    dest: /tmp/
+    remote_src: true
+  when: >
+    age_installed.rc != 0 or
+    age_version not in (age_installed.stdout | default(''))
+
+- name: Install age and age-keygen binaries
+  ansible.builtin.copy:
+    src: "/tmp/age/{{ item }}"
+    dest: "{{ tools_bin_dir }}/{{ item }}"
+    mode: "0755"
+    remote_src: true
+  become: "{{ tools_become }}"
+  loop:
+    - age
+    - age-keygen
+  when: >
+    age_installed.rc != 0 or
+    age_version not in (age_installed.stdout | default(''))
+
+# ─── Terraform ───────────────────────────────────────────────────────────────
+
+- name: Check terraform version
+  ansible.builtin.command: terraform version -json
+  register: terraform_installed
+  changed_when: false
+  failed_when: false
+
+- name: Download terraform zip
+  ansible.builtin.get_url:
+    url: "https://releases.hashicorp.com/terraform/{{ terraform_version }}/terraform_{{ terraform_version }}_{{ os }}_{{ arch }}.zip"
+    dest: "/tmp/terraform.zip"
+    mode: "0644"
+    force: true
+  when: >
+    terraform_installed.rc != 0 or
+    terraform_version not in (terraform_installed.stdout | default(''))
+
+- name: Extract and install terraform
+  ansible.builtin.unarchive:
+    src: /tmp/terraform.zip
+    dest: "{{ tools_bin_dir }}"
+    remote_src: true
+    include:
+      - terraform
+    mode: "0755"
+  become: "{{ tools_become }}"
+  when: >
+    terraform_installed.rc != 0 or
+    terraform_version not in (terraform_installed.stdout | default(''))
+
+# ─── Helm ────────────────────────────────────────────────────────────────────
+
+- name: Check helm version
+  ansible.builtin.command: helm version --short
+  register: helm_installed
+  changed_when: false
+  failed_when: false
+
+- name: Download helm archive
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-v{{ helm_version }}-{{ os }}-{{ arch }}.tar.gz"
+    dest: "/tmp/helm.tar.gz"
+    mode: "0644"
+    force: true
+  when: >
+    helm_installed.rc != 0 or
+    helm_version not in (helm_installed.stdout | default(''))
+
+- name: Extract and install helm
+  ansible.builtin.unarchive:
+    src: /tmp/helm.tar.gz
+    dest: "{{ tools_bin_dir }}"
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+      - "{{ os }}-{{ arch }}/helm"
+    mode: "0755"
+  become: "{{ tools_become }}"
+  when: >
+    helm_installed.rc != 0 or
+    helm_version not in (helm_installed.stdout | default(''))
+
+# ─── Verify ──────────────────────────────────────────────────────────────────
+
+- name: Verify all tools are on PATH
+  ansible.builtin.command: "which {{ item }}"
+  loop:
+    - talosctl
+    - kubectl
+    - flux
+    - sops
+    - age
+    - age-keygen
+    - terraform
+    - helm
+  changed_when: false
+  register: which_results
+
+- name: Print installed versions
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - talosctl version --client --short
+    - kubectl version --client --short
+    - flux version --client
+    - sops --version
+    - age --version
+    - terraform version
+    - helm version --short
+  register: version_outputs
+  changed_when: false
+  failed_when: false
+
+- name: Show version summary
+  ansible.builtin.debug:
+    msg: "{{ item.stdout | default(item.stderr) }}"
+  loop: "{{ version_outputs.results }}"
+  loop_control:
+    label: "{{ item.cmd | join(' ') }}"

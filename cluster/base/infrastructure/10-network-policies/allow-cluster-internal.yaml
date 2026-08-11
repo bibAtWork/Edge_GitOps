@@ -1,0 +1,24 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-cluster-internal
+spec:
+  # Allow all intra-cluster traffic (pod-to-pod, pod-to-service).
+  # The default-deny policies cover external (world) traffic; this rule
+  # restores cluster-internal communication that default-deny blocks.
+  # External access is still controlled by allow-internet-egress-https-only
+  # and namespace-specific ingress policies.
+  # Allow ingress from any cluster endpoint (pods + nodes).
+  # This is intentionally kept broad on the ingress side: it prevents traffic from
+  # the internet but allows all intra-cluster services to reach any pod.
+  # Per-namespace and cross-namespace EGRESS policies live in separate files.
+  # Exclude reserved:ingress (Cilium gateway proxy). It has its own dedicated ingress policy
+  # (allow-gateway-world-ingress) that explicitly allowlists world, host, and cluster identities
+  # in the NPDS so cilium.l7policy permits external traffic through the gateway.
+  endpointSelector:
+    matchExpressions:
+      - key: reserved.ingress
+        operator: DoesNotExist
+  ingress:
+    - fromEntities:
+        - cluster

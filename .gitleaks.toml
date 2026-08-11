@@ -1,0 +1,14 @@
+title = "Edge GitOps"
+
+[allowlist]
+description = "SOPS ciphertext and explicit placeholder values are not real secrets"
+regexes = [
+  # SOPS AES-GCM ciphertext — the underlying value is already encrypted at rest
+  '''ENC\[AES256_GCM,data:''',
+  # Template placeholders that must be replaced before use (caught by SOPS enforcement check)
+  '''REPLACE_WITH_''',
+]
+paths = [
+  # Terraform provider lock file contains only hashes, no credentials
+  '''bootstrap/terraform/\.terraform\.lock\.hcl''',
+]

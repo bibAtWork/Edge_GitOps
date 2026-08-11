@@ -1,0 +1,27 @@
+# Temporary PVC to hold the pg_dumpall output during PG16→PG17 migration.
+# NOT referenced from the main kustomization — apply and delete manually.
+#
+# Apply order:
+#   1. kubectl apply -f cluster/base/infrastructure/16-immich/migration/dump-pvc.yaml
+#   2. kubectl apply -f cluster/base/infrastructure/16-immich/migration/dump-job.yaml
+#   3. kubectl wait job/immich-pg-dump -n immich --for=condition=Complete --timeout=600s
+#   4. flux suspend helmrelease immich-postgresql -n immich
+#   5. kubectl scale sts immich-postgresql -n immich --replicas=0
+#   6. kubectl delete pvc data-immich-postgresql-0 -n immich
+#   7. git commit postgresql-helmrelease.yaml (PG17 tag) + push → Flux picks it up
+#   8. flux resume helmrelease immich-postgresql -n immich
+#   9. kubectl wait pod/immich-postgresql-0 -n immich --for=condition=Ready --timeout=300s
+#  10. kubectl apply -f cluster/base/infrastructure/16-immich/migration/restore-job.yaml
+#  11. kubectl wait job/immich-pg-restore -n immich --for=condition=Complete --timeout=600s
+#  12. kubectl delete -f cluster/base/infrastructure/16-immich/migration/
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-pg-dump
+  namespace: immich
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi

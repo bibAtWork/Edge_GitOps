@@ -1,0 +1,429 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 30m
+  dependsOn:
+    - name: vmstack
+      namespace: monitoring
+  chart:
+    spec:
+      chart: grafana
+      version: 10.5.15
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    service:
+      appProtocol: kubernetes.io/http
+
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+
+    persistence:
+      enabled: true
+      storageClassName: local-path
+      size: 5Gi
+      labels:
+        velero.io/backup: "true"
+
+    plugins:
+      - victoriametrics-logs-datasource
+
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: VictoriaMetrics
+            uid: victoriametrics
+            type: prometheus
+            url: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428 # nosonar
+            access: proxy
+            isDefault: true
+          - name: VictoriaLogs
+            uid: victorialogs
+            type: victoriametrics-logs-datasource
+            url: http://vlogs-victoria-metrics-k8s-stack.monitoring.svc:9428 # nosonar
+            access: proxy
+            isDefault: false
+
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: default
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/default
+
+    dashboards:
+      default:
+        node-exporter:
+          gnetId: 1860
+          revision: 37
+          datasource: VictoriaMetrics
+        cilium-hubble:
+          gnetId: 16611
+          revision: 1
+          datasource: VictoriaMetrics
+        velero:
+          gnetId: 15469
+          revision: 1
+          datasource: VictoriaMetrics
+        trivy-operator:
+          gnetId: 17813
+          revision: 1
+          datasource: VictoriaMetrics
+
+    alerting:
+      rules.yaml:
+        apiVersion: 1
+        groups:
+          - orgId: 1
+            name: Trivy CVE Alerts
+            folder: Security
+            interval: 15m
+            rules:
+              - uid: trivy-high-cvss
+                title: ImageHighCVSS
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'trivy_vulnerability_id{score=~"8[.][5-9]|9[.][0-9]|10[.]0"}'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1h
+                annotations:
+                  # {{ "{{" }} ... }} escapes Helm's tpl pass; Grafana sees {{ $labels.xxx }}
+                  summary: >-
+                    {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} —
+                    {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.score }}
+                    ({{ "{{" }} $labels.severity }})
+                  description: >-
+                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }}
+                    (container {{ "{{" }} $labels.container_name }}) has CVE
+                    {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.score }}.
+                    Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                labels:
+                  severity: warning
+                isPaused: false
+
+          - orgId: 1
+            name: Log Security Alerts
+            folder: Security
+            interval: 5m
+            rules:
+              - uid: log-oomkilled
+                title: PodOOMKilled
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_cluster_name="homelab"} |= "OOMKilling" [10m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1m
+                annotations:
+                  summary: Pod OOM-killed in cluster
+                  description: >-
+                    A pod was OOM-killed. Check:
+                    kubectl get events -A --field-selector reason=OOMKilling
+                labels:
+                  severity: warning
+                isPaused: false
+
+              - uid: log-grafana-auth-fail
+                title: GrafanaAuthFailures
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_namespace_name="monitoring", kubernetes_container_name="grafana"} |= "Invalid username or password" [5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [5]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 2m
+                annotations:
+                  summary: >-
+                    {{ "{{" }} $value }} failed Grafana login attempts in 5 min
+                  description: >-
+                    More than 5 failed authentication attempts on Grafana in the last 5 minutes.
+                    Check logs: kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
+                labels:
+                  severity: warning
+                isPaused: false
+
+          - orgId: 1
+            name: Security Tool Alerts
+            folder: Security
+            interval: 5m
+            rules:
+              - uid: kyverno-policy-violation
+                title: KyvernoPolicyViolation
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'increase(kyverno_policy_results_total{result="fail"}[5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Kyverno policy violation in
+                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.resource_namespace }}
+                  description: >-
+                    Policy {{ "{{" }} $labels.policy_name }} failed for resource
+                    {{ "{{" }} $labels.resource_kind }}/{{ "{{" }} $labels.resource_name }}
+                    in namespace {{ "{{" }} $labels.resource_namespace }}.
+                    Check: kubectl get policyreport -A
+                labels:
+                  severity: warning
+                isPaused: false
+
+              - uid: falco-critical-event
+                title: FalcoCriticalEvent
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_namespace_name="falco"} | json | priority:in("Critical", "Emergency", "Alert") [5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: Falco detected a critical runtime security event
+                  description: >-
+                    Falco fired a Critical/Emergency/Alert-priority rule.
+                    Check: kubectl logs -n falco ds/falco --since=5m | grep -E '"priority":"(Critical|Emergency|Alert)"'
+                labels:
+                  severity: critical
+                isPaused: false
+
+              - uid: kubescape-scan-findings
+                title: KubescapeScanFindings
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 7200
+                      to: 0
+                    datasourceUid: victorialogs
+                    model:
+                      expr: 'count_over_time({kubernetes_namespace_name="kubescape"} |= "failed" [2h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: kubescape weekly scan found failed controls
+                  description: >-
+                    The weekly kubescape CIS/MITRE scan found control failures.
+                    Query full results in VictoriaLogs:
+                    {kubernetes_namespace_name="kubescape"} |= "failed"
+                labels:
+                  severity: warning
+                isPaused: false
+
+    initChownData:
+      enabled: false
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 472
+      fsGroup: 472
+      seccompProfile:
+        type: RuntimeDefault
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi

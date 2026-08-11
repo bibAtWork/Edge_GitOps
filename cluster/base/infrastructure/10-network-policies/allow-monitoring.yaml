@@ -1,0 +1,78 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-otel-agent-egress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-agent
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector-gateway
+            io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+    - toEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-grafana-ingress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  ingress:
+    - fromEntities:
+        - ingress
+---
+# Restrict vmsingle (VictoriaMetrics query/write API on :8428) to authorized consumers.
+# Deny-list: kube-state-metrics, node-exporter, and otel-agent push data to vmagent/
+# otel-gateway respectively; they have no legitimate reason to call vmsingle directly.
+# The cluster-wide allow-cluster-internal ingress still allows all other monitoring pods.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: restrict-vmsingle-ingress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vmsingle
+  ingressDeny:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: prometheus-node-exporter
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: kube-state-metrics
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: otel-agent
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: grafana
+        - matchLabels:
+            app.kubernetes.io/name: vmagent
+        - matchLabels:
+            app.kubernetes.io/name: vmalert
+        - matchLabels:
+            app.kubernetes.io/name: victoria-metrics-operator
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector-gateway
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP

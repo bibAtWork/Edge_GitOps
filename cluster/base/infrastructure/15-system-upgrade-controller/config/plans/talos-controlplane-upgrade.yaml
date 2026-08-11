@@ -1,0 +1,35 @@
+# system-upgrade-controller watches the Talos GitHub releases channel.
+# When a new version is detected, it schedules an upgrade Job on each matching node.
+# The Job calls `talosctl upgrade` via the Talos API using credentials from the secret.
+# exclusive: true ensures only one node upgrades at a time (safe for HA etcd).
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: talos-controlplane
+  namespace: system-upgrade
+spec:
+  version: v1.13.8
+  exclusive: true
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  secrets:
+    - name: talos-credentials
+      path: /var/run/secrets/talos
+  cordon: true
+  upgrade:
+    image: ghcr.io/siderolabs/talosctl:v1.13.6
+    command:
+      - /bin/sh
+      - -c
+      - |
+        talosctl upgrade \
+          --talosconfig /var/run/secrets/talos/talosconfig \
+          --nodes "${SYSTEM_UPGRADE_NODE_IP}" \
+          --image "ghcr.io/siderolabs/installer:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
+          --preserve=true \
+          --wait=true

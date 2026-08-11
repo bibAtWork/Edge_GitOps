@@ -1,0 +1,144 @@
+# Apply with: talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
+---
+machine:
+  type: controlplane
+  features:
+    kubernetesTalosAPIAccess:
+      enabled: true
+      allowedRoles:
+        - os:etcd:backup
+      allowedKubernetesNamespaces:
+        - talos-backup
+
+cluster:
+  # Required on single-node: no worker nodes, so control-plane must run all workloads
+  allowSchedulingOnControlPlanes: true
+
+  etcd:
+    advertisedSubnets:
+      - 192.168.178.0/24
+
+  apiServer:
+    encryptionConfig:
+      providers:
+        - aescbc:
+            keys:
+              - name: key1
+                secret: REPLACE_WITH_ETCD_ENCRYPTION_KEY
+        - identity: {}
+    auditPolicy:
+      apiVersion: audit.k8s.io/v1
+      kind: Policy
+      rules:
+        - level: None
+          users:
+            - system:kube-proxy
+          verbs:
+            - watch
+          resources:
+            - group: ""
+              resources:
+                - endpoints
+                - services
+                - services/status
+        - level: None
+          userGroups:
+            - system:authenticated
+          nonResourceURLs:
+            - /api*
+            - /version
+            - /healthz
+            - /readyz
+            - /livez
+        - level: None
+          resources:
+            - group: ""
+              resources:
+                - events
+        - level: Metadata
+          resources:
+            - group: ""
+              resources:
+                - secrets
+                - configmaps
+                - serviceaccounts/token
+            - group: authentication.k8s.io
+              resources:
+                - tokenreviews
+            - group: authorization.k8s.io
+              resources:
+                - subjectaccessreviews
+        - level: Metadata
+          omitStages:
+            - RequestReceived
+
+  inlineManifests:
+    - name: cilium-install
+      contents: |
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: cilium-install
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+          - kind: ServiceAccount
+            name: cilium-install
+            namespace: kube-system
+        ---
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: cilium-install
+          namespace: kube-system
+        ---
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: cilium-install
+          namespace: kube-system
+        spec:
+          backoffLimit: 10
+          template:
+            metadata:
+              labels:
+                app: cilium-install
+            spec:
+              restartPolicy: OnFailure
+              tolerations:
+                - operator: Exists
+                  effect: NoSchedule
+              serviceAccountName: cilium-install
+              hostNetwork: true
+              containers:
+                - name: cilium-install
+                  image: quay.io/cilium/cilium-cli-ci:latest
+                  env:
+                    - name: KUBERNETES_SERVICE_HOST
+                      valueFrom:
+                        fieldRef:
+                          apiVersion: v1
+                          fieldPath: status.podIP
+                    - name: KUBERNETES_SERVICE_PORT
+                      value: "6443"
+                  command:
+                    - /bin/sh
+                    - -c
+                    - |
+                      set -e
+                      cilium install \
+                        --set=ipam.mode=kubernetes \
+                        --set=kubeProxyReplacement=true \
+                        --set=gatewayAPI.enabled=true \
+                        --set=hubble.enabled=true \
+                        --set=encryption.enabled=true \
+                        --set=encryption.type=wireguard \
+                        '--set=securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}' \
+                        '--set=securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}' \
+                        --set=cgroup.autoMount.enabled=false \
+                        --set=cgroup.hostRoot=/sys/fs/cgroup
+                      kubectl delete clusterrolebinding cilium-install --ignore-not-found
+                      kubectl delete serviceaccount cilium-install -n kube-system --ignore-not-found

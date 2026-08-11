@@ -1,0 +1,67 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immich-postgresql
+  namespace: immich
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: postgresql
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: flux-system
+      interval: 12h
+  install:
+    timeout: 10m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 10m
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    global:
+      # Immich ships its own postgres image with pgvecto.rs; bitnami chart 18.x+
+      # requires this flag to allow non-bitnami container images.
+      security:
+        allowInsecureImages: true
+
+    # Immich requires PostgreSQL with pgvecto.rs; use the official Immich image.
+    image:
+      registry: ghcr.io
+      repository: immich-app/postgres
+      tag: 17-vectorchord0.3.0-pgvectors0.3.0
+
+    auth:
+      username: immich
+      database: immich
+      existingSecret: immich-db-secret
+      secretKeys:
+        userPasswordKey: db-password
+        adminPasswordKey: db-admin-password
+
+    primary:
+      # The immich postgres image writes to /etc/postgresql during init;
+      # bitnami chart 18.x sets readOnlyRootFilesystem: true by default.
+      containerSecurityContext:
+        readOnlyRootFilesystem: false
+      # pgvecto.rs vector extension requires more memory than bitnami's 192Mi default.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+      persistence:
+        storageClass: local-path
+        accessMode: ReadWriteOnce
+        size: 10Gi
+        labels:
+          velero.io/backup: "true"
+
+    metrics:
+      enabled: false

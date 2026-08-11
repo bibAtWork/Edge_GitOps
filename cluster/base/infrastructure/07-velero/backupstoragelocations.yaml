@@ -1,0 +1,2 @@
+# Backup schedules are defined in overlays — retention differs between 3-node and 1-node
+# This file is intentionally empty; schedules are overlay-specific patches

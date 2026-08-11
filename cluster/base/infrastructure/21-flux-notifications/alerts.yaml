@@ -1,0 +1,27 @@
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: helmrelease-errors
+  namespace: flux-system
+spec:
+  providerRef:
+    name: github-status
+  eventSeverity: error
+  eventSources:
+    - kind: HelmRelease
+      namespace: "*"
+      name: "*"
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: kustomization-errors
+  namespace: flux-system
+spec:
+  providerRef:
+    name: github-status
+  eventSeverity: error
+  eventSources:
+    - kind: Kustomization
+      namespace: flux-system
+      name: "*"

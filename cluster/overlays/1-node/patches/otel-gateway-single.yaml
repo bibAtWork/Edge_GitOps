@@ -1,0 +1,8 @@
+# 1 replica: no benefit from 2 replicas when only one node exists
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector-gateway
+  namespace: monitoring
+spec:
+  replicas: 1

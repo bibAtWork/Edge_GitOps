@@ -1,0 +1,54 @@
+# Step 1 of PG16→PG17 migration: dump all data from the running PG16 instance.
+# Runs alongside the live PG16 pod — do NOT delete PG16 before this completes.
+# The dump lands in /dump/immich.sql.gz on the immich-pg-dump PVC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: immich-pg-dump
+  namespace: immich
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: dump
+          # Use the same PG16 image as the running server for client compatibility.
+          image: ghcr.io/immich-app/postgres:16-vectorchord0.3.0-pgvectors0.3.0
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              echo "Dumping immich database from immich-postgresql:5432..."
+              # pg_dump as the immich user (database owner). PG17 recreates the
+              # role and empty database via Bitnami init scripts; we only need data.
+              pg_dump -h immich-postgresql -U immich -d immich \
+                --no-owner --no-acl \
+                | gzip > /dump/immich.sql.gz
+              echo "Done — dump size: $(du -sh /dump/immich.sql.gz | cut -f1)"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich-db-secret
+                  key: db-password
+          volumeMounts:
+            - name: dump
+              mountPath: /dump
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 100Mi
+            limits:
+              memory: 512Mi
+              ephemeral-storage: 256Mi
+      volumes:
+        - name: dump
+          persistentVolumeClaim:
+            claimName: immich-pg-dump

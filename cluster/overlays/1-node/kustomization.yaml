@@ -1,0 +1,78 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base/00-bootstrap
+  - ../../base/infrastructure/sources
+  - ../../base/infrastructure/00-gateway-api
+  - ../../base/infrastructure/00-local-path-provisioner
+  - ../../base/infrastructure/01-seaweedfs
+  - ../../base/infrastructure/02-victoriametrics-stack
+  - ../../base/infrastructure/03-otel-collector
+  - ../../base/infrastructure/04-grafana
+  - ../../base/infrastructure/05-cilium
+  # cert-manager: operator only — ClusterIssuer/Certificate in config layer (need cert-manager CRDs)
+  - ../../base/infrastructure/06-cert-manager/operator
+  - ../../base/infrastructure/07-velero
+  - ../../base/infrastructure/08-external-dns
+  - ../../base/infrastructure/09-reloader
+  # 10-network-policies omitted: CiliumNetworkPolicy/CiliumClusterwideNetworkPolicy need Cilium CRDs (config layer)
+  # 11-ingress-gateway omitted: Gateway + Certificate need gateway-api + cert-manager CRDs (config layer)
+  # 12-zot: operator only — HTTPRoute needs gateway-api CRDs (config layer)
+  - ../../base/infrastructure/12-zot/operator
+  - ../../base/infrastructure/13-trivy-operator
+  # 14-tailscale: operator only — ProxyClass + Service need tailscale CRDs (config layer)
+  - ../../base/infrastructure/14-tailscale-operator/operator
+  # 15-system-upgrade: operator only — Plans need system-upgrade-controller CRDs (config layer)
+  - ../../base/infrastructure/15-system-upgrade-controller/operator
+  - ../../base/infrastructure/16-immich
+  - ../../base/infrastructure/17-paperless-ngx
+  - ../../base/infrastructure/18-falco
+  - ../../base/infrastructure/19-kyverno
+  - ../../base/infrastructure/20-kubescape
+  - ../../base/infrastructure/21-flux-notifications
+  - seaweedfs-collection-routing-job.yaml
+  # Flux Kustomization that applies all CRD-dependent config after operators are deployed
+  - flux-kustomizations/config.yaml
+  - flux-system/gotk-sync.yaml
+
+patches:
+  - path: patches/cilium-single.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: cilium
+  - path: patches/seaweedfs-single.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: seaweedfs
+  - path: patches/otel-gateway-single.yaml
+    target:
+      kind: Deployment
+      name: otel-collector-gateway
+  - path: patches/zot-replicas-1.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: zot
+  - path: patches/trivy-concurrency-1.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: trivy-operator
+  - path: patches/grafana-telegram.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: grafana
+  - path: patches/coredns-upstream-dns.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: coredns
+      namespace: kube-system

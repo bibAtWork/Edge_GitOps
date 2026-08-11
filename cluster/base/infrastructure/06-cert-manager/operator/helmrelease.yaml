@@ -1,0 +1,74 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: cert-manager
+      version: v1.21.1
+      sourceRef:
+        kind: HelmRepository
+        name: cert-manager
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    installCRDs: true
+
+    # Route DNS-01 propagation checks through CoreDNS instead of reaching external
+    # resolvers directly. Required because Cilium's egress policy only allows DNS
+    # to kube-dns (port 53), not to public resolvers like 1.1.1.1 or 8.8.8.8.
+    extraArgs:
+      - --dns01-recursive-nameservers=10.96.0.10:53
+      - --dns01-recursive-nameservers-only
+
+    # startupapicheck verifies the webhook after install; it times out when the
+    # webhook TLS cert isn't ready yet (cainjector needs CRDs first — bootstrap race).
+    # Disabling it avoids the race; cert-manager will self-heal once CRDs are present.
+    startupapicheck:
+      enabled: false
+
+    securityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+    webhook:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+    cainjector:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]

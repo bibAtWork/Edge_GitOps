@@ -1,0 +1,25 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: config
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./cluster/overlays/1-node-config
+  prune: true
+  # wait: true tells Flux to check that every applied resource reaches a ready/healthy
+  # condition before marking this Kustomization as succeeded. Without it, Flux reports
+  # success as soon as objects are written to the API server, even if a CiliumNetworkPolicy
+  # is rejected by the agent or a Gateway fails to come up. The 5m timeout is generous
+  # enough for Cilium policy propagation across all endpoints.
+  wait: true
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  dependsOn:
+    - name: flux-system

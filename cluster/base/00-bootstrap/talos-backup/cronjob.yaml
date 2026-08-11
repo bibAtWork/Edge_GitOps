@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: talos-backup
+  namespace: talos-backup
+spec:
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: talos-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: talos-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          # v0.1.0-beta.2 ignores USE_PATH_STYLE and always uses virtual-hosted style
+          # (bucket.endpoint). Map the virtual-hosted hostname to the ClusterIP so DNS
+          # resolves and SeaweedFS receives the request on the correct service.
+          hostAliases:
+            - ip: 10.96.118.47
+              hostnames:
+                - etcd-backups.seaweedfs-s3.seaweedfs.svc
+                - etcd-backups.seaweedfs-s3.seaweedfs.svc.cluster.local
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: talosconfig
+              secret:
+                secretName: talosconfig
+          containers:
+            - name: talos-backup
+              image: ghcr.io/siderolabs/talos-backup:v0.1.0-beta.2
+              workingDir: /tmp
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TALOSCONFIG
+                  value: /talosconfig/talosconfig
+                - name: AGE_X25519_PUBLIC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: talos-backup-age
+                      key: public-key
+                - name: ENABLE_COMPRESSION
+                  value: "true"
+                - name: USE_PATH_STYLE
+                  value: "true"
+                - name: CUSTOM_S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_REGION
+                  value: us-east-1
+                - name: BUCKET
+                  value: etcd-backups
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-s3-creds
+                      key: access-key
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-s3-creds
+                      key: secret-key
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: talosconfig
+                  mountPath: /talosconfig
+                  readOnly: true

@@ -1,0 +1,348 @@
+﻿name: Trivy CVE gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  trivy-gate:
+    # Only run on Renovate PRs that touch minor/patch or security (vulnerability-alert) updates.
+    if: |
+      github.actor == 'renovate[bot]' &&
+      (contains(github.event.pull_request.labels.*.name, 'minor-update') ||
+       contains(github.event.pull_request.labels.*.name, 'security'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Install crane (registry tag lister)
+        run: |
+          VERSION=$(curl -sL https://api.github.com/repos/google/go-containerregistry/releases/latest \
+            | jq -r '.tag_name')
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar -xz -C /usr/local/bin crane
+
+      # ── Step 1: extract old and new image from the PR diff ───────────────────
+      - name: Extract image changes
+        id: images
+        run: |
+          git diff "origin/${{ github.base_ref }}...HEAD" -- '*.yaml' > /tmp/pr_diff.txt
+
+          OLD=$(grep '^-' /tmp/pr_diff.txt \
+            | grep -E '^\-\s+image:\s' \
+            | sed 's/^-[[:space:]]*//' \
+            | sed 's/image:[[:space:]]*//' \
+            | grep -v '^#' | head -1 | xargs)
+
+          NEW=$(grep '^+' /tmp/pr_diff.txt \
+            | grep -E '^\+\s+image:\s' \
+            | sed 's/^+[[:space:]]*//' \
+            | sed 's/image:[[:space:]]*//' \
+            | grep -v '^#' | head -1 | xargs)
+
+          if [[ -z "$OLD" || -z "$NEW" ]]; then
+            echo "::warning::Could not extract image pair from PR diff — skipping CVE gate"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true"  >> "$GITHUB_OUTPUT"
+            echo "old=$OLD"    >> "$GITHUB_OUTPUT"
+            echo "new=$NEW"    >> "$GITHUB_OUTPUT"
+            echo "Old: $OLD  →  New: $NEW"
+          fi
+
+      # ── Step 2: detect update type (major vs minor/patch) ────────────────────
+      - name: Detect semver update type
+        id: version
+        if: steps.images.outputs.found == 'true'
+        env:
+          OLD_IMAGE: ${{ steps.images.outputs.old }}
+          NEW_IMAGE: ${{ steps.images.outputs.new }}
+        run: |
+          python3 - <<'PY'
+          import re, os
+
+          def parse(tag):
+              m = re.match(r'^v?(\d+)\.(\d+)(?:\.(\d+))?', tag.split(':')[-1])
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)) if m else None
+
+          old_v = parse(os.environ['OLD_IMAGE'])
+          new_v = parse(os.environ['NEW_IMAGE'])
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              if old_v and new_v:
+                  # same major → minor or patch update
+                  is_minor = str(new_v[0] == old_v[0]).lower()
+              else:
+                  is_minor = 'false'   # unparseable → treat as major (safe default)
+              f.write(f'is_minor={is_minor}\n')
+              print(f'is_minor={is_minor}  old={old_v}  new={new_v}')
+          PY
+
+      # ── Step 3: Trivy scan — current image ────────────────────────────────────
+      - name: Scan current image
+        id: scan_old
+        if: steps.images.outputs.found == 'true'
+        env:
+          IMAGE: ${{ steps.images.outputs.old }}
+        run: |
+          echo "Scanning: $IMAGE"
+          trivy image \
+            --format json --exit-code 0 \
+            --severity CRITICAL,HIGH --quiet \
+            "$IMAGE" > /tmp/trivy_old.json
+
+          MAX=$(jq -r '
+            [.Results[]?.Vulnerabilities[]?
+              | .CVSS // {} | to_entries[] | .value
+              | (.V3Score // .V2Score // 0)
+            ] | if length > 0 then max else 0 end' \
+            /tmp/trivy_old.json)
+
+          echo "max_cvss=$MAX" >> "$GITHUB_OUTPUT"
+          echo "Current image max CVSS: $MAX"
+
+      # ── Step 4: Trivy scan — proposed new image ───────────────────────────────
+      - name: Scan proposed image
+        id: scan_new
+        if: steps.images.outputs.found == 'true'
+        env:
+          IMAGE: ${{ steps.images.outputs.new }}
+        run: |
+          echo "Scanning: $IMAGE"
+          trivy image \
+            --format json --exit-code 0 \
+            --severity CRITICAL,HIGH --quiet \
+            "$IMAGE" > /tmp/trivy_new.json
+
+          MAX=$(jq -r '
+            [.Results[]?.Vulnerabilities[]?
+              | .CVSS // {} | to_entries[] | .value
+              | (.V3Score // .V2Score // 0)
+            ] | if length > 0 then max else 0 end' \
+            /tmp/trivy_new.json)
+
+          echo "max_cvss=$MAX" >> "$GITHUB_OUTPUT"
+          echo "Proposed image max CVSS: $MAX"
+
+      # ── Step 5: condition 3b — check if a newer minor with lower CVE exists ──
+      # Lists all same-major tags from the registry, scans the newest one that
+      # is strictly newer than the proposed update.  If that newer candidate has
+      # a lower CVSS than the proposed image we should wait for it instead.
+      - name: Check for better available minor (3b)
+        id: check_3b
+        if: steps.images.outputs.found == 'true' && steps.version.outputs.is_minor == 'true'
+        env:
+          NEW_IMAGE: ${{ steps.images.outputs.new }}
+          NEW_CVSS: ${{ steps.scan_new.outputs.max_cvss }}
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, json, os, sys
+
+          def parse(tag):
+              m = re.match(r'^v?(\d+)\.(\d+)(?:\.(\d+))?$', tag.strip())
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)) if m else None
+
+          new_image = os.environ['NEW_IMAGE']
+          proposed_cvss = float(os.environ.get('NEW_CVSS') or 0)
+          repo, new_tag = new_image.rsplit(':', 1)
+          new_ver = parse(new_tag)
+
+          def write_output(no_better, note='', latest_img='', latest_cvss=0.0):
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"no_better={'true' if no_better else 'false'}\n")
+                  f.write(f"note={note}\n")
+                  f.write(f"latest_candidate={latest_img}\n")
+                  f.write(f"latest_cvss={latest_cvss}\n")
+
+          if not new_ver:
+              write_output(True, 'version unparseable — skipping 3b')
+              sys.exit(0)
+
+          # List all tags from the registry
+          r = subprocess.run(['crane', 'ls', repo], capture_output=True, text=True, timeout=30)
+          if r.returncode != 0:
+              write_output(True, f'crane ls failed: {r.stderr.strip()[:120]}')
+              sys.exit(0)
+
+          all_tags = [t.strip() for t in r.stdout.splitlines() if t.strip()]
+
+          # Find same major, strictly newer than proposed
+          newer = sorted(
+              [(t, v) for t in all_tags if (v := parse(t)) and v[0] == new_ver[0] and v > new_ver],
+              key=lambda x: x[1], reverse=True
+          )
+
+          if not newer:
+              write_output(True, 'proposed is latest in major — 3b satisfied')
+              sys.exit(0)
+
+          # Scan only the single newest candidate to keep CI fast
+          best_tag, _ = newer[0]
+          best_image = f'{repo}:{best_tag}'
+          print(f'Newer candidate found: {best_image} — scanning…')
+
+          r = subprocess.run(
+              ['trivy', 'image', '--format', 'json', '--exit-code', '0',
+               '--severity', 'CRITICAL,HIGH', '--quiet', best_image],
+              capture_output=True, text=True, timeout=300
+          )
+          if r.returncode != 0:
+              write_output(True, f'Trivy on {best_image} failed — skipping 3b')
+              sys.exit(0)
+
+          data = json.loads(r.stdout)
+          scores = [
+              source.get('V3Score') or source.get('V2Score') or 0
+              for res in data.get('Results', [])
+              for vuln in (res.get('Vulnerabilities') or [])
+              for source in (vuln.get('CVSS') or {}).values()
+          ]
+          best_cvss = max(scores) if scores else 0.0
+
+          print(f'  proposed ({new_tag}): CVSS {proposed_cvss}')
+          print(f'  best available ({best_tag}): CVSS {best_cvss}')
+
+          # 3b passes if the best candidate is NOT better (lower CVE) than proposed
+          no_better = best_cvss >= proposed_cvss
+          note = (
+              f'best newer={best_image} CVSS={best_cvss} — proposed is as good or better'
+              if no_better
+              else f'WAIT: {best_image} (CVSS {best_cvss}) is better than proposed (CVSS {proposed_cvss})'
+          )
+          write_output(no_better, note, best_image, best_cvss)
+          PY
+
+      # ── Step 6: evaluate merge decision ──────────────────────────────────────
+      - name: Evaluate auto-merge decision
+        id: decision
+        env:
+          FOUND:      ${{ steps.images.outputs.found }}
+          IS_MINOR:   ${{ steps.version.outputs.is_minor }}
+          OLD_CVSS:   ${{ steps.scan_old.outputs.max_cvss }}
+          NEW_CVSS:   ${{ steps.scan_new.outputs.max_cvss }}
+          NO_BETTER:  ${{ steps.check_3b.outputs.no_better }}
+          PR_LABELS:  ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          python3 - <<'PY'
+          import os, json
+
+          found          = os.environ.get('FOUND', 'false') == 'true'
+          pr_labels      = json.loads(os.environ.get('PR_LABELS', '[]'))
+          is_minor_label = 'minor-update' in pr_labels
+          manual_review  = 'manual-review' in pr_labels
+
+          if manual_review:
+              merge  = False
+              cond_a = False
+              cond_b = True
+              cond_c = True
+              note   = 'manual-review label present — bootstrap updates require human sign-off'
+          elif not found:
+              # Chart-only update (no image diff): auto-merge all minor/patch
+              merge  = is_minor_label
+              cond_a = is_minor_label
+              cond_b = True
+              cond_c = True
+              note   = 'chart-only update — no image CVE scan needed'
+          else:
+              is_minor  = os.environ.get('IS_MINOR', 'false') == 'true'
+              old_cvss  = float(os.environ.get('OLD_CVSS') or 0)
+              new_cvss  = float(os.environ.get('NEW_CVSS') or 0)
+              no_better = os.environ.get('NO_BETTER', 'true') == 'true'
+
+              cond_a = is_minor                 # minor/patch version bump
+              cond_b = no_better                # no newer minor with lower CVE exists
+              cond_c = new_cvss <= old_cvss     # update doesn't worsen CVE posture
+              merge  = cond_a and cond_b and cond_c
+              note   = f'old_cvss={old_cvss} new_cvss={new_cvss}'
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"should_merge={'true' if merge else 'false'}\n")
+              f.write(f"cond_a={'true' if cond_a else 'false'}\n")
+              f.write(f"cond_b={'true' if cond_b else 'false'}\n")
+              f.write(f"cond_c={'true' if cond_c else 'false'}\n")
+              f.write(f"decision_note={note}\n")
+
+          print(f'3a minor/patch:       {cond_a}')
+          print(f'3b no-better-minor:   {cond_b}')
+          print(f'3c CVE not worsened:  {cond_c}  ({note})')
+          print(f'→  {"AUTO-MERGE" if merge else "MANUAL REVIEW"}')
+          PY
+
+      # ── Step 7: post CVE report as PR comment ────────────────────────────────
+      - name: Post CVE report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FOUND:        ${{ steps.images.outputs.found }}
+          OLD_IMAGE:    ${{ steps.images.outputs.old }}
+          NEW_IMAGE:    ${{ steps.images.outputs.new }}
+          OLD_CVSS:     ${{ steps.scan_old.outputs.max_cvss }}
+          NEW_CVSS:     ${{ steps.scan_new.outputs.max_cvss }}
+          COND_A:       ${{ steps.decision.outputs.cond_a }}
+          COND_B:       ${{ steps.decision.outputs.cond_b }}
+          COND_C:       ${{ steps.decision.outputs.cond_c }}
+          SHOULD_MERGE: ${{ steps.decision.outputs.should_merge }}
+          NOTE_3B:      ${{ steps.check_3b.outputs.note }}
+          LATEST_CAND:  ${{ steps.check_3b.outputs.latest_candidate }}
+          LATEST_CVSS:  ${{ steps.check_3b.outputs.latest_cvss }}
+          DECISION_NOTE: ${{ steps.decision.outputs.decision_note }}
+        run: |
+          icon() { [ "$1" = "true" ] && echo "✅" || echo "❌"; }
+
+          VERDICT="### ⏸️ Manual review required"
+          [ "$SHOULD_MERGE" = "true" ] && VERDICT="### ✅ Auto-merging"
+          echo "$DECISION_NOTE" | grep -q "manual-review" && VERDICT="### 🔒 Manual review required — bootstrap update (reflects last known-good bootstrap state)"
+
+          if [ "$FOUND" = "true" ]; then
+            CAND_ROW=""
+            [ -n "$LATEST_CAND" ] && CAND_ROW="
+          | **Best newer available** | \`$LATEST_CAND\` | **$LATEST_CVSS** |"
+            IMAGE_SECTION="| | Image | Max CVSS (CRITICAL+HIGH) |
+          |---|---|---|
+          | **Current** | \`$OLD_IMAGE\` | **$OLD_CVSS** |
+          | **Proposed** | \`$NEW_IMAGE\` | **$NEW_CVSS** |$CAND_ROW"
+            COND_C_LABEL="**3c** Update doesn't worsen CVE posture"
+          else
+            IMAGE_SECTION="_Chart-only update — no image diff detected, CVE scan skipped._"
+            COND_C_LABEL="**3c** N/A (chart-only)"
+          fi
+
+          gh pr comment ${{ github.event.pull_request.number }} --body "## 🔍 Trivy CVE Gate
+
+          $IMAGE_SECTION
+
+          ### Auto-merge conditions
+          | | Rule | Met? |
+          |---|---|---|
+          | $(icon $COND_A) | **3a** Minor/patch version bump | $COND_A |
+          | $(icon $COND_B) | **3b** No newer minor with lower CVE | $COND_B |
+          | $(icon $COND_C) | $COND_C_LABEL | $COND_C |
+
+          > $DECISION_NOTE
+
+          $VERDICT"
+
+      # ── Step 8: auto-merge if all conditions met ─────────────────────────────
+      - name: Auto-merge PR
+        if: steps.decision.outputs.should_merge == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --squash \
+            --subject "chore(deps): auto-merge minor update (Trivy CVE gate passed)" \
+            --delete-branch

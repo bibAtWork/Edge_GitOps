@@ -1,0 +1,164 @@
+name: GitOps Lint
+
+on:
+  pull_request:
+    branches: [ops/talos_linux]
+    paths:
+      - 'cluster/**/*.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Job 1: every Secret with data must be SOPS-encrypted ─────────────────────
+  sops-enforcement:
+    name: SOPS encryption
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify all Secrets with data are SOPS-encrypted
+        run: |
+          python3 - <<'PY'
+          import sys, pathlib, yaml
+
+          SKIP_ANNOTATION = 'gitops.homelab/sops-skip'
+          errors = []
+          for path in sorted(pathlib.Path('cluster').rglob('*.yaml')):
+              try:
+                  content = path.read_text(encoding='utf-8')
+              except Exception:
+                  continue
+              try:
+                  for doc in yaml.safe_load_all(content):
+                      if not doc or doc.get('kind') != 'Secret':
+                          continue
+                      annotations = (doc.get('metadata') or {}).get('annotations') or {}
+                      if annotations.get(SKIP_ANNOTATION) == 'true':
+                          continue
+                      has_data = bool(doc.get('data') or doc.get('stringData'))
+                      encrypted = 'sops' in doc
+                      if has_data and not encrypted:
+                          errors.append(str(path))
+              except yaml.YAMLError:
+                  # SOPS-encrypted files may not parse cleanly — skip them
+                  pass
+
+          if errors:
+              print('The following Secrets have data but are not SOPS-encrypted:')
+              for e in errors:
+                  print(f'  {e}')
+              print()
+              print('Encrypt with: sops --encrypt --in-place <file>')
+              sys.exit(1)
+          else:
+              print('All Secrets are SOPS-encrypted.')
+          PY
+
+  # ── Job 2: no :latest image tags in either rendered overlay ──────────────────
+  no-latest-tags:
+    name: No :latest image tags
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kustomize
+        run: |
+          VERSION=$(curl -sL 'https://api.github.com/repos/kubernetes-sigs/kustomize/releases?per_page=20' \
+            | jq -r '[.[] | select(.tag_name | startswith("kustomize/"))] | first | .tag_name | ltrimstr("kustomize/")')
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kustomize
+
+      - name: Reject :latest image tags in rendered overlays
+        run: |
+          FAIL=0
+          for overlay in 1-node 3-node; do
+            hits=$(kustomize build cluster/overlays/${overlay} \
+              | grep -E '^\s+image:\s+\S+:latest(\s|$)' || true)
+            if [ -n "$hits" ]; then
+              echo "ERROR: :latest tags found in ${overlay} overlay (bypasses Trivy gate and Renovate tracking):"
+              echo "$hits"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] && echo "No :latest tags found."
+          exit $FAIL
+
+  # ── Job 3: HelmRelease sourceRef and dependsOn references must resolve ───────
+  flux-references:
+    name: Flux reference integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kustomize
+        run: |
+          VERSION=$(curl -sL 'https://api.github.com/repos/kubernetes-sigs/kustomize/releases?per_page=20' \
+            | jq -r '[.[] | select(.tag_name | startswith("kustomize/"))] | first | .tag_name | ltrimstr("kustomize/")')
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kustomize
+
+      - name: Verify HelmRelease sourceRef and dependsOn references resolve
+        run: |
+          python3 - <<'PY'
+          import subprocess, sys, yaml
+
+          errors = []
+
+          for overlay in ('1-node', '3-node'):
+              result = subprocess.run(
+                  ['kustomize', 'build', f'cluster/overlays/{overlay}'],
+                  capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  errors.append(f'[{overlay}] kustomize build failed:\n{result.stderr.strip()}')
+                  continue
+
+              docs = [d for d in yaml.safe_load_all(result.stdout) if d]
+
+              helm_repos = {
+                  d['metadata']['name']
+                  for d in docs if d.get('kind') == 'HelmRepository'
+              }
+              helm_releases = {
+                  d['metadata']['name']
+                  for d in docs if d.get('kind') == 'HelmRelease'
+              }
+
+              for doc in docs:
+                  if doc.get('kind') != 'HelmRelease':
+                      continue
+                  name = doc['metadata']['name']
+
+                  # sourceRef — the chart source must exist in the same overlay
+                  source = (
+                      doc.get('spec', {})
+                         .get('chart', {})
+                         .get('spec', {})
+                         .get('sourceRef', {})
+                  )
+                  if source.get('kind') == 'HelmRepository':
+                      ref = source.get('name', '')
+                      if ref not in helm_repos:
+                          errors.append(
+                              f'[{overlay}] HelmRelease/{name}: sourceRef '
+                              f'HelmRepository/{ref} not found in overlay'
+                          )
+
+                  # dependsOn — every named dependency must exist
+                  for dep in doc.get('spec', {}).get('dependsOn', []):
+                      dep_name = dep.get('name', '')
+                      if dep_name and dep_name not in helm_releases:
+                          errors.append(
+                              f'[{overlay}] HelmRelease/{name}: dependsOn '
+                              f'HelmRelease/{dep_name} not found in overlay'
+                          )
+
+          if errors:
+              print(f'{len(errors)} reference error(s) found:\n')
+              for e in errors:
+                  print(f'  ERROR: {e}')
+              sys.exit(1)
+          else:
+              print('All HelmRelease references resolve correctly.')
+          PY

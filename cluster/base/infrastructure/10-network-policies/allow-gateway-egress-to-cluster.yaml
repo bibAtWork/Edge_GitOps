@@ -1,0 +1,22 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-gateway-egress-to-cluster
+spec:
+  # The Cilium Gateway API L7LB marks packets from tailscale0 (L3 TUN) with the
+  # wrong direction in the BPF TPROXY metadata: bpf_metadata runs in EGRESS mode
+  # instead of INGRESS mode, using source_identity=8 (reserved:ingress entity).
+  # cilium.l7policy then checks the EGRESS NPDS on the ingress entity rather than
+  # the INGRESS NPDS on the ingress entity (which already allows world).
+  #
+  # This EGRESS policy is also correct policy in general: the gateway ingress entity
+  # must be allowed to forward requests to cluster backends. The access control for
+  # who may USE the gateway is enforced by the INGRESS rules in
+  # allow-gateway-world-ingress (fromEntities: world, host, cluster).
+  endpointSelector:
+    matchLabels:
+      reserved:ingress: ""
+  egress:
+    - toEntities:
+        - cluster
+        - host

@@ -1,0 +1,76 @@
+# Only back up namespaces with irreplaceable user data — everything else is
+# recoverable from the GitOps repository via Flux reconciliation.
+#
+# immich: PostgreSQL DB (photo metadata/albums/faces) + photo library files
+# paperless: document database + scanned document files
+#
+# Deliberately excluded:
+#   - monitoring: Grafana config is fully provisioned from git (dashboards via
+#     gnetId, alerts/contact points via Helm values); VictoriaMetrics holds
+#     scraped metrics (historical data, not application state)
+#   - zot: OCI image cache, rebuildable from upstream registries
+#   - All other namespaces: Flux recreates all workload resources from git
+#   - includeClusterResources: CRDs, ClusterRoles, etc. are all in git
+#
+# Shorter local retention (4 days) because local = same machine.
+# AWS S3 is the durable guard against machine-level failures.
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-local
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"
+  template:
+    storageLocation: seaweedfs-local
+    ttl: 96h
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
+    includedNamespaces:
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: weekly-offsite
+  namespace: velero
+spec:
+  schedule: "0 3 * * 0"
+  template:
+    storageLocation: aws-s3
+    ttl: 2160h
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
+    includedNamespaces:
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: monthly-offsite
+  namespace: velero
+spec:
+  schedule: "0 4 1 * *"
+  template:
+    storageLocation: aws-s3
+    ttl: 8760h
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: true
+    includedNamespaces:
+      - immich
+      - paperless
+    includeClusterResources: false
+    excludedResources:
+      - events
+      - events.events.k8s.io

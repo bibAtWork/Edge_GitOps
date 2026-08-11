@@ -1,0 +1,49 @@
+# Cross-namespace egress policies for services that must reach pods in other namespaces.
+---
+# VMAgent (monitoring) scrapes metrics from pods in every namespace.
+# toEndpoints: [{}] in a ClusterwideNetworkPolicy matches any cluster endpoint.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-vmagent-scrape-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: monitoring
+  egress:
+    - toEndpoints:
+        - {}
+---
+# SeaweedFS CSI controller (kube-system) must reach the filer and master on all ports.
+# The S3 port (8333) is already open via allow-seaweedfs-internal.yaml ingress;
+# this rule adds egress for gRPC/HTTP filer and master ports used by CSI.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-csi-seaweedfs-egress
+  namespace: kube-system
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            io.kubernetes.pod.namespace: seaweedfs
+---
+# Trivy pulls vulnerability DB and scans images from the in-cluster Zot registry.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-trivy-zot-egress
+  namespace: trivy-system
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: zot
+            io.kubernetes.pod.namespace: zot
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP

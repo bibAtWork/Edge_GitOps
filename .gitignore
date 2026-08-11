@@ -27,3 +27,20 @@ override.tf.json
 
 # Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
 # example: *tfplan*
+
+# Bootstrap config — contains all tokens and credentials, never commit
+bootstrap/config.json
+
+# Talos secrets and generated configs — store offline, never commit
+.talos/
+*.age.key
+talosconfig
+secrets.yaml
+
+# Age private keys
+*.key
+!.sops.yaml
+
+# Ansible retry files
+*.retry
+ansible/.ansible_retry

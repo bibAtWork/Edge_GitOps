@@ -1,0 +1,40 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    policies.kyverno.io/title: Restrict Image Registries
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Images must be pulled from approved registries. This prevents workloads
+      from pulling images from untrusted sources that could introduce malware
+      or bypass the Trivy vulnerability scanning pipeline in Zot.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-image-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaceSelector:
+                matchExpressions:
+                  - key: kubernetes.io/metadata.name
+                    operator: NotIn
+                    values:
+                      - kube-system
+                      - flux-system
+                      - kyverno
+      validate:
+        message: >-
+          Images must be from an approved registry. Allowed: docker.io, ghcr.io,
+          registry.k8s.io, quay.io, gcr.io, or the local Zot registry.
+        pattern:
+          spec:
+            containers:
+              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/*"
+            =(initContainers):
+              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/*"
