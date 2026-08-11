@@ -10,17 +10,24 @@
 #   · ext_authz(OPA): enforces Rego policies from 24-opa/configmap.yaml.
 #     failure_mode_allow: if OPA is unavailable, native app auth still applies.
 #   · cilium.l7policy: auto-injected by Cilium for L7 network policy enforcement.
-#   · router: Cilium's xDS provides per-service route configs (RDS).
+#   · router: forwards to the ORIGINAL_DST cluster which reads the original
+#     ClusterIP from socket metadata. Cilium's BPF applies normal LB DNAT for
+#     Envoy's outgoing connections (no L7 re-intercept); no routing loop.
+#
+# Routing: inline route_config inside the listener — bypasses RDS/xDS.
+# Cilium's xDS does not serve RouteConfiguration resources from CCEC spec.resources
+# (RDS always returns 0 successes for custom listener names). Inline config works.
+# ORIGINAL_DST cluster forwards each request back to its original ClusterIP;
+# Cilium's BPF LB then DNATs that to the backend pod without L7 re-redirect.
 #
 # Note: jwt_authn omitted — Cilium 1.20's Go proto registry does not include
-# envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication and the config
-# fails with "unexpected token {" during deserialization. OPA receives raw headers
-# (x-jwt-sub, x-jwt-email) and the Authorization header for policy evaluation.
+# envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication, causing proto
+# parse failure ("unexpected token {"). OPA receives raw Authorization headers.
 #
 # CLUSTER DNS LIMITATION: Cilium's Envoy runs on host network and uses host DNS,
-# which cannot resolve *.svc.cluster.local names. Clusters for OPA and OTel use
-# their stable ClusterIPs directly (Cilium's BPF LB handles the DNAT to pod IPs).
-# The dex cluster reuses the gateway's existing EDS cluster to avoid duplication.
+# which cannot resolve *.svc.cluster.local. The OPA cluster uses its stable
+# ClusterIP (Cilium's BPF LB handles the DNAT). If OPA service is recreated,
+# update the address below.
 #
 # Future — Coraza WAF:
 #   Add envoy.filters.http.wasm (before local_ratelimit) with coraza-proxy-wasm.
@@ -54,16 +61,17 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
               stat_prefix: gateway_authz
 
-              rds:
-                config_source:
-                  resource_api_version: V3
-                  api_config_source:
-                    api_type: GRPC
-                    transport_api_version: V3
-                    grpc_services:
-                      - envoy_grpc:
-                          cluster_name: xds-grpc-cilium
-                route_config_name: gateway-authz
+              route_config:
+                name: gateway-authz
+                virtual_hosts:
+                  - name: all
+                    domains: ["*"]
+                    routes:
+                      - match:
+                          prefix: /
+                        route:
+                          cluster: original-dst
+                          timeout: 60s
 
               http_filters:
                 # 1. Local rate limit: token bucket, 60 req/min per Envoy instance.
@@ -99,12 +107,21 @@ spec:
                       - envoy.filters.http.jwt_authn
                     failure_mode_allow: true
 
-                # 4. Router (must be last).
+                # 3. Router (must be last; Cilium injects cilium.l7policy before it).
                 - name: envoy.filters.http.router
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
     # ── Upstream clusters ────────────────────────────────────────────────────
+
+    # Forward to the original ClusterIP destination preserved by Cilium's BPF
+    # socket-level redirect. Cilium's BPF LB DNAT's the ClusterIP to the backend
+    # pod IP for Envoy's outgoing connections without re-triggering L7 redirect.
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: original-dst
+      type: ORIGINAL_DST
+      connect_timeout: 5s
+      lb_policy: CLUSTER_PROVIDED
 
     # OPA gRPC ext_authz. STATIC + ClusterIP: Cilium Envoy runs on host network
     # and cannot resolve *.svc.cluster.local via host DNS; Cilium's BPF LB DNAT's
