@@ -13,6 +13,7 @@ spec:
       labels:
         app.kubernetes.io/name: valkey
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: valkey
           # renovate: datasource=docker depName=valkey/valkey
@@ -24,8 +25,10 @@ spec:
             requests:
               memory: 32Mi
               cpu: 10m
+              ephemeral-storage: 10Mi
             limits:
               memory: 64Mi
+              cpu: 100m
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

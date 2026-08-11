@@ -13,11 +13,14 @@ spec:
       labels:
         app.kubernetes.io/name: ratelimit
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: ratelimit
           # renovate: datasource=docker depName=envoyproxy/ratelimit
           image: docker.io/envoyproxy/ratelimit:master
           env:
+            - name: REDIS_SOCKET_TYPE
+              value: tcp
             - name: REDIS_URL
               value: valkey.security.svc.cluster.local:6379
             - name: RUNTIME_ROOT
@@ -47,8 +50,10 @@ spec:
             requests:
               memory: 64Mi
               cpu: 20m
+              ephemeral-storage: 10Mi
             limits:
               memory: 128Mi
+              cpu: 200m
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
