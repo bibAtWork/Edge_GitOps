@@ -402,6 +402,112 @@ spec:
                   severity: warning
                 isPaused: false
 
+          - orgId: 1
+            name: Gateway Auth Alerts
+            folder: Security
+            interval: 5m
+            rules:
+              - uid: opa-unavailable
+                title: OPAUnavailable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'increase(envoy_http_ext_authz_failure_mode_allowed{envoy_http_conn_manager_prefix="gateway_authz"}[5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: OPA ext_authz is down — requests bypassing authorization
+                  description: >-
+                    OPA is unavailable; Envoy's failure_mode_allow forwarded requests
+                    without an authorization check. Native app auth (Grafana OIDC, etc.)
+                    still applies, but Rego policies (hubble-ui admin gate, 401 for bad
+                    tokens) are not enforced.
+                    Check: kubectl get pods -n security -l app=opa
+                labels:
+                  severity: critical
+                isPaused: false
+
+              - uid: opa-denial-spike
+                title: OPADenialSpike
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'increase(envoy_http_ext_authz_denied{envoy_http_conn_manager_prefix="gateway_authz"}[5m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [10]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: >-
+                    {{ "{{" }} $value }} OPA ext_authz denials in the last 5 minutes
+                  description: >-
+                    More than 10 requests were denied by OPA in the last 5 minutes.
+                    Possible causes: expired/invalid API tokens, unauthorized access
+                    attempts on admin-only apps (hubble-ui), or a misconfigured client.
+                    Check Envoy stats: kubectl exec -n kube-system ds/cilium-envoy --
+                    wget -qO- localhost:9964/stats/prometheus | grep ext_authz
+                labels:
+                  severity: warning
+                isPaused: false
+
     initChownData:
       enabled: false
 
