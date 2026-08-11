@@ -5,4 +5,6 @@ resources:
   - deployment.yaml
   - realm-configmap.yaml
   - keycloak-secret.yaml
+  - keycloak-admin-user-secret.yaml
+  - setup-job.yaml
   - cilium-policy.yaml
