@@ -31,7 +31,7 @@ resources:
   - ../../base/infrastructure/20-kubescape
   - ../../base/infrastructure/21-flux-notifications
   - ../../base/infrastructure/22-schenkmatch
-  - ../../base/infrastructure/23-dex
+  - ../../base/infrastructure/26-keycloak
   - ../../base/infrastructure/24-opa
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed

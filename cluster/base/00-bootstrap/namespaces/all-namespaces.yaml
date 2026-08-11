@@ -144,10 +144,11 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: dex
+  name: keycloak
   labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/warn: restricted
+    # Bitnami PostgreSQL init container runs as root to chown the data directory.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: baseline
 ---
 apiVersion: v1
 kind: Namespace

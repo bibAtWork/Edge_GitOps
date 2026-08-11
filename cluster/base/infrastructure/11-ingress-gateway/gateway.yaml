@@ -24,7 +24,7 @@ spec:
                   - immich
                   - paperless
                   - schenkmatch
-                  - dex
+                  - keycloak
       tls:
         mode: Terminate
         certificateRefs:

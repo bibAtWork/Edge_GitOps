@@ -25,8 +25,8 @@ resources:
   - ../../base/infrastructure/19-kyverno/config
   # schenkmatch: HTTPRoute (gateway.networking.k8s.io)
   - ../../base/infrastructure/22-schenkmatch/config
-  # dex: HTTPRoute (gateway.networking.k8s.io) for OIDC endpoint
-  - ../../base/infrastructure/23-dex/config
+  # keycloak: HTTPRoute (gateway.networking.k8s.io) for OIDC endpoint
+  - ../../base/infrastructure/26-keycloak/config
   # gateway-authz: CiliumClusterwideEnvoyConfig (cilium.io) — JWT + OPA + rate limit + OTel tracing
   - ../../base/infrastructure/25-gateway-authz
   # velero Schedules (velero.io) — 1-node specific retention
