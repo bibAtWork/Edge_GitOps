@@ -543,12 +543,12 @@ spec:
         name: Homelab SSO
         allow_sign_up: true
         scopes: openid email profile groups
-        auth_url: https://dex.homelab.data-harness.org/auth
-        token_url: https://dex.homelab.data-harness.org/token
-        api_url: https://dex.homelab.data-harness.org/userinfo
+        auth_url: https://keycloak.homelab.data-harness.org/realms/homelab/protocol/openid-connect/auth
+        token_url: https://keycloak.homelab.data-harness.org/realms/homelab/protocol/openid-connect/token
+        api_url: https://keycloak.homelab.data-harness.org/realms/homelab/protocol/openid-connect/userinfo
         client_id: grafana
         client_secret: "$__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
-        # Map Dex groups to Grafana roles; users in 'admin' group become Grafana Admins.
+        # Users in the Keycloak 'admin' group get Grafana Admin role; all others get Viewer.
         role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || 'Viewer'"
         use_pkce: true
         auto_login: false
