@@ -1,0 +1,186 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-setup-script
+  namespace: keycloak
+data:
+  setup.py: |
+    #!/usr/bin/env python3
+    """
+    Idempotent Keycloak setup via Admin REST API.
+    Fixes the Grafana client secret (literal placeholder from realm import),
+    creates the homelab admin user, and assigns them to the admin group.
+    """
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    KC_URL = "http://keycloak.keycloak.svc.cluster.local"
+    REALM = "homelab"
+
+    KEYCLOAK_ADMIN = os.environ["KEYCLOAK_ADMIN"]
+    KEYCLOAK_ADMIN_PASSWORD = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
+    GRAFANA_CLIENT_SECRET = os.environ["GRAFANA_CLIENT_SECRET"]
+    ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
+    ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
+
+
+    def api(method, path, data=None, token=None, form=False):
+        url = f"{KC_URL}{path}"
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        body = None
+        if data and form:
+            body = urllib.parse.urlencode(data).encode()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        elif data is not None:
+            body = json.dumps(data).encode()
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                raw = resp.read()
+                return resp.status, json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            raw = e.read()
+            return e.code, json.loads(raw) if raw else None
+
+
+    def get_token():
+        status, body = api("POST", "/realms/master/protocol/openid-connect/token", data={
+            "client_id": "admin-cli",
+            "username": KEYCLOAK_ADMIN,
+            "password": KEYCLOAK_ADMIN_PASSWORD,
+            "grant_type": "password",
+        }, form=True)
+        if status != 200:
+            print(f"ERROR: auth failed ({status}): {body}", file=sys.stderr)
+            sys.exit(1)
+        return body["access_token"]
+
+
+    tok = get_token()
+    print("✓ Authenticated to Keycloak")
+
+    # --- Fix Grafana client secret ---
+    # realm import stores the literal placeholder string, not the real value
+    status, clients = api("GET", f"/admin/realms/{REALM}/clients?clientId=grafana", token=tok)
+    if not clients:
+        print("ERROR: grafana client not found in realm", file=sys.stderr)
+        sys.exit(1)
+    client = clients[0]
+    client_id = client["id"]
+    # fetch full representation so PUT doesn't drop fields
+    status, full_client = api("GET", f"/admin/realms/{REALM}/clients/{client_id}", token=tok)
+    full_client["secret"] = GRAFANA_CLIENT_SECRET
+    status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{client_id}", data=full_client, token=tok)
+    assert status == 204, f"Client update failed: {status}"
+    print("✓ Grafana client secret updated")
+
+    # --- Create admin user (idempotent) ---
+    status, existing = api("GET", f"/admin/realms/{REALM}/users?username=admin&exact=true", token=tok)
+    if not existing:
+        status, _ = api("POST", f"/admin/realms/{REALM}/users", data={
+            "username": "admin",
+            "email": ADMIN_USER_EMAIL,
+            "enabled": True,
+            "emailVerified": True,
+        }, token=tok)
+        assert status == 201, f"User creation failed: {status}"
+        print("✓ User 'admin' created")
+        status, existing = api("GET", f"/admin/realms/{REALM}/users?username=admin&exact=true", token=tok)
+    else:
+        print("✓ User 'admin' already exists")
+
+    user_id = existing[0]["id"]
+
+    # --- Set/sync password (always update to stay in sync with secret) ---
+    status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/reset-password", data={
+        "type": "password",
+        "value": ADMIN_USER_PASSWORD,
+        "temporary": False,
+    }, token=tok)
+    assert status == 204, f"Password reset failed: {status}"
+    print("✓ Password set")
+
+    # --- Assign admin group (PUT is idempotent — 204 whether new or existing) ---
+    status, groups = api("GET", f"/admin/realms/{REALM}/groups?search=admin&exact=true", token=tok)
+    if not groups:
+        print("ERROR: admin group not found in realm", file=sys.stderr)
+        sys.exit(1)
+    group_id = groups[0]["id"]
+    status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/groups/{group_id}", token=tok)
+    assert status == 204, f"Group assignment failed: {status}"
+    print("✓ User assigned to 'admin' group")
+
+    print("\nSetup complete.")
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-setup
+  namespace: keycloak
+  annotations:
+    # Increment this value to re-run the job after merging config changes
+    run-id: "1"
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: setup
+          image: docker.io/library/python:3.12-alpine
+          command: ["python3", "/scripts/setup.py"]
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secrets
+                  key: admin-password
+            - name: GRAFANA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secrets
+                  key: grafana-client-secret
+            - name: ADMIN_USER_EMAIL
+              value: admin@homelab.internal
+            - name: ADMIN_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-admin-user
+                  key: password
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: script
+          configMap:
+            name: keycloak-setup-script
