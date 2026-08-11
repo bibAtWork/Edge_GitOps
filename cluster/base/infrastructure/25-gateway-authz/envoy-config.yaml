@@ -2,22 +2,29 @@
 # for every service listed in spec.services.  Traffic from the gateway to each
 # backend traverses this chain:
 #
-#   [gateway pod] → local-rate-limit → jwt-authn → lua(baggage) → ext_authz(OPA) → [backend pod]
+#   [gateway pod] → global-rate-limit → jwt-authn → lua(baggage) → ext_authz(OPA) → [backend pod]
 #
 # Layer roles:
-#   local_ratelimit  – token-bucket per Envoy instance; no external call; cheapest guard.
+#   ratelimit        – per-client-IP token bucket backed by Valkey; shared across all nodes so
+#                      limits are consistent regardless of which node handles the request.
+#                      Descriptors: (client_ip, host) → per-service per-IP limits.
 #   jwt_authn        – validates Bearer tokens issued by Dex; extracts sub/email as headers;
 #                      allow_missing_or_failed lets browser OIDC flows pass (no JWT in cookie).
 #   lua              – reads x-jwt-email + x-forwarded-for → sets W3C Baggage header so all
 #                      downstream services receive user identity for distributed tracing.
-#   ext_authz(OPA)   – receives JWT claims via filter metadata; makes policy decisions;
-#                      currently allow-all with identity enrichment (tighten in configmap.yaml).
+#   ext_authz(OPA)   – receives JWT claims via filter metadata; enforces:
+#                        · deny invalid Bearer tokens (401)
+#                        · deny non-admin access to Grafana /api/admin/* (403)
+#                        · deny non-admin access to hubble-ui (403)
+#                        · add x-authenticated-user/sub headers for all valid JWTs
 #
-# End-to-end tracing: the HCM tracing config maps x-jwt-email/x-jwt-sub/x-forwarded-for
-# to OTel span attributes user.id, user.sub, client.ip on every request.
+# Inline route_config (instead of RDS) is required so that virtual-host-level
+# rate_limits actions can be configured.  Cilium's Envoy does not re-intercept
+# connections that originate from its own proxy, so STRICT_DNS clusters pointing
+# to backend service DNS names are loop-free.
 #
 # Future – Coraza WAF:
-#   Add envoy.filters.http.wasm (before local_ratelimit) with the coraza-proxy-wasm filter
+#   Add envoy.filters.http.wasm (before ratelimit) with the coraza-proxy-wasm filter
 #   and an OWASP CRS ruleset mounted from a ConfigMap.  See CORAZA-WAF.md for details.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideEnvoyConfig
@@ -49,17 +56,95 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
               stat_prefix: gateway_authz
 
-              # RDS: Cilium's xDS provides route configs for all listed services.
-              rds:
-                config_source:
-                  resource_api_version: V3
-                  api_config_source:
-                    api_type: GRPC
-                    transport_api_version: V3
-                    grpc_services:
-                      - envoy_grpc:
-                          cluster_name: xds-grpc-cilium
-                route_config_name: gateway-authz
+              # Inline route config — required for per-virtual-host rate_limits actions.
+              # Each virtual host matches by Host/:authority header and routes to the
+              # corresponding backend cluster via STRICT_DNS.
+              route_config:
+                name: gateway-authz
+                virtual_hosts:
+                  - name: grafana
+                    domains: ["grafana.homelab.data-harness.org"]
+                    rate_limits:
+                      - actions:
+                          - request_headers:
+                              header_name: "x-forwarded-for"
+                              descriptor_key: client_ip
+                          - request_headers:
+                              header_name: ":authority"
+                              descriptor_key: host
+                    routes:
+                      - match: {prefix: /}
+                        route: {cluster: grafana}
+
+                  - name: immich
+                    domains: ["immich.homelab.data-harness.org"]
+                    rate_limits:
+                      - actions:
+                          - request_headers:
+                              header_name: "x-forwarded-for"
+                              descriptor_key: client_ip
+                          - request_headers:
+                              header_name: ":authority"
+                              descriptor_key: host
+                    routes:
+                      - match: {prefix: /}
+                        route: {cluster: immich}
+
+                  - name: paperless
+                    domains: ["paperless.homelab.data-harness.org"]
+                    rate_limits:
+                      - actions:
+                          - request_headers:
+                              header_name: "x-forwarded-for"
+                              descriptor_key: client_ip
+                          - request_headers:
+                              header_name: ":authority"
+                              descriptor_key: host
+                    routes:
+                      - match: {prefix: /}
+                        route: {cluster: paperless}
+
+                  - name: schenkmatch
+                    domains: ["schenkmatch.homelab.data-harness.org"]
+                    rate_limits:
+                      - actions:
+                          - request_headers:
+                              header_name: "x-forwarded-for"
+                              descriptor_key: client_ip
+                          - request_headers:
+                              header_name: ":authority"
+                              descriptor_key: host
+                    routes:
+                      - match: {prefix: /}
+                        route: {cluster: schenkmatch}
+
+                  - name: zot
+                    domains: ["zot.homelab.data-harness.org"]
+                    rate_limits:
+                      - actions:
+                          - request_headers:
+                              header_name: "x-forwarded-for"
+                              descriptor_key: client_ip
+                          - request_headers:
+                              header_name: ":authority"
+                              descriptor_key: host
+                    routes:
+                      - match: {prefix: /}
+                        route: {cluster: zot}
+
+                  - name: hubble
+                    domains: ["hubble.homelab.data-harness.org"]
+                    rate_limits:
+                      - actions:
+                          - request_headers:
+                              header_name: "x-forwarded-for"
+                              descriptor_key: client_ip
+                          - request_headers:
+                              header_name: ":authority"
+                              descriptor_key: host
+                    routes:
+                      - match: {prefix: /}
+                        route: {cluster: hubble}
 
               # OTel tracing — maps JWT headers to span attributes for end-to-end user tracing.
               tracing:
@@ -86,30 +171,22 @@ spec:
                       name: x-forwarded-for
 
               http_filters:
-                # 1. Local rate limit — runs first; no external call; cheapest guard.
-                #    Default: 60 requests per minute per Envoy instance (single-node homelab).
-                #    To set per-route limits, use HTTPRoute annotations or per-virtualhost config.
-                - name: envoy.filters.http.local_ratelimit
+                # 1. Global rate limit — shared Valkey counter, consistent across all nodes.
+                #    Descriptor: (client_ip=x-forwarded-for, host=:authority)
+                #    Per-service limits defined in ratelimit-config.yaml ConfigMap.
+                #    failure_mode_deny: false → fail open if ratelimit service is down.
+                - name: envoy.filters.http.ratelimit
                   typed_config:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
-                    stat_prefix: gateway_authz_rl
-                    token_bucket:
-                      max_tokens: 60
-                      tokens_per_fill: 60
-                      fill_interval: 60s
-                    filter_enabled:
-                      default_value:
-                        numerator: 100
-                        denominator: HUNDRED
-                    filter_enforced:
-                      default_value:
-                        numerator: 100
-                        denominator: HUNDRED
-                    response_headers_to_add:
-                      - header:
-                          key: x-ratelimit-limit
-                          value: "60"
-                        keep_empty_value: false
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
+                    domain: gateway
+                    failure_mode_deny: false
+                    enable_x_ratelimit_headers: DRAFT_VERSION_03
+                    rate_limit_service:
+                      grpc_service:
+                        envoy_grpc:
+                          cluster_name: ratelimit_grpc
+                        timeout: 250ms
+                      transport_api_version: V3
 
                 # 2. JWT authentication — validates Bearer tokens issued by Dex.
                 #    allow_missing_or_failed: browser OIDC flows (no Authorization header) pass through;
@@ -123,8 +200,7 @@ spec:
                         issuer: https://dex.homelab.data-harness.org
                         remote_jwks:
                           http_uri:
-                            # Internal URL for JWKS — avoids external round-trip.
-                            uri: http://dex.dex.svc.cluster.local:5556/keys
+                            uri: http://dex.dex.svc.cluster.local:5556/keys # nosonar
                             cluster: dex_jwks
                             timeout: 5s
                           cache_duration:
@@ -133,8 +209,6 @@ spec:
                         from_headers:
                           - name: Authorization
                             value_prefix: "Bearer "
-                        # Extract JWT claims as trusted request headers.
-                        # These headers are forwarded to OPA (as filter metadata) and to backends.
                         claim_to_headers:
                           - claim_name: sub
                             header_name: x-jwt-sub
@@ -150,7 +224,6 @@ spec:
                               - allow_missing_or_failed: {}
 
                 # 3. Lua — compose W3C Baggage header for distributed tracing identity propagation.
-                #    All downstream services receive user.id and client.ip via the baggage header.
                 - name: envoy.filters.http.lua
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
@@ -169,9 +242,7 @@ spec:
                       end
 
                 # 4. OPA ext_authz — fine-grained policy enforcement.
-                #    Receives JWT claims via filter metadata (envoy.filters.http.jwt_authn).
-                #    Current policy: allow-all + identity header enrichment (see 24-opa/configmap.yaml).
-                #    Tighten by editing the Rego policy without redeploying this config.
+                #    Policies defined in 24-opa/configmap.yaml (edit Rego without redeployment).
                 - name: envoy.filters.http.ext_authz
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
@@ -180,7 +251,6 @@ spec:
                         cluster_name: opa_authz
                       timeout: 5s
                     transport_api_version: V3
-                    # Pass JWT filter metadata to OPA so policies can read verified claims.
                     metadata_context_namespaces:
                       - envoy.filters.http.jwt_authn
                     failure_mode_allow: true
@@ -190,9 +260,122 @@ spec:
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
-    # ── Upstream clusters ────────────────────────────────────────────────────
+    # ── Backend clusters (STRICT_DNS → service ClusterIP DNS) ───────────────
+    # Cilium does not re-intercept connections originating from its own Envoy proxy,
+    # so these STRICT_DNS clusters are loop-free even though the services are in spec.services.
 
-    # OPA gRPC ext_authz endpoint.
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: grafana
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: grafana
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: grafana.monitoring.svc.cluster.local
+                    port_value: 80
+
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: immich
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: immich
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: immich-server.immich.svc.cluster.local
+                    port_value: 2283
+
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: paperless
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: paperless
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: paperless-ngx.paperless.svc.cluster.local
+                    port_value: 8000
+
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: schenkmatch
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: schenkmatch
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: schenkmatch.schenkmatch.svc.cluster.local
+                    port_value: 3000
+
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: zot
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: zot
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: zot.zot.svc.cluster.local
+                    port_value: 5000
+
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: hubble
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: hubble
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: hubble-ui.kube-system.svc.cluster.local
+                    port_value: 80
+
+    # ── Shared service clusters ──────────────────────────────────────────────
+
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: ratelimit_grpc
+      connect_timeout: 250ms
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: ratelimit_grpc
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: ratelimit.security.svc.cluster.local
+                    port_value: 8081
+
     - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
       name: opa_authz
       connect_timeout: 5s
@@ -213,7 +396,6 @@ spec:
                     address: opa.security.svc.cluster.local
                     port_value: 9191
 
-    # Dex JWKS endpoint — used by jwt_authn to fetch and cache signing keys.
     - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
       name: dex_jwks
       connect_timeout: 5s
@@ -229,7 +411,6 @@ spec:
                     address: dex.dex.svc.cluster.local
                     port_value: 5556
 
-    # OTel collector gRPC endpoint — receives spans from the tracer provider.
     - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
       name: otel_grpc
       connect_timeout: 1s

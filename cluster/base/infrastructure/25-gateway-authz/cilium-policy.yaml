@@ -1,0 +1,20 @@
+# Allow ratelimit pods to receive connections from Cilium's Envoy (host entity)
+# and from other pods in the security namespace (covered by allow-intra-namespace-egress).
+# Valkey needs explicit ingress from ratelimit — default-deny-ingress only allows host traffic.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-valkey-from-ratelimit
+  namespace: security
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: ratelimit
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
