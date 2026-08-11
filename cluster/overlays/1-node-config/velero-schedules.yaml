@@ -3,6 +3,7 @@
 #
 # immich: PostgreSQL DB (photo metadata/albums/faces) + photo library files
 # paperless: document database + scanned document files
+# keycloak: PostgreSQL DB (users, groups, OIDC clients — not reproducible from git)
 #
 # Deliberately excluded:
 #   - monitoring: Grafana config is fully provisioned from git (dashboards via
@@ -30,6 +31,7 @@ spec:
     includedNamespaces:
       - immich
       - paperless
+      - keycloak
     includeClusterResources: false
     excludedResources:
       - events
@@ -50,6 +52,7 @@ spec:
     includedNamespaces:
       - immich
       - paperless
+      - keycloak
     includeClusterResources: false
     excludedResources:
       - events
@@ -70,6 +73,7 @@ spec:
     includedNamespaces:
       - immich
       - paperless
+      - keycloak
     includeClusterResources: false
     excludedResources:
       - events
