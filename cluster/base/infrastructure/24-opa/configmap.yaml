@@ -62,8 +62,6 @@ data:
     #    Apps (Grafana, Immich, Paperless) handle their own session auth natively.
     #    Allow through; jwt_authn already passed with allow_missing_or_failed.
 
-    default allow := {"allowed": true}
-
     allow := {
         "allowed": false,
         "http_status": 401,
@@ -94,4 +92,4 @@ data:
         "headers": identity_headers,
     } if {
         jwt.sub
-    }
+    } else := {"allowed": true}
