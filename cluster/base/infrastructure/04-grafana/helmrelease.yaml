@@ -162,7 +162,7 @@ spec:
             rules:
               - uid: log-oomkilled
                 title: PodOOMKilled
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -177,20 +177,28 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: classic_conditions
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
+                      expression: B
                       conditions:
                         - evaluator:
                             params: [0]
                             type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: last
-                          type: query
+                          unloadEvaluator:
+                            params: [0]
+                            type: lte
                       datasource:
                         type: __expr__
                         uid: '-100'
@@ -208,7 +216,7 @@ spec:
 
               - uid: log-grafana-auth-fail
                 title: GrafanaAuthFailures
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -223,20 +231,28 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: classic_conditions
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
+                      expression: B
                       conditions:
                         - evaluator:
                             params: [5]
                             type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: last
-                          type: query
+                          unloadEvaluator:
+                            params: [5]
+                            type: lte
                       datasource:
                         type: __expr__
                         uid: '-100'
@@ -311,7 +327,7 @@ spec:
 
               - uid: falco-critical-event
                 title: FalcoCriticalEvent
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -326,20 +342,28 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: classic_conditions
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
+                      expression: B
                       conditions:
                         - evaluator:
                             params: [0]
                             type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: last
-                          type: query
+                          unloadEvaluator:
+                            params: [0]
+                            type: lte
                       datasource:
                         type: __expr__
                         uid: '-100'
@@ -357,7 +381,7 @@ spec:
 
               - uid: kubescape-scan-findings
                 title: KubescapeScanFindings
-                condition: B
+                condition: C
                 data:
                   - refId: A
                     relativeTimeRange:
@@ -372,20 +396,28 @@ spec:
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: classic_conditions
+                      type: reduce
                       refId: B
+                      expression: A
+                      reducer: last
+                      settings:
+                        mode: dropNN
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                  - refId: C
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: C
+                      expression: B
                       conditions:
                         - evaluator:
                             params: [0]
                             type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: last
-                          type: query
+                          unloadEvaluator:
+                            params: [0]
+                            type: lte
                       datasource:
                         type: __expr__
                         uid: '-100'
