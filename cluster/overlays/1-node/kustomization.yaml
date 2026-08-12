@@ -33,6 +33,7 @@ resources:
   - ../../base/infrastructure/22-schenkmatch
   - ../../base/infrastructure/26-keycloak
   - ../../base/infrastructure/24-opa
+  - ../../base/infrastructure/27-kubeopencode
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml

@@ -1,0 +1,100 @@
+---
+# Egress allow-list for every pod in the namespace (controller, server, and any
+# Agent worker pods the controller creates later): DNS, K8s API, and the OpenCode
+# Zen API endpoint (free opencode/big-pickle model) explicitly.
+#
+# NOTE: this namespace is NOT actually restricted to opencode.ai on 443 — the
+# cluster-wide allow-internet-egress-https-only CiliumClusterwideNetworkPolicy
+# (10-network-policies/allow-internet-egress-https.yaml) already grants every pod
+# unrestricted HTTPS egress, and Cilium unions all matching policies' rules at the
+# same L4 tuple (no policy can narrow what a broader one already allows). Deliberate
+# decision: leave the cluster default in place for this namespace rather than carve
+# out an exclusion, and add tighter per-destination restrictions later if a specific
+# need arises. Non-HTTPS egress is still denied by default (cluster-wide
+# default-deny-egress), and this toFQDNs rule stays as documentation of the
+# workload's actual legitimate destination.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-kubeopencode-egress
+  namespace: kubeopencode-system
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEntities:
+        - kube-apiserver
+    - toFQDNs:
+        - matchName: opencode.ai
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Cilium requires both sides of a connection to have an explicit rule: this is
+    # the egress half matching allow-kubeopencode-to-mcp-server's ingress half below.
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: kubernetes-mcp-server
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+# KubeOpenCode pods (any pod in the namespace, since the agent worker also needs the
+# MCP tool) may reach the kubernetes-mcp-server pod on its Service port.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-kubeopencode-to-mcp-server
+  namespace: kubeopencode-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-mcp-server
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kubeopencode-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+# kubernetes-mcp-server itself: read-only cluster introspection needs the K8s API
+# and nothing else — no DNS-resolved external egress, no Anthropic API.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-mcp-server-egress
+  namespace: kubeopencode-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-mcp-server
+  egress:
+    - toEntities:
+        - kube-apiserver
+---
+# Web UI/API server reachable via the shared homelab-gateway (see config/httproute.yaml).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: kubeopencode-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubeopencode
+      app.kubernetes.io/component: server
+  ingress:
+    - fromEntities:
+        - ingress
