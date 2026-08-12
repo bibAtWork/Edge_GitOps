@@ -98,6 +98,16 @@ data:
         # fetch full representation so PUT doesn't drop fields
         status, full_client = api("GET", f"/admin/realms/{REALM}/clients/{uuid}", token=tok)
         full_client["secret"] = secret
+        # merge client_def's attributes on top of Keycloak's own (preserves
+        # internal bookkeeping keys); a pkce requirement is explicitly
+        # cleared (empty string, not just omitted -- Keycloak's client PUT
+        # merges the attributes map rather than replacing it, so removing
+        # the key entirely from the payload doesn't unset it server-side)
+        # rather than merged, since client_def omitting the key means
+        # "don't require PKCE", not "leave whatever's there"
+        full_client.setdefault("attributes", {}).update(client_def.get("attributes", {}))
+        if "pkce.code.challenge.method" not in client_def.get("attributes", {}):
+            full_client["attributes"]["pkce.code.challenge.method"] = ""
         status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{uuid}", data=full_client, token=tok)
         assert status == 204, f"{client_id_str} client update failed: {status}"
         print(f"✓ {client_id_str} client secret updated")
@@ -120,6 +130,11 @@ data:
     }, GRAFANA_CLIENT_SECRET)
 
     paperless_uuid = ensure_client({
+        # No PKCE requirement: django-allauth's openid_connect provider
+        # doesn't send a code_challenge, unlike Grafana which explicitly
+        # enables PKCE (use_pkce: true). Not a security gap here since
+        # paperless is a confidential client with its own secret — PKCE is
+        # primarily for public clients that can't hold one securely.
         "clientId": "paperless",
         "enabled": True,
         "name": "Paperless-ngx",
@@ -130,7 +145,7 @@ data:
         "directAccessGrantsEnabled": False,
         "serviceAccountsEnabled": False,
         "authorizationServicesEnabled": False,
-        "attributes": {"pkce.code.challenge.method": "S256"},
+        "attributes": {},
         "redirectUris": ["https://paperless.homelab.data-harness.org/accounts/oidc/keycloak/login/callback/"],
         "webOrigins": ["https://paperless.homelab.data-harness.org"],
     }, PAPERLESS_CLIENT_SECRET)

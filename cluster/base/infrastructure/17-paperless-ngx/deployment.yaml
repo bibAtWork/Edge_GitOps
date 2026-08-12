@@ -62,9 +62,20 @@ spec:
                 secretKeyRef:
                   name: paperless-oidc-secret
                   key: PAPERLESS_CLIENT_SECRET
+            # server_url uses internal service DNS, not the external hostname:
+            # Paperless's namespace gets a 403 "Access denied" from Cilium's
+            # gateway listener that other namespaces (e.g. monitoring) don't,
+            # for reasons not yet root-caused (see
+            # project_opa_hubble_ui_broken.md's sibling finding). Direct
+            # pod-to-pod sidesteps it. Keycloak's KC_HOSTNAME is a full
+            # https:// URL, so the discovery document still returns correct
+            # https:// endpoint URLs despite being fetched over plain internal
+            # HTTP — required since the authorization_endpoint is handed to
+            # the user's browser, and POSTs to token_endpoint would otherwise
+            # risk being downgraded to GET on an http->https redirect.
             - name: PAPERLESS_SOCIALACCOUNT_PROVIDERS
               value: >-
-                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"https://keycloak.homelab.data-harness.org/realms/homelab/.well-known/openid-configuration"}}]}}
+                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"http://keycloak.keycloak.svc.cluster.local/realms/homelab/.well-known/openid-configuration"}}]}}
             - name: PAPERLESS_OCR_LANGUAGE
               value: eng+deu
             - name: PAPERLESS_TIME_ZONE

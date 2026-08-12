@@ -8,3 +8,25 @@ spec:
   egress:
     - toEndpoints:
         - {}
+---
+# Allow Paperless-ngx to reach Keycloak directly (internal service DNS) for
+# OIDC discovery/token/userinfo. See the matching rule in
+# 26-keycloak/cilium-policy.yaml for why this bypasses the gateway.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-paperless-to-keycloak-egress
+  namespace: paperless
+spec:
+  endpointSelector:
+    matchLabels:
+      app: paperless-ngx
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app: keycloak
+            io.kubernetes.pod.namespace: keycloak
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

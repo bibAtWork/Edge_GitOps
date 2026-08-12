@@ -53,9 +53,6 @@ data:
           "directAccessGrantsEnabled": false,
           "serviceAccountsEnabled": false,
           "authorizationServicesEnabled": false,
-          "attributes": {
-            "pkce.code.challenge.method": "S256"
-          },
           "secret": "${PAPERLESS_CLIENT_SECRET}",
           "redirectUris": [
             "https://paperless.homelab.data-harness.org/accounts/oidc/keycloak/login/callback/"
