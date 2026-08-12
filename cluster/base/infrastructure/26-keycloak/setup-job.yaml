@@ -94,6 +94,52 @@ data:
     assert status == 204, f"Client update failed: {status}"
     print("✓ Grafana client secret updated")
 
+    # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
+    # Client scopes are realm-wide reusable objects. Keycloak rejects any
+    # authorization request naming a scope that isn't defined at the realm
+    # level (e.g. Grafana requesting scope=...+groups fails with invalid_scope
+    # until this exists and is linked to the client). Every future OIDC client
+    # that wants group membership in its token reuses this same scope.
+    def ensure_client_scope(name, mapper):
+        status, scopes = api("GET", f"/admin/realms/{REALM}/client-scopes", token=tok)
+        existing = next((s for s in scopes if s["name"] == name), None)
+        if existing:
+            return existing["id"]
+        status, _ = api("POST", f"/admin/realms/{REALM}/client-scopes", data={
+            "name": name,
+            "protocol": "openid-connect",
+            "attributes": {
+                "include.in.token.scope": "true",
+                "display.on.consent.screen": "false",
+            },
+            "protocolMappers": [mapper],
+        }, token=tok)
+        assert status == 201, f"Client scope '{name}' creation failed: {status}"
+        status, scopes = api("GET", f"/admin/realms/{REALM}/client-scopes", token=tok)
+        return next(s["id"] for s in scopes if s["name"] == name)
+
+    def link_optional_scope(client_uuid, scope_id):
+        status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{client_uuid}/optional-client-scopes/{scope_id}", token=tok)
+        assert status == 204, f"Optional scope link failed: {status}"
+
+    groups_scope_id = ensure_client_scope("groups", {
+        "name": "groups",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-group-membership-mapper",
+        "consentRequired": False,
+        "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true",
+        },
+    })
+    print("✓ Realm 'groups' client scope ensured")
+
+    link_optional_scope(client_id, groups_scope_id)
+    print("✓ 'groups' scope linked to grafana client")
+
     # --- Create admin user (idempotent) ---
     status, existing = api("GET", f"/admin/realms/{REALM}/users?username=admin&exact=true", token=tok)
     if not existing:
@@ -185,7 +231,7 @@ metadata:
   namespace: keycloak
   annotations:
     # Increment this value to re-run the job after merging config changes
-    run-id: "2"
+    run-id: "3"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400

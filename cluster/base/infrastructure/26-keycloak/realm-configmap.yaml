@@ -38,6 +38,19 @@ data:
           "webOrigins": [
             "https://grafana.homelab.data-harness.org"
           ],
+          "optionalClientScopes": [
+            "groups"
+          ]
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
           "protocolMappers": [
             {
               "name": "groups",
