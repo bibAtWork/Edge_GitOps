@@ -25,6 +25,7 @@ spec:
                   - paperless
                   - schenkmatch
                   - keycloak
+                  - kubeopencode-system
       tls:
         mode: Terminate
         certificateRefs:

@@ -1,0 +1,47 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubeopencode
+  namespace: kubeopencode-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: kubeopencode
+      version: 0.1.9
+      sourceRef:
+        kind: HelmRepository
+        name: kubeopencode
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # The chart's own podSecurityContext defaults (runAsNonRoot only) don't satisfy
+    # this namespace's restricted PSS enforcement, which also requires seccompProfile
+    # set at pod or container level. kubernetes-mcp-server's chart sets this by
+    # default; kubeopencode's doesn't, so it's added explicitly here for both
+    # workloads the chart creates.
+    controller:
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    server:
+      auth:
+        enabled: true
+        allowAnonymous: false
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # No server.ingress here — exposed via HTTPRoute (config/httproute.yaml) on the
+      # shared homelab-gateway, same pattern as grafana/paperless/immich.

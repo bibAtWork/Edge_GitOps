@@ -1,0 +1,20 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kubeopencode
+  namespace: kubeopencode-system
+spec:
+  parentRefs:
+    - name: homelab-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - kubeopencode.homelab.data-harness.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kubeopencode-server
+          port: 2746
