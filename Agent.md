@@ -239,6 +239,58 @@ variant adds a second layer of quoting and sends the extra characters to the Tel
 
 ---
 
+## A second, distinct Cilium 403 pattern (2026-08-12, unresolved)
+
+Spent a very long time this session on a **different** Cilium `403 Access denied`
+pattern than the one documented above. Confirmed the existing two-policy rule
+(`allow-gateway-world-ingress` + `allow-gateway-egress-to-cluster` on
+`reserved:ingress`) is present and correctly configured — this is **not** a
+recurrence of that bug. Documenting so the next session doesn't re-walk the
+same dead ends, and starts with the diagnostic technique above (Envoy debug
+logging + NPDS dump) instead of guessing at network policies blindly, which is
+what ate most of the time this round.
+
+**Symptoms observed**:
+
+- Some source namespaces (`paperless`, `security`, `kube-system`) get `403
+  Access denied` on **every** request through the Gateway to **any**
+  backend — not tied to a specific destination. Other namespaces
+  (`monitoring`) succeed identically. TCP/TLS layer is byte-for-byte
+  identical (full handshake, request sent); the 403 has no
+  `x-envoy-upstream-service-time` header, meaning it never reached upstream.
+- Separately, same-namespace pod-to-pod traffic within `kube-system`
+  (`hubble-auth` → `hubble-ui`, both freshly created same-day) hit the
+  identical-looking `403 Access denied`, even with a `CiliumNetworkPolicy`
+  `fromEndpoints` rule that label-matched exactly, confirmed correct via
+  `cilium-dbg endpoint get` showing the rule present in
+  `rules-by-selector` — but `allowed-ingress-identities` never grew beyond
+  the fixed reserved set `[1,3,4,5,6,7,8,11]`; no regular pod identity ever
+  appeared there, for any policy added.
+
+**Hypotheses tried and ruled out this session** (don't re-try these):
+rate limiting, Envoy connection pooling/reuse, Pod Security Standard level
+(temporarily matched `paperless`'s PSS to `monitoring`'s `privileged` —
+no change), the `allow-intra-namespace-ingress` fix that resolved an
+apparently-identical problem for `keycloak` earlier the same session (added
+the same fix for `kube-system` — did not help), DNS resolution differences
+(identical resolved IP for working and broken namespaces).
+
+**Not yet tried**: the actual diagnostic procedure two sections up (Envoy
+debug logging, reading `source_identity`/`ingress:`/DROP-reason fields,
+dumping NPDS via `cilium-dbg envoy admin config networkpolicies` filtered by
+endpoint IP). This session used `cilium-dbg endpoint get <id>` (realized
+policy dump) instead, which shows the *intended* policy but apparently not
+whether it's actually being matched at connection time — the NPDS dump is
+probably the right next step, matching the existing playbook above instead
+of a new one.
+
+**Where this is parked**: `docs/backlog.md` (OPA gate / Hubble UI oauth2-proxy
+attempt). The oauth2-proxy work itself was reverted/cleaned up; only the
+Keycloak-realm and network-policy learnings from this investigation are worth
+keeping, which is what this section is.
+
+---
+
 ## Prevention checklist for future policy changes
 
 Before adding or removing any `CiliumNetworkPolicy` or `CiliumClusterwideNetworkPolicy`
