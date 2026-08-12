@@ -9,10 +9,11 @@ data:
     #!/usr/bin/env python3
     """
     Idempotent Keycloak setup via Admin REST API.
-    Fixes the Grafana client secret (literal placeholder from realm import),
-    creates the homelab admin user, promotes the same identity to a permanent
-    master-realm admin, and deletes the temporary bootstrap admin so only one
-    admin credential pair remains.
+    Fixes the Grafana and Paperless-ngx client secrets (literal placeholders
+    from realm import), ensures the shared "groups" client scope exists and
+    is linked to both clients, creates the homelab admin user, promotes the
+    same identity to a permanent master-realm admin, and deletes the
+    temporary bootstrap admin so only one admin credential pair remains.
     """
     import json
     import os
@@ -27,6 +28,7 @@ data:
     KEYCLOAK_ADMIN = os.environ["KEYCLOAK_ADMIN"]
     KEYCLOAK_ADMIN_PASSWORD = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
     GRAFANA_CLIENT_SECRET = os.environ["GRAFANA_CLIENT_SECRET"]
+    PAPERLESS_CLIENT_SECRET = os.environ["PAPERLESS_CLIENT_SECRET"]
     ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
     ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
 
@@ -79,20 +81,106 @@ data:
     tok = get_token()
     print("✓ Authenticated to Keycloak")
 
-    # --- Fix Grafana client secret ---
-    # realm import stores the literal placeholder string, not the real value
-    status, clients = api("GET", f"/admin/realms/{REALM}/clients?clientId=grafana", token=tok)
-    if not clients:
-        print("ERROR: grafana client not found in realm", file=sys.stderr)
-        sys.exit(1)
-    client = clients[0]
-    client_id = client["id"]
-    # fetch full representation so PUT doesn't drop fields
-    status, full_client = api("GET", f"/admin/realms/{REALM}/clients/{client_id}", token=tok)
-    full_client["secret"] = GRAFANA_CLIENT_SECRET
-    status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{client_id}", data=full_client, token=tok)
-    assert status == 204, f"Client update failed: {status}"
-    print("✓ Grafana client secret updated")
+    def ensure_client(client_def, secret):
+        # Realm import only runs once (--import-realm skips an existing
+        # realm), so clients added to homelab.json after the first deploy
+        # never get created on their own — and even for clients that DID
+        # come from the import, the secret is stored as the literal
+        # placeholder string, not the real value. Handle both here.
+        client_id_str = client_def["clientId"]
+        status, clients = api("GET", f"/admin/realms/{REALM}/clients?clientId={client_id_str}", token=tok)
+        if not clients:
+            status, _ = api("POST", f"/admin/realms/{REALM}/clients", data=client_def, token=tok)
+            assert status == 201, f"{client_id_str} client creation failed: {status}"
+            print(f"✓ {client_id_str} client created")
+            status, clients = api("GET", f"/admin/realms/{REALM}/clients?clientId={client_id_str}", token=tok)
+        uuid = clients[0]["id"]
+        # fetch full representation so PUT doesn't drop fields
+        status, full_client = api("GET", f"/admin/realms/{REALM}/clients/{uuid}", token=tok)
+        full_client["secret"] = secret
+        status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{uuid}", data=full_client, token=tok)
+        assert status == 204, f"{client_id_str} client update failed: {status}"
+        print(f"✓ {client_id_str} client secret updated")
+        return uuid
+
+    grafana_uuid = ensure_client({
+        "clientId": "grafana",
+        "enabled": True,
+        "name": "Grafana",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {"pkce.code.challenge.method": "S256"},
+        "redirectUris": ["https://grafana.homelab.data-harness.org/*"],
+        "webOrigins": ["https://grafana.homelab.data-harness.org"],
+    }, GRAFANA_CLIENT_SECRET)
+
+    paperless_uuid = ensure_client({
+        "clientId": "paperless",
+        "enabled": True,
+        "name": "Paperless-ngx",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {"pkce.code.challenge.method": "S256"},
+        "redirectUris": ["https://paperless.homelab.data-harness.org/accounts/oidc/keycloak/login/callback/"],
+        "webOrigins": ["https://paperless.homelab.data-harness.org"],
+    }, PAPERLESS_CLIENT_SECRET)
+
+    # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
+    # Client scopes are realm-wide reusable objects. Keycloak rejects any
+    # authorization request naming a scope that isn't defined at the realm
+    # level (e.g. Grafana requesting scope=...+groups fails with invalid_scope
+    # until this exists and is linked to the client). Every OIDC client that
+    # wants group membership in its token reuses this same scope.
+    def ensure_client_scope(name, mapper):
+        status, scopes = api("GET", f"/admin/realms/{REALM}/client-scopes", token=tok)
+        existing = next((s for s in scopes if s["name"] == name), None)
+        if existing:
+            return existing["id"]
+        status, _ = api("POST", f"/admin/realms/{REALM}/client-scopes", data={
+            "name": name,
+            "protocol": "openid-connect",
+            "attributes": {
+                "include.in.token.scope": "true",
+                "display.on.consent.screen": "false",
+            },
+            "protocolMappers": [mapper],
+        }, token=tok)
+        assert status == 201, f"Client scope '{name}' creation failed: {status}"
+        status, scopes = api("GET", f"/admin/realms/{REALM}/client-scopes", token=tok)
+        return next(s["id"] for s in scopes if s["name"] == name)
+
+    def link_optional_scope(client_uuid, scope_id):
+        status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{client_uuid}/optional-client-scopes/{scope_id}", token=tok)
+        assert status == 204, f"Optional scope link failed: {status}"
+
+    groups_scope_id = ensure_client_scope("groups", {
+        "name": "groups",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-group-membership-mapper",
+        "consentRequired": False,
+        "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true",
+        },
+    })
+    print("✓ Realm 'groups' client scope ensured")
+
+    link_optional_scope(grafana_uuid, groups_scope_id)
+    link_optional_scope(paperless_uuid, groups_scope_id)
+    print("✓ 'groups' scope linked to grafana and paperless clients")
 
     # --- Ensure the realm has a UserProfileProvider component (idempotent) ---
     # Partial realm import (--import-realm with no "components" section) never
@@ -227,7 +315,7 @@ metadata:
   namespace: keycloak
   annotations:
     # Increment this value to re-run the job after merging config changes
-    run-id: "3"
+    run-id: "4"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -257,6 +345,11 @@ spec:
                 secretKeyRef:
                   name: keycloak-secrets
                   key: grafana-client-secret
+            - name: PAPERLESS_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-paperless-oidc
+                  key: paperless-client-secret
             - name: ADMIN_USER_EMAIL
               value: admin@homelab.internal
             - name: ADMIN_USER_PASSWORD

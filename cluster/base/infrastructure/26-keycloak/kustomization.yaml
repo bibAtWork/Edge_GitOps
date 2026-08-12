@@ -6,5 +6,6 @@ resources:
   - realm-configmap.yaml
   - keycloak-secret.yaml
   - keycloak-admin-user-secret.yaml
+  - paperless-client-secret.yaml
   - setup-job.yaml
   - cilium-policy.yaml
