@@ -1,0 +1,41 @@
+# Requires the kubeopencode.io CRDs installed by the bootstrap-layer HelmRelease
+# (../helmrelease.yaml) — hence this lives in the config layer, applied by Flux only
+# after the bootstrap Kustomization reports healthy. See cluster/overlays/1-node-config.
+apiVersion: kubeopencode.io/v1alpha1
+kind: Agent
+metadata:
+  name: default
+  namespace: kubeopencode-system
+spec:
+  profile: "General-purpose homelab operations agent"
+  workspaceDir: /workspace
+  serviceAccountName: kubeopencode-agent
+  config:
+    $schema: https://opencode.ai/config.json
+    # Free OpenCode Zen model — no API key/credentials required.
+    model: opencode/big-pickle
+    share: disabled
+    autoupdate: false
+    mcp:
+      kubernetes:
+        type: remote
+        url: http://kubernetes-mcp-server.kubeopencode-system.svc.cluster.local:8080/sse
+  persistence:
+    sessions:
+      size: "1Gi"
+  # The chart's own default agent-container securityContext (allowPrivilegeEscalation:
+  # false, drop ALL capabilities, seccompProfile RuntimeDefault — see security.md)
+  # doesn't set runAsNonRoot, so it fails this namespace's restricted PSS enforcement.
+  # Set at pod level (podSecurityContext) rather than per-container (securityContext)
+  # so it also covers the openCodeInit/contextInit init containers, which don't
+  # inherit a container-level override.
+  podSpec:
+    podSecurityContext:
+      runAsNonRoot: true
+      # Required because the agent images have no USER directive (default to root) —
+      # runAsNonRoot alone can't be verified against an image with no declared UID.
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault

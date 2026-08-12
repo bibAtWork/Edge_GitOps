@@ -27,6 +27,9 @@ resources:
   - ../../base/infrastructure/22-schenkmatch/config
   # keycloak: HTTPRoute (gateway.networking.k8s.io) for OIDC endpoint
   - ../../base/infrastructure/26-keycloak/config
+  # kubeopencode: HTTPRoute (gateway.networking.k8s.io) + Agent (kubeopencode.io CRD
+  # installed by the bootstrap-layer HelmRelease)
+  - ../../base/infrastructure/27-kubeopencode/config
   # gateway-authz: CiliumClusterwideEnvoyConfig (cilium.io) — JWT + OPA + rate limit + OTel tracing
   - ../../base/infrastructure/25-gateway-authz
   # velero Schedules (velero.io) — 1-node specific retention
