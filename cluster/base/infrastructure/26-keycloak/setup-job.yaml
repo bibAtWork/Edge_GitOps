@@ -94,6 +94,48 @@ data:
     assert status == 204, f"Client update failed: {status}"
     print("✓ Grafana client secret updated")
 
+    # --- Ensure the realm has a UserProfileProvider component (idempotent) ---
+    # Partial realm import (--import-realm with no "components" section) never
+    # creates this, unlike Keycloak's internally-bootstrapped master realm which
+    # always has one. Without it, Keycloak 26's declarative user profile can't
+    # resolve required actions during login, and ALL password-grant logins in
+    # this realm fail with invalid_grant "Account is not fully set up" —
+    # regardless of which user, confirmed with a fresh throwaway account.
+    status, profile_comps = api(
+        "GET", f"/admin/realms/{REALM}/components?type=org.keycloak.userprofile.UserProfileProvider", token=tok
+    )
+    if not profile_comps:
+        status, realm_rep = api("GET", f"/admin/realms/{REALM}", token=tok)
+        profile_config = {
+            "attributes": [
+                {"name": "username", "displayName": "${username}",
+                 "validations": {"length": {"min": 3, "max": 255}, "username-prohibited-characters": {}, "up-username-not-idn-homograph": {}},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+                {"name": "email", "displayName": "${email}",
+                 "validations": {"email": {}, "length": {"max": 255}},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+                {"name": "firstName", "displayName": "${firstName}",
+                 "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+                {"name": "lastName", "displayName": "${lastName}",
+                 "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+            ],
+            "groups": [
+                {"name": "user-metadata", "displayHeader": "User metadata", "displayDescription": "Attributes, which refer to user metadata"}
+            ],
+        }
+        status, _ = api("POST", f"/admin/realms/{REALM}/components", data={
+            "providerId": "declarative-user-profile",
+            "providerType": "org.keycloak.userprofile.UserProfileProvider",
+            "parentId": realm_rep["id"],
+            "config": {"kc.user.profile.config": [json.dumps(profile_config)]},
+        }, token=tok)
+        assert status == 201, f"UserProfileProvider creation failed: {status}"
+        print("✓ UserProfileProvider component created")
+    else:
+        print("✓ UserProfileProvider component already exists")
+
     # --- Create admin user (idempotent) ---
     status, existing = api("GET", f"/admin/realms/{REALM}/users?username=admin&exact=true", token=tok)
     if not existing:
@@ -185,7 +227,7 @@ metadata:
   namespace: keycloak
   annotations:
     # Increment this value to re-run the job after merging config changes
-    run-id: "2"
+    run-id: "3"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
