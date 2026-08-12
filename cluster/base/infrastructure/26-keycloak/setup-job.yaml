@@ -10,7 +10,9 @@ data:
     """
     Idempotent Keycloak setup via Admin REST API.
     Fixes the Grafana client secret (literal placeholder from realm import),
-    creates the homelab admin user, and assigns them to the admin group.
+    creates the homelab admin user, promotes the same identity to a permanent
+    master-realm admin, and deletes the temporary bootstrap admin so only one
+    admin credential pair remains.
     """
     import json
     import os
@@ -51,17 +53,27 @@ data:
             return e.code, json.loads(raw) if raw else None
 
 
-    def get_token():
+    def try_login(username, password):
         status, body = api("POST", "/realms/master/protocol/openid-connect/token", data={
             "client_id": "admin-cli",
-            "username": KEYCLOAK_ADMIN,
-            "password": KEYCLOAK_ADMIN_PASSWORD,
+            "username": username,
+            "password": password,
             "grant_type": "password",
         }, form=True)
-        if status != 200:
-            print(f"ERROR: auth failed ({status}): {body}", file=sys.stderr)
-            sys.exit(1)
-        return body["access_token"]
+        return body["access_token"] if status == 200 else None
+
+
+    def get_token():
+        # Prefer the permanent master admin so reruns keep working after the
+        # bootstrap admin below is deleted; fall back to it for the first run.
+        tok = try_login(ADMIN_USER_EMAIL, ADMIN_USER_PASSWORD)
+        if tok:
+            return tok
+        tok = try_login(KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD)
+        if tok:
+            return tok
+        print("ERROR: auth failed with both permanent and bootstrap admin credentials", file=sys.stderr)
+        sys.exit(1)
 
 
     tok = get_token()
@@ -118,6 +130,52 @@ data:
     assert status == 204, f"Group assignment failed: {status}"
     print("✓ User assigned to 'admin' group")
 
+    # --- Create permanent master-realm admin with the same identity (idempotent) ---
+    status, existing_master = api("GET", f"/admin/realms/master/users?username={ADMIN_USER_EMAIL}&exact=true", token=tok)
+    if not existing_master:
+        status, _ = api("POST", "/admin/realms/master/users", data={
+            "username": ADMIN_USER_EMAIL,
+            "email": ADMIN_USER_EMAIL,
+            "enabled": True,
+            "emailVerified": True,
+        }, token=tok)
+        assert status == 201, f"Master admin creation failed: {status}"
+        print("✓ Permanent master admin created")
+        status, existing_master = api("GET", f"/admin/realms/master/users?username={ADMIN_USER_EMAIL}&exact=true", token=tok)
+    else:
+        print("✓ Permanent master admin already exists")
+
+    master_admin_id = existing_master[0]["id"]
+
+    status, _ = api("PUT", f"/admin/realms/master/users/{master_admin_id}/reset-password", data={
+        "type": "password",
+        "value": ADMIN_USER_PASSWORD,
+        "temporary": False,
+    }, token=tok)
+    assert status == 204, f"Master admin password reset failed: {status}"
+    print("✓ Master admin password set")
+
+    status, current_roles = api("GET", f"/admin/realms/master/users/{master_admin_id}/role-mappings/realm", token=tok)
+    if not any(r["name"] == "admin" for r in current_roles):
+        status, admin_role = api("GET", "/admin/realms/master/roles/admin", token=tok)
+        assert status == 200, f"Could not fetch master 'admin' role: {status}"
+        status, _ = api("POST", f"/admin/realms/master/users/{master_admin_id}/role-mappings/realm", data=[admin_role], token=tok)
+        assert status == 204, f"Master admin role assignment failed: {status}"
+        print("✓ Master 'admin' role assigned")
+    else:
+        print("✓ Master 'admin' role already assigned")
+
+    # --- Delete the temporary bootstrap admin now that a permanent one exists ---
+    # Safe to rerun: once deleted, this lookup returns nothing and is a no-op.
+    status, bootstrap_admins = api("GET", f"/admin/realms/master/users?username={KEYCLOAK_ADMIN}&exact=true", token=tok)
+    bootstrap_admins = [u for u in (bootstrap_admins or []) if u["username"] != ADMIN_USER_EMAIL]
+    if bootstrap_admins:
+        status, _ = api("DELETE", f"/admin/realms/master/users/{bootstrap_admins[0]['id']}", token=tok)
+        assert status == 204, f"Bootstrap admin deletion failed: {status}"
+        print("✓ Temporary bootstrap admin deleted")
+    else:
+        print("✓ No temporary bootstrap admin to delete")
+
     print("\nSetup complete.")
 ---
 apiVersion: batch/v1
@@ -127,7 +185,7 @@ metadata:
   namespace: keycloak
   annotations:
     # Increment this value to re-run the job after merging config changes
-    run-id: "1"
+    run-id: "2"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
