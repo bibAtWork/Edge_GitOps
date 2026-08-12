@@ -322,7 +322,19 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'sum(increase(falcosecurity_falco_rules_matches_total{priority=~"0|1|2"}[5m]))'
+                      # "by (rule_name, priority)" instead of a bare sum():
+                      # a plain sum() collapses every label, which is why
+                      # the alert previously had no context about which
+                      # rule actually fired. Grouping keeps rule_name/
+                      # priority available for the annotation template
+                      # below, and splits distinct rules into separate
+                      # alert instances instead of one undifferentiated
+                      # blob. The metric itself doesn't carry the specific
+                      # offending pod/namespace/process (that level of
+                      # detail only exists in Falco's own logs, not this
+                      # aggregate counter), so the annotation still points
+                      # at the log command for full detail.
+                      expr: 'sum by (rule_name, priority) (increase(falcosecurity_falco_rules_matches_total{priority=~"0|1|2"}[5m]))'
                       instant: true
                       range: false
                       refId: A
@@ -351,10 +363,11 @@ spec:
                 execErrState: Error
                 for: 0m
                 annotations:
-                  summary: Falco detected a critical runtime security event
+                  summary: >-
+                    Falco rule "{{ "{{" }} $labels.rule_name }}" fired (priority {{ "{{" }} $labels.priority }}, 0=Emergency 1=Alert 2=Critical)
                   description: >-
-                    Falco fired a Critical/Emergency/Alert-priority rule.
-                    Check: kubectl logs -n falco ds/falco --since=5m | grep -E '"priority":"(Critical|Emergency|Alert)"'
+                    {{ "{{" }} $value }} matches in the last 5 minutes.
+                    Check: kubectl logs -n falco ds/falco --since=5m | grep '"rule":"{{ "{{" }} $labels.rule_name }}"'
                 labels:
                   severity: critical
                 isPaused: false
