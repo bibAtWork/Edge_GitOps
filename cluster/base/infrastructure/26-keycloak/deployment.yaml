@@ -59,8 +59,15 @@ spec:
                 secretKeyRef:
                   name: keycloak-secrets
                   key: admin-password
+            # Full URL (not bare hostname) so issuer/endpoint URLs are always
+            # https:// regardless of how Keycloak is reached — internal
+            # callers (e.g. Paperless-ngx, OPA) connect over plain HTTP
+            # directly to the pod and would otherwise get http:// URLs back,
+            # breaking OAuth flows that POST to those endpoints (redirects
+            # commonly downgrade POST to GET, unlike the browser-facing
+            # authorization_endpoint which tolerates the gateway's 301).
             - name: KC_HOSTNAME
-              value: keycloak.homelab.data-harness.org
+              value: https://keycloak.homelab.data-harness.org
             - name: KC_HOSTNAME_STRICT
               value: "false"
             - name: KC_PROXY_HEADERS

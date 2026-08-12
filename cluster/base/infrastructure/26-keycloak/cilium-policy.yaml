@@ -68,3 +68,30 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+---
+# Allow Paperless-ngx to reach Keycloak directly (internal service DNS) for
+# its OIDC discovery/token/userinfo calls. Needed because Paperless can't
+# reach Keycloak's external hostname through the gateway — same unresolved
+# issue documented in project_opa_hubble_ui_broken.md's sibling finding:
+# some source namespaces (paperless, security) get a 403 "Access denied"
+# from Cilium's gateway listener that others (monitoring) don't, for
+# reasons not yet root-caused. Direct pod-to-pod sidesteps it entirely,
+# matching the same pattern already proven for OPA above.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-paperless-ingress
+  namespace: keycloak
+spec:
+  endpointSelector:
+    matchLabels:
+      app: keycloak
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: paperless-ngx
+            io.kubernetes.pod.namespace: paperless
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
