@@ -162,49 +162,42 @@ spec:
             rules:
               - uid: log-oomkilled
                 title: PodOOMKilled
-                condition: C
+                condition: B
                 data:
                   - refId: A
                     relativeTimeRange:
                       from: 600
                       to: 0
-                    datasourceUid: victorialogs
+                    datasourceUid: victoriametrics
                     model:
-                      expr: '{kubernetes_cluster_name="homelab"} "OOMKilling" | count()'
-                      instant: false
-                      range: true
+                      expr: 'sum(increase(container_oom_events_total{pod!=""}[10m]))'
+                      instant: true
+                      range: false
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: reduce
-                      refId: B
-                      expression: A
-                      reducer: last
-                      settings:
-                        mode: dropNN
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                  - refId: C
-                    datasourceUid: '-100'
-                    model:
                       type: threshold
-                      refId: C
-                      expression: B
+                      refId: B
                       conditions:
                         - evaluator:
                             params: [0]
                             type: gt
-                          unloadEvaluator:
-                            params: [0]
-                            type: lte
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
                       datasource:
                         type: __expr__
                         uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 1m
+                for: 0m
                 annotations:
                   summary: Pod OOM-killed in cluster
                   description: >-
@@ -216,55 +209,49 @@ spec:
 
               - uid: log-grafana-auth-fail
                 title: GrafanaAuthFailures
-                condition: C
+                condition: B
                 data:
                   - refId: A
                     relativeTimeRange:
                       from: 300
                       to: 0
-                    datasourceUid: victorialogs
+                    datasourceUid: victoriametrics
                     model:
-                      expr: '{kubernetes_namespace_name="monitoring", kubernetes_container_name="grafana"} "Invalid username or password" | count()'
-                      instant: false
-                      range: true
+                      expr: 'sum(increase(grafana_api_login_post_total[5m]))'
+                      instant: true
+                      range: false
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: reduce
-                      refId: B
-                      expression: A
-                      reducer: last
-                      settings:
-                        mode: dropNN
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                  - refId: C
-                    datasourceUid: '-100'
-                    model:
                       type: threshold
-                      refId: C
-                      expression: B
+                      refId: B
                       conditions:
                         - evaluator:
                             params: [5]
                             type: gt
-                          unloadEvaluator:
-                            params: [5]
-                            type: lte
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
                       datasource:
                         type: __expr__
                         uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
                 for: 2m
                 annotations:
                   summary: >-
-                    {{ "{{" }} $value }} failed Grafana login attempts in 5 min
+                    {{ "{{" }} $value }} native Grafana login attempts in 5 min
                   description: >-
-                    More than 5 failed authentication attempts on Grafana in the last 5 minutes.
-                    Check logs: kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
+                    More than 5 native Grafana login attempts detected. With Keycloak
+                    SSO active, native logins are anomalous and may indicate credential
+                    stuffing. Check: kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
                 labels:
                   severity: warning
                 isPaused: false
@@ -327,46 +314,39 @@ spec:
 
               - uid: falco-critical-event
                 title: FalcoCriticalEvent
-                condition: C
+                condition: B
                 data:
                   - refId: A
                     relativeTimeRange:
                       from: 300
                       to: 0
-                    datasourceUid: victorialogs
+                    datasourceUid: victoriametrics
                     model:
-                      expr: '{kubernetes_namespace_name="falco"} ~"\"priority\":\"(Critical|Emergency|Alert)\"" | count()'
-                      instant: false
-                      range: true
+                      expr: 'sum(increase(falcosecurity_falco_rules_matches_total{priority=~"0|1|2"}[5m]))'
+                      instant: true
+                      range: false
                       refId: A
                   - refId: B
                     datasourceUid: '-100'
                     model:
-                      type: reduce
-                      refId: B
-                      expression: A
-                      reducer: last
-                      settings:
-                        mode: dropNN
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                  - refId: C
-                    datasourceUid: '-100'
-                    model:
                       type: threshold
-                      refId: C
-                      expression: B
+                      refId: B
                       conditions:
                         - evaluator:
                             params: [0]
                             type: gt
-                          unloadEvaluator:
-                            params: [0]
-                            type: lte
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
                       datasource:
                         type: __expr__
                         uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
                 for: 0m
@@ -377,61 +357,6 @@ spec:
                     Check: kubectl logs -n falco ds/falco --since=5m | grep -E '"priority":"(Critical|Emergency|Alert)"'
                 labels:
                   severity: critical
-                isPaused: false
-
-              - uid: kubescape-scan-findings
-                title: KubescapeScanFindings
-                condition: C
-                data:
-                  - refId: A
-                    relativeTimeRange:
-                      from: 7200
-                      to: 0
-                    datasourceUid: victorialogs
-                    model:
-                      expr: '{kubernetes_namespace_name="kubescape"} "failed" | count()'
-                      instant: false
-                      range: true
-                      refId: A
-                  - refId: B
-                    datasourceUid: '-100'
-                    model:
-                      type: reduce
-                      refId: B
-                      expression: A
-                      reducer: last
-                      settings:
-                        mode: dropNN
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                  - refId: C
-                    datasourceUid: '-100'
-                    model:
-                      type: threshold
-                      refId: C
-                      expression: B
-                      conditions:
-                        - evaluator:
-                            params: [0]
-                            type: gt
-                          unloadEvaluator:
-                            params: [0]
-                            type: lte
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                noDataState: OK
-                execErrState: Error
-                for: 0m
-                annotations:
-                  summary: kubescape weekly scan found failed controls
-                  description: >-
-                    The weekly kubescape CIS/MITRE scan found control failures.
-                    Query full results in VictoriaLogs:
-                    {kubernetes_namespace_name="kubescape"} |= "failed"
-                labels:
-                  severity: warning
                 isPaused: false
 
           - orgId: 1

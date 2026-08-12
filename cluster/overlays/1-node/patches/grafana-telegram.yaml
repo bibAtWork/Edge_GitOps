@@ -58,3 +58,5 @@ spec:
             uid: alert-pipeline-test
           - orgId: 1
             uid: alert-pipeline-test-v2
+          - orgId: 1
+            uid: kubescape-scan-findings

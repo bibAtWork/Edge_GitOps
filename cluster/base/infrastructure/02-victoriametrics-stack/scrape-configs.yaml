@@ -155,3 +155,21 @@ spec:
   podMetricsEndpoints:
     - port: metrics-port
       path: /metrics
+---
+# Grafana exposes login and alert metrics at /metrics on its HTTP port.
+# With Keycloak SSO as the primary auth method, native POST logins are anomalous.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  endpoints:
+    - port: service
+      path: /metrics
