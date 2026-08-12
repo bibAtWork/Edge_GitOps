@@ -239,7 +239,7 @@ variant adds a second layer of quoting and sends the extra characters to the Tel
 
 ---
 
-## A second, distinct Cilium 403 pattern (2026-08-12, unresolved)
+## A second, distinct Cilium 403 pattern (2026-08-12, historical — see RESOLVED note below)
 
 Spent a very long time this session on a **different** Cilium `403 Access denied`
 pattern than the one documented above. Confirmed the existing two-policy rule
@@ -291,7 +291,32 @@ keeping, which is what this section is.
 
 ---
 
-## Follow-up (2026-08-12, still unresolved): ran the actual diagnostic, found a new lead, ruled it out
+## RESOLVED (2026-08-12): root cause was an unapproved Tailscale subnet route, not Cilium
+
+The 403s described in both sections below turned out to have a mundane fix: the
+`192.168.178.200/32` subnet route advertised by `tailscaled-subnet-router` had
+lost its approval in the Tailscale admin console ("machines" → route
+approval). Re-approving it there resolved external access immediately —
+confirmed working for kubeopencode's HTTPRoute afterward.
+
+This plausibly explains the in-cluster reproduction too (Finding 1 below,
+which showed the identical signature from a pod that never touched Tailscale):
+the subnet router and Cilium's L2Announce both claim `192.168.178.200` on the
+*same host*. If Tailscale considers the route unapproved, whatever state that
+puts the subnet router's kernel-mode TUN interface in could plausibly disturb
+local ARP/routing for that IP enough to produce the same
+`bpf_metadata`/`cil_from_netdev` misclassification described below, even for
+traffic that never left the cluster. Not independently re-verified at the
+packet level — if this resurfaces, **check Tailscale route approval first**
+before re-running the Envoy debug/NPDS diagnostic below.
+
+The two-policy rule fix (`allow-gateway-world-ingress` +
+`allow-gateway-egress-to-cluster`) is still correct and should stay in place —
+nothing here suggests it was ever the problem.
+
+---
+
+## Follow-up (2026-08-12, historical — see RESOLVED note above): ran the actual diagnostic, found a new lead, ruled it out
 
 Came back to this the same day while deploying KubeOpenCode — its HTTPRoute hit
 the exact same 403 as above. This time ran the **actual documented diagnostic**
