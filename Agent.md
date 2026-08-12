@@ -291,6 +291,67 @@ keeping, which is what this section is.
 
 ---
 
+## Follow-up (2026-08-12, still unresolved): ran the actual diagnostic, found a new lead, ruled it out
+
+Came back to this the same day while deploying KubeOpenCode — its HTTPRoute hit
+the exact same 403 as above. This time ran the **actual documented diagnostic**
+(Envoy debug logging + NPDS dump) instead of guessing at policies. Two findings:
+
+**Finding 1 — this is not Tailscale/L3-TUN-specific after all.** Reproduced the
+403 with a request that never touches Tailscale at all: a pod inside the
+cluster (`kubeopencode-system`) curling the Gateway's own L2-announced IP
+(`192.168.178.200`) directly. Same signature as the original "healthy vs
+broken" table:
+```
+EGRESS POD IP: 10.244.0.123, destination IP: 192.168.178.200 sni: "grafana.homelab.data-harness.org"
+CiliumPolicyFilterState(): source_identity: 8, ingress: false, port: 443, ...
+```
+`source_identity: 8` matches the Gateway's own endpoint identity
+(`reserved:ingress`, confirmed via `cilium-dbg endpoint list`). `ingress: false`
+is the same misclassification as the L3-TUN case. So whatever's misclassifying
+direction affects **any** hairpin path back to the Gateway's own announced IP,
+not just tailscale0 — the original theory was too narrow.
+
+Also newly confirmed: this affects `monitoring` (grafana) too now, which the
+section above recorded as the one namespace that *worked*. Either it's
+non-deterministic/order-dependent, or something regressed since that was
+written. Confirmed via a clean experiment that this is **not** caused by any
+kubeopencode change: reverted the (uncommitted) Gateway edit that added
+`kubeopencode-system` to `allowedRoutes`, retested grafana with the Gateway back
+to its exact pre-session state — still 403. Pre-existing, independent of this
+session's work.
+
+**Finding 2 — plausible-but-ruled-out lead: missing ipcache entry.**
+`cilium-dbg ip list` has **no entry at all** for `192.168.178.200`. Theory: the
+misclassified-as-egress check (identity 8 → destination) can't resolve the
+L2-announced LB IP to `host`, falls through to `world`, which isn't in
+`allow-gateway-egress-to-cluster`'s allow-list (`toEntities: [cluster, host]`
+only, no `world`). Tested by restarting the Cilium agent DaemonSet (thinking a
+stale/unpopulated cache) — ipcache entry still absent after restart, and the
+403 was **unchanged**. So either this ipcache gap is normal/expected for
+L2Announce IPs (not the bug), or it's a real symptom but the agent restart
+doesn't repopulate it. Not confirmed as root cause either way — don't spend
+time re-testing the "just restart cilium" angle again.
+
+**Still not tried**: cross-referencing this exact signature
+(`bpf_metadata`/`cil_from_netdev` direction misclassification for L2Announce
+hairpin traffic, independent of Tailscale) against upstream Cilium GitHub
+issues — this smells like a known upstream bug class rather than something
+specific to this cluster's config, given it reproduces identically for
+in-cluster-pod-to-announced-IP traffic with zero Tailscale involvement.
+Worth searching Cilium's issue tracker for `cil_from_netdev` + L2 announcement
++ Gateway API direction/identity bugs before the next from-scratch debugging
+attempt.
+
+**Current status**: every app behind `homelab-gateway` is currently affected
+(confirmed for `monitoring`/grafana; presumed for the others per the original
+section). This is a live, cluster-wide, pre-existing issue — not something
+introduced by any work in this session. kubeopencode's HTTPRoute is wired
+correctly (matches every other app's pattern exactly) but is blocked by this
+same bug pending a real fix.
+
+---
+
 ## Prevention checklist for future policy changes
 
 Before adding or removing any `CiliumNetworkPolicy` or `CiliumClusterwideNetworkPolicy`
