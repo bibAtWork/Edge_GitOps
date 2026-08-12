@@ -49,6 +49,22 @@ spec:
                 secretKeyRef:
                   name: paperless-secret
                   key: PAPERLESS_SECRET_KEY
+            # Keycloak SSO (django-allauth openid_connect provider). Native
+            # login stays enabled as a fallback — not disabled via
+            # PAPERLESS_DISABLE_REGULAR_LOGIN — so PAPERLESS_ADMIN_USER still
+            # works if Keycloak is ever unreachable.
+            - name: PAPERLESS_APPS
+              value: allauth.socialaccount.providers.openid_connect
+            - name: PAPERLESS_SOCIAL_AUTO_SIGNUP
+              value: "true"
+            - name: PAPERLESS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-oidc-secret
+                  key: PAPERLESS_CLIENT_SECRET
+            - name: PAPERLESS_SOCIALACCOUNT_PROVIDERS
+              value: >-
+                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"https://keycloak.homelab.data-harness.org/realms/homelab/.well-known/openid-configuration"}}]}}
             - name: PAPERLESS_OCR_LANGUAGE
               value: eng+deu
             - name: PAPERLESS_TIME_ZONE

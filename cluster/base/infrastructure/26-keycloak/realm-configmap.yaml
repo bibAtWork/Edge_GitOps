@@ -38,6 +38,44 @@ data:
           "webOrigins": [
             "https://grafana.homelab.data-harness.org"
           ],
+          "optionalClientScopes": [
+            "groups"
+          ]
+        },
+        {
+          "clientId": "paperless",
+          "enabled": true,
+          "name": "Paperless-ngx",
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "attributes": {
+            "pkce.code.challenge.method": "S256"
+          },
+          "secret": "${PAPERLESS_CLIENT_SECRET}",
+          "redirectUris": [
+            "https://paperless.homelab.data-harness.org/accounts/oidc/keycloak/login/callback/"
+          ],
+          "webOrigins": [
+            "https://paperless.homelab.data-harness.org"
+          ],
+          "optionalClientScopes": [
+            "groups"
+          ]
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
           "protocolMappers": [
             {
               "name": "groups",
