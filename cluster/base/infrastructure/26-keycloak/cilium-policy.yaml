@@ -11,7 +11,30 @@ spec:
     - toEndpoints:
         - {}
 ---
+# Companion ingress rule for the above: now that allow-gateway-ingress below
+# actually matches the real Keycloak pod (see its note), Keycloak's ingress
+# is genuinely restricted for the first time. Same-namespace callers — e.g.
+# the keycloak-setup Job, which talks to Keycloak over internal service DNS —
+# need an explicit allow or they'd be newly blocked by this fix.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: keycloak
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+---
 # Allow the Cilium gateway to reach Keycloak (HTTP on port 8080 via HTTPRoute).
+# NOTE: selector was "app.kubernetes.io/name: keycloak" (the Helm-chart
+# convention) but this manifest's real pod label is "app: keycloak" — the
+# selector never matched, so this rule has been a silent no-op since
+# Keycloak was deployed (ingress was fully open, not gateway-restricted as
+# documented). Fixed as part of adding OPA's JWKS-fetch access below, since
+# leaving it broken while adding a second, correctly-selecting policy would
+# have flipped Keycloak's ingress to OPA-only and cut off the gateway.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -20,7 +43,28 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: keycloak
+      app: keycloak
   ingress:
     - fromEntities:
         - ingress
+---
+# Allow OPA to reach Keycloak directly for JWKS fetches (Bearer token
+# verification in 24-opa/configmap.yaml). Direct pod-to-pod, not via gateway.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-opa-ingress
+  namespace: keycloak
+spec:
+  endpointSelector:
+    matchLabels:
+      app: keycloak
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: opa
+            io.kubernetes.pod.namespace: security
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

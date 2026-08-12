@@ -10,13 +10,38 @@ data:
     import rego.v1
     import input.attributes.request.http as req_http
 
-    # JWT claims injected into filter metadata by Cilium's jwt_authn filter.
-    # Present only when the request carried a valid JWT from Dex.
-    jwt := input.attributes.metadata_context.filter_metadata["envoy.filters.http.jwt_authn"]["verified_jwt"]
+    # ── JWT verification ─────────────────────────────────────────────────────
+    # Envoy's jwt_authn filter is unavailable (Cilium 1.20's Go proto registry
+    # lacks JwtAuthentication — see 25-gateway-authz/envoy-config.yaml). OPA
+    # verifies the raw Authorization header itself against Keycloak's JWKS,
+    # fetched directly (internal service DNS, not through the gateway).
+    keycloak_issuer := "https://keycloak.homelab.data-harness.org/realms/homelab"
+
+    jwks_response := http.send({
+        "url": "http://keycloak.keycloak.svc.cluster.local/realms/homelab/protocol/openid-connect/certs",
+        "method": "GET",
+        "force_cache": true,
+        "force_cache_duration_seconds": 300,
+    })
+
+    bearer_token := t if {
+        startswith(req_http.headers.authorization, "Bearer ")
+        t := substring(req_http.headers.authorization, count("Bearer "), -1)
+    }
+
+    jwt_payload := payload if {
+        bearer_token
+        [valid, _, payload] := io.jwt.decode_verify(bearer_token, {
+            "cert": jwks_response.raw_body,
+            "iss": keycloak_issuer,
+        })
+        valid == true
+    }
 
     # ── Role mapping ──────────────────────────────────────────────────────────
-    # Dex staticPasswords do not support groups, so roles are mapped by email here.
-    # To add an admin, append their Dex email to this set.
+    # Roles are mapped by email rather than the "groups" claim, since not every
+    # client that can issue a Bearer token necessarily requests the groups scope.
+    # To add an admin, append their Keycloak email to this set.
     admin_emails := {"admin@homelab.internal"}
 
     # Apps that require an admin JWT even for browser (non-Bearer) access.
@@ -31,7 +56,7 @@ data:
     }
 
     is_admin if {
-        jwt.email in admin_emails
+        jwt_payload.email in admin_emails
     }
 
     # Grafana admin API — requires admin role regardless of call type.
@@ -41,14 +66,14 @@ data:
     }
 
     identity_headers := {
-        "x-authenticated-user": jwt.email,
-        "x-authenticated-sub":  jwt.sub,
+        "x-authenticated-user": jwt_payload.email,
+        "x-authenticated-sub":  jwt_payload.sub,
     }
 
     # ── Policy (else-chain = priority order) ─────────────────────────────────
     #
-    # 1. Invalid Bearer token: Authorization header present but JWT validation failed.
-    #    → 401. Client sent a bad/expired token; they should re-authenticate.
+    # 1. Invalid Bearer token: Authorization header present but JWT validation failed
+    #    (bad signature, expired, wrong issuer). → 401. Client should re-authenticate.
     #
     # 2. Valid JWT on a Grafana admin path without admin role → 403.
     #
@@ -60,7 +85,7 @@ data:
     #
     # 5. Default: no Authorization header → browser OIDC flow.
     #    Apps (Grafana, Immich, Paperless) handle their own session auth natively.
-    #    Allow through; jwt_authn already passed with allow_missing_or_failed.
+    #    Allow through.
 
     allow := {
         "allowed": false,
@@ -69,14 +94,14 @@ data:
         "headers": {"content-type": "application/json"},
     } if {
         has_bearer
-        not jwt.sub
+        not jwt_payload.sub
     } else := {
         "allowed": false,
         "http_status": 403,
         "body": "{\"error\":\"Forbidden\"}",
         "headers": {"content-type": "application/json"},
     } if {
-        jwt.sub
+        jwt_payload.sub
         is_grafana_admin_path
         not is_admin
     } else := {
@@ -91,5 +116,5 @@ data:
         "allowed": true,
         "headers": identity_headers,
     } if {
-        jwt.sub
+        jwt_payload.sub
     } else := {"allowed": true}

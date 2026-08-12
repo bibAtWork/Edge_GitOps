@@ -10,3 +10,26 @@ spec:
   egress:
     - toEndpoints:
         - {}
+---
+# Allow OPA to reach Keycloak directly (internal service DNS) to fetch its
+# JWKS for Bearer token verification. Cross-namespace, so needs an explicit
+# rule — the external hostname hairpin path is blocked by the gateway's own
+# per-namespace policy and isn't needed for a backend-to-backend call anyway.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-opa-to-keycloak-egress
+  namespace: security
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: opa
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app: keycloak
+            io.kubernetes.pod.namespace: keycloak
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
