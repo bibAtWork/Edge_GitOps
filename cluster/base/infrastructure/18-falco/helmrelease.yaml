@@ -44,6 +44,19 @@ spec:
       outputRule: true
       resourceUtilizationEnabled: true
 
+    # Cilium's CNI binary is legitimately invoked with a writable-upper-layer
+    # execve pattern during pod network setup, which the stock "Drop and
+    # execute new binary in container" rule can't distinguish from a real
+    # malware drop. Without this exception it fires on effectively every
+    # pod scheduling event (~1993/2000 recent Falco log lines), drowning out
+    # the FalcoCriticalEvent alert with noise instead of real findings.
+    customRules:
+      cilium-cni-exception.yaml: |-
+        - rule: Drop and execute new binary in container
+          override:
+            condition: append
+          condition: and not (proc.exe = "/opt/cni/bin/cilium-cni")
+
     resources:
       requests:
         cpu: 100m
