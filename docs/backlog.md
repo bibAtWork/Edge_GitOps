@@ -6,7 +6,7 @@ Known open issues that aren't yet fixed. Not a full project backlog — just thi
 
 ## OPA `ext_authz` gate is inert for every app behind the Gateway
 
-**Status:** Root cause confirmed, not fixed.
+**Status:** Fixed 2026-08-14 — see dated section below. Sections above that date describe the original bug and are kept for history.
 
 `25-gateway-authz/envoy-config.yaml`'s `CiliumClusterwideEnvoyConfig` gates traffic by having Cilium's eBPF datapath redirect connections **destined to a Service's ClusterIP** to a custom Envoy listener (`gateway-authz`) that runs `local_ratelimit → ext_authz(OPA) → router` before forwarding on.
 
@@ -18,7 +18,7 @@ Cilium's own Gateway API implementation does **not** route through Service Clust
 
 **Fix options**:
 
-1. **Native `ExternalAuth` HTTPRoute filter (GEP-1494)** — the actual correct fix, identified 2026-08-12 (see dated section below). Required a Gateway API CRD upgrade first (standard v1.2.1 → experimental v1.4.1); **done 2026-08-14** (see dated section below). This is the recommended path now — it replaces the whole `25-gateway-authz/envoy-config.yaml` redirect mechanism, which cannot work and never could (see above). Redoing the filter addition itself is the next concrete step.
+1. **Native `ExternalAuth` HTTPRoute filter (GEP-1494)** — the actual correct fix, identified 2026-08-12, **implemented and verified working 2026-08-14** (see dated sections below). Replaced the whole `25-gateway-authz/envoy-config.yaml` redirect mechanism, which could never work (see above).
 2. **oauth2-proxy in front of Hubble UI** — attempted 2026-08-12, blocked (see below). Standard pattern for an app with no native OIDC: a proxy pod does real browser-based OIDC login against Keycloak, then forwards to hubble-ui. Sidesteps the EDS/ClusterIP mismatch entirely since it's ordinary Gateway→backend routing to a pod that enforces its own auth. Probably superseded by option 1 — no need to retry this once the CRD upgrade is done.
 3. **Network-level restriction** — lock `hubble.homelab.data-harness.org` down via Cilium L3/L4 CiliumNetworkPolicy (source IP/namespace) instead of OIDC. Simpler, less capable. Not attempted.
 
@@ -61,6 +61,19 @@ Done — `00-gateway-api/standard-install.yaml` replaced with the full v1.4.1 ex
 
 **Next**: redo the `ExternalAuth` filter addition (YAML already known-correct from the 2026-08-12 attempt above) — should now apply cleanly.
 
+### `ExternalAuth` filter added, OPA gate confirmed working (2026-08-14)
+
+Added `filters: [{type: ExternalAuth, externalAuth: {backendRef: {name: opa, namespace: security, port: 9191}, protocol: GRPC, grpc: {}}}]` to all 6 app HTTPRoutes (grafana, immich, paperless-ngx, schenkmatch, zot, hubble-ui — the same set `envoy-config.yaml`'s `spec.services` covered), a `ReferenceGrant` in `security` for the 6 source namespaces, and deleted the dead `CiliumClusterwideEnvoyConfig/gateway-authz`. One correction versus the 2026-08-12 attempt's YAML: the CRD requires a `grpc: {}` stanza whenever `protocol: GRPC` (CEL validation rejects its absence), which wasn't caught before since that attempt never got past the CRD-version rejection.
+
+**Verified live, precisely, via OPA's own decision log** (`kubectl logs -n security deploy/opa`), not just HTTP status codes:
+
+- Unauthenticated request to `grafana.homelab.data-harness.org` → OPA decision log shows a real request with full headers, `"result":{"allowed":true}` (correct — grafana isn't in `admin_only_apps` and has no Bearer token to reject).
+- Unauthenticated request to `hubble.homelab.data-harness.org` → OPA decision log shows `"result":{"allowed":false,...,"http_status":403}`, and the **client directly received OPA's own JSON body** (`{"error":"Forbidden"}`, `content-type: application/json`) — proof the response came from OPA itself, not a generic network-level block. Hubble UI's previously-documented "fully open to anyone" gap is closed.
+
+**One caveat, not caused by this fix**: the `grafana` request that OPA allowed still doesn't reach the app — it hits the separate, pre-existing "Gateway 403 confirmed cluster-wide" issue from 2026-08-12 (still unresolved, tracked below), visible as a distinct plain-text `server: envoy` 403 with no JSON body, downstream of OPA in the same filter chain (`ext_authz → cilium.l7policy → router`). Confirmed via response headers that this is a genuinely different response than OPA's own — this bug predates today's fix and affects all Gateway traffic regardless of the OPA gate, so it isn't this fix's regression to solve, but it does mean **the two Gateway bugs together still block real end-to-end access to grafana/immich/paperless/schenkmatch/zot even though OPA is doing its job correctly now**. Only `hubble-ui`'s admin_only_apps path is *conclusively* protected end-to-end today, since OPA's own deny short-circuits before the other bug would matter.
+
+Also out of scope for this fix, left untouched: `25-gateway-authz/valkey.yaml`/`ratelimit-config.yaml`/`ratelimit-service.yaml` — these were never wired into the deleted `envoy-config.yaml` (which used Envoy's in-process `local_ratelimit`, not this external service) and appear to be orphaned leftovers from an earlier, different rate-limiting design. Worth a separate cleanup pass, not bundled here.
+
 ## General role and access-management concept for the cluster (2026-08-12)
 
 Prompted by a narrower ask (switch KubeOpenCode specifically to Keycloak-backed RBAC) that would have added a third, inconsistent auth pattern on top of two already in the cluster (native per-app OIDC clients for Grafana/Paperless/Immich; the stalled OPA gate above). Researched two authoritative sources instead of freehand-designing a fix: **CNCF's Identity and Access Management Whitepaper** (published 2026-06-04) and **NIST SP 800-53** (AC-2/AC-3/AC-6, the origin of the RBAC/least-privilege model), plus Kubernetes' own `rbac-good-practices` docs.
@@ -74,8 +87,8 @@ Mapped onto this cluster, the architecture was **already chosen correctly** — 
 | OIDC OP | Keycloak (`26-keycloak`) | Working |
 | OIDC RP, apps with native support | Grafana / Paperless / Immich's own OIDC clients | Working |
 | PDP | OPA (`24-opa`) | Deployed, not consulted (see above) |
-| PEP, perimeter | Gateway `ExternalAuth`/OPA | Blocked on the CRD upgrade above |
-| OIDC RP, apps without native support (Hubble UI, KubeOpenCode) | Nothing working | oauth2-proxy attempt abandoned and cleaned up; superseded by the OPA fix once unblocked |
+| PEP, perimeter | Gateway `ExternalAuth`/OPA | Working (2026-08-14) — gates all 6 apps in `spec.services`; see OPA section above for the one remaining caveat (unrelated pre-existing Gateway 403 bug) |
+| OIDC RP, apps without native support (Hubble UI, KubeOpenCode) | Hubble UI: OPA's `admin_only_apps` rule (Rego-level, not real per-user OIDC) | oauth2-proxy attempt abandoned and cleaned up. KubeOpenCode still has nothing — not in OPA's `spec.services`/`admin_only_apps` list |
 | Kubernetes-native RBAC (`kubectl`/`kubeoc`, the "Administrator" actor) | Cert-based only | Separate axis, not started (see below) |
 
 **Proposed role tiers** (NIST-aligned, deliberately kept small — over-granular roles are their own maintenance/audit burden per both NIST and CNCF): reuse `admin` (already exists in the Keycloak realm, `/admin`, used by Grafana today) and add `viewer` once a second app actually needs the read-only distinction (KubeOpenCode's own `kubeopencode-viewer` ClusterRole maps directly to this).

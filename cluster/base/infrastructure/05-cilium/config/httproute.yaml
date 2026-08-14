@@ -15,6 +15,15 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      filters:
+        - type: ExternalAuth
+          externalAuth:
+            backendRef:
+              name: opa
+              namespace: security
+              port: 9191
+            protocol: GRPC
+            grpc: {}
       backendRefs:
         - name: hubble-ui
           port: 80
