@@ -1,0 +1,66 @@
+---
+# Controller <-> data-plane xDS (same namespace): the data-plane Envoy pods pull
+# their listener/route config from the envoy-gateway controller pod on 18000-19001.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: envoy-gateway-system
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+  egress:
+    - toEndpoints:
+        - {}
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+---
+# Ordinary ingress rule on an ordinary pod — this is the entire replacement for
+# the old two-policy-rule on Cilium's special reserved:ingress L7LB entity (see
+# Agent.md and ADR-001). No BPF direction-misclassification bug class applies
+# here: Envoy Gateway's data-plane pods are regular pods with regular policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-world-ingress
+  namespace: envoy-gateway-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+  ingress:
+    - fromEntities:
+        - world
+        - host
+        - cluster
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+---
+# Where the gateway may forward: any backend pod in the cluster. Replaces
+# allow-gateway-egress-to-cluster's role, again as an ordinary policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-egress-to-backends
+  namespace: envoy-gateway-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+  egress:
+    - toEntities:
+        - cluster

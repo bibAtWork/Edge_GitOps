@@ -1,0 +1,22 @@
+# Needs Envoy Gateway's own CRDs (installed by the bootstrap-layer HelmRelease),
+# hence config layer.
+#
+# externalTrafficPolicy: Cluster is required for correct L2Announce-based
+# LoadBalancer traffic delivery once Envoy Gateway's proxy pods can land on any
+# node — moot on the current single-node cluster, but matches the existing
+# 3-node overlay and avoids a silent trap if that overlay is used later.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: envoy-gateway-config
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              externalTrafficPolicy: Cluster

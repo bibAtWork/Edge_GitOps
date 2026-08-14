@@ -5,6 +5,9 @@ resources:
   - ../../base/infrastructure/10-network-policies
   # cert-manager: ClusterIssuer + ACME keys (cert-manager.io CRDs)
   - ../../base/infrastructure/06-cert-manager/config
+  # envoy-gateway: EnvoyProxy (gateway.envoyproxy.io CRD from the bootstrap-layer
+  # HelmRelease) — needed before the Gateway object below references its GatewayClass
+  - ../../base/infrastructure/28-envoy-gateway/config
   # ingress gateway: Gateway (gateway.networking.k8s.io) + wildcard Certificate (cert-manager.io)
   - ../../base/infrastructure/11-ingress-gateway
   # grafana: HTTPRoute (gateway.networking.k8s.io)
