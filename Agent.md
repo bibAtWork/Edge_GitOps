@@ -239,7 +239,18 @@ variant adds a second layer of quoting and sends the extra characters to the Tel
 
 ---
 
-## A second, distinct Cilium 403 pattern (2026-08-12, unresolved)
+## A second, distinct Cilium 403 pattern (2026-08-12) — RESOLVED 2026-08-14: not a bug, a test-methodology artifact
+
+**Resolution, found 2026-08-14**: this was never a real bug or a real production issue. See
+"Gateway 403 cluster-wide — resolved" further down (after the 2026-08-14 Envoy Gateway
+section) for the full explanation and live proof. Short version: every test that produced
+this 403 across both 2026-08-12 and 2026-08-14 was run from an **in-cluster pod**
+(`kubectl run curl-...`), and Cilium enforces Gateway-routed policy for pod-origin traffic
+against the *client pod's own egress* reaching the real resolved backend identity+port — not
+against reaching the Gateway broadly. That's documented, intentional Cilium behavior, not a
+bug (confirmed by Cilium maintainers on a near-identical upstream report). Genuine external/
+LAN/Tailscale clients were never subject to this restriction and were reachable the whole
+time. The section below is kept as the original diagnostic record.
 
 Spent a very long time this session on a **different** Cilium `403 Access denied`
 pattern than the one documented above. Confirmed the existing two-policy rule
@@ -291,7 +302,7 @@ keeping, which is what this section is.
 
 ---
 
-## Follow-up (2026-08-12, still unresolved): ran the actual diagnostic, found a new lead, ruled it out
+## Follow-up (2026-08-12) — RESOLVED 2026-08-14, see below: not a bug, a test-methodology artifact
 
 Came back to this the same day while deploying KubeOpenCode — its HTTPRoute hit
 the exact same 403 as above. This time ran the **actual documented diagnostic**
@@ -556,6 +567,53 @@ hostNetwork on this node/Talos version — not yet root-caused. Worth checking E
 `setsockopt` calls for hostNetwork-mode listeners (strace, or Envoy's own verbose startup
 logging) rather than continuing to guess at security-context permutations.
 
+### Root cause identified (2026-08-14, later same day): matches known, unresolved upstream Cilium bugs — not fixable from this repo alone
+
+Searched Cilium's GitHub issues for the exact signature above (L2Announce'd LoadBalancer VIP,
+plain timeout, zero drop/policy-verdict telemetry) instead of continuing to guess. Found a
+closely-matching, still-open/stale bug class, not something specific to this cluster's config:
+
+- **[cilium/cilium#44630](https://github.com/cilium/cilium/issues/44630)** ("External traffic
+  to LoadBalancer VIP silently dropped when backend pod is on the same node") — signature
+  matches exactly: SYN packets arrive, no SYN-ACK, **no drop events, no policy verdicts**,
+  conntrack entry created but `Packets=0`. Root cause per the issue: the eBPF same-node LB
+  DNAT path silently fails to forward to the local backend pod's veth, specifically when the
+  L2-announce lease and the Service's backend pod land on the *same node*. Reported against
+  Cilium 1.19.1 and 1.19.3 (two independent clusters, different CNI setups); closed by a
+  staleness bot in 2026-07-13 with **no fix landed**, not because it was resolved.
+- **[cilium/cilium#44187](https://github.com/cilium/cilium/issues/44187)** ("Cilium Gateway
+  API with nodeIPAM not reachable from external clients") — same architectural pattern
+  (LoadBalancer Service + same-node backend), specifically for Gateway API LoadBalancer
+  Services. A commenter's workaround: "deployed Envoy Gateway via helm... and everything works
+  perfectly" — independent confirmation that swapping to a real DaemonSet-style ingress
+  controller (not a single-replica LoadBalancer-fronted Deployment) sidesteps this class of
+  bug, which lines up with why the k8rn reference project uses `hostNetwork`+`NodePort`
+  instead of a LoadBalancer Service for Envoy Gateway.
+
+**Why this cluster is permanently exposed to it**: it's single-node. Any *new* LoadBalancer
+Service's L2Announce lease is unavoidably colocated with its own backend pod — there's no
+other node for the lease to land on. The documented community workaround (a dedicated
+L2-announce node pool, disjoint from backend nodes) requires multiple nodes and doesn't apply
+here. **Why Cilium's own `homelab-gateway` doesn't hit it**: its L7LB traffic never takes the
+eBPF same-node-DNAT-to-a-different-pod path at all — Envoy owns the socket directly via
+TPROXY, matching the two-policy-rule model at the top of this document, not a Service backend
+DNAT hop. Any *other* LoadBalancer Service (Envoy Gateway's own, or any future one) will hit
+this bug on this cluster specifically because it's single-node.
+
+**What this means for future attempts**: the "Recommended next steps" list two sections up
+(minimal zero-policy reproduction, GitHub issue search, version bisection) is now superseded
+by this finding — the issue search *was* the right next step, and it surfaced a real,
+unresolved upstream bug, not a local misconfiguration to keep chasing. Don't re-attempt a
+LoadBalancer-Service-based fix (plain `type: LoadBalancer`, or `externalIPs` layered on one)
+on this cluster while it stays single-node — it will hit this same class of bug regardless of
+CiliumNetworkPolicy correctness. `hostNetwork`+`NodePort` (Attempt 1 above) is the *architecturally
+correct* workaround for exactly this reason — NodePort binds directly on the node and never
+takes the LoadBalancer/L2Announce DNAT path at all, which is exactly why it worked immediately
+on an unprivileged port. The **only** remaining blocker for that path is the unrelated
+"Permission denied binding 443/80" issue documented in Attempt 1 — not this bug. If Envoy
+Gateway is revisited, start from hostNetwork+NodePort with that specific privileged-port
+problem as the sole open question, not from scratch.
+
 #### Attempt 2: `externalIPs` instead of hostNetwork or LoadBalancer — did not work either
 
 Theory: `externalIPs` (a Service listing a manually-specified, already-owned node address —
@@ -581,6 +639,66 @@ working. The only remaining problem is getting Envoy's own listener to bind 443/
 hostNetwork on this node — a narrower, more specific problem than where this investigation
 started. `externalIPs` was a plausible-sounding shortcut that turned out not to work,
 demonstrated rather than assumed.
+
+---
+
+## Gateway 403 cluster-wide — resolved 2026-08-14: not a bug, a test-methodology artifact
+
+The "Gateway 403 confirmed cluster-wide" issue (first found 2026-08-12, re-confirmed
+2026-08-14 during the Envoy Gateway investigation, believed for two sessions to be a live,
+unresolved production issue affecting every app behind `homelab-gateway`) turned out not to
+be a bug at all, and never to have affected real traffic.
+
+**The explanation, found via [cilium/cilium#47617](https://github.com/cilium/cilium/issues/47617)**
+(closed as user error, but the maintainer explanation applies exactly here): for **pod-origin
+traffic** — a request originating from *inside* the cluster, whether hitting the Gateway's
+ClusterIP or its L2-announced LoadBalancer VIP — Cilium enforces network policy on the
+*client pod's own egress*, checked against the **real, DNAT-resolved backend identity and
+pod port** the HTTPRoute selected, not against the Gateway's own address or the
+`reserved:ingress` entity. Quoting a Cilium maintainer directly on the closed issue: "you
+_have_ to treat Envoy as a hop in the data path, even when the traffic originates from inside
+the cluster... The traffic picks up the `reserved:ingress` identity once it arrives at Envoy,
+and is treated accordingly." This is documented, intentional behavior — see
+[Cilium's Gateway API reference docs](https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#reference).
+
+**Every test that produced the 403 across both sessions used an in-cluster test pod**
+(`kubectl run curl-...`) as the client — which is exactly the traffic pattern subject to this
+restriction. This cluster's network policy model gives most namespaces only
+`allow-intra-namespace-egress` (same-namespace only), so an in-cluster pod in `paperless` or
+`kube-system` curling the Gateway to reach `grafana` (a different namespace's backend pod)
+was *never* going to be permitted — regardless of how correct the Gateway's own ingress/egress
+policy was. This also explains the original "`monitoring` works, others don't" observation:
+the test pod used for that check was itself inside `monitoring`, the same namespace as
+grafana's backend, so `allow-intra-namespace-egress` happened to already cover it.
+
+**Genuine external clients (LAN, Tailscale, or any real browser) were never subject to this
+restriction** — they don't have a Cilium pod identity or egress policy to enforce in the first
+place; they're handled entirely by the `reserved:ingress` ingress-allow (the two-policy-rule
+at the top of this document), which has been correctly configured the whole time.
+
+**Proven live, 2026-08-14**, testing from a genuinely external LAN client (not an in-cluster
+pod) against every app behind `homelab-gateway`:
+
+| App | Result |
+|---|---|
+| grafana | `302` → `/login`, `x-envoy-upstream-service-time` present (real backend response) |
+| paperless-ngx | `302` → login, real backend response |
+| keycloak | `302` → login, real backend response |
+| immich | `200` |
+| schenkmatch | `200` |
+| zot | `200` |
+| kubeopencode | `200` |
+| hubble-ui | `403`, but **OPA's own** `{"error":"Forbidden"}` JSON body (`content-type: application/json`) — the *correct*, intended result of the 2026-08-14 OPA `ExternalAuth` gate fix (see `docs/backlog.md`), not the old bug |
+
+**No production issue exists and none ever did**, as far as this investigation found. The
+"everything 403" finding that partly motivated the Envoy Gateway migration (ADR-001) and
+consumed significant debugging time across two sessions was chasing a test artifact, not a
+real outage. This doesn't invalidate ADR-001's other stated goals (moving OIDC/ext_authz/rate
+limiting off Cilium's Gateway onto a dedicated control plane is still a reasonable direction),
+but the specific "Gateway is broken for real users" framing that motivated urgency should be
+retired. **When testing Gateway reachability in future sessions, use a genuinely external
+client (this machine, or `curl` from outside the cluster) — an in-cluster test pod is not a
+valid stand-in and will produce false-negative 403s that look identical to a real bug.**
 
 ---
 
