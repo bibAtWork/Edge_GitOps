@@ -5,3 +5,4 @@ resources:
   - service.yaml
   - configmap.yaml
   - cilium-policy.yaml
+  - referencegrant.yaml
