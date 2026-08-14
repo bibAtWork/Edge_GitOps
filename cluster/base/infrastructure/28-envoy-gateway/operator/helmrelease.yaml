@@ -24,3 +24,16 @@ spec:
       retries: 3
       remediateLastFailure: true
     cleanupOnFail: true
+  values:
+    # The chart's bundled crds subchart installs its own copy of the upstream
+    # Gateway API CRDs alongside Envoy Gateway's own (EnvoyProxy, SecurityPolicy,
+    # etc.), all under this one flag. Gateway API CRDs are managed separately by
+    # 00-gateway-api — leaving this enabled makes helm-controller and
+    # kustomize-controller fight over field ownership on every reconcile
+    # (discovered 2026-08-14 while upgrading to the experimental channel: SSA
+    # apply failed with 3-way conflicts against "helm-controller"). Envoy
+    # Gateway's own CRDs, already installed from this HelmRelease's first
+    # install, are unaffected — Flux/Helm never deletes CRDs a chart stops
+    # rendering.
+    crds:
+      enabled: false
