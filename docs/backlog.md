@@ -4,6 +4,28 @@ Known open issues that aren't yet fixed. Not a full project backlog — just thi
 
 ---
 
+## Security review findings (2026-08-14) — all open
+
+Full write-up with verification commands and fix options: [`security-review-2026-08-14.md`](security-review-2026-08-14.md).
+Everything below was verified against the live cluster. Suggested order is C1 → H2 → H1 → H3 → M/L.
+
+| ID | Sev | Finding |
+|---|---|---|
+| C1 | Critical | `kubeopencode-server` has unrestricted `impersonate` on users/groups → can impersonate `system:masters` = cluster-admin. Also cluster-wide secrets read. From upstream chart v0.1.9, not repo code. Exposure was unauthenticated until PR #117. |
+| H1 | High | `mcp-viewer` ("read-only" MCP server) has `resources: ["*"]` on the core API group → can list every Secret cluster-wide. LLM tool surface, so prompt-injection → credential exfil is a realistic path. |
+| H2 | High | Trivy CVE scanning silently broken: 0 vulnerabilityreports vs 263 configauditreports. Scan Jobs blocked by `trivy-system`'s own PSS `restricted`. No CVE visibility for any image. |
+| H3 | High | kube-proxy + flannel DaemonSets still running despite Cilium `kubeProxyReplacement: True` — Talos machineconfig never disables them. Unnecessary privileged workloads. **Also a strong untested hypothesis for the LoadBalancer-VIP bug** blamed below on upstream cilium#44630 — see that section. |
+| M1 | Medium | `:latest` images (kubeopencode ×3, mcp-server, schenkmatch) from chart defaults; the "No :latest" CI check only scans repo YAML, not rendered charts. |
+| M2 | Medium | `kubeopencode-controller`: cluster-wide secrets+configmaps write, `pods/exec`, deployments delete. |
+| M3 | Medium | `default` and `flux-system` have no PSS enforce label. |
+| M4 | Medium | `cattle-system` (runs system-upgrade-controller, which holds cluster-admin) has no CiliumNetworkPolicy. |
+| L1 | Low | 5 leftover debug/test pods, up to 17d old. |
+| L2 | Low | grafana/zot NodePorts bypass Gateway auth+TLS (currently unreachable from LAN, likely Talos host firewall). |
+
+Prior review (2026-07-26) is essentially all fixed; still outstanding from it: **M6** (no Talos disk encryption — deliberately skipped) and **M8** (several namespaces at PSS `privileged` — needs architectural work).
+
+---
+
 ## OPA `ext_authz` gate is inert for every app behind the Gateway
 
 **Status:** Fixed 2026-08-14 — see dated section below. Sections above that date describe the original bug and are kept for history.
@@ -102,6 +124,8 @@ Mapped onto this cluster, the architecture was **already chosen correctly** — 
 **What happened**: cutting `homelab-gateway` over to Envoy Gateway's `GatewayClass` reconciled cleanly on Envoy Gateway's side (Accepted, Programmed, all 8 HTTPRoutes attached) but every app became completely unreachable — not a 403, a full connection timeout. Ten hypotheses were tested and ruled out one by one before a clean 3-way comparison narrowed the actual scope: direct pod-IP traffic and the Service's `ClusterIP` both worked identically to any normal Kubernetes cluster; only the Service's **L2-announced LoadBalancer VIP** failed, as a plain timeout with zero drop or policy-verdict events. Full detail in `Agent.md`'s "Envoy Gateway migration attempt" section — earlier framing in this entry ("general Cilium policy-realization defect") was superseded by this narrower finding; that broader theory turned out to be wrong.
 
 **Root cause found (2026-08-14, later the same day)**: matches a known, unresolved upstream Cilium bug class — [cilium/cilium#44630](https://github.com/cilium/cilium/issues/44630) and [#44187](https://github.com/cilium/cilium/issues/44187), both about LoadBalancer Services silently dropping SYN packets in the eBPF datapath (no drop events, no policy verdicts) when the L2-announce lease and the Service's backend pod land on the **same node**. Both closed without a real fix (one stale-bot-closed, one closed as a duplicate/config issue with a community workaround, not a resolution). This cluster is single-node, so any *new* LoadBalancer Service is unavoidably exposed — the lease has nowhere else to land. Cilium's own `homelab-gateway` doesn't hit it because its L7LB traffic never takes that eBPF same-node-DNAT path (Envoy owns the socket directly). **Not fixable from this repo** short of adding more nodes (the documented community workaround needs a dedicated L2-announce node pool, disjoint from backend nodes) or an eventual upstream fix.
+
+**⚠️ This root cause is now in doubt (2026-08-14 security review, H3)**: the review found **kube-proxy and flannel are still running** on this cluster despite Cilium's `kubeProxyReplacement: True` — Talos's defaults were never disabled in the machineconfig. kube-proxy independently programs nftables DNAT for the *same* LoadBalancer Services Cilium handles in eBPF, which is a well-known conflict producing exactly the observed signature: SYN arrives, no SYN-ACK, **no Cilium drop event and no policy verdict** (Cilium never sees the packet — nftables consumed it). kube-proxy's reconcile timestamps line up with the test window. This is a concrete, testable, *local* explanation that may supersede the "unfixable upstream bug" conclusion above. **Test H3's fix before accepting either the upstream-bug framing or the `privileged: true` trade-off below.**
 
 **What does work**: `hostNetwork` + `NodePort` (the pattern the [k8rn](https://github.com/michaelbeaumont/k8rn) reference project uses) sidesteps this entirely — NodePort binds directly on the node and never takes the LoadBalancer/L2Announce path. Tried and confirmed working on an unprivileged port.
 
