@@ -18,7 +18,7 @@ Cilium's own Gateway API implementation does **not** route through Service Clust
 
 **Fix options**:
 
-1. **Native `ExternalAuth` HTTPRoute filter (GEP-1494)** — the actual correct fix, identified 2026-08-12 (see dated section below). Requires a Gateway API CRD upgrade first (standard v1.2.1 → experimental v1.4.1+); not yet done. This is the recommended path once that upgrade happens — it replaces the whole `25-gateway-authz/envoy-config.yaml` redirect mechanism, which cannot work and never could (see above).
+1. **Native `ExternalAuth` HTTPRoute filter (GEP-1494)** — the actual correct fix, identified 2026-08-12 (see dated section below). Required a Gateway API CRD upgrade first (standard v1.2.1 → experimental v1.4.1); **done 2026-08-14** (see dated section below). This is the recommended path now — it replaces the whole `25-gateway-authz/envoy-config.yaml` redirect mechanism, which cannot work and never could (see above). Redoing the filter addition itself is the next concrete step.
 2. **oauth2-proxy in front of Hubble UI** — attempted 2026-08-12, blocked (see below). Standard pattern for an app with no native OIDC: a proxy pod does real browser-based OIDC login against Keycloak, then forwards to hubble-ui. Sidesteps the EDS/ClusterIP mismatch entirely since it's ordinary Gateway→backend routing to a pod that enforces its own auth. Probably superseded by option 1 — no need to retry this once the CRD upgrade is done.
 3. **Network-level restriction** — lock `hubble.homelab.data-harness.org` down via Cilium L3/L4 CiliumNetworkPolicy (source IP/namespace) instead of OIDC. Simpler, less capable. Not attempted.
 
@@ -49,6 +49,17 @@ Root cause: `ExternalAuth` is an **Experimental**-channel Gateway API field, onl
 **This is a bigger, riskier change than the app-level fix itself** — it's the foundational CRDs every Gateway/HTTPRoute/ReferenceGrant in the cluster depends on, not something scoped to OPA or any one app. Asked before proceeding; decision was to stop here rather than do the CRD upgrade in the same pass. **All changes were fully reverted** (git working tree and live cluster both confirmed back to original state — the old broken `envoy-config.yaml` CCEC was restored, OPA's ConfigMap reverted, the `ReferenceGrant` and new CiliumNetworkPolicy deleted). Nothing is left half-applied.
 
 **To pick this up**: upgrade `00-gateway-api/standard-install.yaml` from the standard v1.2.1 bundle to the experimental v1.4.1 bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml`), verify the existing `Gateway` and all `HTTPRoute`/`ReferenceGrant` objects remain `Accepted` afterward, then redo the `ExternalAuth` filter addition described above (the exact YAML is known-correct, only the CRD version was the blocker).
+
+### Gateway API CRD upgrade landed (2026-08-14)
+
+Done — `00-gateway-api/standard-install.yaml` replaced with the full v1.4.1 experimental bundle (`experimental-install.yaml`). Along the way:
+
+- `cilium-gateway-api-compat.yaml` (a full CRD resource adding `v1` to TLSRoute and BackendTLSPolicy, needed because the standard bundle didn't ship either) is now redundant for BackendTLSPolicy — the v1.4.1 experimental bundle ships `v1` for it natively. TLSRoute still only ships `v1alpha2`/`v1alpha3` upstream, so that half was kept, converted to a strategic-merge patch (`tlsroute-v1-patch.yaml`, same pattern as the existing `referencegrant-v1-patch.yaml`) instead of a competing full-resource definition, since the bundle now defines `tlsroutes.gateway.networking.k8s.io` itself.
+- **Unexpected blocker, found and fixed**: applying the new bundle via `kubectl apply` failed outright with `metadata.annotations: Too long: may not be more than 262144 bytes` — these CRD schemas are big enough that the `last-applied-configuration` annotation client-side apply writes blows the 256KB annotation limit. Switched to `--server-side` apply (which Flux's `kustomize-controller` already uses by default, so this only affected manual verification, not the real GitOps path).
+- **Second unexpected blocker, found and fixed**: server-side apply then failed with 3-way field conflicts against `helm-controller`. Root cause: the `envoy-gateway` HelmRelease's chart (`gateway-helm`) bundles a `crds` subchart that installs its own copy of the *same* upstream Gateway API CRDs (`crds.enabled: true` by default) alongside Envoy Gateway's own CRDs (EnvoyProxy, SecurityPolicy, etc., in the same subchart) — a standing ownership conflict with `00-gateway-api`, not a one-off. Fixed by setting `crds.enabled: false` on that HelmRelease (the chart's own docs recommend this exact flag for exactly this scenario); Envoy Gateway's own CRDs are unaffected since Flux/Helm never deletes CRDs a chart stops rendering.
+- Verified live: all 12 CRDs apply cleanly, existing `Gateway` (`Programmed: True`, `192.168.178.200`) and all 9 `HTTPRoute`s unaffected, Cilium operator reconciles with no Gateway API errors, prod traffic still returns `403` (unchanged baseline).
+
+**Next**: redo the `ExternalAuth` filter addition (YAML already known-correct from the 2026-08-12 attempt above) — should now apply cleanly.
 
 ## General role and access-management concept for the cluster (2026-08-12)
 
