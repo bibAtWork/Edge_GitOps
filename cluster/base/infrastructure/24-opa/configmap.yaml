@@ -11,8 +11,7 @@ data:
     import input.attributes.request.http as req_http
 
     # ── JWT verification ─────────────────────────────────────────────────────
-    # Envoy's jwt_authn filter is unavailable (Cilium 1.20's Go proto registry
-    # lacks JwtAuthentication — see 25-gateway-authz/envoy-config.yaml). OPA
+    # No Envoy jwt_authn filter is wired up on the ExternalAuth path, so OPA
     # verifies the raw Authorization header itself against Keycloak's JWKS,
     # fetched directly (internal service DNS, not through the gateway).
     keycloak_issuer := "https://keycloak.homelab.data-harness.org/realms/homelab"
