@@ -45,7 +45,10 @@ data:
 
     # Apps that require an admin JWT even for browser (non-Bearer) access.
     # These have no native OIDC integration, so OPA is the only auth layer.
-    admin_only_apps := {"hubble.homelab.data-harness.org"}
+    admin_only_apps := {
+        "hubble.homelab.data-harness.org",
+        "kubeopencode.homelab.data-harness.org",
+    }
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -76,9 +79,9 @@ data:
     #
     # 2. Valid JWT on a Grafana admin path without admin role → 403.
     #
-    # 3. Valid JWT on an admin-only app (hubble-ui) without admin role → 403.
+    # 3. Valid JWT on an admin-only app (hubble-ui, kubeopencode) without admin role → 403.
     #    Browser requests to admin-only apps with no JWT also hit this rule because
-    #    hubble-ui has no native OIDC — restrict at the OPA layer.
+    #    neither app has native OIDC — restrict at the OPA layer.
     #
     # 4. Valid JWT, no special restriction → allow + inject identity headers.
     #

@@ -3,6 +3,10 @@ kind: Deployment
 metadata:
   name: opa
   namespace: security
+  annotations:
+    # OPA loads /policies once at startup — no built-in ConfigMap watch (no -w flag).
+    # Reloader restarts the pod whenever opa-policies changes so Rego edits take effect.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   selector:
