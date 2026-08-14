@@ -352,7 +352,7 @@ same bug pending a real fix.
 
 ---
 
-## Envoy Gateway migration attempt (2026-08-14): a deeper, still-unresolved Cilium policy bug
+## Envoy Gateway migration attempt (2026-08-14): narrowed to L2Announce'd LoadBalancer VIPs specifically
 
 ADR-001 (`docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md`) decided to move
 L7 routing off Cilium's own Gateway API implementation onto a dedicated Envoy Gateway
@@ -360,10 +360,12 @@ control plane — partly to sidestep the entire `reserved:ingress`/L7LB-entity b
 documented above. Envoy Gateway was installed (`28-envoy-gateway/`, kept in the cluster,
 namespace `envoy-gateway-system`, chart `gateway-helm@1.8.3`) and `homelab-gateway` was cut
 over to it. **The cutover was rolled back the same session** — every app became completely
-unreachable (not 403, full TCP timeout), and the root cause was never found despite an
-extensive, methodical investigation. Documenting in full because the finding is bigger than
-Gateway API: **this looks like a general Cilium policy-realization bug affecting ordinary
-pod-to-pod traffic, not just the special Gateway L7LB entity.**
+unreachable (not 403, full TCP timeout). A same-day follow-up (see "Follow-up: narrowed to
+the LoadBalancer VIP specifically" below) found the actual scope, which is much narrower
+than first thought: **this is not a general policy bug — it's specific to traffic destined
+to an L2-announced LoadBalancer VIP reaching a backend that isn't Cilium's own
+`reserved:ingress` L7LB entity.** The section immediately below is the original same-day
+writeup (kept for the full diagnostic trail); the narrower, corrected finding follows it.
 
 ### What was ruled out, cleanly, in order
 
@@ -461,6 +463,124 @@ Confirmed working (same 403-on-this-test-path as before, not a timeout — match
 pre-migration behavior exactly). Envoy Gateway itself (`28-envoy-gateway/operator/`,
 `config/`) stays installed and idle — not wired to any traffic — so this can resume without
 redoing the install once the Cilium bug above is understood.
+
+### Follow-up (2026-08-14, same day): narrowed to the LoadBalancer VIP specifically
+
+Picked up "recommended next step 2" above (isolate whether `kubeProxyReplacement`/socket-LB
+is a variable) without needing to touch cluster-wide policy or take production down again —
+this test only needed the already-idle Envoy Gateway data-plane pod (still running from the
+cutover attempt) plus a pair of narrow, throwaway `CiliumNetworkPolicy` rules.
+
+**Three-way comparison, identical policy rules throughout** (a `fromEndpoints`/`toEndpoints`
+pair matching the exact source/destination pod labels — the same shape that failed
+repeatedly via the LoadBalancer VIP the first time):
+
+| Destination | Result |
+|---|---|
+| Envoy pod's own IP directly (`10.244.0.126:10443`, no Service involved at all) | **Works** (`404`, real HTTP response) |
+| The Service's `ClusterIP` (`10.108.204.185:443`) | **Works** (`404`, real HTTP response) |
+| The Service's L2-announced LoadBalancer external IP (`192.168.178.200:443`) | **Fails** (timeout — this is what every test earlier in the day used) |
+
+Same pod, same backend, same policy — only the destination address category changes. This
+conclusively rules out "CiliumNetworkPolicy identity realization is broken" as the
+explanation (points 4, 6, 7, 8 in the section above all used addresses that, per this table,
+were never going to work regardless of policy correctness). **The real scope: L2Announce'd
+LoadBalancer VIP traffic reaching an ordinary (non-`reserved:ingress`) backend pod fails,
+full stop — direct pod IP and ClusterIP both work identically to how they'd work on any
+normal Kubernetes cluster.**
+
+**Working theory**: Cilium's L2Announce + LoadBalancer-Service datapath appears to route
+*all* traffic to such a VIP through the same internal TPROXY/L7LB pipeline that
+`reserved:ingress` uses — regardless of which controller (Cilium's own Gateway vs an
+external one like Envoy Gateway) actually owns the Service object, and regardless of whether
+the destination pod is meant to participate in that pipeline at all. Cilium's own Gateway
+works specifically *because* the two-policy-rule at the top of this document was built to
+satisfy that pipeline's entity-based policy model — not because `reserved:ingress` is exempt
+from some bug, but because the pipeline expects exactly that model and nothing else
+satisfies it. An ordinary backend pod (Envoy Gateway's data-plane pod, or any other Service)
+was never designed to be checked against that pipeline, so its ordinary
+`fromEndpoints`/`toEndpoints` policy never matches, and the connection drops.
+
+**This retroactively explains why the reference project
+([github.com/michaelbeaumont/k8rn](https://github.com/michaelbeaumont/k8rn)) doesn't use
+Cilium's LoadBalancer/L2Announce mechanism for Envoy Gateway at all** — it uses
+`hostNetwork: true` + a `NodePort` Service instead, with `external-dns` pointing DNS records
+directly at node IPs. That's not an arbitrary style choice; it's very likely a deliberate
+workaround for this exact entanglement.
+
+**Both concrete fixes below were actually tried the same day** (not just proposed) — neither
+is fully working yet, but each narrowed the problem further. Full detail follows; the repo's
+committed `28-envoy-gateway/config/envoyproxy.yaml` was left at its original LoadBalancer
+form (this section is the record of what was tried, not a description of current config).
+
+#### Attempt 1: `hostNetwork` + `NodePort` (the k8rn pattern) — partially worked, new blocker found
+
+Set `EnvoyProxy.spec.provider.kubernetes.envoyDeployment.patch` to `hostNetwork: true` +
+`dnsPolicy: ClusterFirstWithHostNet`, `envoyService.type: NodePort`,
+`useListenerPortAsContainerPort: true` (so the container binds the Gateway's actual listener
+ports directly, since hostNetwork means container port == host port) — matching
+[github.com/michaelbeaumont/k8rn](https://github.com/michaelbeaumont/k8rn)'s
+`services-gateway.yaml` exactly (fetched and compared directly, not from memory).
+
+**Two real sub-issues found and fixed along the way**:
+- Cilium's own embedded Envoy (`cilium-envoy`) also runs `hostNetwork` on this node with the
+  default `--base-id 0` — a second Envoy instance with the same base-id fails outright
+  (`errno=98`, `EADDRINUSE`, Unix domain socket collision). Fixed with
+  `EnvoyProxy.spec.extraArgs: [--base-id, "1"]`.
+- `envoy-gateway-system` needs `pod-security.kubernetes.io/enforce: privileged` for
+  `hostNetwork` to be admitted at all (confirmed via k8rn's own namespace manifest, which
+  uses the same label).
+
+**Once those were fixed, tested on an unprivileged port (8080) first, deliberately, before
+touching 443/80 — and it worked immediately**: both the node's Tailscale-registered
+`InternalIP` (`100.95.245.36`) and its real LAN IP (`192.168.178.100`) returned real HTTP
+responses with zero timeout, using the exact same `CiliumNetworkPolicy` rules that failed
+every time via the L2Announce'd VIP. This is strong independent confirmation of the finding
+above — hostNetwork+NodePort genuinely sidesteps the L2Announce/TPROXY coupling.
+
+**The blocker**: switching to the real ports (443/80, `useListenerPortAsContainerPort: true`)
+fails at Envoy's own listener startup — `cannot bind '0.0.0.0:443': Permission denied` —
+**even running the container as root** (`runAsUser: 0`, `runAsNonRoot: false`), which should
+never produce `EACCES` on a privileged-port bind under normal Linux semantics. Tried, in
+order, all unsuccessful: `NET_BIND_SERVICE` capability alone; `NET_BIND_SERVICE` +
+`allowPrivilegeEscalation: true` (in case `no_new_privs` was blocking ambient capability
+propagation to a non-root process); full root; root + `NET_BIND_SERVICE` + `NET_ADMIN` (in
+case Envoy's hostNetwork listener requests `IP_TRANSPARENT`, which needs `NET_ADMIN`
+specifically); the same plus `seccompProfile: Unconfined` (in case `RuntimeDefault` blocks a
+specific `setsockopt`/`bind` syscall pattern Envoy uses that a minimal test process doesn't).
+**None worked, including root** — ruling out capability/UID/seccomp misconfiguration as the
+explanation. **Also ruled out as a blanket Talos restriction**: a plain `busybox nc -l -p 443`
+pod, `hostNetwork: true`, `runAsUser: 0`, on the same node, bound port 443 immediately with
+no issue. So the failure is specific to something in *Envoy's own* listener bind path under
+hostNetwork on this node/Talos version — not yet root-caused. Worth checking Envoy's actual
+`setsockopt` calls for hostNetwork-mode listeners (strace, or Envoy's own verbose startup
+logging) rather than continuing to guess at security-context permutations.
+
+#### Attempt 2: `externalIPs` instead of hostNetwork or LoadBalancer — did not work either
+
+Theory: `externalIPs` (a Service listing a manually-specified, already-owned node address —
+`192.168.178.100`, this node's real `enp2s0` IP, no ARP/L2Announce involved at all) might use
+the same ordinary DNAT path already confirmed working for `ClusterIP` traffic in the
+three-way comparison above, sidestepping both the L2Announce/TPROXY coupling *and* the
+hostNetwork privileged-port fight. Set via `EnvoyProxy`'s `envoyService.patch` (`spec.type`
+left as `LoadBalancer`, `spec.externalIPs: [192.168.178.100]` added).
+
+**Result: identical timeout to the original L2Announce VIP failure** — not the "Permission
+denied" from attempt 1, and not even a `cilium-dbg monitor --type drop` entry correlating to
+the test flow at all (only unrelated, pre-existing drops from a completely different flow
+were visible). The absence of any Cilium-level drop log for this specific flow suggests the
+packet isn't reaching Cilium's policy engine at all — plausibly a service-map/DNAT resolution
+failure rather than a policy denial, but not confirmed. **This means `externalIPs` on a
+`type: LoadBalancer` Service doesn't actually avoid the underlying issue** — worth retesting
+with `type: ClusterIP` + `externalIPs` specifically (not `LoadBalancer` + `externalIPs`,
+which is what was actually tested) in case the Service *type* itself — not just how the
+external address got assigned — is what triggers Cilium's special-case datapath handling.
+
+**Where this leaves things**: hostNetwork+NodePort on an *unprivileged* port is proven
+working. The only remaining problem is getting Envoy's own listener to bind 443/80 under
+hostNetwork on this node — a narrower, more specific problem than where this investigation
+started. `externalIPs` was a plausible-sounding shortcut that turned out not to work,
+demonstrated rather than assumed.
 
 ---
 
