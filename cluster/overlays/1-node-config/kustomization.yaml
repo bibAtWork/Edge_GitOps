@@ -33,8 +33,6 @@ resources:
   # kubeopencode: HTTPRoute (gateway.networking.k8s.io) + Agent (kubeopencode.io CRD
   # installed by the bootstrap-layer HelmRelease)
   - ../../base/infrastructure/27-kubeopencode/config
-  # gateway-authz: CiliumClusterwideEnvoyConfig (cilium.io) — JWT + OPA + rate limit + OTel tracing
-  - ../../base/infrastructure/25-gateway-authz
   # velero Schedules (velero.io) — 1-node specific retention
   - velero-schedules.yaml
   # NodePort services for LAN access without domain/Tailscale
