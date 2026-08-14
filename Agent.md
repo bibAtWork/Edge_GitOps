@@ -563,9 +563,69 @@ specific `setsockopt`/`bind` syscall pattern Envoy uses that a minimal test proc
 explanation. **Also ruled out as a blanket Talos restriction**: a plain `busybox nc -l -p 443`
 pod, `hostNetwork: true`, `runAsUser: 0`, on the same node, bound port 443 immediately with
 no issue. So the failure is specific to something in *Envoy's own* listener bind path under
-hostNetwork on this node/Talos version — not yet root-caused. Worth checking Envoy's actual
-`setsockopt` calls for hostNetwork-mode listeners (strace, or Envoy's own verbose startup
-logging) rather than continuing to guess at security-context permutations.
+hostNetwork on this node/Talos version — root-caused below.
+
+### Root cause found (2026-08-14, later same day): Talos runs SELinux-confined pods by default; `privileged: true` is the only confirmed fix
+
+Reproduced from scratch with a completely minimal, standalone setup — plain upstream
+`envoyproxy/envoy:v1.31-latest` (not Cilium's fork, not Envoy Gateway's chart), a throwaway
+namespace, and a trivial static config with one HTTP listener on `:443` and a
+`direct_response` filter. Same failure: `cannot bind '0.0.0.0:443': Permission denied`. This
+rules out anything specific to Cilium's Envoy build or Envoy Gateway's chart machinery — it's
+generic Envoy, on this node, under `hostNetwork`.
+
+**Confirmed directly from inside the container** (`cat /proc/self/status`): `CAP_NET_BIND_SERVICE`
+*is* present in `CapEff`/`CapPrm`/`CapBnd` (decoded the bitmask by hand) — ruling out "capability
+not actually granted" once and for all. Also confirmed no user-namespace remapping
+(`/proc/self/uid_map` shows the identity mapping `0 0 4294967295`, and `/proc/self/ns/net` /
+`ns/user` both point at the host's actual initial namespaces) — ruling out rootless/userns
+translation as the explanation.
+
+**The real lead**: `cat /proc/self/attr/current` inside the container returns
+`system_u:system_r:pod_t:s0` — **Talos runs pods under SELinux, in the confined `pod_t`
+domain, by default.** (`/sys/fs/kernel/security/apparmor` doesn't exist on this node, ruling out
+AppArmor — this is SELinux specifically.) `dmesg` showed no AVC denial for the bind attempt,
+but that doesn't rule SELinux out — Talos has no full `auditd`, so AVC denials may have nowhere
+to log to that's reachable this way.
+
+**Confirmed empirically, not just theorized**: `kubectl debug node/<node> --profile=sysadmin`
+generates a debug pod with `securityContext.privileged: true` (checked its rendered YAML
+directly) — and a plain `nc -l -p 443` inside *that* pod bound the port immediately. Every
+other variable tried (hostPID, hostIPC, seccomp Unconfined, more capabilities) had already
+failed to fix it on the minimal Envoy reproduction; `privileged: true` was the one difference
+that mattered.
+
+**Tried the surgical version instead of the blunt one**: requested
+`securityContext.seLinuxOptions.type: spc_t` (the standard "super-privileged container" SELinux
+type, without setting `privileged: true`, keeping capabilities minimal). Kubernetes accepted it
+(shows only as a Pod Security **warning**, not a block, since the namespace's PSS is already
+`privileged`) — but checking `/proc/self/attr/current` inside the resulting container still
+showed `pod_t`, unchanged. **Talos's CRI/containerd does not honor per-pod `seLinuxOptions.type`
+overrides** — the request is silently accepted by the Kubernetes API but has no effect on the
+node. There is no known surgical fix available through the standard Kubernetes security context
+API on this cluster; `privileged: true` (which the CRI plugin maps to an unconfined SELinux
+type specially, not via the ignored `seLinuxOptions` field) is the only lever that works.
+
+**One more thing ruled out, precisely**: plain busybox `nc -l -p 443`, given the *exact same*
+minimal non-privileged security context that fails for Envoy (root, `NET_BIND_SERVICE` only, no
+`privileged: true`), **succeeds immediately**. So `pod_t` does not blanket-deny privileged-port
+binding for every process — it's specific to something in Envoy's own bind/socket-setup
+sequence that `nc`'s simpler `bind()` doesn't trigger. Tested the most likely candidate
+(`IP_TRANSPARENT`, which needs `CAP_NET_ADMIN` and was the working theory in the original
+attempt above) by adding `NET_ADMIN` + `NET_RAW` to this same clean, minimal reproduction —
+**no change, still denied**. This most likely rules out `IP_TRANSPARENT` as the specific
+trigger too, though without an actual `strace` of Envoy's exact syscall sequence (not obtainable
+here — Cilium's Envoy image is distroless with no shell, and Talos's minimal node environment
+has no easy path to attach `strace` to a container process from the host), the precise SELinux
+policy rule that distinguishes Envoy's bind from `nc`'s bind remains unidentified.
+
+**Practical conclusion**: on this Talos cluster, binding privileged ports 443/80 under
+`hostNetwork: true` with Envoy specifically requires `securityContext.privileged: true` — full
+capabilities, no seccomp confinement, no SELinux confinement for that container. This is a real,
+meaningful security downgrade for the whole Envoy Gateway data-plane pod, not a minor tweak, and
+should be weighed accordingly if the `hostNetwork`+`NodePort` cutover path is ever picked up
+again. Given the "everything 403" issue that partly motivated ADR-001's urgency turned out not
+to be a real problem (see below), there's currently no pressing reason to accept that trade-off.
 
 ### Root cause identified (2026-08-14, later same day): matches known, unresolved upstream Cilium bugs — not fixable from this repo alone
 
