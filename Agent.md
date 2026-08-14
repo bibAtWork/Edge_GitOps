@@ -352,6 +352,118 @@ same bug pending a real fix.
 
 ---
 
+## Envoy Gateway migration attempt (2026-08-14): a deeper, still-unresolved Cilium policy bug
+
+ADR-001 (`docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md`) decided to move
+L7 routing off Cilium's own Gateway API implementation onto a dedicated Envoy Gateway
+control plane — partly to sidestep the entire `reserved:ingress`/L7LB-entity bug class
+documented above. Envoy Gateway was installed (`28-envoy-gateway/`, kept in the cluster,
+namespace `envoy-gateway-system`, chart `gateway-helm@1.8.3`) and `homelab-gateway` was cut
+over to it. **The cutover was rolled back the same session** — every app became completely
+unreachable (not 403, full TCP timeout), and the root cause was never found despite an
+extensive, methodical investigation. Documenting in full because the finding is bigger than
+Gateway API: **this looks like a general Cilium policy-realization bug affecting ordinary
+pod-to-pod traffic, not just the special Gateway L7LB entity.**
+
+### What was ruled out, cleanly, in order
+
+1. **LB-IPAM/L2Announce selector labels** — Envoy Gateway's generated Service uses
+   `gateway.envoyproxy.io/owning-gateway-name`/`-namespace` (confirmed via `cilium-dbg
+   endpoint list`), not Cilium's own `io.cilium.gateway/owning-gateway`. Updated
+   `lb-ipam.yaml` accordingly. **Gotcha**: `kubectl apply` on `CiliumLoadBalancerIPPool`/
+   `CiliumL2AnnouncementPolicy` **merges** `matchLabels` instead of replacing them — editing
+   the selector to different keys leaves the *old* key behind too (AND semantics), silently
+   making the selector impossible to satisfy. Use `kubectl replace`, not `apply`, when
+   changing these selectors' keys (not just values).
+2. **L2 announcement not picking up the new Service** — the `l2-announce` statedb table was
+   empty after cutover despite correct LBIPAM assignment; a Cilium agent DaemonSet restart
+   populated it. Real, reproducible gap (control-plane state existed but didn't reach the
+   L2-announcer job until restart) — not the final blocker, but worth knowing.
+3. **ARP-level reachability** — initially suspected, then ruled out: a genuinely external
+   client's ARP table correctly resolved the announced IP to the node's real MAC. The
+   failure is downstream of ARP, at the Cilium datapath/policy layer.
+4. **`allowed-ingress-identities` missing `world` (2)** — initially looked like the bug
+   (`[1,3,4,5,6,7,8,11]`, no `2`, despite a policy explicitly granting `fromEntities:
+   [world]`). **Ruled out as the explanation**: the *working* `allow-internet-egress-https-only`
+   path shows the identical list on `allowed-egress-identities` for pods where egress to
+   world is confirmed functional elsewhere. This field apparently just doesn't reflect
+   world/CIDR-based identities at all — a red herring, not a bug.
+5. **Test client routing through Tailscale unexpectedly** — the first "clean" external test
+   was actually going through `tailscale0` (Windows preferred the `/32` Tailscale route over
+   the LAN `/24`, confirmed via `route print` and the drop log's Tailscale-CGNAT source IP).
+   That's the *already-documented* L3-TUN bug, not a new one — retested from a path
+   guaranteed not to touch Tailscale (in-cluster pod → announced IP) to get a clean signal.
+6. **Entity-based vs label-based ingress rules** — tested both `fromEntities: [cluster]` and
+   a `fromEndpoints` rule matching the exact source pod's labels, scoped to the Envoy pod's
+   ingress. Identical failure both ways — not about rule syntax.
+7. **Egress-side vs ingress-side** — granted the source pod an explicit `toEndpoints` egress
+   rule matching the destination pod's labels (removing any egress-side ambiguity entirely).
+   **Identical drop, unchanged**: `identity <source>-><dest>: ... Policy denied`.
+8. **Comparison against a documented-working pod** (Keycloak, reachable from Paperless in
+   production today) — shows the *exact same* restricted `allowed-ingress-identities` list.
+   Whatever makes Keycloak reachable in practice, it isn't reflected in this field either —
+   reinforcing point 4, and meaning this field is not a reliable diagnostic signal on this
+   cluster/version at all.
+9. **Cluster-wide `default-deny-ingress` CiliumClusterwideNetworkPolicy itself** — deleted
+   entirely (backed up first, restored immediately after, with explicit user sign-off since
+   this is a real security-boundary removal) as the most direct possible test. **Identical
+   timeout, unchanged.** Caveat: `allow-cluster-internal` (a separate, pre-existing
+   CiliumClusterwideNetworkPolicy, ingress-only, `fromEntities: [cluster]`) was still present
+   and still selects every non-`reserved:ingress` endpoint — so this wasn't a true
+   zero-policy test, just a test with the *deny* baseline removed. Worth redoing with
+   *every* CCNP temporarily gone if this is picked up again, to get a genuinely clean read.
+10. **Cilium's own embedded Envoy proxy** (`envoy.enabled`, on by default, undocumented in
+    this repo's HelmRelease) — disabled it, matching the pattern in
+    [github.com/michaelbeaumont/k8rn](https://github.com/michaelbeaumont/k8rn), a real
+    Cilium+Envoy-Gateway integration that explicitly turns this off for exactly this class of
+    conflict. `cilium-envoy` pods confirmed fully gone. **Identical timeout, unchanged.**
+    Reverted afterward — `cilium-envoy` came back healthy with no lasting issues from the
+    toggle.
+
+### What's still true and unexplained
+
+- The failure is a hard drop at the Cilium datapath (`bpf_lxc.c:1663`/`bpf_lxc.c:2410`,
+  `drop (Policy denied)`), not a timeout from routing, ARP, or L2 announcement — those were
+  all independently confirmed working.
+- It reproduces identically regardless of: which policy grants access, whether the rule is
+  entity- or label-based, which side (source egress vs destination ingress) the rule is
+  attached to, whether Cilium's embedded Envoy runs at all, and even with the cluster's main
+  deny baseline removed.
+- It affects a *brand-new* ordinary pod (Envoy Gateway's data-plane pod) talking to a
+  long-lived, demonstrably-reachable-in-other-contexts pod (kubeopencode's own agent pod) —
+  ruling out "newly created identity hasn't propagated yet" as an explanation, since the
+  failure persisted across many minutes and several agent restarts.
+- `kubeProxyReplacement: true` is enabled cluster-wide (`05-cilium/helmrelease.yaml`) — not
+  investigated as a variable this session, but changes how Service traffic is processed
+  end-to-end and is a reasonable next thing to isolate (e.g., does the same drop reproduce
+  for direct pod-IP-to-pod-IP traffic that never goes through a Service/DNAT at all?).
+
+### Recommended next steps, in priority order
+
+1. Reproduce with the **cleanest possible minimal case**: two freshly-created pods in a
+   fresh namespace, zero custom policy, one single `CiliumNetworkPolicy` granting exactly
+   one direction — and remove `allow-cluster-internal` too (point 9's caveat) to get a truly
+   policy-free baseline reading.
+2. Test direct pod-IP-to-pod-IP traffic (bypassing any Service/ClusterIP/DNAT) to isolate
+   whether `kubeProxyReplacement`/socket-LB is a variable.
+3. Search Cilium's GitHub issues for the exact drop signature
+   (`bpf_lxc.c:1663`/`bpf_lxc.c:2410`, `Policy denied`, regular workload identity never
+   reaching `allowed-ingress-identities`) — this smells like a known upstream bug class
+   given how it reproduces identically across every variable tested.
+4. Consider a Cilium version bisection (this cluster runs 1.20.0) if the above doesn't
+   surface a match — check whether the same reproduction succeeds on an older/newer minor.
+
+### Current state
+
+Rolled back cleanly: `homelab-gateway` is back on `gatewayClassName: cilium`, LB-IPAM/L2
+Announce selectors reverted to Cilium's own labels, Cilium's embedded Envoy re-enabled.
+Confirmed working (same 403-on-this-test-path as before, not a timeout — matches
+pre-migration behavior exactly). Envoy Gateway itself (`28-envoy-gateway/operator/`,
+`config/`) stays installed and idle — not wired to any traffic — so this can resume without
+redoing the install once the Cilium bug above is understood.
+
+---
+
 ## Prevention checklist for future policy changes
 
 Before adding or removing any `CiliumNetworkPolicy` or `CiliumClusterwideNetworkPolicy`
