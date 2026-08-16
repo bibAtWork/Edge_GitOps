@@ -19,6 +19,19 @@
 #   zot    -> 200 (OPA allows, request reaches the backend)
 #   hubble -> 403 with OPA's own JSON body, proving OPA is consulted and its
 #             deny propagates intact rather than being a generic network block
+#
+# ⚠️ Envoy Gateway's SecurityPolicy attachment is REPLACE, not MERGE, at the
+# per-route level. A SecurityPolicy targeting a specific HTTPRoute — e.g.
+# 05-cilium/config/hubble-securitypolicy.yaml's oidc block — completely
+# replaces this Gateway-scoped policy's effect for that one route; it does not
+# add to it. Confirmed 2026-08-16 via Envoy's own /config_dump: routes with a
+# route-scoped SecurityPolicy carry ONLY that policy's filters in
+# typed_per_filter_config — ext_authz was silently absent, meaning OPA was
+# never consulted for that route at all, not merely bypassed by a passing
+# check. Any future SecurityPolicy that targets an individual HTTPRoute MUST
+# include its own extAuth block pointing at OPA (copy the block below) if that
+# route needs to stay OPA-gated — never assume this Gateway-level policy
+# still applies once a route gets its own SecurityPolicy.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:

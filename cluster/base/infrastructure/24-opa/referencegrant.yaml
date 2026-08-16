@@ -31,13 +31,25 @@ spec:
       namespace: kubeopencode-system
     # Envoy Gateway's SecurityPolicy carries the same cross-namespace backendRef
     # to this Service, and is subject to the same ReferenceGrant requirement —
-    # without this entry it reconciles as
+    # without an entry for its namespace it reconciles as
     # `Accepted=False (Invalid): ExtAuth: backend ref to Service security/opa not
-    # permitted by any ReferenceGrant`. One entry covers every app, since the
-    # policy attaches to the Gateway rather than to each route.
+    # permitted by any ReferenceGrant`. The gateway-system entry covers every app
+    # still relying on the Gateway-scoped policy (28-envoy-gateway/config/
+    # securitypolicy.yaml). Apps with their own route-scoped SecurityPolicy —
+    # required because Envoy Gateway's policy attachment is REPLACE, not MERGE,
+    # per route, so a route-scoped SecurityPolicy.oidc drops the Gateway-level
+    # extAuth entirely unless the route's own SecurityPolicy repeats it (see
+    # 05-cilium/config/hubble-securitypolicy.yaml) — need their own namespace
+    # listed here too.
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: gateway-system
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: kube-system
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: kubeopencode-system
   to:
     - group: ""
       kind: Service

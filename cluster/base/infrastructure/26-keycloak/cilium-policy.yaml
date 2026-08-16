@@ -95,3 +95,34 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+---
+# Allow Envoy Gateway's data-plane pod to reach Keycloak directly for OIDC
+# discovery, token exchange, and JWKS (SecurityPolicy.oidc, added 2026-08-16
+# for hubble-ui and kubeopencode).
+#
+# Deliberately scoped to the whole envoy-gateway-system namespace rather than
+# one rule per app, unlike allow-opa-ingress/allow-paperless-ingress above:
+# every app that adopts SecurityPolicy.oidc calls Keycloak through this same
+# pod regardless of which HTTPRoute triggered it, so one rule covers all
+# current and future apps using this pattern — no new CiliumNetworkPolicy
+# needed here when the next app gets Keycloak login this way. Contrast with
+# Paperless and OPA above, which each call Keycloak directly from their own
+# namespace and therefore do need their own rule.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-envoy-gateway-ingress
+  namespace: keycloak
+spec:
+  endpointSelector:
+    matchLabels:
+      app: keycloak
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
