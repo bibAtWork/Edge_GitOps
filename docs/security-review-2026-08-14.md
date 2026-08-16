@@ -139,18 +139,31 @@ Both are live, not inert:
 flannel holds `NET_ADMIN`+`NET_RAW`. Both are pure attack surface for functionality Cilium
 already provides.
 
-**Likely operational impact — and this supersedes an earlier conclusion**: today's
-LoadBalancer-VIP investigation concluded the failure was an unfixable upstream Cilium bug
-(cilium/cilium#44630/#44187) affecting single-node clusters. That conclusion is now in doubt.
-kube-proxy independently programs nftables DNAT for the *same* LoadBalancer Services Cilium
-handles in eBPF — a well-known conflict that produces exactly the observed signature: SYN
-arrives, no SYN-ACK, **no Cilium drop event and no policy verdict** (because Cilium never sees
-the packet; nftables consumed it). The kube-proxy reconcile timestamps line up with the test
-window (09:06–09:38, 11:05).
+**Suspected operational impact — tested 2026-08-16 and DISPROVEN**: this review proposed that
+kube-proxy, not upstream cilium#44630/#44187, explained the LoadBalancer-VIP failure blocking the
+Envoy Gateway cutover. The reasoning was that kube-proxy independently programs nftables DNAT for
+the *same* LoadBalancer Services Cilium handles in eBPF — a well-known conflict producing exactly
+the observed signature (SYN arrives, no SYN-ACK, no Cilium drop event and no policy verdict,
+because nftables consumed the packet before Cilium saw it). The kube-proxy reconcile timestamps
+also lined up with the test window (09:06–09:38, 11:05).
 
-This is a strong, concrete, testable hypothesis — **not proven**. Worth testing before accepting
-the "unfixable upstream bug" framing or the `privileged: true` trade-off documented for the
-Envoy Gateway cutover.
+It was tested properly on 2026-08-16: the fix below was applied, both DaemonSets deleted, and the
+node rebooted — after which a fresh test LoadBalancer VIP **still** timed out from an external
+client. The hypothesis is dead.
+
+The actual cause turned out to be a `CiliumNetworkPolicy` on the wrong ports:
+`allow-world-ingress` permitted 80/443 on the Envoy Gateway pods, but Envoy Gateway serves
+listener 80 on container port 10080 and 443 on 10443 (`useListenerPortAsContainerPort: false`,
+so the proxy never needs `CAP_NET_BIND_SERVICE`). External traffic to a LoadBalancer VIP is
+DNAT'd straight to the backend pod, so it arrived on 10080/10443 and was dropped. Correcting the
+ports took the VIP from timeout to `200` in 0.007 s. Full write-up in
+[`backlog.md`](backlog.md), section "Real root cause found (2026-08-16)".
+
+**H3 itself remains valid and is worth fixing on its own merits** — it removes two privileged
+host-network workloads. That is the only claim this finding should be credited with.
+
+**Status: fixed 2026-08-16.** Applied to both overlays, verified live, all 8 apps unchanged
+against a pre-change baseline measured from a real external LAN client.
 
 **Fix**: add to the Talos machineconfig `cluster:` block —
 
