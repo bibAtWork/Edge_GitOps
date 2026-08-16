@@ -95,11 +95,19 @@ Mapped onto this cluster, the architecture was **already chosen correctly** — 
 
 **Kubernetes-native RBAC via Talos API server OIDC trust** (`kubectl`/`kubeoc` CLI access, not web login) is a separate, orthogonal axis from all of the above — matches the paper's own "Administrator" actor. Scoped and researched earlier the same day: requires `cluster.apiServer.extraArgs` (`oidc-issuer-url`/`oidc-client-id`/`oidc-groups-claim`) in `cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml` (currently has no OIDC config at all), applied via `talosctl apply-config` (brief kube-apiserver restart on this single control-plane node — cert-based admin access is untouched by this either way, the actual safety net). Not started.
 
+## ADR-001: Envoy Gateway migration — cutover unblocked; root cause was a policy on the wrong ports (2026-08-16)
+
+> **Read this first.** Everything dated 2026-08-14 below is kept so the reasoning trail
+> stays auditable, but its root-cause conclusions are **wrong**. Jump to
+> "Real root cause found (2026-08-16)" at the end of this section.
+
 ## ADR-001: Envoy Gateway migration — installed, cutover blocked on an unresolved upstream Cilium bug (2026-08-14)
 
 `docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md` decided to move L7 routing off Cilium's own Gateway API implementation onto a dedicated Envoy Gateway control plane. Envoy Gateway is installed (`28-envoy-gateway/`, chart `gateway-helm@1.8.3`, kept in the cluster) but **not wired to `homelab-gateway`** — the cutover was attempted and rolled back the same session.
 
 **What happened**: cutting `homelab-gateway` over to Envoy Gateway's `GatewayClass` reconciled cleanly on Envoy Gateway's side (Accepted, Programmed, all 8 HTTPRoutes attached) but every app became completely unreachable — not a 403, a full connection timeout. Ten hypotheses were tested and ruled out one by one before a clean 3-way comparison narrowed the actual scope: direct pod-IP traffic and the Service's `ClusterIP` both worked identically to any normal Kubernetes cluster; only the Service's **L2-announced LoadBalancer VIP** failed, as a plain timeout with zero drop or policy-verdict events. Full detail in `Agent.md`'s "Envoy Gateway migration attempt" section — earlier framing in this entry ("general Cilium policy-realization defect") was superseded by this narrower finding; that broader theory turned out to be wrong.
+
+**⚠️ Root cause below is WRONG — superseded 2026-08-16.** Retained for the audit trail only; skip to the end of this section.
 
 **Root cause found (2026-08-14, later the same day)**: matches a known, unresolved upstream Cilium bug class — [cilium/cilium#44630](https://github.com/cilium/cilium/issues/44630) and [#44187](https://github.com/cilium/cilium/issues/44187), both about LoadBalancer Services silently dropping SYN packets in the eBPF datapath (no drop events, no policy verdicts) when the L2-announce lease and the Service's backend pod land on the **same node**. Both closed without a real fix (one stale-bot-closed, one closed as a duplicate/config issue with a community workaround, not a resolution). This cluster is single-node, so any *new* LoadBalancer Service is unavoidably exposed — the lease has nowhere else to land. Cilium's own `homelab-gateway` doesn't hit it because its L7LB traffic never takes that eBPF same-node-DNAT path (Envoy owns the socket directly). **Not fixable from this repo** short of adding more nodes (the documented community workaround needs a dedicated L2-announce node pool, disjoint from backend nodes) or an eventual upstream fix.
 
@@ -111,12 +119,40 @@ Mapped onto this cluster, the architecture was **already chosen correctly** — 
 
 **To pick this up**: the OPA `ExternalAuth` gate fix above **did not end up depending on this** — it landed via a Gateway API CRD upgrade on Cilium's own native Gateway instead, so Envoy Gateway is no longer a prerequisite for anything currently blocked. The "everything 403" issue that partly motivated ADR-001's urgency also turned out not to be a real problem (see above) — Cilium's own Gateway is confirmed working correctly for real traffic. Given that, and the `privileged: true` trade-off above, there's currently no pressing reason to pursue this cutover.
 
-**If it's picked up anyway, the plain `LoadBalancer` path (Cilium LB-IPAM + L2Announce) is a dead end on this cluster** — it hits the unresolved upstream same-node-LB bug above, and there's no workaround short of adding nodes. The only viable path is `hostNetwork`+`NodePort`, which needs an explicit decision to accept `privileged: true`, not another round of security-context guessing. Concrete steps, once that's decided:
+**Superseded — see below.** The step list that stood here declared the plain `LoadBalancer` path "a dead end on this cluster" and made accepting `securityContext.privileged: true` the gating decision. Both premises were wrong.
 
-1. **Decide to accept `securityContext.privileged: true`** on Envoy Gateway's data-plane pod. This is the actual decision point — everything below is just implementation.
-2. Set `envoy-gateway-system` namespace `pod-security.kubernetes.io/enforce` back to `privileged` (currently `restricted`) — required to admit a `privileged: true` + `hostNetwork` pod at all.
-3. `EnvoyProxy` CRD (`28-envoy-gateway/config/envoyproxy.yaml`): set `envoyDeployment.patch` to `hostNetwork: true` + `dnsPolicy: ClusterFirstWithHostNet` + container `securityContext.privileged: true`; `envoyService.type: NodePort` (not the current `LoadBalancer` form); `useListenerPortAsContainerPort: true`; `extraArgs: [--base-id, "1"]` (avoids a Unix-socket collision with Cilium's own embedded Envoy, which also runs `hostNetwork` with the default `--base-id 0`).
-4. `Gateway.spec.addresses` pinned to `192.168.178.100` on `homelab-gateway` — the node's Kubernetes-registered `InternalIP` is its Tailscale address (`100.95.245.36`), not its LAN one, so this is needed for `external-dns` to keep publishing the LAN IP (matches the earlier decision to keep DNS consistent with other apps rather than switch to the Tailscale IP).
-5. Cut `Gateway.spec.gatewayClassName` from `cilium` to Envoy Gateway's class — the actual traffic switch. Should be near-instant since all 9 `HTTPRoute`s are portable Gateway API objects needing no changes.
-6. Verify per app: TLS, routing, and specifically that OPA's `ExternalAuth` filter still works through Envoy Gateway — it's attached to the `HTTPRoute`, not the Gateway implementation, so it should carry over, but Envoy Gateway's own support for this exact filter type hasn't been confirmed here yet.
-7. Have the rollback ready *before* starting (same steps as today's rollback: revert `gatewayClassName`, LB-IPAM/L2Announce labels back to Cilium's own, namespace PSS) — production works correctly right now and shouldn't be put at risk casually.
+### Real root cause found (2026-08-16) — a network policy on the wrong ports
+
+**The finding**: `allow-world-ingress` (`28-envoy-gateway/operator/cilium-policy.yaml`) permitted ports **80/443** on the Envoy Gateway data-plane pods. Those are the Gateway *listener* ports, not the ports the pods listen on. Envoy Gateway defaults to `useListenerPortAsContainerPort: false`, remapping any listener port below 1024 to **port+10000** so the proxy never needs `CAP_NET_BIND_SERVICE` — listener 80 is served on **10080**, 443 on **10443**. External traffic hitting the LoadBalancer VIP is DNAT'd straight to the pod, so it arrives on 10080/10443 and the policy never matched. Every SYN was dropped with `policy-verdict:none INGRESS DENIED`.
+
+**Why it hid for two days**: the policy existed, and its `endpointSelector` matched the pods correctly — nothing in the manifests looked wrong on inspection. A policy that matches the endpoint but **not the port** fails as a *silent connection timeout*, indistinguishable from a datapath bug unless you read the port number in the Hubble verdict. That is how it came to be blamed first on upstream `cilium#44630` and then on a kube-proxy/nftables conflict.
+
+**How it was proven**, in order, against the live cluster:
+
+1. The kube-proxy/flannel hypothesis was eliminated first — both disabled in the Talos machineconfig, DaemonSets deleted, node rebooted. A fresh test LoadBalancer VIP still timed out.
+2. `cilium-dbg service list` showed the frontend correctly programmed with an active backend, so the eBPF LB entry was never the problem.
+3. The same VIP was reachable **from inside the cluster** — proving the DNAT works.
+4. `hubble observe` during an *external* request showed the verdict with the port in it: `(world) <> …:10080 policy-verdict:none INGRESS DENIED (TCP Flags: SYN)`.
+5. Correcting the ports to 10080/10443 turned that into **`200` in 0.007 s** from a real external LAN client.
+
+Step 6 was run against a **throwaway `Gateway` on the `envoy-gateway` class with its own VIP**, so production was never touched. Cilium's own `homelab-gateway` is exempt from the whole issue because its VIP backend is `127.0.0.1:13410` — a TPROXY handoff into the node-local Envoy socket rather than a pod IP, which bypasses pod ingress policy entirely.
+
+**Testing gotcha — read before repeating this**: verify the test VIP is genuinely unused. `192.168.178.201` and `.202` are already held by a LAN device with MAC `b4:fc:7d:71:4f:f9`; ARP resolved to *that host*, packets never reached the node, and the symptom was indistinguishable from a datapath bug. The node's `enp2s0` MAC is `6c:3c:8c:04:34:b0` — confirm ARP resolves to it before concluding anything. Free at time of writing: `.203`–`.206`, `.210`–`.212`, `.215`, `.220`–`.222`.
+
+**What this changes**:
+
+- The `LoadBalancer` path is **viable**. `hostNetwork` + `NodePort` is not needed.
+- Therefore `securityContext.privileged: true` is **not needed**, and `envoy-gateway-system` stays at PSS `restricted`.
+- The Talos SELinux privileged-port finding above is still accurate, but only ever applied to the `hostNetwork` path, which is no longer on the table.
+- Adding nodes is not required.
+
+**Corrected steps for the cutover**:
+
+1. ~~Fix the ingress policy ports.~~ **Done 2026-08-16** — `allow-world-ingress` now allows 10080/10443. This one line is what caused the original failure.
+2. `EnvoyProxy` (`28-envoy-gateway/config/envoyproxy.yaml`): keep `envoyService.type: LoadBalancer` and `externalTrafficPolicy: Cluster`. **Single replica** — a 2-replica + `podAntiAffinity` shape cannot schedule on a one-node cluster.
+3. Label the Envoy Gateway Service so the existing `gateway-pool` `CiliumLoadBalancerIPPool` and `CiliumL2AnnouncementPolicy` select it, so it inherits `192.168.178.200` and `external-dns` keeps publishing unchanged records. Note the pool holds a single `/32`, so plan the handover rather than letting both Services contend for it.
+4. Cut `Gateway.spec.gatewayClassName` from `cilium` to `envoy-gateway`. All 9 `HTTPRoute`s are portable and need no changes.
+5. Migrate the OPA gate from the HTTPRoute `ExternalAuth` filter to Envoy Gateway's native `SecurityPolicy.extAuth`, and add `SecurityPolicy.oidc` for Keycloak. Edge OIDC is the actual reason to run Envoy Gateway — it closes the Hubble UI / KubeOpenCode gap that Cilium's Gateway cannot, without a per-app proxy.
+6. Keep the rollback ready before starting: revert `gatewayClassName`, and the LB-IPAM/L2Announce labels back to Cilium's own.
+
+Note on `Gateway.spec.addresses`: the old step list pinned `192.168.178.100`, which was only correct for the abandoned NodePort path — `.100` is the **node's own LAN IP**. On the LoadBalancer path the VIP stays `192.168.178.200`, which is also what the Tailscale subnet router advertises (`TS_ROUTES=192.168.178.200/32`). Changing it would require updating the router too.
