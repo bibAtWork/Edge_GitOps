@@ -28,7 +28,10 @@
     ]
   },
   "kubernetes": {
-    "enabled": false
+    "enabled": true,
+    "managerFilePatterns": [
+      "/cluster/.+\\.yaml$/"
+    ]
   },
   "customManagers": [
     {
