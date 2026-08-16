@@ -367,10 +367,23 @@ data:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: keycloak-setup
+  # The run-id is embedded in the name, not just carried as an annotation.
+  # Job.spec.template is immutable, so if a bump ever changes the pod spec
+  # (a new env var, a new secretKeyRef — exactly what added HUBBLE_CLIENT_SECRET
+  # and KUBEOPENCODE_CLIENT_SECRET here did) while the previous Job with the
+  # same name still exists, kustomize-controller's server-side apply fails
+  # outright on the immutable field. That failure blocks the whole flux-system
+  # Kustomization, not just this one, since Job/keycloak/keycloak-setup itself
+  # is on the reconcile path — confirmed live 2026-08-16, all Flux
+  # reconciliation stopped until the stale Job was deleted by hand. Because
+  # this Kustomization runs with prune: true, renaming on every bump lets Flux
+  # safely garbage-collect the old-named Job instead of trying to patch it in
+  # place, so this failure mode can't recur.
+  name: keycloak-setup-5
   namespace: keycloak
   annotations:
-    # Increment this value to re-run the job after merging config changes
+    # Bump the numeric suffix on metadata.name above (not just here) to
+    # re-run the job after merging config changes.
     run-id: "5"
 spec:
   backoffLimit: 6
