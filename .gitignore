@@ -44,3 +44,11 @@ secrets.yaml
 # Ansible retry files
 *.retry
 ansible/.ansible_retry
+
+# Security review notes — local only, never published.
+# This repository is public; review findings name live, unremediated weaknesses
+# and must not leave the workstation. Keep the working copy at
+# docs/security-review.md and reference it from committed docs by name only,
+# never by quoting its contents.
+docs/security-review.md
+docs/security-review-*.md
