@@ -29,6 +29,15 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       namespace: kubeopencode-system
+    # Envoy Gateway's SecurityPolicy carries the same cross-namespace backendRef
+    # to this Service, and is subject to the same ReferenceGrant requirement —
+    # without this entry it reconciles as
+    # `Accepted=False (Invalid): ExtAuth: backend ref to Service security/opa not
+    # permitted by any ReferenceGrant`. One entry covers every app, since the
+    # policy attaches to the Gateway rather than to each route.
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: gateway-system
   to:
     - group: ""
       kind: Service
