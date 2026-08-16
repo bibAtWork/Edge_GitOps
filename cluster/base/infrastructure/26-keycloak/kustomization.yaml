@@ -7,5 +7,8 @@ resources:
   - keycloak-secret.yaml
   - keycloak-admin-user-secret.yaml
   - paperless-client-secret.yaml
+  - hubble-client-secret.yaml
+  - kubeopencode-client-secret.yaml
+  - securitypolicy-referencegrant.yaml
   - setup-job.yaml
   - cilium-policy.yaml

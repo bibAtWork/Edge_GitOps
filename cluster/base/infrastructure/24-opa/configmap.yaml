@@ -28,13 +28,27 @@ data:
         t := substring(req_http.headers.authorization, count("Bearer "), -1)
     }
 
+    # Signature, issuer and expiry are checked separately rather than via
+    # io.jwt.decode_verify's constraints. decode_verify treats a missing "aud"
+    # constraint as "the token must have NO aud claim" — so with no aud listed
+    # here it rejects every token that HAS one. Keycloak stamps aud on any
+    # access token issued through a client (aud: "account" by default), so the
+    # previous decode_verify form rejected every real client token with
+    # "Invalid or expired token", while a raw signature check on the identical
+    # token passed. Proven 2026-08-16: same token, verify_rs256 -> true,
+    # decode_verify without aud -> false; a token with no aud claim passed both.
+    #
+    # Pinning a literal aud here instead would be brittle — each client gets a
+    # different audience, and this gate fronts every app. Verifying the
+    # signature and then asserting issuer and expiry explicitly is both robust
+    # across clients and easier to audit. exp is seconds, time.now_ns() is
+    # nanoseconds, hence the scaling.
     jwt_payload := payload if {
         bearer_token
-        [valid, _, payload] := io.jwt.decode_verify(bearer_token, {
-            "cert": jwks_response.raw_body,
-            "iss": keycloak_issuer,
-        })
-        valid == true
+        io.jwt.verify_rs256(bearer_token, jwks_response.raw_body)
+        [_, payload, _] := io.jwt.decode(bearer_token)
+        payload.iss == keycloak_issuer
+        time.now_ns() < payload.exp * 1000000000
     }
 
     # ── Role mapping ──────────────────────────────────────────────────────────
