@@ -5,6 +5,15 @@
 # LoadBalancer traffic delivery once Envoy Gateway's proxy pods can land on any
 # node — moot on the current single-node cluster, but matches the existing
 # 3-node overlay and avoids a silent trap if that overlay is used later.
+#
+# Deliberately NOT set here: hostNetwork, useListenerPortAsContainerPort, and
+# securityContext.privileged. An earlier plan reached for all three to bind 443
+# directly, which Talos's SELinux pod_t confinement only permits under
+# privileged: true. That whole path was abandoned once the real cutover blocker
+# turned out to be a network policy on the wrong ports (see docs/backlog.md,
+# "Real root cause found (2026-08-16)"). Keeping the default port remapping —
+# listener 80 -> container 10080, 443 -> 10443 — means the proxy never needs
+# CAP_NET_BIND_SERVICE, and envoy-gateway-system stays at PSS restricted.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
@@ -14,9 +23,27 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      envoyDeployment:
+        # Single replica: this cluster is one node. A 2-replica deployment with a
+        # required podAntiAffinity on kubernetes.io/hostname — the shape the
+        # draft ADRs specified — leaves the second pod Pending forever. Revisit
+        # together with the 3-node overlay, not before.
+        replicas: 1
       envoyService:
         patch:
           type: StrategicMerge
           value:
+            metadata:
+              # Reuses the existing gateway-pool CiliumLoadBalancerIPPool and
+              # gateway-announce CiliumL2AnnouncementPolicy, both of which select
+              # on this label and already own 192.168.178.200. Reusing them keeps
+              # the VIP, and therefore every external-dns record and the Tailscale
+              # subnet router's advertised route (TS_ROUTES=192.168.178.200/32),
+              # unchanged across the cutover.
+              #
+              # The label is Cilium-Gateway-flavoured but is only ever read as a
+              # selector, so it carries no behaviour of its own here.
+              labels:
+                io.cilium.gateway/owning-gateway: homelab-gateway
             spec:
               externalTrafficPolicy: Cluster

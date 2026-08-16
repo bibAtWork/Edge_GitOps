@@ -1,0 +1,39 @@
+# OPA authorization gate for Envoy Gateway.
+#
+# Replaces the per-HTTPRoute Gateway API `ExternalAuth` filter (GEP-1494) that
+# gates traffic today on Cilium's Gateway. Envoy Gateway does not implement that
+# filter — it rejects the route outright with
+# `Accepted=False (UnsupportedValue): Invalid filter ExternalAuth: unsupported
+# filter type ExternalAuth`, verified live 2026-08-16 — so the filters must come
+# off the 6 app HTTPRoutes in the same change that flips the GatewayClass, or
+# every gated route stops resolving.
+#
+# Attaching to the Gateway rather than to each HTTPRoute is a deliberate
+# simplification: ext_authz then runs once at the listener, before routing, so a
+# new app is covered the moment its route attaches instead of needing its own
+# filter block. It also means a request for an unrouted hostname is authorized
+# before it can 404, which is why an unauthorized host returns OPA's own
+# `{"error":"Forbidden"}` body.
+#
+# Verified live against a throwaway Gateway on this class (production untouched):
+#   zot    -> 200 (OPA allows, request reaches the backend)
+#   hubble -> 403 with OPA's own JSON body, proving OPA is consulted and its
+#             deny propagates intact rather than being a generic network block
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: homelab-gateway-authz
+  namespace: gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: homelab-gateway
+  extAuth:
+    grpc:
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: opa
+          namespace: security
+          port: 9191
