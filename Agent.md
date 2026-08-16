@@ -762,6 +762,67 @@ valid stand-in and will produce false-negative 403s that look identical to a rea
 
 ---
 
+## Envoy Gateway cutover (2026-08-16) — two mechanisms that made it safe, not obvious from the manifests
+
+The switch from Cilium's embedded `GatewayClass` to Envoy Gateway (`docs/adr/0001-...md`,
+`#126`) depended on two behaviors that aren't visible just from reading the YAML. Know
+both before touching `homelab-gateway`'s Gateway implementation, the `gateway-pool`
+`CiliumLoadBalancerIPPool`, or `gateway-announce` `CiliumL2AnnouncementPolicy` again.
+
+### 1. The VIP survives a Gateway-implementation swap only because of a shared label
+
+`gateway-pool` and `gateway-announce` both select on
+`io.cilium.gateway/owning-gateway: homelab-gateway`. That label is Cilium-Gateway-flavoured
+in name only — nothing reads it as anything but an opaque selector key. The `EnvoyProxy`
+resource (`28-envoy-gateway/config/envoyproxy.yaml`) patches this exact label onto the
+`Service` Envoy Gateway generates, which is the entire reason `192.168.178.200` stayed the
+same across the cutover with no DNS change and no re-approval of the Tailscale advertised
+route.
+
+**If this label is ever renamed or dropped** from the `EnvoyProxy` patch (e.g. during a
+Helm chart upgrade that changes the patch shape, or a "clean up this weird label" pass),
+the generated Service falls out of both the IP pool and the L2 announcement policy
+simultaneously. It will not error — it will silently get no LoadBalancer IP at all, or get
+one from a different pool if one exists. Check `kubectl get svc -n envoy-gateway-system -l
+gateway.envoyproxy.io/owning-gateway-name=homelab-gateway -o wide` and confirm the
+`EXTERNAL-IP` is still `192.168.178.200` after any change here.
+
+### 2. L2 announcement is only evaluated at Service create/update time — policy-first ordering is load-bearing
+
+**Proven live, 2026-08-16**, by direct experiment: Cilium's L2 announcement controller
+does not continuously re-evaluate existing Services against announcement policies. It only
+evaluates a Service against `CiliumL2AnnouncementPolicy` selectors at the moment the
+Service is created or updated.
+
+| Order tested | LB IP assigned (IPAM) | L2 lease created (announcement) |
+|---|---|---|
+| Service created, *then* a matching policy created | yes | **never** |
+| Matching policy already exists, *then* Service created | yes | **~8s, ARP resolves correctly** |
+
+This is a real trap, not a theoretical one: `status.loadBalancer.ingress[0].ip` gets
+populated either way, so `kubectl get svc` looks completely healthy in the broken case too.
+The only visible symptom is a connection timeout with **no** Hubble drop event and **no**
+policy verdict — the request never reaches the eBPF datapath's policy check because it
+never reaches the node at all (no ARP entry, confirmed via `arp -a` on an external client).
+This looks identical to the same-node-LoadBalancer upstream Cilium bug class
+(`cilium/cilium#44630`) that was wrongly blamed for the original 2026-08-14 cutover
+failure — don't repeat that misdiagnosis. Check for a missing/stale L2 lease
+(`kubectl get lease -n kube-system | grep l2announce`) before reaching for that theory
+again.
+
+**Why the actual cutover was safe**: `gateway-announce` already existed (since
+2026-07-26) with a matching selector *before* Envoy Gateway's Service was ever created, so
+the cutover landed on the working side of this ordering by construction, not by luck. Any
+**future** LoadBalancer Service in this cluster needs its
+`CiliumL2AnnouncementPolicy`/`CiliumLoadBalancerIPPool` applied **first**, or reconciled
+manually (delete + recreate the Service) if the policy arrives second. A throwaway test
+Service used to explore this exact failure mode should always be deleted immediately after
+use — do not leave orphaned `lb-test`/`eg-probe`-style resources around; check `kubectl get
+ciliumloadbalancerippool,ciliuml2announcementpolicy -A` for anything not named
+`gateway-pool`/`gateway-announce` before ending a session that touched this area.
+
+---
+
 ## Prevention checklist for future policy changes
 
 Before adding or removing any `CiliumNetworkPolicy` or `CiliumClusterwideNetworkPolicy`
