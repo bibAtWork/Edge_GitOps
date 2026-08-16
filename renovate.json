@@ -22,7 +22,8 @@
     "fileMatch": ["cluster/.+helmrelease\\.yaml$"]
   },
   "kubernetes": {
-    "enabled": false
+    "enabled": true,
+    "fileMatch": ["cluster/.+\\.yaml$"]
   },
   "regexManagers": [
     {
