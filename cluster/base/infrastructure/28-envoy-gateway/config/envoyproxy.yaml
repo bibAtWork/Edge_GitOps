@@ -20,6 +20,27 @@ metadata:
   name: envoy-gateway-config
   namespace: envoy-gateway-system
 spec:
+  # Envoy Gateway's documented default HTTP filter order runs ext_authz BEFORE
+  # oauth2. That is backwards for any route needing both (SecurityPolicy.oidc
+  # + SecurityPolicy.extAuth on the same route, e.g. hubble-ui,
+  # kubeopencode — see 05-cilium/config/hubble-securitypolicy.yaml): with
+  # ext_authz first, an unauthenticated request hits OPA before oauth2 ever
+  # gets a chance to redirect to Keycloak, and OPA denies it outright (its
+  # admin_only_apps rule has no session to check yet) — the login redirect
+  # never happens, just an unconditional 403. Confirmed live 2026-08-16: with
+  # the default order, the very first unauthenticated request returned 403
+  # with no Location header at all.
+  #
+  # This reorders oauth2 before ext_authz globally, which is safe here because
+  # only routes with BOTH filters enabled are affected — every other route
+  # (grafana, zot, etc.) only has ext_authz in its per-route config, so
+  # oauth2's position in the overall chain is irrelevant to them. Result:
+  # unauthenticated -> oauth2 redirects to Keycloak (ext_authz never reached);
+  # authenticated -> oauth2 forwards the access token as an Authorization
+  # header -> ext_authz (OPA) evaluates it and applies admin_only_apps.
+  filterOrder:
+    - name: envoy.filters.http.oauth2
+      before: envoy.filters.http.ext_authz
   provider:
     type: Kubernetes
     kubernetes:
