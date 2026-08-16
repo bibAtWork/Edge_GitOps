@@ -4,6 +4,27 @@ Known open issues that aren't yet fixed. Not a full project backlog — just thi
 
 ---
 
+## Trivy CVE gate auto-merges non-zero-CVSS images, and runs 5x redundantly per PR
+
+Found 2026-08-16 while reviewing the first two Renovate PRs to land after the `kubernetes` manager was enabled (#131/#132) — [`chore(deps): update rancher/local-path-provisioner docker tag to v0.0.37`](../../pull/134) and [`chore(deps): update amazon/aws-cli docker tag to v2.36.24`](../../pull/133).
+
+**The gate's own comment on #134**:
+
+| | Image | Max CVSS (CRITICAL+HIGH) |
+|---|---|---|
+| Current | `rancher/local-path-provisioner:v0.0.36` | 8.8 |
+| Proposed | `rancher/local-path-provisioner:v0.0.37` | **8.2** |
+
+Auto-merged anyway — rule **3c** is "update doesn't worsen CVE posture" (`old_cvss=8.8 new_cvss=8.2`), not "CVE posture is acceptable." An image can auto-merge while still carrying a HIGH-severity CVE indefinitely, as long as each successive update is monotonically no-worse than the last. `local-path-provisioner` is a meaningful one to catch this on: it's the cluster's only real `StorageClass`, runs in the one namespace forced to PSS `privileged` (see `docs/network-architecture.md`), and backs all 17 app PVCs (Immich, Keycloak, Paperless, Grafana, VictoriaMetrics, Zot, KubeOpenCode). `aws-cli`'s companion PR (#133), by contrast, went `9.1 → 0` — a real fix — so the gate does work correctly when a clean version exists; it's specifically the "stuck at HIGH forever" case that isn't distinguished from "used to be worse, now merely bad."
+
+**Separately**: `trivy-gate` ran **5 times** for the identical commit on both PRs (confirmed via `check-runs` — 5 runs within a ~2-second window, `2026-08-16T21:23:10Z`–`21:23:12Z` on #134), each posting its own comment. Pure noise today (all 5 agreed), but redundant Actions minutes on every single Renovate PR and a latent risk if a future 6th run ever disagreed with the other 5 (which comment would `gh pr checks` / the merge decision honor?). Root cause not yet investigated — likely duplicate workflow triggers (e.g. both `pull_request` and `pull_request_target`, or Renovate's automerge polling re-triggering the check) rather than anything content-dependent.
+
+**Not fixed yet.** Worth doing before the next batch of `kubernetes`-manager-sourced PRs lands (dozens are enumerated in the Dependency Dashboard):
+1. Decide the actual policy for "stuck at HIGH/CRITICAL with no clean version available" — auto-merge-with-a-tracking-label, hold for manual review, or a CVSS ceiling regardless of direction — and encode whichever is chosen into rule 3c.
+2. Find and dedupe the 5x `trivy-gate` trigger.
+
+---
+
 ## OPA `ext_authz` gate is inert for every app behind the Gateway
 
 **Status:** Fixed 2026-08-14 — see dated section below. Sections above that date describe the original bug and are kept for history.
