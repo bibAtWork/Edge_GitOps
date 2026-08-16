@@ -14,6 +14,32 @@ cluster:
   # Required on single-node: no worker nodes, so control-plane must run all workloads
   allowSchedulingOnControlPlanes: true
 
+  # Cilium is the CNI (installed by the inlineManifest below) and runs with
+  # kubeProxyReplacement: true. Without these two stanzas Talos also deploys its
+  # own defaults — flannel and kube-proxy — and both ran alongside Cilium for 35
+  # days (security review 2026-08-14, finding H3).
+  #
+  # This is not merely redundant. kube-proxy independently programs nftables DNAT
+  # for the same Services Cilium handles in eBPF, logging "Deleting stale nftables
+  # chains" on every reconcile — two datapaths racing for the same traffic.
+  #
+  # It also removes two privileged host-network workloads: kube-proxy runs
+  # privileged: true, flannel holds NET_ADMIN + NET_RAW.
+  #
+  # Note: this was initially suspected of causing the LoadBalancer-VIP failure that
+  # blocked the Envoy Gateway cutover. It is not — after this change was applied and
+  # the node rebooted, the VIP still failed. The real cause was a missing
+  # world-ingress CiliumNetworkPolicy on the backend pods (verified 2026-08-16).
+  #
+  # Talos stops rendering the manifests but never deletes already-deployed
+  # DaemonSets, and kube-proxy's nftables table survives its own deletion — so
+  # applying this requires deleting both DaemonSets and rebooting the node.
+  network:
+    cni:
+      name: none
+  proxy:
+    disabled: true
+
   etcd:
     advertisedSubnets:
       - 192.168.178.0/24

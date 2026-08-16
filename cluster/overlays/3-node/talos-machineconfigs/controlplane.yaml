@@ -15,6 +15,21 @@ cluster:
   # Workers handle workloads on 3-node; control-plane taint stays active
   allowSchedulingOnControlPlanes: false
 
+  # Cilium is the CNI (installed by the inlineManifest below) and runs with
+  # kubeProxyReplacement: true. Without these two stanzas Talos also deploys its
+  # own defaults — flannel and kube-proxy — which then conflict with Cilium:
+  # kube-proxy programs nftables DNAT for the same Services Cilium handles in
+  # eBPF. See the 1-node overlay's copy of this comment for the full rationale
+  # (security review 2026-08-14, finding H3).
+  #
+  # Kept identical across both overlays so the 3-node profile never reintroduces
+  # the conflict — it was verified on 1-node, but the defect is profile-agnostic.
+  network:
+    cni:
+      name: none
+  proxy:
+    disabled: true
+
   etcd:
     advertisedSubnets:
       - 192.168.178.0/24
