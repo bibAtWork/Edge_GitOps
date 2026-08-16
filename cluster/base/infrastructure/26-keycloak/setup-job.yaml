@@ -29,6 +29,8 @@ data:
     KEYCLOAK_ADMIN_PASSWORD = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
     GRAFANA_CLIENT_SECRET = os.environ["GRAFANA_CLIENT_SECRET"]
     PAPERLESS_CLIENT_SECRET = os.environ["PAPERLESS_CLIENT_SECRET"]
+    HUBBLE_CLIENT_SECRET = os.environ["HUBBLE_CLIENT_SECRET"]
+    KUBEOPENCODE_CLIENT_SECRET = os.environ["KUBEOPENCODE_CLIENT_SECRET"]
     ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
     ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
 
@@ -149,6 +151,45 @@ data:
         "redirectUris": ["https://paperless.homelab.data-harness.org/accounts/oidc/keycloak/login/callback/"],
         "webOrigins": ["https://paperless.homelab.data-harness.org"],
     }, PAPERLESS_CLIENT_SECRET)
+
+    # Hubble UI and KubeOpenCode have no native OIDC of their own. Envoy
+    # Gateway's SecurityPolicy.oidc performs the browser login on their behalf
+    # at the edge and forwards the access token upstream, where OPA's
+    # admin_only_apps rule authorizes it. Both are confidential clients, so
+    # PKCE is not the primary protection (same reasoning as paperless above).
+    # redirectUris must match the /oauth2/callback path Envoy Gateway uses by
+    # default — it is not configurable per app without setting redirectURL.
+    ensure_client({
+        "clientId": "hubble",
+        "enabled": True,
+        "name": "Hubble UI",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {},
+        "redirectUris": ["https://hubble.homelab.data-harness.org/oauth2/callback"],
+        "webOrigins": ["https://hubble.homelab.data-harness.org"],
+    }, HUBBLE_CLIENT_SECRET)
+
+    ensure_client({
+        "clientId": "kubeopencode",
+        "enabled": True,
+        "name": "KubeOpenCode",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {},
+        "redirectUris": ["https://kubeopencode.homelab.data-harness.org/oauth2/callback"],
+        "webOrigins": ["https://kubeopencode.homelab.data-harness.org"],
+    }, KUBEOPENCODE_CLIENT_SECRET)
 
     # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
     # Client scopes are realm-wide reusable objects. Keycloak rejects any
@@ -330,7 +371,7 @@ metadata:
   namespace: keycloak
   annotations:
     # Increment this value to re-run the job after merging config changes
-    run-id: "4"
+    run-id: "5"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -365,6 +406,16 @@ spec:
                 secretKeyRef:
                   name: keycloak-paperless-oidc
                   key: paperless-client-secret
+            - name: HUBBLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-hubble-oidc
+                  key: hubble-client-secret
+            - name: KUBEOPENCODE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-kubeopencode-oidc
+                  key: kubeopencode-client-secret
             - name: ADMIN_USER_EMAIL
               value: admin@homelab.internal
             - name: ADMIN_USER_PASSWORD

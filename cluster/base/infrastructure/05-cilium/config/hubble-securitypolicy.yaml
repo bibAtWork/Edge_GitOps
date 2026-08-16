@@ -1,0 +1,68 @@
+# Real per-user Keycloak login for Hubble UI, closing the gap OPA's
+# admin_only_apps rule (24-opa/configmap.yaml) could only cover with a blanket
+# 403 — no native OIDC integration means Hubble UI never had a login page to
+# redirect to, so every request was denied unconditionally, admin or not.
+#
+# forwardAccessToken injects the Keycloak access token as an
+# Authorization: Bearer header on the upstream request. Envoy Gateway's OIDC
+# filter runs before the extAuth filter in the chain, so this header reaches
+# OPA's ext_authz check on the same request. No Rego change is needed: OPA
+# already treats a valid Bearer token as the non-browser identity path and
+# checks jwt_payload.email against admin_emails via the existing
+# admin_only_apps rule — that logic was already written for exactly this
+# case, it just never had a real token to see before now.
+#
+# extAuth MUST be repeated here, not left to 28-envoy-gateway/config/
+# securitypolicy.yaml's Gateway-scoped policy. SecurityPolicy attachment in
+# Envoy Gateway is REPLACE at the per-route level, not MERGE — a route with
+# its own SecurityPolicy loses the Gateway-level one's effect entirely.
+# Confirmed live 2026-08-16: without this block, Envoy's own /config_dump
+# showed no ext_authz filter at all in this route's typed_per_filter_config
+# — meaning OPA's admin_only_apps check was never invoked, and ANY
+# successfully-authenticated Keycloak user (not just admins) would reach
+# Hubble UI. This was caught before merge, not after.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: hubble-oidc
+  namespace: kube-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hubble-ui
+  oidc:
+    provider:
+      issuer: https://keycloak.homelab.data-harness.org/realms/homelab
+      # Browser-facing: the client is redirected here directly, so this must
+      # be the public hostname. Envoy itself never connects to this URL.
+      authorizationEndpoint: https://keycloak.homelab.data-harness.org/realms/homelab/protocol/openid-connect/auth
+      # Envoy-facing: Envoy calls this and the discovery/JWKS endpoints itself,
+      # over backendRefs below (internal Service, not through the Gateway) —
+      # http, not https, matching Keycloak's internal listener.
+      tokenEndpoint: http://keycloak.keycloak.svc.cluster.local/realms/homelab/protocol/openid-connect/token
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: keycloak
+          namespace: keycloak
+          port: 80
+    clientID: hubble
+    clientSecret:
+      name: hubble-oidc-client-secret
+    forwardAccessToken: true
+    # No PKCE requirement on the Keycloak client side (see
+    # 26-keycloak/setup-job.yaml's ensure_client for the precedent) — this is
+    # a confidential client with its own secret, so PKCE isn't the primary
+    # protection here.
+    scopes:
+      - openid
+      - email
+  extAuth:
+    grpc:
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: opa
+          namespace: security
+          port: 9191
