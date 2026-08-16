@@ -4,7 +4,7 @@ metadata:
   name: homelab-gateway
   namespace: gateway-system
 spec:
-  gatewayClassName: cilium
+  gatewayClassName: envoy-gateway
   listeners:
     - name: https
       port: 443
