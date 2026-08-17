@@ -83,15 +83,15 @@ spec:
 # concurrent scan pod.
 #
 # Sized down from #160's 4Gi/2Gi/2cpu/15pods once the real cause (above) was
-# fixed, but not all the way back to the original 2Gi: verified live that
-# scanJobsConcurrentLimit is enforced per scanner type, not globally --
-# vulnerabilityScanner, configAuditScanner, and rbacAssessmentScanner can each
-# have their own scan Job in flight at once, so up to ~3 concurrent Jobs is
-# the real worst case, not 1. Confirmed at 2Gi this still produced occasional
-# (harmless -- retried and succeeded, zero app impact) rejections under a
-# forced burst deliberately larger than anything realistic. 3Gi covers the
-# operator (512Mi) plus 3 concurrent Jobs at up to ~830Mi each with real
-# margin, still well short of #160's 4Gi.
+# fixed. scanJobsConcurrentLimit: 1 is enforced per scanner type (verified
+# live), not globally, so vulnerabilityScanner/configAuditScanner/
+# rbacAssessmentScanner can each have one Job in flight at once -- up to ~3
+# concurrent, not a strict 1. At this 2Gi cap that occasionally produced
+# rejections under a forced burst deliberately larger than anything
+# realistic -- harmless (the operator's reconcile loop retried them and they
+# succeeded once earlier Jobs freed memory, zero app impact), and accepted as
+# the tradeoff: prioritizing a tight, easy-to-reason-about quota over paying
+# for headroom against a burst this large.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -100,8 +100,8 @@ metadata:
 spec:
   hard:
     requests.cpu: "1"
-    requests.memory: 1500Mi
-    limits.memory: 3Gi
+    requests.memory: 1Gi
+    limits.memory: 2Gi
     pods: "12"
 ---
 apiVersion: v1
