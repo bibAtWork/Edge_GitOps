@@ -92,6 +92,21 @@ spec:
           gnetId: 17813
           revision: 1
           datasource: VictoriaMetrics
+        # Backlog item 13 / ADR-001 "not yet realized": Envoy Gateway's own
+        # observability. Official envoy-mixin-project dashboards, matching the
+        # two scrape targets in 02-victoriametrics-stack/scrape-configs.yaml —
+        # control plane (envoy-gateway-controller) and data plane
+        # (envoy-gateway-proxy). Both use a `job` template variable populated
+        # from label_values(), not a hardcoded job name, so they work
+        # regardless of the exact job label our scrape configs set.
+        envoy-gateway-overview:
+          gnetId: 24460
+          revision: 1
+          datasource: VictoriaMetrics
+        envoy-overview:
+          gnetId: 24459
+          revision: 3
+          datasource: VictoriaMetrics
 
     alerting:
       rules.yaml:
