@@ -33,17 +33,26 @@ talosctl  kubectl  flux  sops  age  terraform  python3
 
 ## Decision Tree
 
-```
-Cluster is up?
-├── YES → Pods broken or data lost?
-│         ├── Namespace only → Scenario A: Namespace restore
-│         └── Full storage corruption → Scenario B: Full recovery
-│
-└── NO → Nodes still exist (hardware OK)?
-          ├── YES → Can etcd quorum be restored?
-          │         ├── YES (>1 node healthy) → Fix etcd split-brain (outside scope)
-          │         └── NO (single surviving node, no quorum) → Scenario B: Full recovery
-          └── NO (new hardware) → Scenario B: Full recovery
+```mermaid
+flowchart TD
+    A{"Cluster is up?"}
+    A -- Yes --> B{"Pods broken or\ndata lost?"}
+    A -- No --> C{"Nodes still exist\n(hardware OK)?"}
+
+    B -- "Namespace only" --> SA["Scenario A:\nNamespace restore"]
+    B -- "Full storage corruption" --> SB1["Scenario B:\nFull recovery"]
+
+    C -- Yes --> D{"Can etcd quorum\nbe restored?"}
+    C -- "No (new hardware)" --> SB2["Scenario B:\nFull recovery"]
+
+    D -- "Yes (>1 node healthy)" --> E["Fix etcd split-brain\n(outside scope)"]
+    D -- "No (single surviving\nnode, no quorum)" --> SB3["Scenario B:\nFull recovery"]
+
+    style SA fill:#2d5016,color:#fff
+    style SB1 fill:#5c1a1a,color:#fff
+    style SB2 fill:#5c1a1a,color:#fff
+    style SB3 fill:#5c1a1a,color:#fff
+    style E fill:#7a5c1a,color:#fff
 ```
 
 ---
