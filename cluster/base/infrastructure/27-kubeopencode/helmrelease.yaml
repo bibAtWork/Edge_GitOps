@@ -127,3 +127,49 @@ spec:
                   verbs: ["create"]
                 # Removed vs. chart default: secrets (get/list/watch, cluster-wide)
                 # and impersonate on users/groups/serviceaccounts. See comment above.
+
+          # Security review 2026-08-14, finding M2: kubeopencode-controller's
+          # ClusterRole grants cluster-wide (any namespace) create/update/patch/delete
+          # on secrets, pods, services, deployments, and PVCs, plus full CRUD on
+          # coordination.k8s.io/leases -- bound cluster-wide via a ClusterRoleBinding.
+          # tasks.kubeopencode.io (and every other kubeopencode.io CRD) is namespace-
+          # scoped, and nothing -- no admission webhook, no controller-side check --
+          # stops a Task from being created in any namespace. Verified live: the
+          # controller binary (`kubeopencode controller --help`) exposes no
+          # namespace-scoping flag at all, and its only existing lease
+          # (leader-election) has only ever lived in kubeopencode-system. So the
+          # cluster-wide grant on these five resource types was never load-bearing --
+          # it's blast radius, not function: today it means a Task placed in, say,
+          # kube-system or cattle-system could make this controller create or delete
+          # Secrets/Pods/Services/Deployments there.
+          #
+          # kubeopencode.io CRD rules (get/list/watch/create/update/patch/delete on
+          # the CRs themselves, their /status, and /finalizers) stay on this
+          # ClusterRole -- the controller has no per-namespace watch/cache option, so
+          # cluster-wide List/Watch on Tasks is how it discovers work in whichever
+          # namespace kubeopencode-server creates them in, not itself a privilege
+          # issue since these are the product's own namespaced CRs. The five
+          # dangerous resource types move to a namespace-scoped Role bound only in
+          # kubeopencode-system (controller-rbac.yaml in this directory), matching
+          # where their owning Task CRs actually live today.
+          - target:
+              kind: ClusterRole
+              name: kubeopencode-controller
+            patch: |
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: ClusterRole
+              metadata:
+                name: kubeopencode-controller
+              rules:
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["agents", "agenttemplates", "contexts", "cronworkflows", "crontasks", "kubeopencodeconfigs", "registries", "tasks", "webhooktriggers", "workflows", "workflowruns"]
+                  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["agents/status", "agenttemplates/status", "contexts/status", "cronworkflows/status", "crontasks/status", "kubeopencodeconfigs/status", "registries/status", "tasks/status", "webhooktriggers/status", "workflows/status", "workflowruns/status"]
+                  verbs: ["get", "update", "patch"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["tasks/finalizers", "crontasks/finalizers", "agents/finalizers", "agenttemplates/finalizers", "registries/finalizers"]
+                  verbs: ["update"]
+                # Removed vs. chart default (now namespace-scoped in controller-rbac.yaml):
+                # configmaps, secrets, events, pods, services, persistentvolumeclaims,
+                # apps/deployments, coordination.k8s.io/leases. See comment above.
