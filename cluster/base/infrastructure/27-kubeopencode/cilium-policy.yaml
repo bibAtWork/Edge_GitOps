@@ -89,3 +89,25 @@ spec:
 # GatewayClass onto Envoy Gateway (2026-08-16, ADR-001) -- this rule had already gone back
 # to being a silent no-op. Now covered by the clusterwide allow-gateway-ingress -- see
 # 10-network-policies/allow-gateway-ingress.yaml.
+---
+# Hub-and-spoke migration (2026-08-17), PR 5/6: this namespace was missed in the original
+# audit (found only while double-checking the exclusion list against the live namespace
+# list before finalizing PR 5) and never got the same live-traffic review the other
+# namespaces did. allow-kubeopencode-to-mcp-server above already covers same-namespace
+# ingress for mcp-server specifically; this is the general fallback for the rest --
+# kubeopencode-controller, kubeopencode-server, and any Agent worker pods the controller
+# spawns (e.g. default-server), in case the web UI/API needs to reach a running worker
+# directly for a live session. No same-namespace traffic was observed in a 1000-flow
+# Hubble sample taken before this change, but that's not strong evidence of absence for a
+# dynamically-spawned worker pod with bursty traffic -- added as a precaution rather than
+# assumed safe, same reasoning as every other same-namespace rule in this migration.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: kubeopencode-system
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
