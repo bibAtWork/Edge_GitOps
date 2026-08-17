@@ -24,18 +24,27 @@ spec:
             - port: "8428"
               protocol: TCP
 ---
+# Hub-and-spoke migration (2026-08-17): covers otel-collector-gateway's ingress (from
+# otel-agent on :4317), vlsingle's and vtsingle's ingress (from otel-collector-gateway on
+# :9428/:10428) -- none of which had a dedicated rule before this, silently relying on
+# allow-cluster-internal. vmsingle doesn't need this fallback -- restrict-vmsingle-ingress
+# below already has its own precise, explicit caller list.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: allow-grafana-ingress
+  name: allow-intra-namespace-ingress
   namespace: monitoring
 spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: grafana
+  endpointSelector: {}
   ingress:
-    - fromEntities:
-        - ingress
+    - fromEndpoints:
+        - {}
+---
+# allow-grafana-ingress (fromEntities: [ingress]) removed 2026-08-17: that Cilium reserved
+# entity stopped matching anything once the Gateway moved off Cilium's own embedded
+# GatewayClass onto Envoy Gateway (2026-08-16, ADR-001) -- Grafana's actual gateway
+# reachability has been carried entirely by allow-cluster-internal since then, same as
+# immich/paperless/schenkmatch. Now covered by the clusterwide allow-gateway-ingress.
 ---
 # Restrict vmsingle (VictoriaMetrics query/write API on :8428) to authorized consumers.
 # Deny-list: kube-state-metrics, node-exporter, and otel-agent push data to vmagent/

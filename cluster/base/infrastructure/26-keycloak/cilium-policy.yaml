@@ -27,26 +27,14 @@ spec:
     - fromEndpoints:
         - {}
 ---
-# Allow the Cilium gateway to reach Keycloak (HTTP on port 8080 via HTTPRoute).
-# NOTE: selector was "app.kubernetes.io/name: keycloak" (the Helm-chart
-# convention) but this manifest's real pod label is "app: keycloak" — the
-# selector never matched, so this rule has been a silent no-op since
-# Keycloak was deployed (ingress was fully open, not gateway-restricted as
-# documented). Fixed as part of adding OPA's JWKS-fetch access below, since
-# leaving it broken while adding a second, correctly-selecting policy would
-# have flipped Keycloak's ingress to OPA-only and cut off the gateway.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-gateway-ingress
-  namespace: keycloak
-spec:
-  endpointSelector:
-    matchLabels:
-      app: keycloak
-  ingress:
-    - fromEntities:
-        - ingress
+# allow-gateway-ingress (fromEntities: [ingress]) removed 2026-08-17: that Cilium reserved
+# entity stopped matching anything once the Gateway moved off Cilium's own embedded
+# GatewayClass onto Envoy Gateway (2026-08-16, ADR-001) -- this rule had already gone back
+# to being a silent no-op (Keycloak's actual gateway reachability was carried entirely by
+# allow-cluster-internal since the cutover). Now covered by the new clusterwide
+# allow-gateway-ingress (10-network-policies/allow-gateway-ingress.yaml) -- NOT the same as
+# this file's own allow-envoy-gateway-ingress below, which is a different, OIDC-specific
+# rule (SecurityPolicy.oidc token/JWKS calls) that was already correct and untouched here.
 ---
 # Allow OPA to reach Keycloak directly for JWKS fetches (Bearer token
 # verification in 24-opa/configmap.yaml). Direct pod-to-pod, not via gateway.

@@ -1,3 +1,13 @@
+# Hub-and-spoke migration (2026-08-17): the S3 API (:8333) ingress used to be any-pod
+# (fromEndpoints: [{}]), which is what CLAUDE.md's SeaweedFS architecture note assumed was
+# "the primary auth boundary" for S3 access but wasn't actually enforcing anything -- see
+# docs/network-architecture.md section 3. Replaced with the explicit, confirmed-live caller
+# list: velero (allow-velero-egress), talos-backup (allow-talos-backup-egress), zot
+# (allow-zot-egress) all already egress to this port today. The kube-system grant is
+# dropped entirely: it was written for a SeaweedFS CSI driver
+# (allow-csi-seaweedfs-egress's own comment) that a live audit confirmed does not exist in
+# this cluster (`kubectl get csidrivers` returns nothing; every PVC in this repo uses
+# local-path-provisioner).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -13,14 +23,18 @@ spec:
             app.kubernetes.io/name: seaweedfs
             io.kubernetes.pod.namespace: seaweedfs
     - fromEndpoints:
-        - {}
+        - matchLabels:
+            io.kubernetes.pod.namespace: velero
+        - matchLabels:
+            app.kubernetes.io/name: talos-backup
+            io.kubernetes.pod.namespace: talos-backup
+        - matchLabels:
+            app.kubernetes.io/name: zot
+            io.kubernetes.pod.namespace: zot
       toPorts:
         - ports:
             - port: "8333"
               protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: kube-system
   egress:
     - toEndpoints:
         - matchLabels:

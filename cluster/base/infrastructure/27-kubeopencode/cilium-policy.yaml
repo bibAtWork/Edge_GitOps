@@ -84,17 +84,8 @@ spec:
     - toEntities:
         - kube-apiserver
 ---
-# Web UI/API server reachable via the shared homelab-gateway (see config/httproute.yaml).
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-gateway-ingress
-  namespace: kubeopencode-system
-spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: kubeopencode
-      app.kubernetes.io/component: server
-  ingress:
-    - fromEntities:
-        - ingress
+# allow-gateway-ingress (fromEntities: [ingress]) removed 2026-08-17: that Cilium reserved
+# entity stopped matching anything once the Gateway moved off Cilium's own embedded
+# GatewayClass onto Envoy Gateway (2026-08-16, ADR-001) -- this rule had already gone back
+# to being a silent no-op. Now covered by the clusterwide allow-gateway-ingress -- see
+# 10-network-policies/allow-gateway-ingress.yaml.

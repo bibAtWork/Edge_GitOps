@@ -1,0 +1,30 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-monitoring-scrape-ingress
+spec:
+  # Hub-and-spoke migration (2026-08-17): vmagent and otel-agent scrape metrics from pods in
+  # every namespace (see allow-vmagent-scrape-egress in allow-cross-namespace-egress.yaml for
+  # their egress side, already scoped the same way). This is the matching ingress half --
+  # without it, once allow-cluster-internal is gone, scraped pods would have no rule
+  # permitting the scraper to actually reach them.
+  #
+  # No toPorts: each app exposes metrics on its own port. The source selector (vmagent/
+  # otel-agent specifically) is the restriction, matching allow-vmagent-scrape-egress's own
+  # toEndpoints: [{}] tradeoff on the egress side.
+  endpointSelector:
+    matchExpressions:
+      - key: reserved.ingress
+        operator: DoesNotExist
+      - key: io.kubernetes.pod.namespace
+        operator: NotIn
+        values:
+          - cattle-system
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: vmagent
+            io.kubernetes.pod.namespace: monitoring
+        - matchLabels:
+            app.kubernetes.io/name: otel-agent
+            io.kubernetes.pod.namespace: monitoring

@@ -1,26 +1,35 @@
----
 apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-gateway-ingress
-  namespace: zot
 spec:
+  # Hub-and-spoke migration (2026-08-17): Envoy Gateway is the one thing in this cluster
+  # that genuinely needs to reach into every namespace -- it proxies every HTTPRoute-matched
+  # request to whatever backend owns that route. Before this rule, that reachability was
+  # provided entirely by the now-removed allow-cluster-internal (any pod -> any pod, any
+  # port); most backends had no ingress-from-gateway rule of their own at all (immich,
+  # paperless, schenkmatch), and the ones that did (keycloak's and kubeopencode's own
+  # allow-gateway-ingress) matched fromEntities: [ingress], a Cilium reserved entity that
+  # stopped being relevant when the Gateway moved off Cilium's own embedded GatewayClass
+  # onto Envoy Gateway (2026-08-16, ADR-001) -- Envoy Gateway's proxy is a regular pod, not
+  # that reserved entity, so those rules were already dead weight (removed alongside this).
+  #
+  # No toPorts: each backend listens on its own port (Keycloak 8080, others vary by chart),
+  # and the source selector (the gateway proxy specifically) is the actual restriction here
+  # -- same tradeoff allow-vmagent-scrape-egress already makes for its own toEndpoints: [{}].
+  #
+  # Also covers OPA's ingress need (envoy-gateway-system -> security/opa:9191 for
+  # ext_authz), which had no ingress rule of its own at all before this.
   endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: zot
+    matchExpressions:
+      - key: reserved.ingress
+        operator: DoesNotExist
+      - key: io.kubernetes.pod.namespace
+        operator: NotIn
+        values:
+          - cattle-system
   ingress:
-    - fromEntities:
-        - ingress
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-gateway-ingress
-  namespace: kube-system
-spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: hubble-ui
-  ingress:
-    - fromEntities:
-        - ingress
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
