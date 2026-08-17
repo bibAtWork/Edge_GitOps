@@ -57,6 +57,14 @@ spec:
               value: allauth.socialaccount.providers.openid_connect
             - name: PAPERLESS_SOCIAL_AUTO_SIGNUP
               value: "true"
+            # Syncs Django group membership from the Keycloak "groups" claim on
+            # every login (paperless.signals.handle_social_account_updated) --
+            # a destructive full-replace, so group membership is fully owned by
+            # Keycloak once this is on. Requires the SCOPE addition below, since
+            # "groups" is an optional Keycloak client scope and isn't returned
+            # unless explicitly requested.
+            - name: PAPERLESS_SOCIAL_ACCOUNT_SYNC_GROUPS
+              value: "true"
             - name: PAPERLESS_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -75,7 +83,7 @@ spec:
             # risk being downgraded to GET on an http->https redirect.
             - name: PAPERLESS_SOCIALACCOUNT_PROVIDERS
               value: >-
-                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"http://keycloak.keycloak.svc.cluster.local/realms/homelab/.well-known/openid-configuration"}}]}}
+                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"http://keycloak.keycloak.svc.cluster.local/realms/homelab/.well-known/openid-configuration","SCOPE":["openid","profile","email","groups"]}}]}}
             - name: PAPERLESS_OCR_LANGUAGE
               value: eng+deu
             - name: PAPERLESS_TIME_ZONE
