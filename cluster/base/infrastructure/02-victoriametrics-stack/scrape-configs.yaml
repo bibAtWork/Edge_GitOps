@@ -173,3 +173,58 @@ spec:
   endpoints:
     - port: service
       path: /metrics
+---
+# Backlog item 13 / ADR-001 "not yet realized": Envoy Gateway's own observability.
+# Two separate workloads in envoy-gateway-system, both needed for full coverage:
+# the control plane (the operator reconciling Gateway API resources into xDS
+# config) and the data plane (the actual Envoy proxy handling Gateway traffic).
+# Hubble covers the L4/Cilium view already; this is the L7/Envoy one that was
+# missing entirely — "no VMServiceScrape targets envoy-gateway-system" from the
+# original finding.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: envoy-gateway-controller
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      control-plane: envoy-gateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      relabelConfigs:
+        - targetLabel: job
+          replacement: envoy-gateway-controller
+---
+# The data-plane proxy pod (the actual Envoy instance) has no Service exposing
+# its metrics port (19001) — only 443/80 are exposed on
+# envoy-gateway-system-homelab-gateway-*, so this scrapes the pod directly
+# rather than adding a port to that Service (which already carries several
+# comments about VIP/LB-IPAM behavior not worth touching for this). Confirmed
+# live: this pod's /stats/prometheus (not /metrics — Envoy's own path) returns
+# real per-route Envoy stats (envoy_cluster_*, envoy_http_*, etc.), same
+# pattern as the existing cilium-envoy VMPodScrape above for Cilium's own
+# embedded Envoy instance.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: envoy-gateway-proxy
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/name: envoy
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      relabelConfigs:
+        - targetLabel: job
+          replacement: envoy-gateway-proxy
