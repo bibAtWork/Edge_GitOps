@@ -28,22 +28,18 @@ spec:
   values:
     service:
       appProtocol: kubernetes.io/http
-
     admin:
       existingSecret: grafana-admin
       userKey: admin-user
       passwordKey: admin-password
-
     persistence:
       enabled: true
       storageClassName: local-path
       size: 5Gi
       labels:
         velero.io/backup: "true"
-
     plugins:
       - victoriametrics-logs-datasource
-
     datasources:
       datasources.yaml:
         apiVersion: 1
@@ -60,7 +56,6 @@ spec:
             url: http://vlsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:9428 # nosonar
             access: proxy
             isDefault: false
-
     dashboardProviders:
       dashboardproviders.yaml:
         apiVersion: 1
@@ -73,7 +68,6 @@ spec:
             editable: true
             options:
               path: /var/lib/grafana/dashboards/default
-
     dashboards:
       default:
         node-exporter:
@@ -107,7 +101,6 @@ spec:
           gnetId: 24459
           revision: 3
           datasource: VictoriaMetrics
-
     alerting:
       rules.yaml:
         apiVersion: 1
@@ -176,17 +169,12 @@ spec:
                 annotations:
                   # {{ "{{" }} ... }} escapes Helm's tpl pass; Grafana sees {{ $labels.xxx }}
                   summary: >-
-                    CRITICAL: {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} —
-                    {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }}
+                    CRITICAL: {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} — {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }}
                   description: >-
-                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }}
-                    (container {{ "{{" }} $labels.container_name }}) has CVE
-                    {{ "{{" }} $labels.vuln_id }} (Critical, CVSS {{ "{{" }} $labels.vuln_score }}).
-                    Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }} (container {{ "{{" }} $labels.container_name }}) has CVE {{ "{{" }} $labels.vuln_id }} (Critical, CVSS {{ "{{" }} $labels.vuln_score }}). Fixed in: {{ "{{" }} $labels.fixed_version }}.
                 labels:
                   severity: critical
                 isPaused: false
-
               - uid: trivy-high-critical-tracking
                 title: ImageHighOrCriticalCVE
                 condition: B
@@ -227,18 +215,12 @@ spec:
                 for: 1h
                 annotations:
                   summary: >-
-                    {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} —
-                    {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }}
-                    ({{ "{{" }} $labels.severity }})
+                    {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} — {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }} ({{ "{{" }} $labels.severity }})
                   description: >-
-                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }}
-                    (container {{ "{{" }} $labels.container_name }}) has CVE
-                    {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.vuln_score }}
-                    ({{ "{{" }} $labels.severity }}). Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }} (container {{ "{{" }} $labels.container_name }}) has CVE {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.vuln_score }} ({{ "{{" }} $labels.severity }}). Fixed in: {{ "{{" }} $labels.fixed_version }}.
                 labels:
                   severity: warning
                 isPaused: false
-
               # New: trivy_image_exposedsecrets was already exported by the operator
               # (metricsVulnIdEnabled's sibling data) with zero alerting on it. Unlike
               # CVEs -- numerous, often no fix available yet -- a secret baked into an
@@ -287,15 +269,10 @@ spec:
                   summary: >-
                     Exposed secret in {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }}
                   description: >-
-                    {{ "{{" }} $labels.exported_namespace }}/{{ "{{" }} $labels.resource_name }}
-                    ({{ "{{" }} $labels.resource_kind }}) runs an image Trivy flagged as
-                    containing an exposed secret. Check: kubectl get vulnerabilityreport -n
-                    {{ "{{" }} $labels.exported_namespace }} {{ "{{" }} $labels.name }} -o
-                    jsonpath='{.report.secrets}'
+                    {{ "{{" }} $labels.exported_namespace }}/{{ "{{" }} $labels.resource_name }} ({{ "{{" }} $labels.resource_kind }}) runs an image Trivy flagged as containing an exposed secret. Check: kubectl get vulnerabilityreport -n {{ "{{" }} $labels.exported_namespace }} {{ "{{" }} $labels.name }} -o jsonpath='{.report.secrets}'
                 labels:
                   severity: critical
                 isPaused: false
-
           - orgId: 1
             name: Log Security Alerts
             folder: Security
@@ -342,12 +319,10 @@ spec:
                 annotations:
                   summary: Pod OOM-killed in cluster
                   description: >-
-                    A pod was OOM-killed. Check:
-                    kubectl get events -A --field-selector reason=OOMKilling
+                    A pod was OOM-killed. Check: kubectl get events -A --field-selector reason=OOMKilling
                 labels:
                   severity: warning
                 isPaused: false
-
               - uid: log-grafana-auth-fail
                 title: GrafanaAuthFailures
                 condition: B
@@ -390,13 +365,10 @@ spec:
                   summary: >-
                     {{ "{{" }} $value }} native Grafana login attempts in 5 min
                   description: >-
-                    More than 5 native Grafana login attempts detected. With Keycloak
-                    SSO active, native logins are anomalous and may indicate credential
-                    stuffing. Check: kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
+                    More than 5 native Grafana login attempts detected. With Keycloak SSO active, native logins are anomalous and may indicate credential stuffing. Check: kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
                 labels:
                   severity: warning
                 isPaused: false
-
           - orgId: 1
             name: Security Tool Alerts
             folder: Security
@@ -442,17 +414,12 @@ spec:
                 for: 0m
                 annotations:
                   summary: >-
-                    Kyverno policy violation in
-                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.resource_namespace }}
+                    Kyverno policy violation in {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.resource_namespace }}
                   description: >-
-                    Policy {{ "{{" }} $labels.policy_name }} failed for resource
-                    {{ "{{" }} $labels.resource_kind }}/{{ "{{" }} $labels.resource_name }}
-                    in namespace {{ "{{" }} $labels.resource_namespace }}.
-                    Check: kubectl get policyreport -A
+                    Policy {{ "{{" }} $labels.policy_name }} failed for resource {{ "{{" }} $labels.resource_kind }}/{{ "{{" }} $labels.resource_name }} in namespace {{ "{{" }} $labels.resource_namespace }}. Check: kubectl get policyreport -A
                 labels:
                   severity: warning
                 isPaused: false
-
               - uid: falco-critical-event
                 title: FalcoCriticalEvent
                 condition: B
@@ -507,12 +474,10 @@ spec:
                   summary: >-
                     Falco rule "{{ "{{" }} $labels.rule_name }}" fired (priority {{ "{{" }} $labels.priority }}, 0=Emergency 1=Alert 2=Critical)
                   description: >-
-                    {{ "{{" }} $value }} matches in the last 5 minutes.
-                    Check: kubectl logs -n falco ds/falco --since=5m | grep '"rule":"{{ "{{" }} $labels.rule_name }}"'
+                    {{ "{{" }} $value }} matches in the last 5 minutes. Check: kubectl logs -n falco ds/falco --since=5m | grep '"rule":"{{ "{{" }} $labels.rule_name }}"'
                 labels:
                   severity: critical
                 isPaused: false
-
           - orgId: 1
             name: Gateway Auth Alerts
             folder: Security
@@ -559,15 +524,10 @@ spec:
                 annotations:
                   summary: OPA ext_authz is down — requests bypassing authorization
                   description: >-
-                    OPA is unavailable; Envoy's failure_mode_allow forwarded requests
-                    without an authorization check. Native app auth (Grafana OIDC, etc.)
-                    still applies, but Rego policies (hubble-ui admin gate, 401 for bad
-                    tokens) are not enforced.
-                    Check: kubectl get pods -n security -l app=opa
+                    OPA is unavailable; Envoy's failure_mode_allow forwarded requests without an authorization check. Native app auth (Grafana OIDC, etc.) still applies, but Rego policies (hubble-ui admin gate, 401 for bad tokens) are not enforced. Check: kubectl get pods -n security -l app=opa
                 labels:
                   severity: critical
                 isPaused: false
-
               - uid: opa-denial-spike
                 title: OPADenialSpike
                 condition: B
@@ -610,45 +570,34 @@ spec:
                   summary: >-
                     {{ "{{" }} $value }} OPA ext_authz denials in the last 5 minutes
                   description: >-
-                    More than 10 requests were denied by OPA in the last 5 minutes.
-                    Possible causes: expired/invalid API tokens, unauthorized access
-                    attempts on admin-only apps (hubble-ui), or a misconfigured client.
-                    Check Envoy stats: kubectl exec -n kube-system ds/cilium-envoy --
-                    wget -qO- localhost:9964/stats/prometheus | grep ext_authz
+                    More than 10 requests were denied by OPA in the last 5 minutes. Possible causes: expired/invalid API tokens, unauthorized access attempts on admin-only apps (hubble-ui), or a misconfigured client. Check Envoy stats: kubectl exec -n kube-system ds/cilium-envoy -- wget -qO- localhost:9964/stats/prometheus | grep ext_authz
                 labels:
                   severity: warning
                 isPaused: false
-
     initChownData:
       enabled: false
-
     securityContext:
       runAsNonRoot: true
       runAsUser: 472
       fsGroup: 472
       seccompProfile:
         type: RuntimeDefault
-
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
         drop: [ALL]
-
     resources:
       requests:
         memory: 256Mi
         cpu: 100m
       limits:
         memory: 512Mi
-
     # Inject GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET from grafana-oauth-secret into Grafana's env.
     # Grafana config below references it via $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}.
     envFromSecret: grafana-oauth-secret
-
     grafana.ini:
       server:
         root_url: https://grafana.homelab.data-harness.org
-
       auth.generic_oauth:
         enabled: true
         name: Homelab SSO
@@ -663,3 +612,5 @@ spec:
         role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || 'Viewer'"
         use_pkce: true
         auto_login: false
+    image:
+      tag: 12.4.8
