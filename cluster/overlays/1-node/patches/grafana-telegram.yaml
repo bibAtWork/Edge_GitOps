@@ -60,3 +60,9 @@ spec:
             uid: alert-pipeline-test-v2
           - orgId: 1
             uid: kubescape-scan-findings
+          # Efficiency review 2026-08-17: replaced by trivy-critical-cve +
+          # trivy-high-critical-tracking (04-grafana/helmrelease.yaml) -- this rule
+          # never fired due to a wrong label name (score vs vuln_score) and is now
+          # split into a critical-only page and a high+critical tracking alert.
+          - orgId: 1
+            uid: trivy-high-cvss

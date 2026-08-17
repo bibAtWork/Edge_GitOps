@@ -1,0 +1,121 @@
+# Structural gap identified in the 2026-08-17 efficiency review: the Trivy CVE
+# gate (.github/workflows/trivy-automerge.yml) only scans images in NEW Renovate
+# PRs at merge time; trivy-operator only scans images already deployed in the
+# cluster. Neither talks to the other, so an already-deployed image that
+# develops a new Critical CVE after merge has no automated path back to "someone
+# should bump this" -- it just sits in a VulnerabilityReport (and now, since the
+# alert label fix in 04-grafana/helmrelease.yaml, an ImageCriticalCVE page) with
+# no indication of whether a fix is already one merge away or genuinely blocked
+# on upstream.
+#
+# This closes that gap with the cheapest bridge that actually helps: once a day,
+# ask VictoriaMetrics which images currently have a Critical CVE, then check
+# this repo's own open PRs (public repo, unauthenticated GitHub API -- no token
+# needed) for a Renovate PR already touching that image. The Telegram message
+# distinguishes "PR #NNN already open, just needs review/merge" from "no PR
+# open -- Renovate hasn't found a fix yet, may need manual investigation."
+#
+# Reuses monitoring/telegram-credentials (already generic, not Grafana-specific
+# -- see its own secret file) rather than provisioning a new credential.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-renovate-bridge
+  namespace: monitoring
+spec:
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: bridge
+              image: python:3.14.7-slim
+              envFrom:
+                - secretRef:
+                    name: telegram-credentials
+              command:
+                - python3
+                - -c
+                - |
+                  import json, os, sys, urllib.parse, urllib.request
+
+                  VM = "http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/query"
+                  REPO = "bibAtWork/Edge_GitOps"
+
+                  def get(url, headers=None):
+                      req = urllib.request.Request(url, headers=headers or {})
+                      with urllib.request.urlopen(req, timeout=20) as r:
+                          return json.load(r)
+
+                  q = 'count by (image_repository, image_tag) (trivy_vulnerability_id{severity="Critical"})'
+                  data = get(f"{VM}?query={urllib.parse.quote(q)}")
+                  images = []
+                  for r in data.get("data", {}).get("result", []):
+                      repo = r["metric"].get("image_repository")
+                      tag = r["metric"].get("image_tag", "?")
+                      count = int(float(r["value"][1]))
+                      if repo:
+                          images.append((repo, tag, count))
+
+                  if not images:
+                      print("No images with Critical CVEs right now -- nothing to report.")
+                      sys.exit(0)
+
+                  prs = get(
+                      f"https://api.github.com/repos/{REPO}/pulls?state=open&per_page=100",
+                      headers={"Accept": "application/vnd.github+json", "User-Agent": "trivy-renovate-bridge"},
+                  )
+
+                  lines = []
+                  for repo, tag, count in sorted(images, key=lambda x: -x[2]):
+                      short = repo.split("/")[-1].lower()
+                      match = next(
+                          (pr for pr in prs if repo.lower() in pr.get("title", "").lower()
+                           or short in pr.get("title", "").lower()),
+                          None,
+                      )
+                      status = f"PR already open: #{match['number']} -- just needs review/merge" if match \
+                          else "no open Renovate PR -- may need manual investigation"
+                      plural = "s" if count != 1 else ""
+                      lines.append(f"- {repo}:{tag} ({count} critical CVE{plural}) -- {status}")
+
+                  message = "Trivy: images with an active Critical CVE\n" + "\n".join(lines)
+                  print(message)
+
+                  payload = json.dumps(
+                      {"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": message}
+                  ).encode()
+                  req = urllib.request.Request(
+                      f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage",
+                      data=payload,
+                      headers={"Content-Type": "application/json"},
+                  )
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      print(r.read().decode())
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault

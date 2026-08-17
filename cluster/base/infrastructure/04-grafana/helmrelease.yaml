@@ -117,8 +117,26 @@ spec:
             folder: Security
             interval: 15m
             rules:
-              - uid: trivy-high-cvss
-                title: ImageHighCVSS
+              # Efficiency review 2026-08-17: this rule (previously trivy-high-cvss /
+              # ImageHighCVSS) had never once fired since it was written -- its PromQL
+              # filtered on a label called `score`, but trivy-operator actually exports
+              # the field as `vuln_score` (confirmed live against the raw metric's label
+              # set). `score` doesn't exist on any of the ~3500 CVE series this cluster
+              # currently has, so the filter silently matched nothing, forever. Fixing
+              # the label surfaced 208 real findings across 18 images that had been
+              # invisible the whole time.
+              #
+              # Split into two rules on the way past, per explicit direction: alert
+              # (urgent, fast-repeat) only for Critical; track (visible, slower-repeat)
+              # for High+Critical combined -- reusing the existing severity-based
+              # routing in grafana-telegram.yaml's alerting.policies.yaml
+              # (severity=critical -> repeat_interval 1h; everything else -> 4h) rather
+              # than building new notification plumbing. Matching on the severity label
+              # directly (Critical/High, confirmed exact casing live) instead of a CVSS
+              # score regex -- simpler and avoids the boundary-off-by-one risk a regex
+              # has (Trivy's own severity classification is already CVSS-score-derived).
+              - uid: trivy-critical-cve
+                title: ImageCriticalCVE
                 condition: B
                 data:
                   - refId: A
@@ -127,7 +145,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'trivy_vulnerability_id{score=~"8[.][5-9]|9[.][0-9]|10[.]0"}'
+                      expr: 'trivy_vulnerability_id{severity="Critical"}'
                       instant: true
                       range: false
                       refId: A
@@ -158,16 +176,124 @@ spec:
                 annotations:
                   # {{ "{{" }} ... }} escapes Helm's tpl pass; Grafana sees {{ $labels.xxx }}
                   summary: >-
+                    CRITICAL: {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} —
+                    {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }}
+                  description: >-
+                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }}
+                    (container {{ "{{" }} $labels.container_name }}) has CVE
+                    {{ "{{" }} $labels.vuln_id }} (Critical, CVSS {{ "{{" }} $labels.vuln_score }}).
+                    Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                labels:
+                  severity: critical
+                isPaused: false
+
+              - uid: trivy-high-critical-tracking
+                title: ImageHighOrCriticalCVE
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'trivy_vulnerability_id{severity=~"High|Critical"}'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
                     {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} —
-                    {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.score }}
+                    {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }}
                     ({{ "{{" }} $labels.severity }})
                   description: >-
                     {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }}
                     (container {{ "{{" }} $labels.container_name }}) has CVE
-                    {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.score }}.
-                    Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                    {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.vuln_score }}
+                    ({{ "{{" }} $labels.severity }}). Fixed in: {{ "{{" }} $labels.fixed_version }}.
                 labels:
                   severity: warning
+                isPaused: false
+
+              # New: trivy_image_exposedsecrets was already exported by the operator
+              # (metricsVulnIdEnabled's sibling data) with zero alerting on it. Unlike
+              # CVEs -- numerous, often no fix available yet -- a secret baked into an
+              # image is rare and almost always actionable, so this pages on the fast
+              # route like Critical CVEs rather than getting bundled into the tracking
+              # rule above.
+              - uid: trivy-exposed-secrets
+                title: ImageExposedSecret
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'trivy_image_exposedsecrets > 0'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    Exposed secret in {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }}
+                  description: >-
+                    {{ "{{" }} $labels.exported_namespace }}/{{ "{{" }} $labels.resource_name }}
+                    ({{ "{{" }} $labels.resource_kind }}) runs an image Trivy flagged as
+                    containing an exposed secret. Check: kubectl get vulnerabilityreport -n
+                    {{ "{{" }} $labels.exported_namespace }} {{ "{{" }} $labels.name }} -o
+                    jsonpath='{.report.secrets}'
+                labels:
+                  severity: critical
                 isPaused: false
 
           - orgId: 1
