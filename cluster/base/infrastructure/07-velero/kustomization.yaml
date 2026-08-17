@@ -6,4 +6,3 @@ resources:
   - seaweedfs-secret.yaml
   - kopia-secret.yaml
   - backupstoragelocations.yaml
-  - repo-maintenance-config.yaml
