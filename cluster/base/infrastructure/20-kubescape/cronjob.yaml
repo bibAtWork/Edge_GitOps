@@ -23,7 +23,20 @@ spec:
               type: RuntimeDefault
           containers:
             - name: kubescape
-              image: quay.io/kubescape/kubescape:v3.0.22
+              # Efficiency review 2026-08-17: quay.io/kubescape/kubescape is the
+              # *operator/server* image -- its ENTRYPOINT is `ksserver`, a
+              # completely different binary from the CLI, which ignores the `args`
+              # below as unrecognized input and starts listening on :8080 (plus a
+              # swagger UI and a :6060 pprof server) instead of scanning anything.
+              # Confirmed live: the job had been "Running" for 20+ hours with 2
+              # restarts (exitCode 2), logging "Started Kubescape server" and
+              # "continuous posture scan" -- textbook operator-mode startup, not a
+              # hung scan. With concurrencyPolicy: Forbid this was on track to
+              # block every future Sunday run too. quay.io/kubescape/kubescape-cli
+              # is the actual one-shot CLI image (Entrypoint: ["kubescape"],
+              # confirmed via the image manifest); bumped to v3.0.39 (latest at
+              # time of fix) rather than re-pinning the stale v3.0.22 tag.
+              image: quay.io/kubescape/kubescape-cli:v3.0.39
               args:
                 - scan
                 - framework
