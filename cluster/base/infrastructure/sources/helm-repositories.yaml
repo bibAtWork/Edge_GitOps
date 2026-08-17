@@ -175,3 +175,12 @@ spec:
   # Chart lives directly at oci://docker.io/envoyproxy/gateway-helm — url is one
   # level up so HelmRelease's chart: gateway-helm resolves to the right path.
   url: oci://docker.io/envoyproxy
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: metrics-server
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://kubernetes-sigs.github.io/metrics-server/

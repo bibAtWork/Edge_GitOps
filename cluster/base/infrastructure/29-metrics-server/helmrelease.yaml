@@ -1,0 +1,87 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metrics-server
+  namespace: kube-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: metrics-server
+      version: 3.13.1
+      sourceRef:
+        kind: HelmRepository
+        name: metrics-server
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # Efficiency review 2026-08-17: added because the Metrics API was entirely
+    # absent — `kubectl top node` / `kubectl top pod` returned "Metrics API not
+    # available", so every routine capacity question required port-forwarding
+    # into VictoriaMetrics and writing PromQL by hand. VictoriaMetrics remains
+    # the source of truth for historical data and dashboards; this is purely the
+    # live, ad-hoc debugging path.
+    args:
+      # Talos gives the kubelet a self-signed serving certificate by default:
+      # machine.kubelet has no rotate-server-certificates, and no CSR approver
+      # (kubelet-serving-cert-approver / CCM) is deployed — verified live, zero
+      # CSRs exist on this cluster. Without this flag metrics-server refuses the
+      # connection and reports every node as NotReady for metrics.
+      #
+      # This is an accepted, explicitly-chosen tradeoff (2026-08-17), not an
+      # oversight: metrics-server stops verifying the kubelet's serving cert.
+      # Scope of the weakening is narrow — the connection is node-local on a
+      # single-node cluster behind Cilium default-deny, and the only data
+      # crossing it is CPU/memory numbers, so a successful MITM yields false
+      # `kubectl top` output rather than any access or secret. Nothing consumes
+      # these metrics for automated decisions (no HPA/VPA on this cluster), which
+      # is what would otherwise make forged values dangerous.
+      #
+      # The secure alternative, if this is ever revisited: set
+      # machine.kubelet.extraArgs.rotate-server-certificates: true in the Talos
+      # machineconfig, apply via talosctl (brief kubelet restart on the single
+      # control-plane node), and deploy a kubelet-serving-cert-approver so the
+      # kubelet gets a cluster-CA-signed serving cert. Then drop this flag.
+      - --kubelet-insecure-tls
+
+    # Single-node cluster: one replica, and the default 2-replica PodDisruptionBudget
+    # would block node drains for upgrades.
+    replicas: 1
+
+    # Measured against comparable clusters; metrics-server holds only a short
+    # in-memory window (default 5m resolution window), so this stays small and
+    # flat regardless of how long the cluster runs.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 192Mi
+
+    # kube-system enforces no restricted PSS today, but set these anyway so this
+    # workload stays compliant if that ever changes — matches what every other
+    # component in this repo does.
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+
+    # VictoriaMetrics already scrapes cAdvisor for the same underlying data; a
+    # second scrape of metrics-server's own metrics adds cardinality for no gain.
+    serviceMonitor:
+      enabled: false
