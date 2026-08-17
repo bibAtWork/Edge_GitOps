@@ -67,7 +67,11 @@ metadata:
 #
 # First boot: authenticates via the OAuth client secret (TS_AUTHKEY), registers
 # a device named "homelab-router", and advertises 192.168.178.200/32.
-# The route must be approved once in the Tailscale admin console (or via ACL).
+# The route must be approved once in the Tailscale admin console (or via ACL) --
+# set the ACL up (console.tailscale.com/admin/acls/visual/auto-approvers, approve
+# 192.168.178.200/32 for tag:k8s-operator, the tag advertised below) so this is
+# genuinely one-time instead of a recurring manual click. See
+# docs/network-architecture.md section 1 for the full explanation.
 # Subsequent restarts reuse state from the tailscaled-subnet-router-state Secret.
 apiVersion: apps/v1
 kind: StatefulSet

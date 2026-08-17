@@ -86,6 +86,20 @@ bug until you read the port in the Hubble verdict. This was the actual two-day b
 behind the original (and wrong) `cilium#44630` / kube-proxy theories — see
 `docs/backlog.md`.
 
+**Stop re-approving the Tailscale subnet route by hand.** `tailscaled-subnet-router`
+(`14-tailscale-operator/config/subnet-router-hostnetwork.yaml`) advertises
+`192.168.178.200/32` and, by design, that route "must be approved once in the Tailscale
+admin console (or via ACL)" — but without the ACL half, every reset of that approval state
+means going back to the console manually. Set it up once instead: **Tailscale admin
+console → [Access controls → Auto approvers tab](https://console.tailscale.com/admin/acls/visual/auto-approvers)**
+(the visual editor; the same change can also be made directly in the ACL JSON under an
+`autoApprovers.routes` key) → add `192.168.178.200/32` approved for `tag:k8s-operator`,
+the tag this router already advertises (`TS_EXTRA_ARGS: --advertise-tags=tag:k8s-operator`).
+`tag:k8s-operator` must already exist under `tagOwners` for this to take — it does, since
+the router is already using it today; only missing if the tailnet's ACL was reset from
+scratch. Once set, this is genuinely one-time — no per-namespace or per-cluster-change
+follow-up needed.
+
 ## 2. Authorization decision path
 
 ```mermaid
