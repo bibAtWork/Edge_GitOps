@@ -31,6 +31,56 @@ spec:
     cleanupOnFail: true
   values:
     configuration:
+      # Velero's built-in default is 1h, which on this cluster meant 20
+      # BackupRepository objects (2 backends x 10 app namespaces) each spawning
+      # a Kopia maintenance Job every hour -- ~480 Job pods/day, each pulling an
+      # image and doing S3 I/O, on a homelab whose backups run *daily*. Kopia
+      # maintenance compacts repository metadata; running it 24x more often than
+      # anything is written to the repository is pure churn. Measured 2026-08-17:
+      # this was the single largest source of pod churn on the cluster and the
+      # main contributor to the 65 stale Completed pods sitting in this namespace.
+      #
+      # Note this only sets the default applied to *newly created*
+      # BackupRepository objects -- the 20 that already exist carry their own
+      # spec.maintenanceFrequency and are patched separately (they're created by
+      # Velero at runtime, not GitOps-managed, so they can't be fixed from here).
+      defaultRepoMaintainFrequency: 24h
+
+      # This block replaces the standalone repo-maintenance-config.yaml that used
+      # to live in this directory. That file's own comment asserted the
+      # velero-repo-maintenance ConfigMap "is not templated by the chart" -- that
+      # is false for chart 12.1.0, which renders it from
+      # configuration.repositoryMaintenanceJob.repositoryConfigData. Confirmed the
+      # hard way 2026-08-17: reconciling this HelmRelease re-rendered the ConfigMap
+      # from chart defaults and silently wiped the podResources block, dropping
+      # Kopia maintenance Jobs back to Velero's built-in 128Mi limit and
+      # reproducing the exact OOMKill the earlier fix (#138) existed to stop --
+      # caught live within a minute, on a Job that OOMKilled with limits
+      # {memory: 128Mi} while sibling Jobs created before the reconcile still had
+      # 1Gi. Keeping these values here, chart-owned, means a reconcile reasserts
+      # them instead of erasing them.
+      #
+      # podResources rationale (carried over from #138): 1Gi/256Mi is a
+      # generous-but-cheap bump. Velero's 128Mi default OOM-killed every Kopia
+      # maintenance Job continuously -- 60+ failures over 7+ hours -- with no
+      # capacity pressure on a 32Gi node to justify the tight limit. Revisit
+      # downward only with evidence from actual usage, not by guessing.
+      #
+      # keepLatestMaintenanceJobs is per-repository, so the chart default of 3
+      # pinned 60 completed Job pods across 20 repositories permanently (measured:
+      # 65 of the cluster's 114 stale Completed pods were these). One kept Job per
+      # repository is still enough to read the last run's logs after a failure.
+      repositoryMaintenanceJob:
+        repositoryConfigData:
+          name: velero-repo-maintenance
+          global:
+            keepLatestMaintenanceJobs: 1
+            podResources:
+              cpuRequest: 100m
+              cpuLimit: 500m
+              memoryRequest: 256Mi
+              memoryLimit: 1Gi
+
       # The chart creates an invalid "default" VSL when this list is empty.
       # Retain seaweedfs-csi as a placeholder to satisfy the template; it is
       # never used because all schedules set snapshotVolumes: false.
