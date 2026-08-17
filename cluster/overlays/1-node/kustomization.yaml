@@ -36,6 +36,7 @@ resources:
   - ../../base/infrastructure/27-kubeopencode
   # 28-envoy-gateway: operator only — EnvoyProxy needs Envoy Gateway's own CRDs (config layer)
   - ../../base/infrastructure/28-envoy-gateway/operator
+  - ../../base/infrastructure/29-metrics-server
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml
