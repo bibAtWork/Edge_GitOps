@@ -63,25 +63,49 @@ spec:
           accessMode: ReadWriteOnce
           size: 1Gi
 
+    # Efficiency review 2026-08-17: these resources blocks were previously set at
+    # the component top level (server.resources / machine-learning.resources) —
+    # silently ignored by the chart, exactly like the trivy-operator key-name bug
+    # (#143). Confirmed live: both Deployments rendered `resources: {}`, which made
+    # every immich pod BestEffort QoS — first in line for eviction under node
+    # memory pressure, despite immich-server being the largest non-system memory
+    # consumer on the cluster (1451Mi peak over 24h). This is a bjw-s
+    # app-template chart, so resources belong under
+    # <component>.controllers.main.containers.main, mirroring the shared
+    # top-level controllers block above. Path confirmed against the chart's own
+    # values.yaml at the pinned version, not guessed.
+    #
+    # Requests sized from measured 24h peaks (server 1451Mi, ML 736Mi) rounded
+    # down to a steady-state floor rather than the peak — a request is a
+    # reservation, not a cap, and over-reserving on a single node just starves
+    # everything else. Limits kept at their previously-intended values.
     server:
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          memory: 1Gi
+      controllers:
+        main:
+          containers:
+            main:
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
 
     machine-learning:
       enabled: true
       defaultPodOptions:
         annotations:
           backup.velero.io/excluded-volumes: cache
-      resources:
-        requests:
-          cpu: 100m
-          memory: 512Mi
-        limits:
-          memory: 2Gi
+      controllers:
+        main:
+          containers:
+            main:
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
       persistence:
         cache:
           enabled: true

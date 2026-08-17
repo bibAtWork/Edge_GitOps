@@ -34,8 +34,23 @@ spec:
     image:
       tag: "4.40"
 
+    # Efficiency review 2026-08-17: none of the three seaweedfs components had any
+    # resources set, making all of them BestEffort QoS — the first pods the kubelet
+    # evicts under node memory pressure. That ordering is backwards here: seaweedfs
+    # is the storage backbone (Zot's registry, Velero's backup target, talos-backup's
+    # etcd snapshots), so evicting it takes the backup/restore path down with it.
+    # Requests sized from measured 24h peaks (filer 748Mi, master/volume ~110Mi
+    # each), set as a steady-state floor rather than the peak — a request is a
+    # reservation, not a cap. Limits are deliberately generous: the point is QoS
+    # class and eviction ordering, not capping a component that has never OOMed.
     master:
       enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
       data:
         type: hostPath
         hostPathPrefix: /var/lib/seaweedfs/master
@@ -46,6 +61,12 @@ spec:
     volume:
       enabled: true
       replication: "000"
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 1Gi
       # dataDirs controls the actual data path; volume.data has no effect for this component
       dataDirs:
         - name: data1
@@ -58,6 +79,12 @@ spec:
 
     filer:
       enabled: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1536Mi
       data:
         type: hostPath
         hostPathPrefix: /var/lib/seaweedfs/filer
