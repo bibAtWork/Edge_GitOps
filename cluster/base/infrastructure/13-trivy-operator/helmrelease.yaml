@@ -26,8 +26,22 @@ spec:
     cleanupOnFail: true
   values:
     operator:
+      # Efficiency review 2026-08-17: this key was misspelled
+      # (scanJobConcurrentLimit, missing the "s" in "Jobs") for as long as it's
+      # existed in this repo. The real chart key is scanJobsConcurrentLimit --
+      # confirmed against the chart's own values.yaml source. Silently ignored,
+      # same failure class as the H2 trivy-operator security-context bug and the
+      # immich resources bug: looked correct in git, did nothing live. Confirmed
+      # live: the operator's own Deployment env vars have no concurrency-limit
+      # setting at all while this was wrong, meaning it ran on the chart's
+      # built-in default of 10 concurrent scan Jobs regardless of what this file
+      # said -- which is what actually produced the burst that motivated
+      # widening trivy-system's ResourceQuota (#160). With this fixed, scans
+      # queue and run within the configured limit instead of firing off up to
+      # 10 at once.
+      #
       # Overlays patch this: 2 on 3-node, 1 on single-node
-      scanJobConcurrentLimit: 2
+      scanJobsConcurrentLimit: 2
       vulnerabilityScanner:
         enabled: true
       configAuditScanner:

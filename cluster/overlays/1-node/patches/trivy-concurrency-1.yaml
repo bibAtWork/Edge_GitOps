@@ -1,4 +1,10 @@
-# Cap at 1: sequential scans prevent scan jobs from competing with etcd and SeaweedFS for CPU
+# Cap at 1: sequential scans prevent scan jobs from competing with etcd and SeaweedFS for CPU.
+#
+# Efficiency review 2026-08-17: this was silently never applied since the key
+# was misspelled (scanJobConcurrentLimit, missing the "s") -- fixed to the
+# real chart key, scanJobsConcurrentLimit. The original intent stated above
+# has been correct the whole time; it just never actually took effect. See
+# 13-trivy-operator/helmrelease.yaml for the full root-cause writeup.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -7,4 +13,4 @@ metadata:
 spec:
   values:
     operator:
-      scanJobConcurrentLimit: 1
+      scanJobsConcurrentLimit: 1
