@@ -4,8 +4,10 @@ resources:
   - default-deny.yaml
   - allow-cluster-internal.yaml
   - allow-intra-namespace-egress.yaml
+  - allow-intra-namespace-ingress.yaml
   - allow-cross-namespace-egress.yaml
   - allow-gateway-ingress.yaml
+  - allow-monitoring-scrape-ingress.yaml
   - allow-gateway-world-ingress.yaml
   - allow-dns.yaml
   - allow-velero-egress.yaml

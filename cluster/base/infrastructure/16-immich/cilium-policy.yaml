@@ -8,3 +8,17 @@ spec:
   egress:
     - toEndpoints:
         - {}
+---
+# Hub-and-spoke migration (2026-08-17): immich-server -> immich-postgresql (DB_HOSTNAME),
+# -> immich-valkey (REDIS_HOSTNAME, chart default), -> immich-machine-learning (chart
+# default URL) -- all same-namespace, previously covered only by allow-cluster-internal.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: immich
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}

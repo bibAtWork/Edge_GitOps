@@ -9,6 +9,19 @@ spec:
     - toEndpoints:
         - {}
 ---
+# Hub-and-spoke migration (2026-08-17): paperless-ngx's app pod and its redis/valkey
+# sidecar -- previously covered only by allow-cluster-internal.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: paperless
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+---
 # Allow Paperless-ngx to reach Keycloak directly (internal service DNS) for
 # OIDC discovery/token/userinfo. See the matching rule in
 # 26-keycloak/cilium-policy.yaml for why this bypasses the gateway.

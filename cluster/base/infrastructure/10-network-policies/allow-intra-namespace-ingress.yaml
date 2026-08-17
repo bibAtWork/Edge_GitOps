@@ -1,0 +1,33 @@
+# Hub-and-spoke migration (2026-08-17): same-namespace-only ingress for namespaces with
+# confirmed real intra-namespace pod-to-pod traffic but no app-specific directory of their
+# own to hold a per-app CiliumNetworkPolicy (unlike immich/paperless/keycloak/etc., which
+# get this alongside their own allow-intra-namespace-egress instead).
+---
+# hubble-relay -> each cilium-agent's embedded Hubble peer service, hubble-ui ->
+# hubble-relay. Chart-internal (cilium/hubble), not visible as a raw endpoint anywhere in
+# this repo's own manifests -- confirmed architecturally, not by grep.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: kube-system
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+---
+# 5 of Flux's 6 controllers POST reconciliation events to notification-controller via
+# --events-addr=http://notification-controller.$(RUNTIME_NAMESPACE).svc.cluster.local./
+# (cluster/overlays/1-node/flux-system/gotk-components.yaml); source-controller also serves
+# artifact tarballs to kustomize-controller/helm-controller via its own Service.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: flux-system
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
