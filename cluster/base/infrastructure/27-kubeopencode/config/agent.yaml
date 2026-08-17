@@ -10,6 +10,14 @@ spec:
   profile: "General-purpose homelab operations agent"
   workspaceDir: /workspace
   serviceAccountName: kubeopencode-agent
+  # Security review 2026-08-14, finding M1 (partial): unset, these three default
+  # to :latest (ghcr.io/kubeopencode/kubeopencode-agent-{opencode,devbox,attach)
+  # — floating tags the Trivy CVE gate never scans a specific version of, and
+  # Renovate can't PR a version bump for. Pinned to v0.1.9 to match the chart
+  # version already pinned for the controller/server images above.
+  agentImage: ghcr.io/kubeopencode/kubeopencode-agent-opencode:v0.1.9
+  executorImage: ghcr.io/kubeopencode/kubeopencode-agent-devbox:v0.1.9
+  attachImage: ghcr.io/kubeopencode/kubeopencode-agent-attach:v0.1.9
   config:
     $schema: https://opencode.ai/config.json
     # Free OpenCode Zen model — no API key/credentials required.

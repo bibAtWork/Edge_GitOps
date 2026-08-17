@@ -23,6 +23,15 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Security review 2026-08-14, finding M1 (partial): chart default is
+    # quay.io/containers/kubernetes_mcp_server:latest — floating, unpinned, and
+    # not scanned as a specific version by the Trivy CVE gate (Renovate can't
+    # open a PR against a tag that never changes). v0.0.66 is the newest tagged
+    # release as of 2026-08-17; Renovate's `docker` datasource will now track
+    # and PR version bumps the same as every other pinned image in this repo.
+    image:
+      version: v0.0.66
+
     serviceAccount:
       create: true
       name: mcp-viewer
