@@ -5,3 +5,4 @@ resources:
   - mcp-server-helmrelease.yaml
   - agent-serviceaccount.yaml
   - cilium-policy.yaml
+  - controller-rbac.yaml

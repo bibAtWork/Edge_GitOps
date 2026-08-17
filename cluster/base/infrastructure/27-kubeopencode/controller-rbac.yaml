@@ -1,0 +1,46 @@
+# Security review 2026-08-14, finding M2: replaces the cluster-wide grant this
+# repo removed from ClusterRole/kubeopencode-controller (see helmrelease.yaml)
+# with the same rules scoped to kubeopencode-system only, where the controller's
+# own leader-election lease and every Task this cluster has ever created already
+# live. See the postRenderers comment in helmrelease.yaml for the full rationale.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubeopencode-controller
+  namespace: kubeopencode-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeopencode-controller
+  namespace: kubeopencode-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubeopencode-controller
+subjects:
+  - kind: ServiceAccount
+    name: kubeopencode-controller
+    namespace: kubeopencode-system
