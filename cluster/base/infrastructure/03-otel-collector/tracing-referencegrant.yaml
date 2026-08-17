@@ -1,0 +1,19 @@
+# Allows EnvoyProxy.spec.telemetry.tracing (envoy-gateway-system/envoy-gateway-config)
+# to reference the otel-collector-gateway Service here as its backendRefs target.
+# Required for any cross-namespace backendRef per the Gateway API spec — same
+# requirement 24-opa/referencegrant.yaml and 26-keycloak/securitypolicy-referencegrant.yaml
+# satisfy for OPA's and Keycloak's own cross-namespace backendRefs.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-envoyproxy-tracing
+  namespace: monitoring
+spec:
+  from:
+    - group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      namespace: envoy-gateway-system
+  to:
+    - group: ""
+      kind: Service
+      name: otel-collector-gateway
