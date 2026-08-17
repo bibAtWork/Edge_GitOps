@@ -128,7 +128,7 @@ and a PR already exists whenever one's possible — branch `Y -- yes` covers the
 CronJob's `Y -- no` branch is where it stops: it can tell you nothing has landed yet, but
 it has no way to act, and historically nothing downstream of it ever did.
 
-### Now implemented: `trivy-auto-patch.yml`
+### Built, pending merge: `trivy-auto-patch.yml`
 
 The gap only ever matters for images whose deployed tag comes from a chart's own bundled
 default rather than an explicit override — Renovate has no string to bump, so no PR is
@@ -136,8 +136,9 @@ ever possible for them, no matter how long a Critical CVE sits open. Confirmed l
 2026-08-17 for exactly two images in this repo: `grafana/grafana` and `velero/velero`.
 
 Closing this is a **separate, independent GitHub Actions workflow**
-(`.github/workflows/trivy-auto-patch.yml`), not a new branch bolted onto the CronJob
-above. That was a deliberate design choice, not an oversight: the CronJob's job is "what's
+(`.github/workflows/trivy-auto-patch.yml`, PRs #166/#167 — awaiting review/merge, not yet
+on `ops/talos_linux`), not a new branch bolted onto the CronJob above. That was a
+deliberate design choice, not an oversight: the CronJob's job is "what's
 actually running and is it vulnerable, tell me," against live cluster state; the
 auto-patch workflow's job is "does this specific, hand-curated set of chart-default
 images have a better version available," against this repo's own declared state. Neither
@@ -167,6 +168,6 @@ merges, the image has an explicit `image.tag` override like any Renovate-tracked
 the workflow reads that override instead of `baseline_tag` on every subsequent run —
 `baseline_tag` only matters until the first patch lands.
 
-Runs daily at 06:30 UTC (`workflow_dispatch` also available for an on-demand run) and only
-ever opens a PR, exactly like `trivy-automerge.yml`'s own PRs — nothing it does merges
-without a human reviewing it first.
+Once merged, runs daily at 06:30 UTC (`workflow_dispatch` also available for an on-demand
+run) and only ever opens a PR, exactly like `trivy-automerge.yml`'s own PRs — nothing it
+does merges without a human reviewing it first.
