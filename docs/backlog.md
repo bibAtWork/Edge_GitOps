@@ -17,11 +17,12 @@ it names live, unremediated weaknesses in a public repository, which must not be
 regardless of severity. Do not copy findings, resource names, or exploit specifics from it into
 this file, commit messages, or PR descriptions.
 
-As of the last review (2026-08-14), one finding has since been fixed in this session (H3 —
-kube-proxy/flannel disabled). The rest remain open, roughly in this priority order: a critical
-privilege-escalation path in a workload's RBAC, an overly broad read scope on an LLM tool's
-service account, and a silently non-functional vulnerability scanner. Ask to see the actual
-review locally if you need the specifics — they're intentionally not reproduced here.
+As of the last review (2026-08-14), fixes exist for every finding except the two explicitly
+deferred ones (Kubernetes-native RBAC via Talos OIDC; the `schenkmatch:latest` CI gate, both
+still tracked below) — H3 (kube-proxy/flannel disabled) was fixed live in-session; C1, H1, H2,
+M1 (partial), M2, M3, M4, L1, and L2 each have an open PR against `ops/talos_linux` pending
+review/merge. Ask to see the actual review locally if you need the specifics — they're
+intentionally not reproduced here.
 
 ---
 
@@ -40,9 +41,13 @@ Auto-merged anyway — rule **3c** is "update doesn't worsen CVE posture" (`old_
 
 **Separately**: `trivy-gate` ran **5 times** for the identical commit on both PRs (confirmed via `check-runs` — 5 runs within a ~2-second window, `2026-08-16T21:23:10Z`–`21:23:12Z` on #134), each posting its own comment. Pure noise today (all 5 agreed), but redundant Actions minutes on every single Renovate PR and a latent risk if a future 6th run ever disagreed with the other 5 (which comment would `gh pr checks` / the merge decision honor?). Root cause not yet investigated — likely duplicate workflow triggers (e.g. both `pull_request` and `pull_request_target`, or Renovate's automerge polling re-triggering the check) rather than anything content-dependent.
 
-**Not fixed yet.** Worth doing before the next batch of `kubernetes`-manager-sourced PRs lands (dozens are enumerated in the Dependency Dashboard):
-1. Decide the actual policy for "stuck at HIGH/CRITICAL with no clean version available" — auto-merge-with-a-tracking-label, hold for manual review, or a CVSS ceiling regardless of direction — and encode whichever is chosen into rule 3c.
-2. Find and dedupe the 5x `trivy-gate` trigger.
+**Fixed, pending review**: [#144](../../pull/144). Policy chosen: keep auto-merging when 3c
+passes (a clean version may not exist yet), but label the PR `cvss-high` when the result is
+still ≥7.0 CVSS so it stays visible instead of disappearing into the merged-PR list unflagged.
+The 5x trigger turned out to be Renovate applying labels via separate API calls, each firing
+`labeled` independently — fixed with a `concurrency` group scoped to the PR number
+(`cancel-in-progress: true`), not a `types:` change (rejected as riskier: could stop the gate
+from firing at all if Renovate's labeling order ever differs from what's assumed).
 
 ---
 
@@ -66,20 +71,26 @@ Every app behind the Gateway now has real per-user auth (Keycloak OIDC, either n
 
 ---
 
-## Envoy Gateway: rate limiting, edge tracing, and Envoy's own observability are all still missing
+## Envoy Gateway: rate limiting, edge tracing, and observability — fixed, pending review
 
-Carried over from ADR-001's "not yet realized" list (`docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md`) now that the cutover itself is done and merged (#126):
+Carried over from ADR-001's "not yet realized" list (`docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md`), closed by [#153](../../pull/153):
 
-- **No rate limiting at all.** The old Cilium-era `local_ratelimit` + Valkey rate-limit stack was removed as orphaned/unwired dead code before the cutover (#116) — nothing replaced it. `BackendTrafficPolicy` is the Envoy Gateway equivalent and hasn't been added.
-- **No OpenTelemetry trace injection at the edge.** This was the original proposal's headline justification for decoupling L7 off Cilium's Gateway; never actually configured on the live `EnvoyProxy`.
-- **No visibility into Envoy Gateway itself.** No `VMServiceScrape` targets `envoy-gateway-system`, no Grafana dashboard imports Envoy's metrics. Hubble covers the L4/Cilium view but not Envoy's L7 one — if Envoy Gateway develops a problem, there's currently no dashboard that would show it.
+- **Rate limiting**: `BackendTrafficPolicy` with Local (token-bucket, no external Redis/Valkey dependency) rate limiting, 300 req/min per distinct source IP, attached to the Gateway.
+- **Edge tracing**: `EnvoyProxy.spec.telemetry.tracing` now points at the OTel collector gateway already running in `monitoring`, whose traces pipeline was already wired to VictoriaTraces — the backend existed, Envoy just never sent anything to it.
+- **Observability**: `VMServiceScrape`/`VMPodScrape` for both Envoy Gateway workloads (control plane + data plane), plus two official envoy-mixin-project Grafana dashboards.
 
 ---
 
-## Stale claims in `README.md`'s architecture summary
+## Stale claims in `README.md`'s architecture summary — fixed, pending review
 
-Found 2026-08-16 while explaining the storage architecture. The Stack table says *"Storage: SeaweedFS (S3-compatible, CSI driver)"* — but no SeaweedFS `StorageClass`/CSI driver is registered (`kubectl get storageclass` shows only `local-path`), and no application manifest references a SeaweedFS-backed PVC. All 17 app PVCs (Immich, Keycloak, Paperless, Grafana, VictoriaMetrics, Zot, KubeOpenCode) use `local-path-provisioner`. SeaweedFS is real and working, just narrower in scope than the README implies — it's S3-only, consumed by exactly three things: Zot's registry storage, Velero's backup target, and talos-backup's etcd snapshots.
+Found 2026-08-16 while explaining the storage architecture, closed by [#152](../../pull/152).
+The Stack table's *"Storage: SeaweedFS (S3-compatible, CSI driver)"* and the Backup Strategy
+table's CSI VolumeSnapshot claim were both wrong — no CSI driver or VolumeSnapshotClass exists
+on this cluster; all 17 app PVCs use `local-path-provisioner`; Velero backs up PVCs via its
+node-agent DaemonSet (Kopia file-system backup), not CSI snapshots. Both tables corrected.
 
-Also found in the same pass: the SeaweedFS bucket-init job creates a `pvs` bucket alongside the three actually-used ones (`etcd-backups`, `velero-backups`, `zot-registry`) — nothing references it. Likely a vestige of an earlier plan to back PVCs with SeaweedFS via CSI that was never carried through. Low-priority cleanup, or evidence the README's CSI claim used to be true and the implementation was later simplified without the docs catching up.
-
-**Fix**: correct the README's Stack table; decide whether to delete the unused `pvs` bucket or leave it as a specifically-reserved future bucket.
+The unused `pvs` bucket (a vestige of the same abandoned CSI-for-PVCs plan) is confirmed empty
+and removed from `bucket-init-job.yaml`'s creation loop, so it won't be recreated — but the
+already-existing empty bucket itself is still sitting in SeaweedFS. Live deletion was blocked
+by this session's auto-mode classifier as a destructive action needing explicit confirmation;
+see #152 for the one-line command to remove it by hand if wanted.
