@@ -182,6 +182,11 @@ jobs:
             fi
 
             git checkout -q -b "$branch" origin/ops/talos_linux
+            # yq -i re-serializes the whole file (go-yaml round-trip), which drops blank
+            # lines and collapses folded (>-) scalars to one line -- cosmetic diff noise
+            # on every line of the file, not just the changed one. Confirmed live on
+            # #173. Accepted rather than hand-rolling a surgical YAML patcher; the PR
+            # body below calls this out so it doesn't read as a bigger change than it is.
             yq -i "${yq_path} = \"${new_tag}\"" "$file"
 
             if git diff --quiet -- "$file"; then
@@ -212,6 +217,8 @@ jobs:
           \`${repo}:${old_tag}\` scans at max CVSS **${old_cvss}**. \`${new_tag}\` is the newest same-major tag available and scans at max CVSS **${new_cvss}**.
 
           No Renovate PR exists for this image because its tag comes from the chart's own bundled default (\`${yq_path}\` in \`${file}\`), not an explicit override this repo previously tracked. This PR adds that override.
+
+          **Note on the diff**: \`yq -i\` re-serializes the whole file, so this diff includes blank-line and folded-scalar whitespace normalization unrelated to the actual change (a known yq/go-yaml round-trip limitation, not a functional edit) -- the only semantic change is the added/updated \`${yq_path}\`.
 
           ## Verification
           - [ ] Confirm \`${new_tag}\` doesn't carry unrelated breaking changes for this chart
