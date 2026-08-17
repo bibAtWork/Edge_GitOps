@@ -1,0 +1,223 @@
+name: Trivy auto-patch
+
+# Efficiency review 2026-08-17, section 3 of docs/renovate-trivy-flow.md: some images
+# have no explicit image.tag override in this repo -- what's deployed comes from the
+# chart's own bundled default -- so Renovate has no string to bump and no PR ever
+# opens for them, even when a Critical CVE exists and a newer same-major tag would
+# fix it. .github/trivy-auto-patch-targets.json is the hand-curated, finite list of
+# such images this workflow knows how to patch.
+#
+# Deliberately self-contained: reads this repo's own declared state (baseline tag or
+# existing override) and the public registry, scans directly with Trivy, and opens a
+# PR -- never commits directly. No dependency on the in-cluster trivy-operator/
+# VictoriaMetrics pipeline at all, so this and the in-cluster trivy-renovate-bridge
+# CronJob stay cleanly separated: that CronJob owns "what's actually running and is
+# it vulnerable, tell me" against live cluster state; this owns "does this specific
+# known set of chart-default images have a better version available" against this
+# repo's declared state. Neither depends on the other's plumbing, and this workflow
+# needs no credential beyond the free, ambient GITHUB_TOKEN.
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ops/talos_linux
+          fetch-depth: 0
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      # crane pinned 2026-08-17: this used to resolve "latest" via an unauthenticated
+      # `curl api.github.com` call. That endpoint's anonymous rate limit is shared
+      # across the whole GitHub Actions runner pool and fails intermittently
+      # regardless of anything in this repo (see .github/workflows/kubeconform.yml's
+      # Install kustomize step, which hit the identical failure the same day this was
+      # found). This workflow runs unattended on a schedule with no PR to show a red
+      # check on, so a silent failure here is worse, not just cosmetic. yq's URL
+      # already avoided the same trap (GitHub's /releases/latest/download/ redirect
+      # doesn't hit the API), so it's left as-is.
+      - name: Install crane and yq
+        run: |
+          VERSION=v0.21.9
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar -xz -C /usr/local/bin crane
+          sudo curl -sL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      # ── Step 1: resolve each tracked image's currently-effective tag ─────────────
+      # An explicit override (if a previous run of this workflow already landed one)
+      # always wins; otherwise fall back to the hand-recorded baseline_tag.
+      - name: Resolve currently-effective tags
+        id: resolve
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+
+          targets = json.load(open('.github/trivy-auto-patch-targets.json'))
+          resolved = []
+          for repo, t in targets.items():
+              if repo.startswith('_'):
+                  continue
+              r = subprocess.run(['yq', 'eval', t['yq_path'], t['file']],
+                                  capture_output=True, text=True)
+              override = r.stdout.strip()
+              tag = override if override and override != 'null' else t['baseline_tag']
+              resolved.append({'repo': repo, 'tag': tag, 'file': t['file'], 'yq_path': t['yq_path']})
+              print(f"{repo}: currently {tag}"
+                    f"{' (explicit override)' if override and override != 'null' else ' (baseline, no override yet)'}")
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"images={json.dumps(resolved)}\n")
+          PY
+
+      # ── Step 2: scan current + best-available same-major tag for each ────────────
+      # Same logic as trivy-automerge.yml's "3b" check, applied to this repo's
+      # tracked images instead of a PR diff.
+      - name: Scan for a better same-major tag
+        id: scan
+        env:
+          IMAGES: ${{ steps.resolve.outputs.images }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+
+          def parse(tag):
+              m = re.match(r'^v?(\d+)\.(\d+)(?:\.(\d+))?$', (tag or '').strip())
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)) if m else None
+
+          def max_cvss(image):
+              r = subprocess.run(
+                  ['trivy', 'image', '--format', 'json', '--exit-code', '0',
+                   '--severity', 'CRITICAL,HIGH', '--quiet', image],
+                  capture_output=True, text=True, timeout=300,
+              )
+              if r.returncode != 0:
+                  return None
+              data = json.loads(r.stdout)
+              scores = [
+                  s.get('V3Score') or s.get('V2Score') or 0
+                  for res in data.get('Results', [])
+                  for vuln in (res.get('Vulnerabilities') or [])
+                  for s in (vuln.get('CVSS') or {}).values()
+              ]
+              return max(scores) if scores else 0.0
+
+          images = json.loads(os.environ['IMAGES'])
+          fixes = []
+          for img in images:
+              repo, tag = img['repo'], img['tag']
+              cur_ver = parse(tag)
+              if not cur_ver:
+                  print(f"skip {repo}: tag '{tag}' not parseable as semver")
+                  continue
+
+              r = subprocess.run(['crane', 'ls', repo], capture_output=True, text=True, timeout=30)
+              if r.returncode != 0:
+                  print(f"skip {repo}: crane ls failed: {r.stderr.strip()[:120]}")
+                  continue
+              all_tags = [t.strip() for t in r.stdout.splitlines() if t.strip()]
+
+              newer = sorted(
+                  [(t, v) for t in all_tags if (v := parse(t)) and v[0] == cur_ver[0] and v > cur_ver],
+                  key=lambda x: x[1], reverse=True,
+              )
+              if not newer:
+                  print(f"skip {repo}: no newer same-major tag available (current: {tag})")
+                  continue
+
+              best_tag, _ = newer[0]
+              cur_cvss = max_cvss(f"{repo}:{tag}")
+              best_cvss = max_cvss(f"{repo}:{best_tag}")
+              print(f"{repo}: current {tag} (CVSS {cur_cvss}) vs best {best_tag} (CVSS {best_cvss})")
+
+              if cur_cvss is not None and best_cvss is not None and best_cvss < cur_cvss and cur_cvss >= 9.0:
+                  fixes.append({
+                      'repo': repo, 'old_tag': tag, 'new_tag': best_tag,
+                      'old_cvss': cur_cvss, 'new_cvss': best_cvss,
+                      'file': img['file'], 'yq_path': img['yq_path'],
+                  })
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"fixes={json.dumps(fixes)}\n")
+          print(f"\n{len(fixes)} fix(es) found (current max CVSS >= 9.0 and a strictly lower-CVSS same-major tag exists).")
+          PY
+
+      # ── Step 3: open a PR for each fix ────────────────────────────────────────────
+      - name: Open patch PRs
+        if: steps.scan.outputs.fixes != '[]' && steps.scan.outputs.fixes != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXES: ${{ steps.scan.outputs.fixes }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "$FIXES" | jq -c '.[]' | while read -r fix; do
+            repo=$(echo "$fix" | jq -r '.repo')
+            old_tag=$(echo "$fix" | jq -r '.old_tag')
+            new_tag=$(echo "$fix" | jq -r '.new_tag')
+            old_cvss=$(echo "$fix" | jq -r '.old_cvss')
+            new_cvss=$(echo "$fix" | jq -r '.new_cvss')
+            file=$(echo "$fix" | jq -r '.file')
+            yq_path=$(echo "$fix" | jq -r '.yq_path')
+            short=$(echo "$repo" | sed 's#.*/##')
+            branch="trivy-auto-patch/${short}-${new_tag}"
+
+            if gh pr list --state open --head "$branch" --json number --jq '. | length' | grep -q '^[1-9]'; then
+              echo "PR already open for $branch, skipping"
+              continue
+            fi
+
+            git checkout -q -b "$branch" origin/ops/talos_linux
+            yq -i "${yq_path} = \"${new_tag}\"" "$file"
+
+            if git diff --quiet -- "$file"; then
+              echo "::warning::${repo}: yq made no change to ${file} (path ${yq_path})"
+              git checkout -q ops/talos_linux
+              continue
+            fi
+
+            git add "$file"
+            git commit -q \
+              -m "bug(security): patch ${repo} to ${new_tag} -- active Critical CVE (CVSS ${old_cvss})" \
+              -m "Automated by .github/workflows/trivy-auto-patch.yml. ${repo}:${old_tag} scans at max CVSS ${old_cvss}; ${new_tag} is the newest same-major tag and scans at max CVSS ${new_cvss}. No Renovate PR exists for this image because its tag comes from the chart's own bundled default, not an explicit override -- see docs/renovate-trivy-flow.md section 3." \
+              -m "Proposal, not a merge -- review like any other PR before it lands." \
+              -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+            # --force: branch names are deterministic (repo+tag), so a rejected PR
+            # from an earlier run whose branch was never deleted would otherwise make
+            # this push non-fast-forward and, since GitHub Actions runs `run:` steps
+            # under `bash -e`, abort this whole step -- silently skipping every other
+            # fix queued in today's run, not just this one. Safe here: nothing but
+            # this workflow ever pushes to trivy-auto-patch/* branches.
+            git push -q -u origin "$branch" --force
+
+            gh pr create --base ops/talos_linux --head "$branch" \
+              --title "bug(security): patch ${repo} to ${new_tag} -- active Critical CVE" \
+              --body "## Summary
+          Opened automatically by \`trivy-auto-patch.yml\` (docs/renovate-trivy-flow.md, section 3).
+
+          \`${repo}:${old_tag}\` scans at max CVSS **${old_cvss}**. \`${new_tag}\` is the newest same-major tag available and scans at max CVSS **${new_cvss}**.
+
+          No Renovate PR exists for this image because its tag comes from the chart's own bundled default (\`${yq_path}\` in \`${file}\`), not an explicit override this repo previously tracked. This PR adds that override.
+
+          ## Verification
+          - [ ] Confirm \`${new_tag}\` doesn't carry unrelated breaking changes for this chart
+          - [ ] Apply and verify live before merging, per this repo's usual practice
+
+          🤖 Generated by \`trivy-auto-patch.yml\`"
+
+            git checkout -q ops/talos_linux
+          done

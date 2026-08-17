@@ -1,0 +1,15 @@
+{
+  "_comment": "Maps an image repository to where its image.tag override belongs in this repo, plus the tag it currently resolves to. Only images listed here are eligible for an auto-opened patch PR. baseline_tag is the tag this repo currently deploys via the chart's own bundled default (no override exists yet) -- recorded by hand the first time an entry is added, and kept in sync automatically: once a PR from this workflow merges and yq_path holds an explicit override, the workflow reads that override instead of baseline_tag, so baseline_tag only matters until the first patch lands. This deliberately avoids fetching each chart's own values.yaml to resolve its default -- that's fragile across chart repos with different tagging conventions, and this list is already hand-curated (add an entry here the first time a chart-default-only image needs a patch).",
+  "grafana/grafana": {
+    "file": "cluster/base/infrastructure/04-grafana/helmrelease.yaml",
+    "yq_path": ".spec.values.image.tag",
+    "baseline_tag": "12.3.1",
+    "baseline_recorded": "2026-08-17"
+  },
+  "velero/velero": {
+    "file": "cluster/base/infrastructure/07-velero/helmrelease.yaml",
+    "yq_path": ".spec.values.image.tag",
+    "baseline_tag": "v1.18.1",
+    "baseline_recorded": "2026-08-17"
+  }
+}
