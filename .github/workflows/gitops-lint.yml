@@ -62,10 +62,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
       - name: Install kustomize
         run: |
-          VERSION=$(curl -sL 'https://api.github.com/repos/kubernetes-sigs/kustomize/releases?per_page=20' \
-            | jq -r '[.[] | select(.tag_name | startswith("kustomize/"))] | first | .tag_name | ltrimstr("kustomize/")')
+          VERSION=v5.8.1
           curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C /usr/local/bin kustomize
 
@@ -91,10 +91,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
       - name: Install kustomize
         run: |
-          VERSION=$(curl -sL 'https://api.github.com/repos/kubernetes-sigs/kustomize/releases?per_page=20' \
-            | jq -r '[.[] | select(.tag_name | startswith("kustomize/"))] | first | .tag_name | ltrimstr("kustomize/")')
+          VERSION=v5.8.1
           curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C /usr/local/bin kustomize
 
