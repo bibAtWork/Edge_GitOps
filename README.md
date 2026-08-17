@@ -16,7 +16,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 - **OS**: Talos Linux (immutable, no SSH, API-driven)
 - **CNI**: Cilium (Gateway API, Hubble, kube-proxy replacement, WireGuard configured)
 - **GitOps**: FluxCD v2 + SOPS/Age encrypted secrets
-- **Storage**: SeaweedFS (S3-compatible, CSI driver)
+- **Storage**: local-path-provisioner (all app PVCs) + SeaweedFS (S3-compatible object storage — Zot registry, Velero backup target, talos-backup etcd snapshots)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
 - **Backup**: Velero (SeaweedFS local) + talos-backup etcd (AWS S3 offsite)
 - **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning)
@@ -327,12 +327,13 @@ python3 bootstrap/scripts/dr.py add-node
 
 | Copy | Storage | Retention | Tool |
 |---|---|---|---|
-| Primary (live data) | SeaweedFS primary collection | — | SeaweedFS CSI |
+| Primary (live data) | local-path-provisioner (per-node local disk) | — | — |
 | Local backup | SeaweedFS backup collection / second server | 4 days (96h) daily | Velero |
 | Offsite backup | AWS S3 Glacier Deep Archive | 90 days (weekly), 365 days (monthly) | Velero |
 | etcd snapshots | SeaweedFS local + AWS S3 | 7 days | talos-backup |
 
-Velero runs CSI VolumeSnapshots for consistent PVC backups alongside manifest backups.
+Velero backs up PVCs via its node-agent DaemonSet (Kopia file-system backup), not CSI
+VolumeSnapshots — no CSI driver or VolumeSnapshotClass is registered on this cluster.
 
 ## Architecture
 
