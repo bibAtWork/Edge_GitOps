@@ -30,13 +30,64 @@ spec:
     # Chart creates NO RBAC by default (templates/rbac.yaml is purely user-driven) —
     # this is the entire read-only surface for cluster introspection: get/list/watch
     # only, no mutating verbs, no pods/exec or pods/attach.
+    #
+    # Security review 2026-08-14, finding H1: this previously used
+    # resources: ["*"], which — combined across all four apiGroups below — grants
+    # get/list/watch on secrets cluster-wide. "Read-only" is true but misleading:
+    # read-only access to every credential in the cluster is a full compromise of
+    # every downstream service those credentials reach, and this is the tool
+    # surface exposed to an LLM agent, so prompt-injection against content it
+    # reads is a realistic path to exfiltrating them. RBAC has no "all resources
+    # except X" syntax, so the fix is an explicit enumeration — every resource
+    # actually present in these four API groups (checked live via
+    # `kubectl api-resources`), secrets excluded, rather than a narrower guess at
+    # what the MCP tool might need. If a real gap turns up in practice, add the
+    # specific resource back with its own justification rather than reaching for
+    # the wildcard again.
     rbac:
       create: true
       extraClusterRoles:
         - name: readonly
           rules:
-            - apiGroups: ["", "apps", "batch", "networking.k8s.io"]
-              resources: ["*"]
+            - apiGroups: [""]
+              resources:
+                - bindings
+                - componentstatuses
+                - configmaps
+                - endpoints
+                - events
+                - limitranges
+                - namespaces
+                - nodes
+                - persistentvolumeclaims
+                - persistentvolumes
+                - pods
+                - podtemplates
+                - replicationcontrollers
+                - resourcequotas
+                - serviceaccounts
+                - services
+              verbs: ["get", "list", "watch"]
+            - apiGroups: ["apps"]
+              resources:
+                - controllerrevisions
+                - daemonsets
+                - deployments
+                - replicasets
+                - statefulsets
+              verbs: ["get", "list", "watch"]
+            - apiGroups: ["batch"]
+              resources:
+                - cronjobs
+                - jobs
+              verbs: ["get", "list", "watch"]
+            - apiGroups: ["networking.k8s.io"]
+              resources:
+                - ingressclasses
+                - ingresses
+                - ipaddresses
+                - networkpolicies
+                - servicecidrs
               verbs: ["get", "list", "watch"]
       extraClusterRoleBindings:
         - name: readonly
