@@ -50,6 +50,15 @@ spec:
   # (confirmed twice via live Hubble, 132-flow full-buffer sample: zero
   # kyverno-to-kyverno flows, only host healthchecks and monitoring's scrape).
   #
+  # PR 4/6: seaweedfs -- the concrete gap that started this whole migration
+  # (docs/network-architecture.md section 3): CLAUDE.md's claim that the Cilium policy
+  # is "the primary auth boundary" for S3 access wasn't true until this line landed.
+  # Ingress now covered exclusively by allow-seaweedfs-internal's explicit caller list
+  # (velero, talos-backup, zot -- PR #177) plus its own same-namespace rule
+  # (master/volume/filer talking to each other). Verified live before applying: a
+  # 1000-flow Hubble sample as destination showed only same-namespace traffic, velero
+  # on :8333, and host-identity health probes (unaffected by this exclusion regardless).
+  #
   # Falls back to default-deny-ingress (host only) for each, same as cattle-system,
   # unless covered by a more specific rule as noted above.
   endpointSelector:
@@ -80,6 +89,7 @@ spec:
           - tailscale
           - cert-manager
           - kyverno
+          - seaweedfs
   ingress:
     - fromEntities:
         - cluster
