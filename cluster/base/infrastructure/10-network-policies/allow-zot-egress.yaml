@@ -26,3 +26,28 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+---
+# Hub-and-spoke migration (2026-08-17), PR 2/6: Trivy's own egress rule
+# (allow-trivy-zot-egress, allow-cross-namespace-egress.yaml) has existed for a while, but
+# there was never a matching ingress rule on Zot's side -- found while excluding the zot
+# namespace from allow-cluster-internal, which would otherwise have silently broken Trivy's
+# registry scans the moment this landed. allow-trivy-zot-egress scopes its source as
+# endpointSelector: {} (every pod in trivy-system, not just a specific label), so this
+# mirrors that same whole-namespace scope on the ingress side.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-trivy-ingress
+  namespace: zot
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: zot
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: trivy-system
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
