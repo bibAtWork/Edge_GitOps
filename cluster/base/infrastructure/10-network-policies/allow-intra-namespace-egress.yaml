@@ -177,3 +177,20 @@ spec:
   egress:
     - toEndpoints:
         - {}
+---
+# Security review 2026-08-14, finding M4: cattle-system was the one managed
+# namespace with no CiliumNetworkPolicy of its own at all (see also
+# allow-cluster-internal.yaml, which now excludes it from cluster-wide ingress).
+# Added for parity with every other namespace and for any future
+# system-upgrade-controller Job pods, which run in this namespace and may need
+# to reach each other or the controller.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+  namespace: cattle-system
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - {}
