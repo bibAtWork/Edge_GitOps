@@ -122,40 +122,111 @@ attempt in front of Hubble UI (2026-08-12) hit an unrelated Cilium policy-realiz
 and was abandoned; a `SecurityPolicy.oidc` block against Keycloak is the intended fix and
 is not yet implemented.
 
-## 3. East-West microsegmentation model
+## 3. East-West microsegmentation model — and why it's mostly not one
 
 ```mermaid
-flowchart LR
-    subgraph default["Cluster-wide default (CiliumClusterwideNetworkPolicy)"]
+flowchart TB
+    subgraph baseline["Cluster-wide baseline (CiliumClusterwideNetworkPolicy)"]
         direction TB
         deny_ing["default-deny-ingress\nallow only fromEntities: [host]\n(excludes reserved:ingress —\nthe Gateway has its own rule)"]
         deny_eg["default-deny-egress\nallow only toEntities: [host, kube-apiserver]"]
+        cluster_allow["allow-cluster-internal\ningress fromEntities: [cluster], ALL ports\nexcludes: reserved:ingress, cattle-system"]
     end
 
-    subgraph pattern["Per-namespace pattern, repeated ~25 times"]
+    deny_ing -.->|"widened back open by"| cluster_allow
+
+    subgraph reality["What's actually enforced (verified live)"]
+        broad["Any pod -> any other pod, any port.\ncilium-dbg on keycloak + seaweedfs-filer: the\nrealized port=0/ANY entry from allow-cluster-internal\nalready is a superset of every narrower per-app rule"]
+    end
+
+    cluster_allow --> broad
+
+    subgraph exceptions["The only two ways anything is actually restricted"]
         direction TB
-        intra["allow-intra-namespace-egress\n(required in every namespace,\nor pods can't reach same-namespace peers)"]
-        specific["Targeted allow rules\ne.g. allow-paperless-to-keycloak-egress,\nallow-opa-ingress, allow-gateway-ingress"]
+        excl["Exclude the destination from\nallow-cluster-internal's endpointSelector\n(cattle-system only, PR #151)"]
+        deny["Explicit ingressDeny rules --\ndeny always wins over allow\n(restrict-vmsingle-ingress only)"]
     end
 
-    subgraph example["Example: keycloak namespace"]
-        direction TB
-        kc["keycloak pod"]
-        kc_rules["allow-gateway-ingress (from Envoy Gateway)\nallow-opa-ingress (OPA needs Keycloak for token introspection)\nallow-paperless-ingress (paperless OIDC callback)\nallow-intra-namespace-egress/ingress"]
+    broad -.->|"opt out via"| excl
+    broad -.->|"carve out via"| deny
+
+    subgraph egress_model["Egress: genuinely segmented, no cluster-wide equivalent"]
+        eg_pattern["Every namespace needs its own allow-intra-namespace-egress\nplus targeted per-destination rules\n(DNS :53, world :443 HTTPS only, SeaweedFS :8333, Zot :5000, ...)"]
     end
 
-    deny_ing -.->|baseline| pattern
-    deny_eg -.->|baseline| pattern
-    pattern -.-> example
+    deny_eg -.->|baseline| egress_model
 
     style deny_ing fill:#5c1a1a,color:#fff
     style deny_eg fill:#5c1a1a,color:#fff
+    style cluster_allow fill:#7a5c1a,color:#fff
+    style broad fill:#7a5c1a,color:#fff
+    style deny fill:#2d5016,color:#fff
+    style excl fill:#2d5016,color:#fff
 ```
 
-Default-deny is cluster-wide; every namespace opts back in explicitly. The
-`default-deny-ingress` rule is scoped with `reserved.ingress: DoesNotExist` specifically
-so it does not fight the Gateway's own ingress rule — an easy accidental overlap if
-copied without that exclusion.
+**The ingress side is not actually segmented.** `default-deny-ingress` is the cluster-wide
+baseline, but `allow-cluster-internal` immediately widens it back to "any pod may reach any
+other pod, on any port" for every namespace except `reserved:ingress` (the Gateway proxy,
+which has its own dedicated policy) and `cattle-system` (excluded 2026-08-17,
+[#151](https://github.com/bibAtWork/Edge_GitOps/pull/151), the one namespace whose sole
+workload holds a cluster-admin `ClusterRoleBinding`).
+
+Because Cilium/Kubernetes network policies are additive — a pod's effective ingress is the
+union of every applicable allow rule, and the broadest one wins — the many narrow, per-app
+ingress rules elsewhere in this repo (`allow-opa-ingress`, `allow-paperless-ingress`,
+`allow-gateway-ingress`, `allow-envoy-gateway-ingress` in `26-keycloak/cilium-policy.yaml`;
+`allow-seaweedfs-internal`'s port-8333 restriction; similar patterns in `16-immich`,
+`17-paperless-ngx`, `22-schenkmatch`, `24-opa`, `27-kubeopencode`) provide **no actual
+enforcement** today. Verified live via `cilium-dbg endpoint get <id> -o json`, reading
+`status.policy.realized.l4.ingress`:
+
+- **Keycloak** (endpoint 896): the realized L4 policy has a `port=0, protocol=ANY` entry
+  whose `derived-from-rules` includes `allow-cluster-internal` — that entry alone already
+  permits every port from every cluster identity. The narrower `port=8080, protocol=TCP`
+  entry (derived from `allow-opa-ingress`/`allow-paperless-ingress`/
+  `allow-envoy-gateway-ingress`) is a strict subset of the first and adds nothing.
+- **SeaweedFS filer** (endpoint 76, serves the S3 API on :8333): identical pattern —
+  `port=0/ANY` from `allow-cluster-internal` already covers the `port=8333/TCP` entry
+  `allow-seaweedfs-internal` was written to restrict.
+
+**This directly affects the SeaweedFS auth model documented in `CLAUDE.md`**, which states
+the Cilium policy restricting port 8333 "is the primary auth boundary inside the cluster"
+for S3 access, with the shared admin credential as a second, defence-in-depth layer. As
+currently deployed, that's not accurate: any pod in the cluster can already reach
+SeaweedFS's S3 port, on any port, because `seaweedfs` is not excluded from
+`allow-cluster-internal`. The admin credential is, in practice, the *only* real access
+control on SeaweedFS S3 today. This is a real gap, not a documentation nit — flagged here
+rather than fixed, since narrowing it is a deliberate policy change (either excluding
+`seaweedfs` from `allow-cluster-internal` the way `cattle-system` is, or adding an
+`ingressDeny` the way `restrict-vmsingle-ingress` does) that needs checking against every
+legitimate caller first — the CSI driver, Velero, `talos-backup`, Zot, and Trivy all reach
+it today, and some may currently depend on `allow-cluster-internal` for reachability
+without an explicit rule of their own.
+
+**The only two places anything is actually restricted beyond the cluster-wide allow:**
+
+1. **Exclude the destination from `allow-cluster-internal`'s `endpointSelector`** — the
+   only user of this pattern is `cattle-system` (PR #151). The excluded namespace falls
+   back to the bare `default-deny-ingress` baseline (host only).
+2. **Explicit `ingressDeny` rules**, which win over any `allow` regardless of specificity —
+   the only user of this pattern in the whole repo is `restrict-vmsingle-ingress`
+   (`10-network-policies/allow-monitoring.yaml`), which denies
+   `node-exporter`/`kube-state-metrics`/`otel-agent` from calling VictoriaMetrics' query
+   API directly while allowing Grafana/vmagent/vmalert/the operator/otel-gateway.
+
+**Egress has no equivalent problem.** There is no cluster-wide "allow all egress" policy —
+`default-deny-egress` really is the effective baseline, and every namespace opts into
+exactly what it needs: `allow-intra-namespace-egress` (same-namespace only, required in
+~25 namespaces or pods can't reach same-namespace peers), `allow-dns-egress` (port 53 to
+CoreDNS only), `allow-internet-egress-https-only` (world, port 443 only), and narrow
+per-target rules like `allow-velero-egress`/`allow-zot-egress`/`allow-talos-backup-egress`
+(SeaweedFS :8333, S3 FQDNs on :443, DNS — nothing else). A pod that needs to reach
+something new on the egress side genuinely needs a new policy; the same is not true on the
+ingress side for anything not excluded from `allow-cluster-internal`.
+
+The `default-deny-ingress` rule is scoped with `reserved.ingress: DoesNotExist`
+specifically so it does not fight the Gateway's own ingress rule — an easy accidental
+overlap if copied without that exclusion.
 
 **A subtlety worth remembering when testing Gateway reachability:** an in-cluster test
 pod making a cross-namespace request to the Gateway's VIP is evaluated by Cilium against
