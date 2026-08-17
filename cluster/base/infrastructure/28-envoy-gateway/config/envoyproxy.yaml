@@ -68,3 +68,23 @@ spec:
                 io.cilium.gateway/owning-gateway: homelab-gateway
             spec:
               externalTrafficPolicy: Cluster
+
+  # Backlog item 13 / ADR-001 "not yet realized": edge tracing. Points at the
+  # OTel collector gateway already running in monitoring (03-otel-collector),
+  # whose traces pipeline is already wired to VictoriaTraces — this was the
+  # missing link, not a new backend. backendRefs (not the deprecated host/port
+  # fields) needs a ReferenceGrant for the cross-namespace Service reference;
+  # see 03-otel-collector/tracing-referencegrant.yaml. 100% sampling: traffic
+  # volume on a homelab is low enough that there's no cost/storage reason to
+  # sample down, and full traces are strictly more useful for debugging.
+  telemetry:
+    tracing:
+      samplingRate: 100
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+          - group: ""
+            kind: Service
+            name: otel-collector-gateway
+            namespace: monitoring
+            port: 4317
