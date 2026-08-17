@@ -172,7 +172,10 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 1h
+                # Lengthened 2026-08-17: home lab, not production -- a CVE finding isn't a
+                # transient blip, it'll still be there in two hours, so there's no reason to
+                # notify within the first one.
+                for: 2h
                 annotations:
                   # {{ "{{" }} ... }} escapes Helm's tpl pass; Grafana sees {{ $labels.xxx }}
                   summary: >-
@@ -224,7 +227,8 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 1h
+                # Lengthened 2026-08-17 — see trivy-critical-cve above.
+                for: 2h
                 annotations:
                   summary: >-
                     {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} —
@@ -282,7 +286,8 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 15m
+                # Lengthened 2026-08-17 — see trivy-critical-cve above.
+                for: 1h
                 annotations:
                   summary: >-
                     Exposed secret in {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }}

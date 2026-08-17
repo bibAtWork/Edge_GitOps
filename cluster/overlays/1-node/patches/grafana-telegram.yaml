@@ -37,19 +37,26 @@ spec:
       policies.yaml:
         apiVersion: 1
         policies:
+          # Lengthened 2026-08-17: this is a home lab, not a production system
+          # with an on-call SLA. The old cadence (1h critical / 4h default
+          # repeat) paged Telegram near-hourly for issues that are still going
+          # to be there next time it's checked. Detection speed (the `for:`
+          # grace period on each rule in 04-grafana/helmrelease.yaml) is
+          # unchanged -- only how often an already-known, ongoing issue
+          # re-notifies.
           - orgId: 1
             receiver: Telegram
             group_by:
               - alertname
               - namespace
-            group_wait: 30s
-            group_interval: 5m
-            repeat_interval: 4h
+            group_wait: 2m
+            group_interval: 30m
+            repeat_interval: 24h
             routes:
               - matchers:
                   - severity = critical
                 receiver: Telegram
-                repeat_interval: 1h
+                repeat_interval: 6h
 
       deleteRules.yaml:
         apiVersion: 1
