@@ -15,10 +15,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
       - name: Install gitleaks
         run: |
-          VERSION=$(curl -sL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-            | jq -r '.tag_name')
+          VERSION=v8.30.1
           curl -sL "https://github.com/gitleaks/gitleaks/releases/download/${VERSION}/gitleaks_${VERSION#v}_linux_x64.tar.gz" \
             | tar -xz -C /usr/local/bin gitleaks
           echo "gitleaks $(gitleaks version)"
