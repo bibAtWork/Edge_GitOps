@@ -40,10 +40,18 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin
 
+      # crane pinned 2026-08-17: this used to resolve "latest" via an unauthenticated
+      # `curl api.github.com` call. That endpoint's anonymous rate limit is shared
+      # across the whole GitHub Actions runner pool and fails intermittently
+      # regardless of anything in this repo (see .github/workflows/kubeconform.yml's
+      # Install kustomize step, which hit the identical failure the same day this was
+      # found). This workflow runs unattended on a schedule with no PR to show a red
+      # check on, so a silent failure here is worse, not just cosmetic. yq's URL
+      # already avoided the same trap (GitHub's /releases/latest/download/ redirect
+      # doesn't hit the API), so it's left as-is.
       - name: Install crane and yq
         run: |
-          VERSION=$(curl -sL https://api.github.com/repos/google/go-containerregistry/releases/latest \
-            | jq -r '.tag_name')
+          VERSION=v0.21.9
           curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin crane
           sudo curl -sL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
@@ -188,7 +196,13 @@ jobs:
               -m "Automated by .github/workflows/trivy-auto-patch.yml. ${repo}:${old_tag} scans at max CVSS ${old_cvss}; ${new_tag} is the newest same-major tag and scans at max CVSS ${new_cvss}. No Renovate PR exists for this image because its tag comes from the chart's own bundled default, not an explicit override -- see docs/renovate-trivy-flow.md section 3." \
               -m "Proposal, not a merge -- review like any other PR before it lands." \
               -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-            git push -q -u origin "$branch"
+            # --force: branch names are deterministic (repo+tag), so a rejected PR
+            # from an earlier run whose branch was never deleted would otherwise make
+            # this push non-fast-forward and, since GitHub Actions runs `run:` steps
+            # under `bash -e`, abort this whole step -- silently skipping every other
+            # fix queued in today's run, not just this one. Safe here: nothing but
+            # this workflow ever pushes to trivy-auto-patch/* branches.
+            git push -q -u origin "$branch" --force
 
             gh pr create --base ops/talos_linux --head "$branch" \
               --title "bug(security): patch ${repo} to ${new_tag} -- active Critical CVE" \
