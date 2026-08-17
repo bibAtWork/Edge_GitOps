@@ -20,18 +20,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned 2026-08-17: this used to resolve "latest" via an unauthenticated
+      # `curl api.github.com` call on every run. That endpoint's anonymous rate
+      # limit (60/hr per source IP, shared across the whole GitHub Actions
+      # runner pool) made this fail intermittently and unrelated to any PR's
+      # actual content -- confirmed by identical "not in gzip format" failures
+      # (a rate-limit error body downloaded instead of the real release
+      # tarball) on unrelated PRs. Bump these pins by hand when there's a
+      # reason to.
       - name: Install kubeconform
         run: |
-          VERSION=$(curl -sL https://api.github.com/repos/yannh/kubeconform/releases/latest \
-            | jq -r '.tag_name')
+          VERSION=v0.8.0
           curl -sL "https://github.com/yannh/kubeconform/releases/download/${VERSION}/kubeconform-linux-amd64.tar.gz" \
             | tar -xz -C /usr/local/bin kubeconform
           echo "kubeconform $(kubeconform -v)"
 
       - name: Install kustomize
         run: |
-          VERSION=$(curl -sL 'https://api.github.com/repos/kubernetes-sigs/kustomize/releases?per_page=20' \
-            | jq -r '[.[] | select(.tag_name | startswith("kustomize/"))] | first | .tag_name | ltrimstr("kustomize/")')
+          VERSION=v5.8.1
           curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C /usr/local/bin kustomize
           echo "kustomize $(kustomize version)"
