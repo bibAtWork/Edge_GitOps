@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - envoyproxy.yaml
   - securitypolicy.yaml
+  - backendtrafficpolicy.yaml

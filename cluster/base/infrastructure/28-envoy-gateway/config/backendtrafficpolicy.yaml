@@ -1,0 +1,48 @@
+# Backlog item 13 / ADR-001 "not yet realized": rate limiting. The old Cilium-era
+# local_ratelimit + Valkey stack was removed as orphaned/unwired dead code before
+# the cutover (#116) — nothing replaced it until now.
+#
+# Local (not Global) rate limiting deliberately: Global requires a separate
+# Redis-backed ratelimit service that nothing in this cluster runs today, and
+# introducing one just for this would resurrect the same kind of extra
+# infrastructure the old Valkey-backed stack was removed for being. Local is a
+# per-Envoy-instance token bucket with no external dependency — the right fit
+# for a single-replica gateway (see envoyproxy.yaml's replicas: 1 comment).
+#
+# Attached to the Gateway (applies to every HTTPRoute) rather than per-route,
+# matching how homelab-gateway-authz (securitypolicy.yaml) is already scoped.
+#
+# 300 requests/minute (5rps) per distinct source IP is a generic abuse/DoS
+# floor, not a per-app tuned limit — comfortably above normal interactive use
+# (dashboard polling, photo gallery scrolling, document uploads) across the 8
+# apps behind this Gateway, while still blocking basic brute-force/flood
+# attempts. Revisit per-route if a specific app needs a tighter or looser
+# limit (e.g. Keycloak's login endpoint, or Immich's upload endpoint).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: homelab-gateway-rate-limit
+  namespace: gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: homelab-gateway
+  rateLimit:
+    type: Local
+    local:
+      rules:
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: 0.0.0.0/0
+          limit:
+            requests: 300
+            unit: Minute
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: ::/0
+          limit:
+            requests: 300
+            unit: Minute
