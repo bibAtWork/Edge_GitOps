@@ -31,3 +31,22 @@ spec:
   ingress:
     - fromEndpoints:
         - {}
+---
+# Found live (2026-08-17, PR 2/6) while excluding falco from allow-cluster-internal: the
+# falco DaemonSet pods report to a k8s-metacollector Deployment in the same namespace over
+# gRPC on :45000 (collectors.kubernetes.enabled: true, 18-falco/helmrelease.yaml) -- an
+# implicit chart behavior, not named in the values in any way that showed up in a static
+# read. falco already has same-namespace EGRESS (the central allow-intra-namespace-egress
+# entry for this namespace), just never had the matching ingress half. Confirmed via
+# Hubble: 2 dropped SYNs to k8s-metacollector:45000 in the minutes right after the
+# exclusion landed, before this fix.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace-ingress
+  namespace: falco
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}

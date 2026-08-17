@@ -24,6 +24,18 @@ spec:
   # a narrower namespace-scoped policy can't override this cluster-wide allow, so
   # the exclusion has to live here. cattle-system falls back to default-deny-ingress
   # (host only, i.e. kubelet), which is all it has ever actually used.
+  #
+  # Hub-and-spoke migration (2026-08-17), PR 2/6 -- see docs/network-architecture.md
+  # section 3 and PR #177: staged narrowing of this policy toward zero exclusions,
+  # namespace-by-namespace, each verified live before merging. This batch is the
+  # low-risk set -- single-purpose or single/zero-pod namespaces with no identified
+  # cross-namespace ingress need beyond what PR #177's new rules already cover
+  # (schenkmatch, falco: independent per-node DaemonSet pods with no peer-to-peer
+  # need; trivy-system, zot: ingress only from callers already granted in
+  # allow-seaweedfs-internal/allow-trivy-zot-egress or the new gateway hub rule;
+  # external-dns, local-path-storage, cilium-secrets, kubescape, system-upgrade,
+  # gateway-system: zero or near-zero live pods, no in-namespace peer traffic).
+  # Falls back to default-deny-ingress (host only) for each, same as cattle-system.
   endpointSelector:
     matchExpressions:
       - key: reserved.ingress
@@ -32,6 +44,16 @@ spec:
         operator: NotIn
         values:
           - cattle-system
+          - schenkmatch
+          - falco
+          - trivy-system
+          - zot
+          - external-dns
+          - local-path-storage
+          - cilium-secrets
+          - kubescape
+          - system-upgrade
+          - gateway-system
   ingress:
     - fromEntities:
         - cluster
