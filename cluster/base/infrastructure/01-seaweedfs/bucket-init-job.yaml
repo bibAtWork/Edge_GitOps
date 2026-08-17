@@ -15,10 +15,10 @@ metadata:
   # whenever this file's pod spec changes for any reason (not just manual
   # edits — Renovate PRs count) and Flux will garbage-collect the old-named
   # Job cleanly instead of trying to patch it in place.
-  name: seaweedfs-bucket-init-1
+  name: seaweedfs-bucket-init-2
   namespace: seaweedfs
   annotations:
-    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-1 -n seaweedfs
+    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-2 -n seaweedfs
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 6
@@ -60,7 +60,13 @@ spec:
             - |
               set -euo pipefail
               S3="http://seaweedfs-s3.seaweedfs.svc:8333"
-              for bucket in etcd-backups velero-backups zot-registry pvs; do
+              # Backlog 2026-08-16 / security review 2026-08-14, finding "README staleness":
+              # a fourth bucket, "pvs", used to be created here too -- a vestige of an
+              # earlier plan to back PVCs with SeaweedFS via CSI that was never carried
+              # through (no CSI driver has ever been registered on this cluster; all app
+              # PVCs use local-path-provisioner). Confirmed live the bucket was empty
+              # before removing it from this list.
+              for bucket in etcd-backups velero-backups zot-registry; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else
