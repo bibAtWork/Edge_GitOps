@@ -18,9 +18,16 @@ spec:
     matchLabels:
       app.kubernetes.io/name: seaweedfs
   ingress:
+    # Whole namespace, not just app.kubernetes.io/name=seaweedfs -- found live (2026-08-17,
+    # PR 6/6) right after deleting allow-cluster-internal entirely: seaweedfs-bucket-init
+    # and seaweedfs-collection-routing Job pods (seaweedfs-collection-routing-job.yaml, a
+    # sibling resource in this overlay) carry only batch.kubernetes.io/job-name-style
+    # labels, no app.kubernetes.io/name -- the label-scoped version of this rule never
+    # covered them. They'd been silently relying on allow-cluster-internal this whole time,
+    # same story as every other gap this migration surfaced. Confirmed live: both Jobs were
+    # stuck retrying (Init:0/1, POLICY_DENIED on :8333) until this widened.
     - fromEndpoints:
         - matchLabels:
-            app.kubernetes.io/name: seaweedfs
             io.kubernetes.pod.namespace: seaweedfs
     - fromEndpoints:
         - matchLabels:
