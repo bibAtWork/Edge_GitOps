@@ -15,10 +15,23 @@ spec:
   # Exclude reserved:ingress (Cilium gateway proxy). It has its own dedicated ingress policy
   # (allow-gateway-world-ingress) that explicitly allowlists world, host, and cluster identities
   # in the NPDS so cilium.l7policy permits external traffic through the gateway.
+  #
+  # Security review 2026-08-14, finding M4: also exclude cattle-system. Its only
+  # workload (system-upgrade-controller) holds a cluster-admin ClusterRoleBinding
+  # and exposes zero ports/probes (verified live — no ports, no liveness/readiness
+  # probe on its container, no Service in the namespace at all), so nothing
+  # legitimately needs pod-network ingress to it. Cilium policies are additive —
+  # a narrower namespace-scoped policy can't override this cluster-wide allow, so
+  # the exclusion has to live here. cattle-system falls back to default-deny-ingress
+  # (host only, i.e. kubelet), which is all it has ever actually used.
   endpointSelector:
     matchExpressions:
       - key: reserved.ingress
         operator: DoesNotExist
+      - key: io.kubernetes.pod.namespace
+        operator: NotIn
+        values:
+          - cattle-system
   ingress:
     - fromEntities:
         - cluster
