@@ -1,7 +1,18 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: seaweedfs-collection-routing
+  # Job.spec.template is immutable — a static name means any pod-spec change,
+  # including an automated image bump, fails outright against the
+  # still-existing prior Job and blocks the whole flux-system Kustomization
+  # (not just this resource). Confirmed live 2026-08-17: this Job carries two
+  # separately Renovate-tracked images (amazon/aws-cli, chrislusf/seaweedfs),
+  # and a bump to either one is enough to trigger it. Same root cause and fix
+  # as 26-keycloak/setup-job.yaml and 01-seaweedfs/bucket-init-job.yaml.
+  #
+  # Bump the numeric suffix whenever this file's pod spec changes for any
+  # reason (Renovate PRs count) — prune: true on this Kustomization means Flux
+  # garbage-collects the old-named Job instead of trying to patch it in place.
+  name: seaweedfs-collection-routing-1
   namespace: seaweedfs
   annotations:
     # 1-node only: pins buckets to specific volume collections for disk isolation.

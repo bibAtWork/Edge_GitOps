@@ -1,10 +1,24 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: seaweedfs-bucket-init
+  # Job.spec.template is immutable. A static name means any change to the pod
+  # spec — including an automated image bump, which is exactly what happened
+  # 2026-08-17 when Renovate's kubernetes manager (enabled #131) bumped
+  # amazon/aws-cli here — fails outright against the still-existing prior Job,
+  # and that failure blocks the whole flux-system Kustomization (this Job is
+  # on its reconcile path), not just this one resource. Confirmed live: no
+  # Kustomization reconciled until the stale Job was deleted by hand. Same
+  # root cause and fix as 26-keycloak/setup-job.yaml (see its comment for the
+  # full incident writeup).
+  #
+  # This Kustomization runs with prune: true, so bump the numeric suffix
+  # whenever this file's pod spec changes for any reason (not just manual
+  # edits — Renovate PRs count) and Flux will garbage-collect the old-named
+  # Job cleanly instead of trying to patch it in place.
+  name: seaweedfs-bucket-init-1
   namespace: seaweedfs
   annotations:
-    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init -n seaweedfs
+    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-1 -n seaweedfs
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 6
