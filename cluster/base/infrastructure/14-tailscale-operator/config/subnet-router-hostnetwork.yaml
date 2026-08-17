@@ -90,7 +90,7 @@ spec:
       serviceAccountName: tailscaled-subnet-router
       containers:
         - name: tailscaled
-          image: tailscale/tailscale:v1.98.10
+          image: tailscale/tailscale:v1.102.2
           env:
             - name: TS_KUBE_SECRET
               value: tailscaled-subnet-router-state
