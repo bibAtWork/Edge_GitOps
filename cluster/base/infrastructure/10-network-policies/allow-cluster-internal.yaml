@@ -27,15 +27,31 @@ spec:
   #
   # Hub-and-spoke migration (2026-08-17), PR 2/6 -- see docs/network-architecture.md
   # section 3 and PR #177: staged narrowing of this policy toward zero exclusions,
-  # namespace-by-namespace, each verified live before merging. This batch is the
+  # namespace-by-namespace, each verified live before merging. This batch was the
   # low-risk set -- single-purpose or single/zero-pod namespaces with no identified
   # cross-namespace ingress need beyond what PR #177's new rules already cover
-  # (schenkmatch, falco: independent per-node DaemonSet pods with no peer-to-peer
-  # need; trivy-system, zot: ingress only from callers already granted in
-  # allow-seaweedfs-internal/allow-trivy-zot-egress or the new gateway hub rule;
-  # external-dns, local-path-storage, cilium-secrets, kubescape, system-upgrade,
-  # gateway-system: zero or near-zero live pods, no in-namespace peer traffic).
-  # Falls back to default-deny-ingress (host only) for each, same as cattle-system.
+  # (schenkmatch: single pod, no peer; falco: DaemonSet pods DO have a same-namespace
+  # peer, k8s-metacollector on :45000 -- missed in the initial audit, caught live via
+  # Hubble right after this exclusion landed, fixed with a same-namespace ingress rule
+  # in allow-intra-namespace-ingress.yaml, PR #178; trivy-system, zot: ingress only
+  # from callers now explicitly granted -- allow-seaweedfs-internal, allow-trivy-zot-
+  # egress's matching allow-trivy-ingress (also added in PR #178, a real gap that
+  # predated this migration), or the gateway hub rule; external-dns,
+  # local-path-storage, cilium-secrets, kubescape, system-upgrade, gateway-system:
+  # zero or near-zero live pods, no in-namespace peer traffic).
+  #
+  # PR 3/6: the medium-risk batch, each with a new dedicated rule from PR #177 or
+  # already covered by an existing per-app rule -- immich, paperless (own
+  # allow-intra-namespace-ingress); monitoring, flux-system, kube-system (own
+  # allow-intra-namespace-ingress, all added in PR #177); velero, talos-backup
+  # (K8s-API/CRD coordination only, confirmed no pod-to-pod need); tailscale
+  # (operator and hostNetwork subnet-router don't talk to each other); cert-manager
+  # (webhook is API-server-initiated, not called by the other components); kyverno
+  # (confirmed twice via live Hubble, 132-flow full-buffer sample: zero
+  # kyverno-to-kyverno flows, only host healthchecks and monitoring's scrape).
+  #
+  # Falls back to default-deny-ingress (host only) for each, same as cattle-system,
+  # unless covered by a more specific rule as noted above.
   endpointSelector:
     matchExpressions:
       - key: reserved.ingress
@@ -54,6 +70,16 @@ spec:
           - kubescape
           - system-upgrade
           - gateway-system
+          - immich
+          - paperless
+          - monitoring
+          - flux-system
+          - kube-system
+          - velero
+          - talos-backup
+          - tailscale
+          - cert-manager
+          - kyverno
   ingress:
     - fromEntities:
         - cluster
