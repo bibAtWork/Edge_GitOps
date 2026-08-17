@@ -112,10 +112,7 @@ flowchart TD
     R[("VictoriaMetrics")] --> X["trivy-renovate-bridge CronJob\ndaily, 06:00 UTC"]
     X --> Y{"open Renovate PR\nalready touches this image?"}
     Y -- yes --> W1(("Telegram:\n\"PR #NNN already open\""))
-    Y -- no --> AA{{"PROPOSED — not yet implemented\nscan registry for a same-major\ntag with lower CVSS\n(reuses gate's own 3b logic)"}}
-    AA -- better tag exists --> AB{{"PROPOSED\nopen a PR adding/updating\nimage.tag — never commit directly"}}
-    AA -- no better tag --> W2(("Telegram:\n\"no open PR — may need\nmanual investigation\""))
-    AB --> REVIEW["Human reviews and merges,\nsame as every other PR here"]
+    Y -- no --> W2(("Telegram:\n\"no open PR — may need\nmanual investigation\""))
 ```
 
 **Live today** (`30-trivy-renovate-bridge/cronjob.yaml`): the discovery half — query
@@ -125,38 +122,51 @@ Reuses `monitoring/telegram-credentials` (already generic, not Grafana-specific)
 than provisioning anything new. Verified live 2026-08-17: a forced run found 10 images
 with active Critical CVEs, all correctly reported as having no open Renovate PR yet.
 
-**Proposed, not yet implemented**: the registry-scan and PR-creation steps. Blocked on an
-architecture decision, not effort — see the note below.
+For images with an explicit `image.tag` override already present in this repo (the Trivy
+scan job image, KubeOpenCode's agent images, mcp-server), Renovate already handles this
+and a PR already exists whenever one's possible — branch `Y -- yes` covers them. The
+CronJob's `Y -- no` branch is where it stops: it can tell you nothing has landed yet, but
+it has no way to act, and historically nothing downstream of it ever did.
 
-**Why this step is mostly a no-op by design, not a bug**: Renovate can only track an
-image tag it can see as an explicit string in this repo's own YAML. For images with an
-explicit `image.tag` override already present (the Trivy scan job image, KubeOpenCode's
-agent images, mcp-server), Renovate already handles this and a Renovate PR already exists
-whenever one's possible — meaning branch `Y -- yes` already covers them; this step never
-even runs for them. It only ever finds something for charts like Grafana or Velero, where
-the deployed tag comes from the chart's own bundled default and Renovate has nothing to
-point at — confirmed live 2026-08-17 for exactly those two.
+### Now implemented: `trivy-auto-patch.yml`
 
-### Open question: where does the write-capable half run?
+The gap only ever matters for images whose deployed tag comes from a chart's own bundled
+default rather than an explicit override — Renovate has no string to bump, so no PR is
+ever possible for them, no matter how long a Critical CVE sits open. Confirmed live
+2026-08-17 for exactly two images in this repo: `grafana/grafana` and `velero/velero`.
 
-Opening a PR needs push + PR-create permission on this repo. Two credential paths, not
-yet decided:
+Closing this is a **separate, independent GitHub Actions workflow**
+(`.github/workflows/trivy-auto-patch.yml`), not a new branch bolted onto the CronJob
+above. That was a deliberate design choice, not an oversight: the CronJob's job is "what's
+actually running and is it vulnerable, tell me," against live cluster state; the
+auto-patch workflow's job is "does this specific, hand-curated set of chart-default
+images have a better version available," against this repo's own declared state. Neither
+needs the other's plumbing, so neither depends on it — no in-cluster query, no Tailscale,
+no Grafana Service Account or token. The only inputs are this repo's checked-out YAML and
+the public container registry, and the only credential is the ambient, free `GITHUB_TOKEN`
+every workflow already gets.
 
-1. **In-cluster**: give the existing CronJob a narrowly-scoped GitHub PAT
-   (`contents:write` + `pull-requests:write`, this repo only) as a new SOPS-encrypted
-   secret. Simplest control flow — one job does discovery, scanning, and the PR in one
-   place — but it's genuinely new credential surface inside a cluster whose git repo *is*
-   the deploy target: write access to this repo is close to write access to the cluster,
-   since Flux applies whatever lands in `ops/talos_linux`.
-2. **GitHub Actions**: move the registry-scan + PR-creation steps into a new scheduled
-   workflow that reuses the CVE gate's own toolchain (Trivy, crane) and its ambient
-   `GITHUB_TOKEN` — no new credential at all on the GitHub side. The catch: GitHub-hosted
-   runners can't reach the in-cluster VictoriaMetrics endpoint (no public ingress, by
-   design). Would need the runner joining the Tailscale tailnet for the query step
-   (`tailscale/github-action`, already-deployed Tailscale operator) — a real, if narrower
-   and more conventional, new credential (a scoped Tailscale auth key) and a new class of
-   thing on the tailnet (an ephemeral GitHub-hosted device, each run).
+```mermaid
+flowchart TD
+    T[(".github/trivy-auto-patch-targets.json\nhand-curated list of\nchart-default-only images")] --> S["Resolve each image's\ncurrently-effective tag\n(yq override, else baseline_tag)"]
+    S --> C["crane ls: any newer\nsame-major tag in the registry?"]
+    C -- no --> DONE1(("nothing to do"))
+    C -- yes --> V["trivy image: max CVSS\ncurrent tag vs. candidate tag"]
+    V --> D{"current CVSS ≥ 9.0\nand candidate CVSS lower?"}
+    D -- no --> DONE2(("nothing to do"))
+    D -- yes --> P["yq-patch image.tag on a new branch,\nopen a PR — never commit directly"]
+    P --> REVIEW["Human reviews and merges,\nsame as every other PR here"]
+```
 
-Neither path is provisionable without the user's action (generating a token/key through
-a UI this session has no access to) — this is the reason section 3's write half is
-diagrammed but not built yet.
+This list is intentionally small and hand-maintained, not auto-discovered — the same
+reasoning as the `trivy-auto-patch-targets.json` comment block: fetching every chart's own
+`values.yaml` to infer its default tag is fragile across chart repos with inconsistent
+tagging conventions, and an image only needs adding here once, the first time it's a
+chart-default-only image with a CVE worth automating around. Once a PR from this workflow
+merges, the image has an explicit `image.tag` override like any Renovate-tracked image, so
+the workflow reads that override instead of `baseline_tag` on every subsequent run —
+`baseline_tag` only matters until the first patch lands.
+
+Runs daily at 06:30 UTC (`workflow_dispatch` also available for an on-demand run) and only
+ever opens a PR, exactly like `trivy-automerge.yml`'s own PRs — nothing it does merges
+without a human reviewing it first.
