@@ -1,0 +1,25 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-dns-ingress
+spec:
+  # Hub-and-spoke migration (2026-08-17), PR 3/6: found while preparing to exclude
+  # kube-system from allow-cluster-internal -- CoreDNS has never had an ingress rule of
+  # its own. allow-dns-egress (allow-dns.yaml) and every namespace's own DNS egress rule
+  # only cover the caller's side; nothing on CoreDNS's own side has ever explicitly
+  # allowed those queries in. This has been carried entirely by allow-cluster-internal
+  # since day one -- excluding kube-system without this would have broken DNS resolution
+  # cluster-wide the moment it landed. A third genuine hub service alongside the gateway
+  # and monitoring scrape: every pod in the cluster legitimately needs to reach CoreDNS.
+  endpointSelector:
+    matchLabels:
+      k8s-app: kube-dns
+  ingress:
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

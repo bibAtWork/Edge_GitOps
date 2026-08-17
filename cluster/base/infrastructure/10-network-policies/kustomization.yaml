@@ -10,6 +10,7 @@ resources:
   - allow-monitoring-scrape-ingress.yaml
   - allow-gateway-world-ingress.yaml
   - allow-dns.yaml
+  - allow-dns-ingress.yaml
   - allow-velero-egress.yaml
   - allow-seaweedfs-internal.yaml
   - allow-monitoring.yaml
