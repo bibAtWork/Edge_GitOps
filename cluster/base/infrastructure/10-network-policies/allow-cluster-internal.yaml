@@ -59,6 +59,33 @@ spec:
   # 1000-flow Hubble sample as destination showed only same-namespace traffic, velero
   # on :8333, and host-identity health probes (unaffected by this exclusion regardless).
   #
+  # PR 5/6: the last batch -- keycloak, envoy-gateway-system, security (OPA), and
+  # kubeopencode-system. Highest blast radius (identity provider, the gateway itself, and
+  # the authz gate), so this one got the most scrutiny: a 1000-flow Hubble sample per
+  # namespace as destination before touching anything, not just after. Every
+  # cross-namespace flow found for keycloak/envoy-gateway-system/security was already
+  # explained: keycloak's own existing per-caller rules (allow-opa-ingress,
+  # allow-paperless-ingress, allow-envoy-gateway-ingress -- all predate this migration and
+  # were already correctly scoped, just redundant under the old broad allow);
+  # envoy-gateway-system -> security/opa:9191 (ext_authz) and monitoring's scrape, both
+  # already covered by PR #177's hub rules; everything else was either return traffic on a
+  # connection these pods themselves initiated (conntrack-handled automatically,
+  # independent of ingress policy) or host-identity health probes (covered by
+  # default-deny-ingress's baseline regardless of this exclusion).
+  #
+  # kubeopencode-system was caught only by cross-checking this list against `kubectl get
+  # ns` right before finalizing this PR -- it had never been through the same live-traffic
+  # review as everything else, and it hosts the LLM agent tooling this repo's own security
+  # review already flags as prompt-injection/exfil surface, making it exactly the kind of
+  # namespace worth getting right rather than leaving on the old broad allow by omission.
+  # Added a precautionary same-namespace ingress rule for it (27-kubeopencode/
+  # cilium-policy.yaml) even though no same-namespace traffic showed up in a live sample,
+  # since a dynamically-spawned Agent worker pod's traffic pattern is bursty enough that
+  # absence in one sample isn't strong evidence of absence.
+  #
+  # With this batch, every namespace in the cluster is now excluded -- see PR 6 for
+  # removing this policy entirely instead of carrying a full exclusion list.
+  #
   # Falls back to default-deny-ingress (host only) for each, same as cattle-system,
   # unless covered by a more specific rule as noted above.
   endpointSelector:
@@ -90,6 +117,10 @@ spec:
           - cert-manager
           - kyverno
           - seaweedfs
+          - keycloak
+          - envoy-gateway-system
+          - security
+          - kubeopencode-system
   ingress:
     - fromEntities:
         - cluster
