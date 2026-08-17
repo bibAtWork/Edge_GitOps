@@ -60,18 +60,41 @@ spec:
       capabilities:
         drop: ["ALL"]
 
-    # Scan job pod/container security context (separate from the operator pod)
+    # Scan job pod/container security context (separate from the operator pod).
+    #
+    # Security review 2026-08-14, finding H2: this HelmRelease already carried a
+    # security-context override at this point, but under the wrong key names
+    # (scanJobPodSecurityContext / scanJobContainerSecurityContext — missing the
+    # PodTemplate segment) — silently ignored by the chart, so it did nothing.
+    # Confirmed live: the rendered scan Job's pod-level securityContext was `{}`,
+    # and the container-level one only ever showed the chart's own hardcoded
+    # defaults (allowPrivilegeEscalation: false, capabilities.drop: [ALL],
+    # privileged: false, readOnlyRootFilesystem: true) — never runAsNonRoot or
+    # seccompProfile, exactly the two fields restricted PSS was rejecting scan
+    # pods for. trivy-system enforces PSS restricted, so every scan Job failed to
+    # even create a pod: "Error creating: ... violates PodSecurity restricted:
+    # runAsNonRoot != true ..., seccompProfile ... must set ...". Trivy's own
+    # config-audit scanner kept working throughout (263 reports) because it runs
+    # differently; vulnerabilityreports stayed at 0 the whole time, with zero
+    # error visible from `kubectl get vulnerabilityreports` alone — a control
+    # that looked deployed and healthy while covering nothing.
+    #
+    # Correct key names confirmed against the chart's own default values.yaml
+    # (aquasecurity/trivy-operator, chart version matches this HelmRelease):
     trivyOperator:
-      scanJobPodSecurityContext:
+      scanJobPodTemplatePodSecurityContext:
         runAsNonRoot: true
         runAsUser: 65534
         seccompProfile:
           type: RuntimeDefault
-      scanJobContainerSecurityContext:
+      scanJobPodTemplateContainerSecurityContext:
         allowPrivilegeEscalation: false
         capabilities:
           drop: ["ALL"]
+        privileged: false
+        readOnlyRootFilesystem: true
         runAsNonRoot: true
+        runAsUser: 65534
         seccompProfile:
           type: RuntimeDefault
 
