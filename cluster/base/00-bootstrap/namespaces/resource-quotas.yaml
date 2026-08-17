@@ -71,19 +71,27 @@ spec:
     limits.memory: 1Gi
     pods: "5"
 ---
-# Efficiency review 2026-08-17: 2Gi was too tight and rejected real scan Jobs
-# ("exceeded quota: default-quota, requested: limits.memory=1G, used:
-# limits.memory=1536870912, limited: limits.memory=2Gi"). Root cause: Trivy's
-# per-container scan limit is 500M (trivy-operator-trivy-config ConfigMap,
-# trivy.resources.limits.memory), and trivy-operator creates one scan container
-# per container in the target workload, so a single Job for a multi-container
-# pod can already ask for 1G+. On top of that, the three scanner types
-# (vulnerability, configAudit, rbacAssessment) run independently and can have
-# their own scan Jobs in flight at once, so a burst of newly-changed images
-# (the normal case right after a batch of image bumps) can stack multiple such
-# Jobs simultaneously. 4Gi/2Gi gives comfortable headroom for that burst case
-# without being unbounded -- the node has 32Gi total and sits around 42% used,
-# so this is not a meaningful bite out of overall capacity.
+# Efficiency review 2026-08-17: briefly widened to 4Gi/2Gi/2cpu/15pods here to
+# work around scan Jobs getting rejected by this quota. That was treating a
+# symptom -- the actual cause was operator.scanJobConcurrentLimit being
+# misspelled (real key: scanJobsConcurrentLimit), so trivy-operator ran on the
+# chart's default of 10 concurrent scan Jobs instead of the intended 1. Fixed
+# properly in 13-trivy-operator/helmrelease.yaml and
+# 1-node/patches/trivy-concurrency-1.yaml, and verified live: with concurrency
+# genuinely capped at 1, polling every 8s for 2 minutes under the same
+# artificial burst that originally broke this quota never showed more than 1
+# concurrent scan pod.
+#
+# Sized down from #160's 4Gi/2Gi/2cpu/15pods once the real cause (above) was
+# fixed, but not all the way back to the original 2Gi: verified live that
+# scanJobsConcurrentLimit is enforced per scanner type, not globally --
+# vulnerabilityScanner, configAuditScanner, and rbacAssessmentScanner can each
+# have their own scan Job in flight at once, so up to ~3 concurrent Jobs is
+# the real worst case, not 1. Confirmed at 2Gi this still produced occasional
+# (harmless -- retried and succeeded, zero app impact) rejections under a
+# forced burst deliberately larger than anything realistic. 3Gi covers the
+# operator (512Mi) plus 3 concurrent Jobs at up to ~830Mi each with real
+# margin, still well short of #160's 4Gi.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -91,10 +99,10 @@ metadata:
   namespace: trivy-system
 spec:
   hard:
-    requests.cpu: "2"
-    requests.memory: 2Gi
-    limits.memory: 4Gi
-    pods: "15"
+    requests.cpu: "1"
+    requests.memory: 1500Mi
+    limits.memory: 3Gi
+    pods: "12"
 ---
 apiVersion: v1
 kind: ResourceQuota
