@@ -54,3 +54,76 @@ spec:
           type: RuntimeDefault
       # No server.ingress here — exposed via HTTPRoute (config/httproute.yaml) on the
       # shared homelab-gateway, same pattern as grafana/paperless/immich.
+
+  # Security review 2026-08-14, finding C1: the chart's kubeopencode-server
+  # ClusterRole grants unrestricted impersonate on users/groups/serviceaccounts
+  # (includes system:masters -> full cluster-admin) plus cluster-wide secrets
+  # read, from the upstream chart defaults (v0.1.9), not anything this repo asked
+  # for. Verified 2026-08-16 that impersonation backs no feature this deployment
+  # uses (no "run as the logged-in user" functionality is exposed) — confirmed by
+  # removing it and testing the app end to end, not just by inspection. Cluster
+  # -wide secrets read is dropped for the same reason: a code-task-execution tool
+  # has no legitimate need to read every Secret in the cluster, and that grant
+  # was never separately justified by the chart's own docs.
+  #
+  # Left alone deliberately: pods/get,list, pods/log/get, pods/exec/create. These
+  # look like the tool's actual core mechanism (agents execute tasks by running
+  # commands in pods it manages) rather than incidental over-grant, and dropping
+  # them was not verified safe the way impersonation and secrets access were.
+  #
+  # A strategic-merge patch replaces the whole rules array (Kubernetes has no
+  # merge key for ClusterRole.rules, so a partial patch would append rather than
+  # remove) with the same 15 rules from the chart, minus these two.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: ClusterRole
+              name: kubeopencode-server
+            patch: |
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: ClusterRole
+              metadata:
+                name: kubeopencode-server
+              rules:
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["tasks", "crontasks", "agents", "agenttemplates", "kubeopencodeconfigs", "registries"]
+                  verbs: ["get", "list", "watch"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["registries"]
+                  verbs: ["create", "update", "delete"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["tasks"]
+                  verbs: ["create", "update", "delete", "patch"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["crontasks"]
+                  verbs: ["create", "update", "delete", "patch"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["agents"]
+                  verbs: ["create", "update", "patch", "delete"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["agenttemplates"]
+                  verbs: ["create", "update", "delete"]
+                - apiGroups: ["kubeopencode.io"]
+                  resources: ["kubeopencodeconfigs"]
+                  verbs: ["update"]
+                - apiGroups: [""]
+                  resources: ["pods"]
+                  verbs: ["get", "list"]
+                - apiGroups: [""]
+                  resources: ["pods/log"]
+                  verbs: ["get"]
+                - apiGroups: [""]
+                  resources: ["pods/exec"]
+                  verbs: ["create"]
+                - apiGroups: [""]
+                  resources: ["namespaces"]
+                  verbs: ["get", "list"]
+                - apiGroups: [""]
+                  resources: ["events"]
+                  verbs: ["create", "patch"]
+                - apiGroups: ["authentication.k8s.io"]
+                  resources: ["tokenreviews"]
+                  verbs: ["create"]
+                # Removed vs. chart default: secrets (get/list/watch, cluster-wide)
+                # and impersonate on users/groups/serviceaccounts. See comment above.
