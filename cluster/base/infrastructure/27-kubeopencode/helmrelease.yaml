@@ -25,6 +25,15 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Security review 2026-08-14, finding M1 (partial): unset, this defaults to a
+    # built-in :latest reference for the git-init/context-init containers every
+    # Agent pod runs (confirmed live — rendered context-init container was
+    # ghcr.io/kubeopencode/kubeopencode:latest even though controller/server
+    # already pin v0.1.9 via chart.spec.version above). Pinned to match.
+    kubeopencodeConfig:
+      systemImage:
+        image: ghcr.io/kubeopencode/kubeopencode:v0.1.9
+
     # The chart's own podSecurityContext defaults (runAsNonRoot only) don't satisfy
     # this namespace's restricted PSS enforcement, which also requires seccompProfile
     # set at pod or container level. kubernetes-mcp-server's chart sets this by
