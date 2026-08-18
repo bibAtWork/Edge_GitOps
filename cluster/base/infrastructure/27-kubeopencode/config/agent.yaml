@@ -31,6 +31,13 @@ spec:
   persistence:
     sessions:
       size: "1Gi"
+      # Migrated to SeaweedFS CSI (2026-08-18). Unlike the other migrations
+      # this one sets storageClassName directly rather than using an
+      # existingClaim: the PVC is created and owned by the Agent controller
+      # (ownerReference kubeopencode.io/v1alpha1 Agent), so it is not ours to
+      # point elsewhere. Contents are agent session scratch, recreated as
+      # needed, so no data copy is required.
+      storageClassName: seaweedfs-storage
   # The chart's own default agent-container securityContext (allowPrivilegeEscalation:
   # false, drop ALL capabilities, seccompProfile RuntimeDefault — see security.md)
   # doesn't set runAsNonRoot, so it fails this namespace's restricted PSS enforcement.

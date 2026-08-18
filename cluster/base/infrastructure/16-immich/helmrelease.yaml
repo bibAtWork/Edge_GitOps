@@ -58,10 +58,9 @@ spec:
           backup.velero.io/excluded-volumes: data
       persistence:
         data:
-          type: persistentVolumeClaim
-          storageClass: local-path
-          accessMode: ReadWriteOnce
-          size: 1Gi
+          # Migrated to SeaweedFS CSI (2026-08-18). existingClaim keeps the
+          # old local-path PVC ("immich-valkey") intact for rollback.
+          existingClaim: immich-valkey-swfs
 
     # Efficiency review 2026-08-17: these resources blocks were previously set at
     # the component top level (server.resources / machine-learning.resources) —
@@ -125,7 +124,11 @@ spec:
       persistence:
         cache:
           enabled: true
-          type: persistentVolumeClaim
-          storageClass: local-path
-          accessMode: ReadWriteOnce
-          size: 10Gi
+          # Migrated to SeaweedFS CSI (2026-08-18) as an EMPTY volume rather
+          # than copying the old contents. This holds downloaded ML models --
+          # pure cache that Immich re-fetches on demand, so copying ~10GB
+          # buys nothing. It also sidesteps a real problem: HuggingFace's
+          # .cache/huggingface/download/*.lock and *.metadata files did not
+          # survive cp -a, which the content verification correctly caught.
+          # Expect a one-off model re-download on first use after this.
+          existingClaim: immich-machine-learning-swfs
