@@ -37,16 +37,48 @@ spec:
         name: seaweedfs-csi-driver
         namespace: flux-system
       interval: 12h
+  # disableWait is required for this release to be manageable by Flux at all.
+  #
+  # The mount DaemonSet ships updateStrategy: OnDelete, deliberately -- the
+  # chart states the mount service "is not yet resilient to its own restarts",
+  # so it must never be rolled automatically: recycling it kills the FUSE
+  # daemon behind every SeaweedFS PVC on that node at once. But OnDelete also
+  # means the DaemonSet never reports converged after a template change, since
+  # existing pods are left alone by design. Helm's readiness wait therefore
+  # cannot ever succeed here -- it blocks the full timeout on
+  # "DaemonSet/seaweedfs-csi-driver-mount status: 'InProgress'", then fails and
+  # ROLLS BACK, discarding the change it just applied. Observed on 2026-08-18:
+  # three consecutive attempts to raise the mount memory limit were each
+  # reverted this way, leaving the DaemonSet's resources back at {}.
+  #
+  # disableWait lets Flux apply the desired spec and stop there, which is the
+  # correct division of labour for an OnDelete workload: Git remains the source
+  # of truth for what the pod SHOULD look like, and a human chooses when the
+  # mount pod is actually recycled to adopt it (quiesce consumers, delete the
+  # pod, bring consumers back). The tradeoff is losing readiness gating on this
+  # release -- acceptable, because the alternative is a release that can never
+  # be upgraded and silently self-reverts every change.
   install:
     timeout: 10m
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
     timeout: 10m
+    disableWait: true
     remediation:
       retries: 3
       remediateLastFailure: true
     cleanupOnFail: true
+  # The rollback path needs the same treatment: remediation after a failed
+  # upgrade runs its own readiness wait, hits the identical OnDelete DaemonSet
+  # stall, and so the rollback that was supposed to restore a good state
+  # instead grinds for its full timeout. Without this the release can sit in a
+  # upgrade-fail -> rollback-stall loop (upgradeFailures reached 5 on
+  # 2026-08-18) that no amount of reconciling clears.
+  rollback:
+    timeout: 10m
+    disableWait: true
   values:
     # Points at the filer's gRPC/HTTP endpoint. The filer is the only
     # component that knows the namespace, so every CSI volume operation
@@ -63,26 +95,100 @@ spec:
     # hostPath volumes), so this does not widen the namespace's posture --
     # but it is worth stating plainly that these are real privileges on the
     # node, not incidental chart defaults.
+    #
+    # These belong under .securityContext. An earlier revision set
+    # `privileged`/`capabilities` directly on seaweedfsCsiPlugin and
+    # mountService, one level too high -- Helm silently ignores unknown keys,
+    # so those blocks did nothing at all. It only ever "worked" because the
+    # chart's own defaults already grant privileged + SYS_ADMIN. Key paths
+    # below are checked against the chart's values.yaml at the pinned
+    # version, same discipline as the filer's secretExtraEnvironmentVars.
     seaweedfsCsiPlugin:
-      privileged: true
-      capabilities:
-        add: ["SYS_ADMIN"]
-      # Single control-plane node runs all workloads, so the node plugin has
-      # to tolerate the control-plane taint or it will never schedule.
-      tolerations:
-        - operator: Exists
-          effect: NoSchedule
+      securityContext:
+        privileged: true
+        capabilities:
+          add: ["SYS_ADMIN"]
 
     mountService:
       # Runs the actual FUSE mounts in a dedicated service rather than inside
       # the plugin, so a plugin restart does not tear down live mounts.
       enabled: true
-      privileged: true
-      capabilities:
-        add: ["SYS_ADMIN"]
+      securityContext:
+        privileged: true
+        capabilities:
+          add: ["SYS_ADMIN"]
+      # ⚠️ These resources are load-bearing, not tuning. This one pod holds
+      # the FUSE daemon for EVERY SeaweedFS PVC on the node, so its memory
+      # limit is a cluster-wide blast radius, not a per-app concern.
+      #
+      # The chart ships `resources: {}`, and this namespace has a LimitRange
+      # whose container default is memory: 256Mi -- so it silently launched
+      # capped at 256Mi. Bulk-copying data during the 2026-08-18 migration
+      # pushed it past that and the kubelet OOMKilled it (exit 137, 15:50:06).
+      # Killing this pod does not just restart a daemon: every live FUSE
+      # mount it served became "transport endpoint is not connected", so
+      # every consumer started getting EIO at once. Grafana's SQLite is what
+      # reported it loudest ("disk I/O error (3850)", all requests 500), but
+      # the fault was underneath the filesystem, not in any one app.
+      #
+      # Recovery is manual and awkward -- the driver's health monitor
+      # correctly refuses to clean up a stale staging path while it is still
+      # a mount point ("aborting recovery to avoid data deletion") and
+      # NodeUnstageVolume fails "device or resource busy", so the dead
+      # mountpoints must be lazily unmounted on the host by hand. The chart
+      # says as much in its own updateStrategy comment: "mount service is not
+      # yet resilient to its own restarts". Treat an OOM here as an outage.
+      #
+      # 2Gi on a 32Gi node is cheap insurance; idle draw is ~86Mi and the
+      # request is set well above that so it is never the first pod reclaimed.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 2Gi
+      tolerations:
+        - operator: Exists
+
+    # Tolerations live under node/mountService/controller, NOT under
+    # seaweedfsCsiPlugin where they used to sit (another key the chart never
+    # reads). This node currently carries no taints at all -- Talos is
+    # configured to schedule on the control plane -- so nothing depended on
+    # them, but both DaemonSets are node-level storage infrastructure that
+    # should run everywhere regardless of taints, which matters for the
+    # planned 3-node overlay.
+    node:
+      tolerations:
+        - operator: Exists
 
     controller:
       replicas: 1
       tolerations:
         - operator: Exists
-          effect: NoSchedule
+      # Softens an anti-affinity rule the chart hardcodes as *required* on
+      # kubernetes.io/hostname whenever controller.affinity.podAntiAffinity is
+      # unset (templates/deployment.yaml). The Deployment has no strategy
+      # override, so it rolls with the default RollingUpdate maxSurge -- the
+      # new pod must schedule before the old one is removed. On a single node
+      # the required rule makes that impossible, so the surge pod sits Pending
+      # forever, Helm times out, and the release rolls back. That is not a
+      # one-off: it deadlocks EVERY upgrade of this HelmRelease on a one-node
+      # cluster, and it is what failed the first attempt to apply the
+      # mountService memory fix below.
+      #
+      # preferred (soft) keeps the real intent -- spread controller replicas
+      # across nodes on the 3-node overlay -- while letting a single-node
+      # rollout proceed. replicas is 1 here regardless, so nothing is spread
+      # today; this only has to stop blocking the rollout.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - seaweedfs-csi-driver-controller
+                topologyKey: kubernetes.io/hostname
