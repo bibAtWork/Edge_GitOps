@@ -89,9 +89,9 @@ spec:
             # Syncs Django group membership from the Keycloak "groups" claim on
             # every login (paperless.signals.handle_social_account_updated) --
             # a destructive full-replace, so group membership is fully owned by
-            # Keycloak once this is on. Requires the SCOPE addition below, since
-            # "groups" is an optional Keycloak client scope and isn't returned
-            # unless explicitly requested.
+            # Keycloak once this is on. Requires the per-app "scope" key below
+            # (lowercase, not "SCOPE"), since "groups" is an optional Keycloak
+            # client scope and isn't returned unless explicitly requested.
             - name: PAPERLESS_SOCIAL_ACCOUNT_SYNC_GROUPS
               value: "true"
             - name: PAPERLESS_OIDC_CLIENT_SECRET
@@ -110,9 +110,23 @@ spec:
             # HTTP — required since the authorization_endpoint is handed to
             # the user's browser, and POSTs to token_endpoint would otherwise
             # risk being downgraded to GET on an http->https redirect.
+            #
+            # "scope" must be lowercase: allauth's OAuth2Provider.get_scope()
+            # checks self.app.settings.get("scope") (lowercase) FIRST, and
+            # only falls back to a provider-wide (not per-app) "SCOPE" key via
+            # self.get_settings() if that's absent -- confirmed against the
+            # actual installed allauth source, not assumed. An uppercase
+            # "SCOPE" key here is silently ignored: get_scope() falls through
+            # both checks and returns get_default_scope() ([openid, profile,
+            # email]), meaning "groups" was never actually requested despite
+            # looking correctly configured. Root cause of a real live outage:
+            # Paperless SSO login itself worked, but every synced user landed
+            # in zero Django groups (empty groups claim), so every request
+            # after login 403'd -- confirmed via Envoy's own access log
+            # showing the literal scope= sent to Keycloak lacked "groups".
             - name: PAPERLESS_SOCIALACCOUNT_PROVIDERS
               value: >-
-                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"http://keycloak.keycloak.svc.cluster.local/realms/homelab/.well-known/openid-configuration","SCOPE":["openid","profile","email","groups"]}}]}}
+                {"openid_connect":{"APPS":[{"provider_id":"keycloak","name":"Keycloak","client_id":"paperless","secret":"$(PAPERLESS_OIDC_CLIENT_SECRET)","settings":{"server_url":"http://keycloak.keycloak.svc.cluster.local/realms/homelab/.well-known/openid-configuration","scope":["openid","profile","email","groups"]}}]}}
             - name: PAPERLESS_OCR_LANGUAGE
               value: eng+deu
             - name: PAPERLESS_TIME_ZONE
