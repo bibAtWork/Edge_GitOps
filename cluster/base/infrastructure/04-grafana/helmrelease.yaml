@@ -34,8 +34,17 @@ spec:
       passwordKey: admin-password
     persistence:
       enabled: true
-      storageClassName: local-path
-      size: 5Gi
+      # Migrated from local-path to SeaweedFS CSI (2026-08-18). Uses
+      # existingClaim rather than storageClassName so the old local-path PVC
+      # ("grafana") stays intact as a rollback: revert these two lines and
+      # Grafana comes straight back on the previous volume.
+      #
+      # Data was copied with Grafana scaled to zero and verified by content --
+      # all 413 files, identical md5s, 288,441,416 bytes both sides. Note that
+      # `du -sb` comparison is useless across these two filesystems: FUSE
+      # reports directory sizes as 0 while xfs counts inode overhead, so
+      # identical data appears to "mismatch" on size alone.
+      existingClaim: grafana-swfs
       labels:
         velero.io/backup: "true"
     plugins:
