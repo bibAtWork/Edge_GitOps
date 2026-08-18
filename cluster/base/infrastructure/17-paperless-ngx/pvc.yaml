@@ -13,62 +13,14 @@ spec:
     requests:
       storage: 5Gi
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: paperless-media
-  namespace: paperless
-  labels:
-    velero.io/backup: "true"
-spec:
-  storageClassName: local-path
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 50Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: paperless-consume
-  namespace: paperless
-spec:
-  storageClassName: local-path
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: paperless-export
-  namespace: paperless
-spec:
-  storageClassName: local-path
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
----
-# SeaweedFS-backed replacements for paperless-media / -export / -consume,
-# migrated 2026-08-18. The three local-path PVCs above are deliberately kept
-# for now as the post-migration soak copy -- deleting them here would make Flux
-# prune them, and local-path's Delete reclaim policy would wipe the originals
-# with no way back (exactly how the old grafana volume was lost the same day).
-# Remove them once these have run clean for a while.
+# Document blobs, on SeaweedFS so paperless can be rescheduled onto another
+# node. paperless-data is deliberately not here: it holds the SQLite database
+# and stays on local-path, because a mount fault costs a blob volume some
+# downtime and can cost a database its integrity.
 #
-# Why these three and not paperless-data: media/export/consume are document
-# blobs, which is what SeaweedFS is for and what has to be shared for paperless
-# to move between nodes. paperless-data holds the SQLite database and stays on
-# local-path -- a mount-daemon fault costs a blob volume some downtime and can
-# cost a database its integrity.
-#
-# Migrated while nearly empty (media was 144KB), which is the cheapest this
-# will ever be. Verified by content: file lists and per-file md5s identical.
+# The previous local-path PVCs were removed after the migration soaked. Flux
+# pruning them also destroys the underlying directories -- local-path's reclaim
+# policy is Delete.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

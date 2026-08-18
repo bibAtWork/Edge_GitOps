@@ -1,0 +1,54 @@
+# The photo library. SeaweedFS-backed so immich can be rescheduled onto another
+# node -- a local-path volume pins the pod to whichever node holds the data.
+#
+# The previous local-path PVC (immich-library) was removed once the migration
+# had soaked; Flux pruning it also destroys the underlying directory, since
+# local-path's reclaim policy is Delete.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library-swfs
+  namespace: immich
+  labels:
+    velero.io/backup: "true"
+spec:
+  storageClassName: seaweedfs-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Cache volumes. Both are referenced by helmrelease.yaml via existingClaim and
+# must therefore exist before the chart renders -- they were previously created
+# out-of-band and had no definition here at all, which meant a rebuild from Git
+# alone would have left immich unable to start.
+#
+# Regenerable content in both cases: valkey is a cache, and the ML volume holds
+# models immich re-downloads on demand. That is why these were the first
+# volumes moved to SeaweedFS -- a fault costs a warm-up, not data.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-valkey-swfs
+  namespace: immich
+spec:
+  storageClassName: seaweedfs-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-machine-learning-swfs
+  namespace: immich
+spec:
+  storageClassName: seaweedfs-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

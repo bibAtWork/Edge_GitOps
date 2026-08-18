@@ -1,10 +1,17 @@
+# Referenced by the Deployment below via claimName. This previously had no
+# definition in Git at all -- it was created out-of-band during the migration,
+# so a rebuild from Git alone would have left the Deployment unschedulable.
+#
+# Valkey is a cache, so a SeaweedFS fault here costs a warm-up rather than data;
+# that is why it was among the first volumes moved. The old local-path PVC
+# (paperless-valkey) was removed once this had soaked.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: paperless-valkey
+  name: paperless-valkey-swfs
   namespace: paperless
 spec:
-  storageClassName: local-path
+  storageClassName: seaweedfs-storage
   accessModes:
     - ReadWriteOnce
   resources:

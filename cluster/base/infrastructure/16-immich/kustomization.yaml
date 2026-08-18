@@ -3,7 +3,7 @@ kind: Kustomization
 resources:
   - postgresql-helmrelease.yaml
   - helmrelease.yaml
-  - library-pvc.yaml
+  - pvcs.yaml
   - db-secret.yaml
   - cilium-policy.yaml
   - oauth-config-secret.yaml
