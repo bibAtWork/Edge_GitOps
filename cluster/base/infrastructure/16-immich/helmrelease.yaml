@@ -58,8 +58,18 @@ spec:
           backup.velero.io/excluded-volumes: data
       persistence:
         data:
-          # Migrated to SeaweedFS CSI (2026-08-18). existingClaim keeps the
-          # old local-path PVC ("immich-valkey") intact for rollback.
+          # Migrated to SeaweedFS CSI (2026-08-18). Pure cache (valkey), so a
+          # loss costs a warm-up, not data.
+          #
+          # An earlier version of this comment claimed existingClaim "keeps the
+          # old local-path PVC intact for rollback". That is FALSE and worth
+          # stating plainly: pointing the chart at an existingClaim removes the
+          # chart-templated PVC from the rendered manifest, so Helm PRUNES it on
+          # the next upgrade, and local-path's Delete reclaim policy wipes the
+          # directory. The old "immich-valkey" PVC was destroyed this way
+          # (local-path-provisioner logged the delete). The same mistake cost
+          # Grafana its volume the same day -- see 04-grafana/helmrelease.yaml.
+          # There is no rollback here; the copy-out is the only safety net.
           existingClaim: immich-valkey-swfs
 
     # Efficiency review 2026-08-17: these resources blocks were previously set at
