@@ -17,7 +17,8 @@ test_valid_hierarchy_allowed if {
 }
 
 test_valid_hierarchy_no_denials if {
-	count(guardrail.deny with input as valid_input) == 0
+	denials := guardrail.deny with input as valid_input
+	count(denials) == 0
 }
 
 test_unknown_parent_denied if {
