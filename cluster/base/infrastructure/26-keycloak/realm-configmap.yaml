@@ -94,6 +94,27 @@ data:
         {
           "name": "admin",
           "path": "/admin"
+        },
+        {
+          "name": "reader",
+          "path": "/reader",
+          "subGroups": [
+            {"name": "viewer", "path": "/reader/viewer"}
+          ]
+        },
+        {
+          "name": "maintainer",
+          "path": "/maintainer",
+          "subGroups": [
+            {"name": "app-operator", "path": "/maintainer/app-operator"}
+          ]
+        },
+        {
+          "name": "owner",
+          "path": "/owner",
+          "subGroups": [
+            {"name": "platform-admin", "path": "/owner/platform-admin"}
+          ]
         }
       ]
     }

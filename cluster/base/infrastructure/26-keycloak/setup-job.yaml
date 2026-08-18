@@ -238,6 +238,50 @@ data:
     link_optional_scope(paperless_uuid, groups_scope_id)
     print("✓ 'groups' scope linked to grafana and paperless clients")
 
+    # --- ADR-002: Flattened Hierarchical RBAC group foundation (idempotent) ---
+    # Level 0 tiers (reader/maintainer/owner) are never assigned to a user
+    # directly. Level 1 job-function groups nest exactly one level under one
+    # Level 0 group -- the same shape validated in CI by
+    # policy/rbac_guardrail.rego against rbac-groups.json (single source of
+    # truth, mounted below at /rbac/rbac-groups.json). This stage is additive
+    # only: the legacy flat "admin" group is left in place and still assigned
+    # below, so no app's existing authorization logic changes yet. Grafana's
+    # role_attribute_path and the legacy group's removal land together in the
+    # follow-up PR that actually re-points app authorization at these groups.
+    def ensure_top_level_group(name):
+        status, groups = api("GET", f"/admin/realms/{REALM}/groups?search={name}&exact=true", token=tok)
+        existing = next((g for g in (groups or []) if g["name"] == name and g.get("path") == f"/{name}"), None)
+        if existing:
+            return existing["id"]
+        status, _ = api("POST", f"/admin/realms/{REALM}/groups", data={"name": name}, token=tok)
+        assert status == 201, f"Group '{name}' creation failed: {status}"
+        status, groups = api("GET", f"/admin/realms/{REALM}/groups?search={name}&exact=true", token=tok)
+        return next(g["id"] for g in groups if g["name"] == name and g.get("path") == f"/{name}")
+
+    def ensure_subgroup(parent_id, parent_name, name):
+        status, children = api("GET", f"/admin/realms/{REALM}/groups/{parent_id}/children", token=tok)
+        existing = next((g for g in (children or []) if g["name"] == name), None)
+        if existing:
+            return existing["id"]
+        status, _ = api("POST", f"/admin/realms/{REALM}/groups/{parent_id}/children", data={"name": name}, token=tok)
+        assert status == 201, f"Subgroup '{name}' creation under '{parent_name}' failed: {status}"
+        status, children = api("GET", f"/admin/realms/{REALM}/groups/{parent_id}/children", token=tok)
+        return next(g["id"] for g in children if g["name"] == name)
+
+    with open("/rbac/rbac-groups.json") as f:
+        rbac_groups = json.load(f)
+
+    level0_ids = {}
+    for name in rbac_groups["level0"]:
+        level0_ids[name] = ensure_top_level_group(name)
+        print(f"✓ Level 0 group '/{name}' ensured")
+
+    level1_ids = {}
+    for role in rbac_groups["level1"]:
+        parent_id = level0_ids[role["parent"]]
+        level1_ids[role["name"]] = ensure_subgroup(parent_id, role["parent"], role["name"])
+        print(f"✓ Level 1 group '/{role['parent']}/{role['name']}' ensured")
+
     # --- Ensure the realm has a UserProfileProvider component (idempotent) ---
     # Partial realm import (--import-realm with no "components" section) never
     # creates this, unlike Keycloak's internally-bootstrapped master realm which
@@ -316,6 +360,12 @@ data:
     assert status == 204, f"Group assignment failed: {status}"
     print("✓ User assigned to 'admin' group")
 
+    # Additive per ADR-002: also in /owner/platform-admin from here on, alongside
+    # the legacy group above (not yet removed -- see the RBAC foundation comment).
+    status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/groups/{level1_ids['platform-admin']}", token=tok)
+    assert status == 204, f"platform-admin group assignment failed: {status}"
+    print("✓ User assigned to '/owner/platform-admin' group")
+
     # --- Create permanent master-realm admin with the same identity (idempotent) ---
     status, existing_master = api("GET", f"/admin/realms/master/users?username={ADMIN_USER_EMAIL}&exact=true", token=tok)
     if not existing_master:
@@ -379,12 +429,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-5
+  name: keycloak-setup-6
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "5"
+    run-id: "6"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -440,6 +490,9 @@ spec:
             - name: script
               mountPath: /scripts
               readOnly: true
+            - name: rbac-groups
+              mountPath: /rbac
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -456,3 +509,8 @@ spec:
         - name: script
           configMap:
             name: keycloak-setup-script
+        - name: rbac-groups
+          configMap:
+            # References the configMapGenerator base name in kustomization.yaml;
+            # kustomize rewrites this to the hashed generated name at build time.
+            name: keycloak-rbac-groups

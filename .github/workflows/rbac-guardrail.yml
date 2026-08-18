@@ -1,0 +1,48 @@
+name: RBAC Guardrail
+
+on:
+  pull_request:
+    branches: [ops/talos_linux]
+    paths:
+      - 'policy/**'
+      - 'cluster/base/infrastructure/26-keycloak/rbac-groups.json'
+
+permissions:
+  contents: read
+
+jobs:
+  max-depth-1:
+    name: Max-depth-1 RBAC guardrail
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned 2026-08-18, matching the in-cluster OPA version (24-opa/deployment.yaml)
+      # -- see kubeconform.yml's Install kustomize step for why this isn't resolved
+      # via unauthenticated api.github.com "latest".
+      - name: Install OPA
+        run: |
+          VERSION=v1.19.0
+          curl -sL -o /usr/local/bin/opa "https://openpolicyagent.org/downloads/${VERSION}/opa_linux_amd64_static"
+          chmod +x /usr/local/bin/opa
+
+      - name: Run policy unit tests
+        run: opa test policy/ -v
+
+      - name: Evaluate ADR-002's Keycloak group hierarchy against the guardrail
+        run: |
+          RESULT=$(opa eval \
+            --data policy/rbac_guardrail.rego \
+            --input cluster/base/infrastructure/26-keycloak/rbac-groups.json \
+            --format raw \
+            'data.rbac.guardrail.allow')
+          if [ "$RESULT" != "true" ]; then
+            echo "RBAC group hierarchy violates ADR-002's max-depth-1 rule:"
+            opa eval \
+              --data policy/rbac_guardrail.rego \
+              --input cluster/base/infrastructure/26-keycloak/rbac-groups.json \
+              --format pretty \
+              'data.rbac.guardrail.deny'
+            exit 1
+          fi
+          echo "RBAC group hierarchy satisfies max-depth-1."
