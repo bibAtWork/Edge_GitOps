@@ -45,6 +45,35 @@ cluster:
       - 192.168.178.0/24
 
   apiServer:
+    # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): closes the
+    # gap docs/backlog.md tracked as "Kubernetes-native RBAC has no
+    # identity layer" -- kubectl access was cert-based only until now.
+    # Cert-based admin kubeconfig access is completely unaffected: this
+    # is an ADDITIONAL authenticator, not a replacement, and remains the
+    # break-glass path if OIDC is ever misconfigured.
+    #
+    # oidc-username-prefix/oidc-groups-prefix ("oidc:"): upstream
+    # Kubernetes' own recommendation, so an OIDC-sourced username or
+    # group can never collide with a service account, a cert CN, or any
+    # other auth mechanism's identity. 31-cluster-rbac/
+    # clusterrolebindings.yaml's Group subjects carry this same prefix
+    # for exactly that reason -- "platform-admin" alone is not what
+    # Kubernetes RBAC actually sees.
+    #
+    # This file's own top-of-file comment ("talosctl apply-config
+    # --insecure") is leftover first-bootstrap guidance, not applicable
+    # to updating an already-running node -- apply with a real
+    # talosconfig instead: talosctl apply-config --nodes <node-ip>
+    # --file controlplane.yaml. Applying this specific change was not
+    # possible in the environment this was authored in (no talosconfig
+    # available there); it needs to be applied by whoever holds it.
+    extraArgs:
+      oidc-issuer-url: https://keycloak.homelab.data-harness.org/realms/homelab
+      oidc-client-id: kubernetes
+      oidc-username-claim: email
+      oidc-username-prefix: "oidc:"
+      oidc-groups-claim: groups
+      oidc-groups-prefix: "oidc:"
     encryptionConfig:
       providers:
         - aescbc:
