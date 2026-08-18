@@ -12,3 +12,23 @@ resources:
   - securitypolicy-referencegrant.yaml
   - setup-job.yaml
   - cilium-policy.yaml
+
+configMapGenerator:
+  # Standalone ConfigMap (not folded into keycloak-setup-script) so
+  # rbac-groups.json stays a real, independently lintable file --
+  # .github/workflows/rbac-guardrail.yml evaluates it directly against
+  # policy/rbac_guardrail.rego on every PR that touches it.
+  #
+  # disableNameSuffixHash: kustomize's nameReference rewrite doesn't reach
+  # into a Job's spec.template.spec.volumes[].configMap.name (confirmed via
+  # a local kustomize build -- the hashed name propagated to the generated
+  # ConfigMap but setup-job.yaml's volume reference stayed unhashed,
+  # which would 404 at apply time). A content change re-running the setup
+  # Job is already handled by the existing run-id-bump convention
+  # (setup-job.yaml's own comment), so the hash suffix's usual
+  # rollout-triggering purpose isn't needed here anyway.
+  - name: keycloak-rbac-groups
+    files:
+      - rbac-groups.json
+    options:
+      disableNameSuffixHash: true
