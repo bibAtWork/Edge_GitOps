@@ -6,3 +6,4 @@ resources:
   - library-pvc.yaml
   - db-secret.yaml
   - cilium-policy.yaml
+  - oauth-config-secret.yaml
