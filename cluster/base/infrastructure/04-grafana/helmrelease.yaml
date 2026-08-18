@@ -610,6 +610,122 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+          # Added 2026-08-18 after an outage that was invisible until users hit
+          # it. The seaweedfs-csi-driver mount pod holds the FUSE daemon for
+          # EVERY SeaweedFS PVC on a node -- when it was OOMKilled (it had no
+          # resource limits, so the namespace LimitRange capped it at 256Mi),
+          # every mount became "transport endpoint is not connected" and all
+          # consumers got EIO at once. Grafana returned 500 on every request,
+          # immich-valkey went 0/1. Nothing alerted; the first signal was a
+          # human noticing a broken UI, and the failure looked like an
+          # application bug rather than a storage one.
+          #
+          # These two rules make that failure mode self-announcing. The restart
+          # alert is the important one -- a restart of this pod IS a
+          # cluster-wide storage incident, not a routine pod bounce -- and the
+          # memory rule is the early warning that should fire first.
+          - orgId: 1
+            name: SeaweedFS Storage Alerts
+            folder: Infrastructure
+            interval: 1m
+            rules:
+              - uid: swfs-mount-daemon-restart
+                title: SeaweedFSMountDaemonRestarted
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'increase(kube_pod_container_status_restarts_total{namespace="seaweedfs", pod=~"seaweedfs-csi-driver-mount.*"}[10m])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: sum
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                # No "for" delay: by the time this fires every SeaweedFS mount
+                # on the node is already dead. Waiting would only add outage.
+                for: 0m
+                annotations:
+                  summary: >-
+                    SeaweedFS CSI mount daemon restarted -- every SeaweedFS volume on {{ "{{" }} $labels.pod }}'s node is likely dead
+                  description: >-
+                    The mount pod holds the FUSE daemon for every SeaweedFS PVC on its node. After a restart, existing mounts report "transport endpoint is not connected" and consumers get EIO -- this surfaces as application errors (500s, DB "disk I/O error", pods going 0/1), not as a storage alert. Recovery is manual and the driver cannot self-heal. Check restart reason: kubectl get pod -n seaweedfs -l app=seaweedfs-csi-driver-mount -o jsonpath='{.items[*].status.containerStatuses[0].lastState}'. Then quiesce consumers, lazy-unmount any dead staging paths, and restore them. See docs/backlog.md.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: swfs-mount-daemon-memory
+                title: SeaweedFSMountDaemonMemoryHigh
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      # Ratio against the container's own limit rather than an
+                      # absolute figure, so this keeps working if the limit is
+                      # retuned. 0.8 leaves room to act before the OOM kill.
+                      expr: 'max(container_memory_working_set_bytes{namespace="seaweedfs", pod=~"seaweedfs-csi-driver-mount.*", container!=""}) / max(kube_pod_container_resource_limits{namespace="seaweedfs", pod=~"seaweedfs-csi-driver-mount.*", resource="memory"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0.8]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: >-
+                    SeaweedFS CSI mount daemon above 80% of its memory limit
+                  description: >-
+                    Sustained memory pressure on the pod that serves every SeaweedFS mount on the node. If it is OOMKilled, all of those mounts fail at once. This has happened before, triggered by bulk file copies through a SeaweedFS volume. Either let the current bulk operation finish, or raise mountService.resources.limits.memory in cluster/base/infrastructure/01-seaweedfs/csi-driver-helmrelease.yaml (remember the seaweedfs ResourceQuota has to have room for it).
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
