@@ -24,6 +24,35 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): ensures the
+      # viewer/app-operator/platform-admin Django Groups (and their
+      # permissions) exist before the app starts, every pod (re)start.
+      # Idempotent (get_or_create + permissions.set()) and safe to rerun --
+      # see rbac-groups-configmap.yaml for why this runs here instead of a
+      # standalone Job (no external DB to stand up a separate connection to).
+      initContainers:
+        - name: ensure-rbac-groups
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.0.3
+          command: ["/bin/sh", "-c", "python3 manage.py shell < /scripts/ensure_groups.py"]
+          env:
+            - name: PAPERLESS_REDIS
+              value: redis://paperless-valkey:6379
+            - name: PAPERLESS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-secret
+                  key: PAPERLESS_SECRET_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /usr/src/paperless/data
+            - name: rbac-script
+              mountPath: /scripts
+              readOnly: true
       containers:
         - name: paperless-ngx
           image: ghcr.io/paperless-ngx/paperless-ngx:3.0.3
@@ -145,3 +174,6 @@ spec:
             claimName: paperless-consume
         - name: tmp
           emptyDir: {}
+        - name: rbac-script
+          configMap:
+            name: paperless-rbac-groups-script
