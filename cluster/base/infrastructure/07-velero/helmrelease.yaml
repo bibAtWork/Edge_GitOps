@@ -117,24 +117,29 @@ spec:
       - name: HOME
         value: /scratch
 
-    # node-agent DaemonSet reads PV data from /var/lib/kubelet/pods for Kopia
-    # file system backup. Runs as root with privileged: true (velero namespace
-    # PSS is set to privileged). deployNodeAgent is the top-level enable switch;
-    # the nodeAgent block holds pod configuration.
-    deployNodeAgent: true
-    nodeAgent:
-      podVolumePath: /var/lib/kubelet/pods
-      privileged: true
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-      resources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          memory: 512Mi
+    # node-agent is DISABLED, which removes a DaemonSet that ran as root and
+    # hostPath-mounted /var/lib/kubelet/pods -- read access to every pod's
+    # volumes on the node, including secrets materialised into them. It shared
+    # the velero-server ServiceAccount, so that root pod also carried
+    # cluster-admin.
+    #
+    # Nothing is lost by removing it, because file-system backup never worked
+    # here. Kopia silently skips hostPath volumes, so every local-path PVC
+    # produced no PodVolumeBackup at all, and on SeaweedFS CSI volumes the data
+    # path failed outright. Across 37 days of schedules the only volumes ever
+    # captured were ephemeral (dshm, tmp, empty-dir) -- not one PVC.
+    #
+    # Volume data is protected at the storage layer instead, everything landing
+    # in SeaweedFS: databases via logical dumps to the db-backups bucket, and
+    # application blobs by living on SeaweedFS already. Velero's remaining job
+    # is the Kubernetes object graph, which it writes to SeaweedFS as well --
+    # so a single tool backing up SeaweedFS covers all three.
+    #
+    # Velero keeps its cluster-admin binding deliberately: restore has to be
+    # able to recreate arbitrary resources, so a backup/restore tool needs
+    # broad write access by nature. The meaningful privilege reduction was the
+    # root DaemonSet, not the API rights.
+    deployNodeAgent: false
 
     initContainers:
       - name: velero-plugin-for-aws
