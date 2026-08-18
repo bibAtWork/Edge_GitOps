@@ -170,6 +170,42 @@ spec:
                 - apiGroups: ["kubeopencode.io"]
                   resources: ["tasks/finalizers", "crontasks/finalizers", "agents/finalizers", "agenttemplates/finalizers", "registries/finalizers"]
                   verbs: ["update"]
-                # Removed vs. chart default (now namespace-scoped in controller-rbac.yaml):
-                # configmaps, secrets, events, pods, services, persistentvolumeclaims,
-                # apps/deployments, coordination.k8s.io/leases. See comment above.
+                # Cluster-scope READ ONLY on the types controller-runtime builds
+                # informers for. This is not a rollback of finding M2 -- every
+                # mutating verb stays namespace-scoped in controller-rbac.yaml,
+                # which is what M2 was actually about (cluster-wide create/
+                # update/patch/delete on secrets, pods, services, deployments
+                # and PVCs).
+                #
+                # Why it is required: controller-runtime caches via informers
+                # that LIST/WATCH at CLUSTER scope. A namespaced Role can never
+                # satisfy that, so the manager fails with "timed out waiting for
+                # cache to be synced for Kind *v1alpha1.AgentTemplate" and
+                # crash-loops. This comment block's own note above -- "the
+                # controller has no per-namespace watch/cache option" -- is
+                # exactly why read has to be cluster-scoped.
+                #
+                # This was a latent break, not a live one: the running process
+                # had already built its cache before M2 narrowed the rules, so
+                # it kept working and would have failed on its NEXT restart
+                # whenever that happened. Surfaced 2026-08-18 when the
+                # kube-apiserver restarted for the OIDC change and forced a
+                # cache re-sync; the controller then could not recover and its
+                # Agent stopped reconciling (observedGeneration stuck behind
+                # generation). Confirmed live in the controller log:
+                #   configmaps is forbidden: User "system:serviceaccount:
+                #   kubeopencode-system:kubeopencode-controller" cannot list
+                #   resource "configmaps" in API group "" at the cluster scope
+                #
+                # secrets are deliberately NOT included: cluster-wide secret
+                # read is a genuine escalation, and the controller only needs
+                # secrets in its own namespace, which controller-rbac.yaml
+                # already grants.
+                - apiGroups: [""]
+                  resources: ["configmaps", "pods", "services", "persistentvolumeclaims"]
+                  verbs: ["get", "list", "watch"]
+                - apiGroups: ["apps"]
+                  resources: ["deployments"]
+                  verbs: ["get", "list", "watch"]
+                # Still namespace-scoped in controller-rbac.yaml: every mutating
+                # verb on the above, plus secrets, events and leases entirely.
