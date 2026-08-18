@@ -95,8 +95,15 @@ spec:
                 - |
                   set -eu
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  # Dedicated bucket, NOT a prefix inside velero-backups. Velero
+                  # rejects any top-level directory in its own bucket that it
+                  # does not own and marks the BackupStorageLocation
+                  # Unavailable -- "Backup store contains invalid top-level
+                  # directories: [filer-metadata]" -- and a Backup fails
+                  # validation outright when its BSL is unavailable. Writing
+                  # here previously blocked every backup to the local BSL.
                   aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/filer.sql.gz \
-                    "s3://velero-backups/filer-metadata/filer-${TS}.sql.gz"
+                    "s3://filer-metadata/filer-${TS}.sql.gz"
                   echo "uploaded filer-${TS}.sql.gz"
               env:
                 - name: S3_ENDPOINT
