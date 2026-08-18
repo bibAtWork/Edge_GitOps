@@ -31,6 +31,7 @@ data:
     PAPERLESS_CLIENT_SECRET = os.environ["PAPERLESS_CLIENT_SECRET"]
     HUBBLE_CLIENT_SECRET = os.environ["HUBBLE_CLIENT_SECRET"]
     KUBEOPENCODE_CLIENT_SECRET = os.environ["KUBEOPENCODE_CLIENT_SECRET"]
+    SCHENKMATCH_CLIENT_SECRET = os.environ["SCHENKMATCH_CLIENT_SECRET"]
     ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
     ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
 
@@ -190,6 +191,25 @@ data:
         "redirectUris": ["https://kubeopencode.homelab.data-harness.org/oauth2/callback"],
         "webOrigins": ["https://kubeopencode.homelab.data-harness.org"],
     }, KUBEOPENCODE_CLIENT_SECRET)
+
+    # schenkmatch: same "no native OIDC, gated entirely at the edge" shape as
+    # hubble/kubeopencode above, but not added to OPA's admin_only_apps --
+    # see 22-schenkmatch/config/oidc-securitypolicy.yaml.
+    ensure_client({
+        "clientId": "schenkmatch",
+        "enabled": True,
+        "name": "schenkmatch",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {},
+        "redirectUris": ["https://schenkmatch.homelab.data-harness.org/oauth2/callback"],
+        "webOrigins": ["https://schenkmatch.homelab.data-harness.org"],
+    }, SCHENKMATCH_CLIENT_SECRET)
 
     # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
     # Client scopes are realm-wide reusable objects. Keycloak rejects any
@@ -457,12 +477,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-9
+  name: keycloak-setup-10
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "9"
+    run-id: "10"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -507,6 +527,11 @@ spec:
                 secretKeyRef:
                   name: keycloak-kubeopencode-oidc
                   key: kubeopencode-client-secret
+            - name: SCHENKMATCH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-schenkmatch-oidc
+                  key: schenkmatch-client-secret
             - name: ADMIN_USER_EMAIL
               value: admin@homelab.internal
             - name: ADMIN_USER_PASSWORD
