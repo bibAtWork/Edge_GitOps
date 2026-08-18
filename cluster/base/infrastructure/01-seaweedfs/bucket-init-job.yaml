@@ -60,7 +60,11 @@ spec:
             - |
               set -euo pipefail
               S3="http://seaweedfs-s3.seaweedfs.svc:8333"
-              for bucket in etcd-backups velero-backups zot-registry pvs; do
+              # filer-metadata holds the filer's PostgreSQL dumps. It is a separate bucket
+              # rather than a prefix inside velero-backups on purpose: Velero rejects any
+              # top-level directory in its own bucket that it does not own, and marks the
+              # BackupStorageLocation Unavailable, which blocks all backups to it.
+              for bucket in etcd-backups velero-backups zot-registry filer-metadata pvs; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else
