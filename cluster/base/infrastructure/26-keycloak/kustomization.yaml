@@ -28,6 +28,7 @@ configMapGenerator:
   # (setup-job.yaml's own comment), so the hash suffix's usual
   # rollout-triggering purpose isn't needed here anyway.
   - name: keycloak-rbac-groups
+    namespace: keycloak
     files:
       - rbac-groups.json
     options:
