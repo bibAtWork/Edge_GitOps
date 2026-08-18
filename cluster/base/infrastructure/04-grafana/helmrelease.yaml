@@ -324,7 +324,19 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'sum(increase(container_oom_events_total{pod!=""}[10m]))'
+                      # "by (namespace, pod, container)" rather than a bare
+                      # sum(): container_oom_events_total already carries those
+                      # labels, and collapsing them produces a single anonymous
+                      # "something was OOMKilled" alert that names neither the
+                      # workload nor the namespace. Same fix, and same reason,
+                      # as the FalcoCriticalEvent rule below.
+                      #
+                      # This mattered on 2026-08-18: the SeaweedFS CSI mount
+                      # daemon was OOMKilled, which took every SeaweedFS volume
+                      # on the node down at once, and this rule reported it as
+                      # an unlabelled warning indistinguishable from any other
+                      # pod hitting its limit.
+                      expr: 'sum by (namespace, pod, container) (increase(container_oom_events_total{pod!=""}[10m]))'
                       instant: true
                       range: false
                       refId: A
@@ -353,9 +365,10 @@ spec:
                 execErrState: Error
                 for: 0m
                 annotations:
-                  summary: Pod OOM-killed in cluster
+                  summary: >-
+                    OOMKilled: {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.pod }} (container {{ "{{" }} $labels.container }})
                   description: >-
-                    A pod was OOM-killed. Check: kubectl get events -A --field-selector reason=OOMKilling
+                    Container {{ "{{" }} $labels.container }} in {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.pod }} exceeded its memory limit and was killed. Check whether the limit is genuinely too low or the workload regressed: kubectl get pod -n {{ "{{" }} $labels.namespace }} {{ "{{" }} $labels.pod }} -o jsonpath='{.spec.containers[*].resources}'. Note that a container with no explicit limit inherits the namespace LimitRange default, which is how the SeaweedFS mount daemon ended up capped at 256Mi.
                 labels:
                   severity: warning
                 isPaused: false
@@ -624,6 +637,117 @@ spec:
           # alert is the important one -- a restart of this pod IS a
           # cluster-wide storage incident, not a routine pod bounce -- and the
           # memory rule is the early warning that should fire first.
+          # Filesystem-level capacity, deliberately not per-PVC. There are two
+          # filesystems on this node and each one is a shared failure domain:
+          # /var carries etcd, container images and EVERY local-path PVC, and
+          # /var/mnt/seaweedfs carries all SeaweedFS data. If either fills, a
+          # long list of unrelated workloads fails together.
+          #
+          # Per-PVC alerting is not used here for two reasons. kubelet_volume_
+          # stats_* is not exposed by the kubelet on this Talos node (the
+          # kubelet scrape works and returns ~1140 other series, but that
+          # family is absent, and the API server's kubelet proxy is blocked so
+          # it cannot be read directly either). And it would be misleading
+          # anyway: a local-path PVC's requested size is not enforced -- the
+          # volume is just a directory on /var -- so a PVC can quietly exceed
+          # its own request until the underlying disk is what actually runs out.
+          - orgId: 1
+            name: Storage Capacity Alerts
+            folder: Infrastructure
+            interval: 5m
+            rules:
+              - uid: system-disk-space-low
+                title: SystemDiskSpaceLow
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(node_filesystem_avail_bytes{mountpoint="/var"}) / min(node_filesystem_size_bytes{mountpoint="/var"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0.15]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 10m
+                annotations:
+                  summary: >-
+                    System disk below 15% free -- etcd and every local-path volume share it
+                  description: >-
+                    /var backs etcd, the container image store and all local-path PVCs on this node. Running it out takes the control plane down with the workloads, so this is a cluster-level alert rather than a storage one. Find the consumers: du -sh /var/lib/local-path-provisioner/* and check container image usage. Bulk volumes can be moved to SeaweedFS (see docs/backlog.md); databases should not be.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: seaweedfs-disk-space-low
+                title: SeaweedFSDiskSpaceLow
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(node_filesystem_avail_bytes{mountpoint="/var/mnt/seaweedfs"}) / min(node_filesystem_size_bytes{mountpoint="/var/mnt/seaweedfs"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0.20]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 10m
+                annotations:
+                  summary: >-
+                    SeaweedFS backing disk below 20% free
+                  description: >-
+                    The dedicated NVMe holding all SeaweedFS volume data is filling. Every SeaweedFS-backed PVC in the cluster draws from it, so this affects all of them at once rather than one workload. Check current usage per component and whether old volumes left over from migrations are still holding space.
+                labels:
+                  severity: warning
+                isPaused: false
           - orgId: 1
             name: SeaweedFS Storage Alerts
             folder: Infrastructure

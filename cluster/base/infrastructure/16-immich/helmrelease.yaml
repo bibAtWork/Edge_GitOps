@@ -80,6 +80,14 @@ spec:
           # (local-path-provisioner logged the delete). The same mistake cost
           # Grafana its volume the same day -- see 04-grafana/helmrelease.yaml.
           # There is no rollback here; the copy-out is the only safety net.
+          #
+          # `type` is required. Without it this chart defaults the volume to
+          # emptyDir and silently ignores existingClaim -- the pod comes up
+          # healthy on scratch space and nothing reports a problem. Dropping
+          # `type` when this block was first rewritten is exactly what happened,
+          # and it went unnoticed because a write test against the mount path
+          # succeeds just as well on emptyDir.
+          type: persistentVolumeClaim
           existingClaim: immich-valkey-swfs
 
     # Efficiency review 2026-08-17: these resources blocks were previously set at
@@ -151,4 +159,9 @@ spec:
           # .cache/huggingface/download/*.lock and *.metadata files did not
           # survive cp -a, which the content verification correctly caught.
           # Expect a one-off model re-download on first use after this.
+          #
+          # `type` is required here for the same reason as the valkey volume
+          # above -- without it the chart falls back to emptyDir and ignores
+          # existingClaim.
+          type: persistentVolumeClaim
           existingClaim: immich-machine-learning-swfs
