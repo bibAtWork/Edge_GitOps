@@ -32,6 +32,7 @@ data:
     HUBBLE_CLIENT_SECRET = os.environ["HUBBLE_CLIENT_SECRET"]
     KUBEOPENCODE_CLIENT_SECRET = os.environ["KUBEOPENCODE_CLIENT_SECRET"]
     SCHENKMATCH_CLIENT_SECRET = os.environ["SCHENKMATCH_CLIENT_SECRET"]
+    ZOT_CLIENT_SECRET = os.environ["ZOT_CLIENT_SECRET"]
     ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
     ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
 
@@ -211,6 +212,25 @@ data:
         "webOrigins": ["https://schenkmatch.homelab.data-harness.org"],
     }, SCHENKMATCH_CLIENT_SECRET)
 
+    # zot: native OIDC (operator/config-secret.yaml), not edge-gated -- its
+    # own callback path, confirmed against zot's documented integration
+    # examples (dex/authentik/authelia all use the same path).
+    zot_uuid = ensure_client({
+        "clientId": "zot",
+        "enabled": True,
+        "name": "zot",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {},
+        "redirectUris": ["https://zot.homelab.data-harness.org/zot/auth/callback/oidc"],
+        "webOrigins": ["https://zot.homelab.data-harness.org"],
+    }, ZOT_CLIENT_SECRET)
+
     # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
     # Client scopes are realm-wide reusable objects. Keycloak rejects any
     # authorization request naming a scope that isn't defined at the realm
@@ -258,7 +278,8 @@ data:
     link_optional_scope(paperless_uuid, groups_scope_id)
     link_optional_scope(hubble_uuid, groups_scope_id)
     link_optional_scope(kubeopencode_uuid, groups_scope_id)
-    print("✓ 'groups' scope linked to grafana, paperless, hubble, and kubeopencode clients")
+    link_optional_scope(zot_uuid, groups_scope_id)
+    print("✓ 'groups' scope linked to grafana, paperless, hubble, kubeopencode, and zot clients")
 
     # --- ADR-002: Flattened Hierarchical RBAC group foundation (idempotent) ---
     # Level 0 tiers (reader/maintainer/owner) are never assigned to a user
@@ -477,12 +498,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-10
+  name: keycloak-setup-11
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "10"
+    run-id: "11"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -532,6 +553,11 @@ spec:
                 secretKeyRef:
                   name: keycloak-schenkmatch-oidc
                   key: schenkmatch-client-secret
+            - name: ZOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-zot-oidc
+                  key: zot-client-secret
             - name: ADMIN_USER_EMAIL
               value: admin@homelab.internal
             - name: ADMIN_USER_PASSWORD
