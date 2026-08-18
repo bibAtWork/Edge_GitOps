@@ -55,9 +55,15 @@ spec:
     # 26-keycloak/setup-job.yaml's ensure_client for the precedent) — this is
     # a confidential client with its own secret, so PKCE isn't the primary
     # protection here.
+    # groups: ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md) --
+    # lets OPA gate on platform-admin/app-operator membership instead of
+    # (well, alongside -- see 24-opa/configmap.yaml) the hardcoded email
+    # allowlist. Requires "groups" linked as an optional client scope on
+    # the hubble client (setup-job.yaml).
     scopes:
       - openid
       - email
+      - groups
   extAuth:
     grpc:
       backendRefs:
