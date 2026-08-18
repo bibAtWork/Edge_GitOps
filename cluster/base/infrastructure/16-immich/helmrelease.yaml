@@ -47,8 +47,18 @@ spec:
     immich:
       persistence:
         library:
-          # Pre-created PVC required by chart checks.yaml; chart does not provision it.
-          existingClaim: immich-library
+          # Pre-created PVC required by chart checks.yaml; chart does not
+          # provision it -- so unlike the Grafana case, pointing this at a
+          # different claim does NOT cause Helm to prune the old one. The
+          # original immich-library PVC survives as the soak copy.
+          #
+          # Migrated to SeaweedFS 2026-08-18 while the library was still only
+          # 370MB / 154 files. This is the volume that most needs to be shared
+          # for immich to move between nodes, and it is the one that grows
+          # without bound -- doing it now costs minutes, doing it at 100GB
+          # would be an outage. Verified by content: identical file list,
+          # identical per-file md5s, 388,089,828 bytes on both sides.
+          existingClaim: immich-library-swfs
 
     # The chart auto-sets REDIS_HOSTNAME=immich-valkey; enable the bundled Valkey.
     valkey:

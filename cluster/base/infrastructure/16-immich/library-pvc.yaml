@@ -12,3 +12,30 @@ spec:
   resources:
     requests:
       storage: 100Gi
+---
+# SeaweedFS-backed replacement for immich-library, migrated 2026-08-18.
+#
+# The local-path PVC above is deliberately kept as the post-migration soak
+# copy. Removing it here would let Flux prune it, and local-path's Delete
+# reclaim policy would destroy the originals -- the same mechanism that lost
+# the old grafana volume earlier the same day.
+#
+# Migrated while the library was still 370MB / 154 files. This is the volume
+# that most needs shared storage for immich to reschedule across nodes, and the
+# one that grows without bound, so the cheapest possible moment to move it was
+# before it filled up. Verified by content: identical file list, identical
+# per-file md5s, 388,089,828 bytes both sides.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library-swfs
+  namespace: immich
+  labels:
+    velero.io/backup: "true"
+spec:
+  storageClassName: seaweedfs-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
