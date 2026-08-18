@@ -1,0 +1,137 @@
+# Logical backup of the Keycloak PostgreSQL database to S3.
+#
+# This is the only protection this database has. Velero's file-system backup
+# does not capture it: data-keycloak-postgresql-0 is a local-path (hostPath)
+# volume, and Kopia silently skips hostPath volumes -- no PodVolumeBackup is
+# even created, so nothing errors and nothing warns. Verified 2026-08-18 that
+# across every backup this cluster has taken, the only volumes ever captured
+# were ephemeral (dshm, tmp, empty-dir); not one PVC.
+#
+# This database is the identity provider. Losing it means losing every user,
+# credential, client and group behind the OIDC login for Grafana, Immich,
+# Paperless, Zot, kubeopencode and the Kubernetes API itself -- so although it
+# is one of the smallest volumes in the cluster, it has the widest blast radius.
+# The realm can be re-imported from Git, but users and their credentials cannot.
+#
+# A logical dump sidesteps the Velero gap entirely: it does not care what kind
+# of volume the database sits on, it is consistent by construction, and it
+# restores onto any Postgres of the same major version.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: keycloak-postgres-backup
+  namespace: keycloak
+spec:
+  # Daily, offset from the 02:00 Velero schedule so the two do not contend.
+  schedule: "50 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Selected by backup-netpol.yaml. CronJob pods do not inherit an
+            # app.kubernetes.io/name label on their own -- they only get
+            # job-name/controller-uid, which change every run and so cannot be
+            # matched by a static CiliumNetworkPolicy.
+            app.kubernetes.io/name: keycloak-postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: dump
+              # Must match the server's major version -- pg_dump refuses to dump
+              # from a newer server than itself.
+              image: docker.io/library/postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  OUT=/work/keycloak.sql.gz
+
+                  pg_dump -h keycloak-postgresql -U keycloak \
+                    -d keycloak --clean --if-exists | gzip -9 > "$OUT"
+
+                  # Refuse to upload a truncated or empty dump. Without this the
+                  # job would report success while storing nothing -- exactly the
+                  # failure mode that let the Velero backups look healthy for 37
+                  # days while holding no PVC data at all.
+                  SIZE="$(stat -c %s "$OUT")"
+                  if [ "$SIZE" -lt 1024 ]; then
+                    echo "ERROR: dump is only ${SIZE} bytes -- refusing to upload" >&2
+                    exit 1
+                  fi
+                  echo "dump ok: ${SIZE} bytes"
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-secrets
+                      key: postgres-password
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: upload
+              image: docker.io/amazon/aws-cli:2.36.24
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/keycloak.sql.gz \
+                    "s3://db-backups/keycloak/keycloak-${TS}.sql.gz"
+                  echo "uploaded keycloak-${TS}.sql.gz"
+              env:
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-backup-credentials
+                      key: admin_access_key_id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-backup-credentials
+                      key: admin_secret_access_key
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: work
+              emptyDir: {}
