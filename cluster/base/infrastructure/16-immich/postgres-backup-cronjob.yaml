@@ -1,0 +1,140 @@
+# Logical backup of the Immich PostgreSQL database to S3.
+#
+# This is the only protection this database has. Velero's file-system backup
+# does not capture it: data-immich-postgresql-0 is a local-path (hostPath)
+# volume, and Kopia silently skips hostPath volumes -- no PodVolumeBackup is
+# even created, so nothing errors and nothing warns. Verified 2026-08-18 that
+# across every backup this cluster has taken, the only volumes ever captured
+# were ephemeral (dshm, tmp, empty-dir); not one PVC.
+#
+# A logical dump sidesteps that entirely. It does not care what kind of volume
+# the database sits on, it is consistent by construction rather than relying on
+# a quiesced filesystem, and it restores onto any Postgres of the same major
+# version. Same shape as 01-seaweedfs/filer-postgres-backup-cronjob.yaml.
+#
+# Immich's photo/video files live on immich-library-swfs and are NOT in here --
+# this covers the database only (albums, users, faces, metadata, and the
+# mapping to those files).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: immich-postgres-backup
+  namespace: immich
+spec:
+  # Daily, offset from the 02:00 Velero schedule so the two do not contend.
+  schedule: "40 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Selected by backup-netpol.yaml. CronJob pods do not inherit an
+            # app.kubernetes.io/name label on their own -- they only get
+            # job-name/controller-uid, which change every run and so cannot be
+            # matched by a static CiliumNetworkPolicy.
+            app.kubernetes.io/name: immich-postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: dump
+              # Must match the server's major version. immich-postgresql runs
+              # 17.6, unlike the keycloak and seaweedfs-filer databases which
+              # are both on 16 -- pg_dump refuses to dump from a server newer
+              # than itself, so a 16 client here produced a 20-byte file and
+              # the size guard below rejected it. Bump this in step with the
+              # postgresql chart, not independently.
+              image: docker.io/library/postgres:17-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  OUT=/work/immich.sql.gz
+
+                  pg_dump -h immich-postgresql -U immich \
+                    -d immich --clean --if-exists | gzip -9 > "$OUT"
+
+                  # Refuse to upload a truncated or empty dump. Without this the
+                  # job would report success while storing nothing -- exactly the
+                  # failure mode that let the Velero backups look healthy for 37
+                  # days while holding no PVC data at all.
+                  SIZE="$(stat -c %s "$OUT")"
+                  if [ "$SIZE" -lt 1024 ]; then
+                    echo "ERROR: dump is only ${SIZE} bytes -- refusing to upload" >&2
+                    exit 1
+                  fi
+                  echo "dump ok: ${SIZE} bytes"
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: immich-db-secret
+                      key: db-password
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: upload
+              image: docker.io/amazon/aws-cli:2.36.24
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/immich.sql.gz \
+                    "s3://db-backups/immich/immich-${TS}.sql.gz"
+                  echo "uploaded immich-${TS}.sql.gz"
+              env:
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-backup-credentials
+                      key: admin_access_key_id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-backup-credentials
+                      key: admin_secret_access_key
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: work
+              emptyDir: {}

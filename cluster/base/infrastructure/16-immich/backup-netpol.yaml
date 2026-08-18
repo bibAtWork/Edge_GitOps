@@ -1,0 +1,25 @@
+# The database backup CronJob needs egress to the SeaweedFS S3 endpoint to
+# upload its dump. Cilium is default-deny egress cluster-wide, so without this
+# the job's upload container fails and the backup silently never lands.
+#
+# Scoped to the backup job's own pods rather than the whole namespace, and to
+# the S3 port only -- this grants no access to the filer or master.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-db-backup-s3-egress
+  namespace: immich
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: immich-postgres-backup
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            app.kubernetes.io/component: filer
+            io.kubernetes.pod.namespace: seaweedfs
+      toPorts:
+        - ports:
+            - port: "8333"
+              protocol: TCP
