@@ -1,0 +1,134 @@
+# Dedicated PostgreSQL instance backing the SeaweedFS filer's metadata store.
+#
+# WHY this exists at all: the filer stores the namespace -- directory tree,
+# filenames, and the chunk-ID list that reassembles each file. Volume servers
+# store only anonymous blobs. Lose the filer metadata and the data is
+# unrecoverable even though every byte survives, because nothing maps blobs
+# back to files. That makes this database the single most important piece of
+# state in the storage system.
+#
+# WHY NOT leveldb2 (the previous store): SeaweedFS classifies leveldb/leveldb2/
+# leveldb3 as "Local" stores -- an embedded single-writer library, so exactly
+# one filer process can hold it open. That caps the cluster at one filer
+# forever, makes the filer an unremovable SPOF, and pins the metadata to one
+# node's disk. Postgres is classified "Local or Distributed": multiple filers
+# share one namespace, and any filer can serve any request. This is the change
+# that makes a multi-node SeaweedFS possible at all.
+#
+# WHY local-path, not SeaweedFS CSI: this database is what makes the CSI
+# driver able to serve PVCs, so it must never depend on it -- that would be a
+# circular dependency where SeaweedFS cannot start without storage that
+# SeaweedFS provides. It deliberately stays on node-local storage.
+#
+# Because it is on local-path (hostPath-backed), Velero's file-system backup
+# cannot capture it (see docs/security-review findings). Its protection is the
+# logical pg_dump CronJob alongside this file, NOT volume backup.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-filer-postgres
+  namespace: seaweedfs
+spec:
+  selector:
+    app: seaweedfs-filer-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs-filer-postgres
+  namespace: seaweedfs
+spec:
+  serviceName: seaweedfs-filer-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seaweedfs-filer-postgres
+  template:
+    metadata:
+      labels:
+        app: seaweedfs-filer-postgres
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # Run directly as the image's postgres user (uid/gid 70) rather than
+        # starting as root and letting the entrypoint chown into place. With
+        # capabilities dropped, that chown fails ("Operation not permitted")
+        # and the container crash-loops -- confirmed live. Owning the volume
+        # via fsGroup instead means no privileged setup step is ever needed,
+        # which also satisfies the restricted Pod Security Standard.
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql
+          image: docker.io/library/postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: seaweedfs_filer
+            - name: POSTGRES_USER
+              value: seaweedfs
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: seaweedfs-filer-postgres
+                  key: postgres-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            # SeaweedFS does not create its own filer table (see
+            # filer-postgres-schema.yaml); Postgres applies this on first init.
+            - name: schema
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # Filer metadata is many small rows with heavy index use; this is
+              # sized above the app databases (256Mi) because every file
+              # operation in the cluster becomes a query here once CSI is live.
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "seaweedfs", "-d", "seaweedfs_filer"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "seaweedfs", "-d", "seaweedfs_filer"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: schema
+          configMap:
+            name: seaweedfs-filer-postgres-schema
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          velero.io/backup: "true"
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

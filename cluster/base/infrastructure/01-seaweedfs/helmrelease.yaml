@@ -91,6 +91,41 @@ spec:
       logs:
         type: hostPath
         hostPathPrefix: /var/lib/seaweedfs/filer-logs
+      # Metadata store: PostgreSQL, not the chart default leveldb2.
+      #
+      # SeaweedFS classifies leveldb/leveldb2/leveldb3 as "Local" stores --
+      # embedded single-writer libraries, so exactly one filer process can ever
+      # hold one open. That caps the cluster at a single filer permanently,
+      # makes the filer an unremovable SPOF, and pins the namespace to one
+      # node's disk. Postgres is classified "Local or Distributed": several
+      # filers share one namespace and any of them can serve any request.
+      # This single setting is what makes a multi-node SeaweedFS possible.
+      #
+      # See filer-postgres.yaml for why that database intentionally does NOT
+      # live on SeaweedFS itself (circular dependency) and how it is protected.
+      extraEnvironmentVars:
+        WEED_LEVELDB2_ENABLED: "false"
+        WEED_POSTGRES_ENABLED: "true"
+        WEED_POSTGRES_HOSTNAME: seaweedfs-filer-postgres
+        WEED_POSTGRES_PORT: "5432"
+        WEED_POSTGRES_USERNAME: seaweedfs
+        WEED_POSTGRES_DATABASE: seaweedfs_filer
+        WEED_POSTGRES_SSLMODE: disable
+        # Connection pool sized for CSI: once app PVCs are served from
+        # SeaweedFS, every file operation in the cluster becomes a query here.
+        WEED_POSTGRES_CONNECTION_MAX_IDLE: "10"
+        WEED_POSTGRES_CONNECTION_MAX_OPEN: "50"
+      # Password comes from the SOPS-managed secret rather than being inlined,
+      # so it is never rendered into the HelmRelease or the chart's ConfigMap.
+      # Key name verified against the chart's own values.yaml
+      # (filer.secretExtraEnvironmentVars, per-variable secretKeyRef) rather
+      # than assumed -- an invented key here would be silently ignored by Helm
+      # and the filer would start with no password against a live database.
+      secretExtraEnvironmentVars:
+        WEED_POSTGRES_PASSWORD:
+          secretKeyRef:
+            name: seaweedfs-filer-postgres
+            key: postgres-password
       s3:
         enabled: true
         enableAuth: true
