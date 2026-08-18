@@ -94,3 +94,55 @@ and removed from `bucket-init-job.yaml`'s creation loop, so it won't be recreate
 already-existing empty bucket itself is still sitting in SeaweedFS. Live deletion was blocked
 by this session's auto-mode classifier as a destructive action needing explicit confirmation;
 see #152 for the one-line command to remove it by hand if wanted.
+
+---
+
+## kubeopencode is parked: controller needs cluster-wide secrets read
+
+**Status (2026-08-18): deliberately left non-functional. Decision needed to change that.**
+
+`kubeopencode-controller` is in CrashLoopBackOff and its Agent no longer reconciles
+(`observedGeneration` 9 behind `generation` 11). It fails at startup with:
+
+```
+failed to list *v1.Secret: secrets is forbidden: User "system:serviceaccount:
+kubeopencode-system:kubeopencode-controller" cannot list resource "secrets"
+in API group "" at the cluster scope
+...
+problem running manager: failed to wait for agenttemplate caches to sync
+```
+
+**Why it happens.** controller-runtime builds informers that LIST/WATCH at *cluster*
+scope. Security review finding M2 (2026-08-14) moved secrets — correctly, on security
+grounds — to a namespace-scoped Role, and a namespaced Role can never satisfy a
+cluster-scoped informer. This was a **latent** break, not caused by M2 going live: the
+running process had already built its cache and would have died on its next restart
+whenever that came. The kube-apiserver restart for the OIDC change on 2026-08-18 is what
+finally triggered it.
+
+Cluster-scope *read* for `configmaps`/`pods`/`services`/`PVCs`/`deployments` has been
+restored (they have the same informer requirement and are far less sensitive); every
+**mutating** verb remains namespace-scoped, so M2's actual substance is intact. Only
+secrets remain withheld.
+
+**Why it is not simply fixed.** Granting cluster-wide secrets read to a code-task-execution
+tool that runs LLM agents — i.e. a live prompt-injection and exfiltration surface — is a
+genuine privilege escalation, not a mechanical RBAC gap. Upstream offers no namespace-scoped
+cache option; `kubeopencode controller --help` exposes no such flag, so there is no middle
+ground available today.
+
+**Consequence, and why the Agent CR was removed.** The `config` Kustomization runs with
+`wait: true`, which health-checks every applied object, and Flux has no per-resource opt-out.
+A permanently-unreconciled Agent failed the entire Kustomization on every run
+(`timeout waiting for: [Agent/kubeopencode-system/default status: 'InProgress']`), blocking
+unrelated config-layer changes behind a known-broken component. `agent.yaml` is therefore
+commented out of `27-kubeopencode/config/kustomization.yaml` — the file is kept, so
+re-enabling is a one-line change.
+
+**Options when this is picked up:**
+
+1. Grant cluster-scope `get/list/watch` on secrets — accepts the escalation; tool works again.
+2. Leave parked (current state) — preserves M2; the tool stays unavailable.
+3. Remove kubeopencode entirely — also drops the server ClusterRole's `pods/exec` surface.
+4. Upstream: request a namespace-scoped cache/`--namespace` option, which would resolve it
+   without either tradeoff.

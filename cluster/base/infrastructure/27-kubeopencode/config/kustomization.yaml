@@ -2,6 +2,29 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - httproute.yaml
-  - agent.yaml
+  # agent.yaml is deliberately PARKED (2026-08-18) -- the file is kept so this
+  # is a one-line change to re-enable, but it is not applied.
+  #
+  # The kubeopencode-controller cannot run: controller-runtime informers
+  # LIST/WATCH at cluster scope, and the controller needs cluster-wide
+  # secrets read for its cache to sync. Security review finding M2 removed
+  # exactly that, and it is not being given back -- cluster-wide secret read
+  # for a code-task-execution tool with an LLM prompt-injection surface is a
+  # real escalation. Upstream offers no namespace-scoped cache option (the
+  # binary exposes no such flag), so there is no middle ground today.
+  #
+  # Why the Agent has to come out rather than just sitting broken: the config
+  # Kustomization runs with wait: true, which health-checks EVERY applied
+  # object, and Flux has no per-resource opt-out. A permanently-unreconciled
+  # Agent therefore failed the whole Kustomization every time
+  # ("health check failed after 5m: timeout waiting for:
+  # [Agent/kubeopencode-system/default status: 'InProgress']"), blocking every
+  # unrelated change in the config layer behind a known-broken component.
+  # Keeping wait: true is worth more than keeping this CR applied -- see the
+  # rationale in cluster/overlays/1-node/flux-kustomizations/config.yaml.
+  #
+  # Tracked in docs/backlog.md. Note prune: true means applying this removes
+  # the Agent CR (and the controller-owned session PVC) from the cluster.
+  # - agent.yaml
   - oidc-client-secret.yaml
   - oidc-securitypolicy.yaml
