@@ -72,6 +72,17 @@ spec:
 
     volume:
       enabled: true
+      # Single-node baseline. "000" means no replica copies -- with one volume
+      # server there is nowhere to put a second copy, so any other value would
+      # leave writes unsatisfiable rather than adding redundancy.
+      #
+      # The 3-node overlay patches this to "001" alongside replicaCount: 3
+      # (overlays/3-node/patches/seaweedfs-ha.yaml). Worth noting that the same
+      # patch also sets filer.replicaCount: 2, which was silently impossible
+      # until the filer moved off leveldb2 -- an embedded single-writer store
+      # cannot be shared by two filers. On this single-node cluster durability
+      # comes from backups, not replication.
+      replicaCount: 1
       replication: "000"
       resources:
         requests:
