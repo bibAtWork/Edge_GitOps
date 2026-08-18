@@ -7,3 +7,6 @@ resources:
   - db-secret.yaml
   - cilium-policy.yaml
   - oauth-config-secret.yaml
+  - postgres-backup-cronjob.yaml
+  - backup-s3-secret.yaml
+  - backup-netpol.yaml

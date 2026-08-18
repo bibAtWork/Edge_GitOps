@@ -15,6 +15,9 @@ resources:
   - securitypolicy-referencegrant.yaml
   - setup-job.yaml
   - cilium-policy.yaml
+  - postgres-backup-cronjob.yaml
+  - backup-s3-secret.yaml
+  - backup-netpol.yaml
 
 configMapGenerator:
   # Standalone ConfigMap (not folded into keycloak-setup-script) so

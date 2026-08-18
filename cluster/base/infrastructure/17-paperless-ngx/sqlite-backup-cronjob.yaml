@@ -1,0 +1,157 @@
+# Logical backup of the Paperless SQLite database to S3.
+#
+# This is the only protection this database has. Velero's file-system backup
+# does not capture it: paperless-data is a local-path (hostPath) volume, and
+# Kopia silently skips hostPath volumes -- no PodVolumeBackup is even created,
+# so nothing errors and nothing warns. Verified 2026-08-18 that across every
+# backup this cluster has taken, the only volumes ever captured were ephemeral
+# (dshm, tmp, empty-dir); not one PVC.
+#
+# Uses SQLite's online backup API rather than copying db.sqlite3. The database
+# runs in WAL mode -- db.sqlite3-wal and db.sqlite3-shm sit next to it -- so a
+# plain file copy of db.sqlite3 alone can miss every committed transaction
+# still living in the WAL, and copying the three files non-atomically while
+# paperless is writing can produce an inconsistent set. The backup API takes a
+# consistent snapshot of a live database with writers active, which is exactly
+# the situation here since paperless is not stopped for this.
+#
+# Scanned documents live on paperless-media-swfs and are NOT in here. This
+# covers the database only: document metadata, tags, correspondents, users and
+# the search index's source of truth. A restore needs both.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paperless-sqlite-backup
+  namespace: paperless
+spec:
+  schedule: "45 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Selected by backup-netpol.yaml. CronJob pods do not inherit an
+            # app.kubernetes.io/name label on their own -- they only get
+            # job-name/controller-uid, which change every run and so cannot be
+            # matched by a static CiliumNetworkPolicy.
+            app.kubernetes.io/name: paperless-sqlite-backup
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: dump
+              # python:3-alpine ships the sqlite3 module, so no extra install is
+              # needed and no package fetch happens at backup time.
+              image: docker.io/library/python:3.12-alpine
+              command:
+                - /usr/local/bin/python
+                - -c
+                - |
+                  import gzip, os, shutil, sqlite3, sys, tempfile
+
+                  SRC = "/data/db.sqlite3"
+                  OUT = "/work/paperless-db.sqlite3.gz"
+
+                  # Read-only URI so this job can never write to the live
+                  # database. The backup API still produces a consistent
+                  # snapshot including anything sitting in the WAL.
+                  src = sqlite3.connect(f"file:{SRC}?mode=ro", uri=True)
+                  tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
+                  tmp.close()
+                  dst = sqlite3.connect(tmp.name)
+                  with dst:
+                      src.backup(dst)
+                  dst.close()
+                  src.close()
+
+                  # Prove the snapshot is a valid database before shipping it,
+                  # rather than discovering it during a restore.
+                  chk = sqlite3.connect(tmp.name)
+                  result = chk.execute("PRAGMA integrity_check").fetchone()[0]
+                  chk.close()
+                  if result != "ok":
+                      print(f"ERROR: integrity_check returned {result}", file=sys.stderr)
+                      sys.exit(1)
+
+                  with open(tmp.name, "rb") as f_in, gzip.open(OUT, "wb", compresslevel=9) as f_out:
+                      shutil.copyfileobj(f_in, f_out)
+                  os.unlink(tmp.name)
+
+                  size = os.path.getsize(OUT)
+                  if size < 1024:
+                      print(f"ERROR: backup is only {size} bytes -- refusing to upload", file=sys.stderr)
+                      sys.exit(1)
+                  print(f"backup ok: {size} bytes, integrity_check=ok")
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: upload
+              image: docker.io/amazon/aws-cli:2.36.24
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/paperless-db.sqlite3.gz \
+                    "s3://db-backups/paperless/paperless-db-${TS}.sqlite3.gz"
+                  echo "uploaded paperless-db-${TS}.sqlite3.gz"
+              env:
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-backup-credentials
+                      key: admin_access_key_id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-backup-credentials
+                      key: admin_secret_access_key
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: paperless-data
+            - name: work
+              emptyDir: {}
