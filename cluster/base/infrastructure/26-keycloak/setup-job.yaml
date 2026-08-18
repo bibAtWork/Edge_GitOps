@@ -159,7 +159,7 @@ data:
     # PKCE is not the primary protection (same reasoning as paperless above).
     # redirectUris must match the /oauth2/callback path Envoy Gateway uses by
     # default — it is not configurable per app without setting redirectURL.
-    ensure_client({
+    hubble_uuid = ensure_client({
         "clientId": "hubble",
         "enabled": True,
         "name": "Hubble UI",
@@ -175,7 +175,7 @@ data:
         "webOrigins": ["https://hubble.homelab.data-harness.org"],
     }, HUBBLE_CLIENT_SECRET)
 
-    ensure_client({
+    kubeopencode_uuid = ensure_client({
         "clientId": "kubeopencode",
         "enabled": True,
         "name": "KubeOpenCode",
@@ -236,7 +236,9 @@ data:
 
     link_optional_scope(grafana_uuid, groups_scope_id)
     link_optional_scope(paperless_uuid, groups_scope_id)
-    print("✓ 'groups' scope linked to grafana and paperless clients")
+    link_optional_scope(hubble_uuid, groups_scope_id)
+    link_optional_scope(kubeopencode_uuid, groups_scope_id)
+    print("✓ 'groups' scope linked to grafana, paperless, hubble, and kubeopencode clients")
 
     # --- ADR-002: Flattened Hierarchical RBAC group foundation (idempotent) ---
     # Level 0 tiers (reader/maintainer/owner) are never assigned to a user
@@ -455,12 +457,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-8
+  name: keycloak-setup-9
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "8"
+    run-id: "9"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400

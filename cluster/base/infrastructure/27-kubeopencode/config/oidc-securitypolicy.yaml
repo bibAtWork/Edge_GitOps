@@ -30,9 +30,13 @@ spec:
     clientSecret:
       name: kubeopencode-oidc-client-secret
     forwardAccessToken: true
+    # groups: ADR-002 -- see 05-cilium/config/hubble-securitypolicy.yaml's
+    # comment for the full rationale, and 24-opa/configmap.yaml for the
+    # policy that now reads it.
     scopes:
       - openid
       - email
+      - groups
   extAuth:
     grpc:
       backendRefs:

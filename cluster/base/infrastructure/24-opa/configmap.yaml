@@ -75,6 +75,23 @@ data:
         jwt_payload.email in admin_emails
     }
 
+    # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): admin_only_apps
+    # now accepts Maintainer-or-above (app-operator/platform-admin), not just
+    # the hardcoded admin_emails allowlist. Unlike the generic Bearer-token
+    # case admin_emails exists for (arbitrary API clients that may not
+    # request the groups scope), both hubble-ui and kubeopencode's
+    # SecurityPolicy.oidc explicitly request it, so jwt_payload.groups is
+    # reliably present here. Viewer is deliberately excluded: unlike
+    # Grafana/Paperless, these two expose live cluster internals
+    # (Hubble UI) or arbitrary code execution in-cluster (KubeOpenCode),
+    # not read-only-safe surfaces.
+    admin_only_apps_allowed_groups := {"platform-admin", "app-operator"}
+
+    has_operator_or_above if {
+        some g in jwt_payload.groups
+        g in admin_only_apps_allowed_groups
+    }
+
     # Grafana admin API — requires admin role regardless of call type.
     is_grafana_admin_path if {
         req_http.host == "grafana.homelab.data-harness.org"
@@ -93,7 +110,8 @@ data:
     #
     # 2. Valid JWT on a Grafana admin path without admin role → 403.
     #
-    # 3. Valid JWT on an admin-only app (hubble-ui, kubeopencode) without admin role → 403.
+    # 3. Valid JWT on an admin-only app (hubble-ui, kubeopencode), neither admin_emails
+    #    nor Maintainer-or-above (platform-admin/app-operator, ADR-002) → 403.
     #    Browser requests to admin-only apps with no JWT also hit this rule because
     #    neither app has native OIDC — restrict at the OPA layer.
     #
@@ -128,6 +146,7 @@ data:
     } if {
         req_http.host in admin_only_apps
         not is_admin
+        not has_operator_or_above
     } else := {
         "allowed": true,
         "headers": identity_headers,
