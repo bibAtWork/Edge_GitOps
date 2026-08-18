@@ -42,7 +42,7 @@ spec:
               type: RuntimeDefault
           initContainers:
             - name: dump
-              image: docker.io/library/postgres:16-alpine
+              image: docker.io/library/postgres:18-alpine
               command:
                 - /bin/sh
                 - -c
