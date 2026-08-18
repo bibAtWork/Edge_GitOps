@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paperless-rbac-groups-script
+  namespace: paperless
+data:
+  ensure_groups.py: |
+    # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): idempotent
+    # Django Group + permission setup for Paperless's three job-function
+    # groups. Runs as an initContainer on every pod (re)start rather than a
+    # one-shot Job -- Paperless has no external DB (SQLite on the same PVC
+    # the main container uses), so there's no separate connection to stand
+    # up, and get_or_create + permissions.set() are naturally idempotent.
+    #
+    # Group *names* must match the Keycloak groups' leaf names exactly --
+    # PAPERLESS_SOCIAL_ACCOUNT_SYNC_GROUPS (PR #186) looks up Django Groups
+    # by the "groups" claim's leaf names and does NOT create missing ones,
+    # so a user in a Keycloak group with no matching Django Group here ends
+    # up in no group at all after sync.
+    #
+    # No auth.* (Django's own user/group) permissions anywhere, including
+    # for platform-admin: Keycloak is the source of truth for group
+    # membership, and the sync is a destructive clear=True full-replace on
+    # every login, so granting Django-side group-editing permissions here
+    # would just get silently overwritten -- there's nothing for a "Django
+    # IAM" permission to durably do in this model.
+    from django.contrib.auth.models import Group, Permission
+
+    # Content models: what Paperless exists to manage day to day.
+    CONTENT_MODELS = [
+        "correspondent", "tag", "documenttype", "storagepath", "document",
+        "note", "sharelink", "sharelinkbundle", "savedview",
+        "savedviewfilterrule", "uisettings", "paperlesstask",
+    ]
+    # Config models: global automation/schema that affects every user's
+    # documents, not just the acting user's own -- the closest thing this
+    # app has to the ADR's "IAM-shaped" access, reserved for Owner.
+    CONFIG_MODELS = [
+        "workflow", "workflowtrigger", "workflowaction",
+        "workflowactionemail", "workflowactionwebhook", "workflowrun",
+        "customfield", "customfieldinstance",
+    ]
+
+
+    def ensure_group(name, codenames):
+        group, _ = Group.objects.get_or_create(name=name)
+        perms = list(Permission.objects.filter(
+            codename__in=codenames, content_type__app_label="documents",
+        ))
+        group.permissions.set(perms)
+        print(f"✓ '{name}' group ensured with {len(perms)} permissions")
+
+
+    viewer_perms = [f"view_{m}" for m in CONTENT_MODELS]
+    operator_perms = viewer_perms + [
+        f"{action}_{m}" for m in CONTENT_MODELS for action in ("add", "change", "delete")
+    ]
+    admin_perms = operator_perms + [
+        f"{action}_{m}" for m in CONFIG_MODELS for action in ("view", "add", "change", "delete")
+    ]
+
+    ensure_group("viewer", viewer_perms)
+    ensure_group("app-operator", operator_perms)
+    ensure_group("platform-admin", admin_perms)
