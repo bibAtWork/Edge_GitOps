@@ -1,0 +1,130 @@
+# Logical backup of the SeaweedFS filer metadata database to S3.
+#
+# This is NOT optional hygiene -- it is the only protection this database has.
+# filer-postgres.yaml deliberately runs on local-path (hostPath-backed) to
+# avoid a circular dependency on the storage it enables, and Velero's
+# file-system backup silently skips hostPath volumes. So no volume-level
+# backup of this data exists or can exist.
+#
+# What is at stake: this database is the namespace. Volume servers hold
+# anonymous blobs; only this metadata maps them back to real files. Losing it
+# renders every byte on every volume server unrecoverable. It is therefore the
+# highest-value, smallest-volume backup target in the cluster.
+#
+# Split across two containers because no single image here has both pg_dump
+# and the AWS CLI: an initContainer dumps to a shared emptyDir, the main
+# container uploads it. Mirrors bucket-init-job.yaml's busybox+aws-cli shape.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: seaweedfs-filer-postgres-backup
+  namespace: seaweedfs
+spec:
+  # Hourly: filer metadata changes on every file write in the cluster, so the
+  # acceptable data-loss window here is far smaller than for app databases.
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: dump
+              image: docker.io/library/postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  OUT=/work/filer.sql.gz
+
+                  # --clean --if-exists makes the dump self-contained: replayable
+                  # onto an empty or existing database with no manual pre-cleanup
+                  # during a recovery, when nobody wants surprises.
+                  pg_dump -h seaweedfs-filer-postgres -U seaweedfs \
+                    -d seaweedfs_filer --clean --if-exists | gzip -9 > "$OUT"
+
+                  # Fail loudly on a truncated/empty dump rather than uploading a
+                  # useless artifact that reports success -- precisely the failure
+                  # mode that let the Velero backups look healthy while holding
+                  # nothing. A real filer dump is never this small.
+                  SIZE="$(stat -c %s "$OUT")"
+                  if [ "$SIZE" -lt 1024 ]; then
+                    echo "ERROR: dump is only ${SIZE} bytes -- refusing to upload" >&2
+                    exit 1
+                  fi
+                  echo "dump ok: ${SIZE} bytes"
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-filer-postgres
+                      key: postgres-password
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: upload
+              image: amazon/aws-cli:2.36.24
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/filer.sql.gz \
+                    "s3://velero-backups/filer-metadata/filer-${TS}.sql.gz"
+                  echo "uploaded filer-${TS}.sql.gz"
+              env:
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-s3-secret
+                      key: admin_access_key_id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: seaweedfs-s3-secret
+                      key: admin_secret_access_key
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: work
+              emptyDir: {}
