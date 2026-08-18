@@ -9,3 +9,4 @@ resources:
   - filer-postgres.yaml
   - filer-postgres-netpol.yaml
   - filer-postgres-backup-cronjob.yaml
+  - csi-driver-helmrelease.yaml

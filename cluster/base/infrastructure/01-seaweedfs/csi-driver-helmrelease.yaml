@@ -1,0 +1,88 @@
+# SeaweedFS CSI driver -- provides the seaweedfs-storage StorageClass.
+#
+# This is the piece commit d4de32a went looking for and could not find: the
+# CSI driver is a SEPARATE chart from seaweedfs itself, so when no
+# seaweedfs-storage StorageClass existed, local-path-provisioner went in as a
+# stopgap and quietly became permanent. Vestiges of the original intent are
+# still visible across the repo -- an allow-csi-seaweedfs-egress network
+# policy for a driver that never existed, an unused "pvs" bucket, and README
+# claims about a CSI driver (since corrected).
+#
+# Depends on the filer, which now keeps its metadata in PostgreSQL rather than
+# leveldb2 -- deliberately sequenced that way. Installing CSI on the old
+# embedded single-writer store would have made every PVC in the cluster depend
+# on a filer that could never be replicated or survive its node, which is
+# strictly worse than local-path's no-network-dependency behaviour.
+#
+# NOT set as the default StorageClass yet. local-path stays default until
+# workloads are migrated one at a time and verified; flipping the default
+# early would silently send every new PVC to storage that has not been proven
+# under real load on this cluster.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: seaweedfs-csi-driver
+  namespace: seaweedfs
+spec:
+  interval: 30m
+  dependsOn:
+    - name: seaweedfs
+      namespace: seaweedfs
+  chart:
+    spec:
+      chart: seaweedfs-csi-driver
+      version: 0.2.34
+      sourceRef:
+        kind: HelmRepository
+        name: seaweedfs-csi-driver
+        namespace: flux-system
+      interval: 12h
+  install:
+    timeout: 10m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 10m
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # Points at the filer's gRPC/HTTP endpoint. The filer is the only
+    # component that knows the namespace, so every CSI volume operation
+    # resolves through it.
+    seaweedfsFiler: seaweedfs-filer.seaweedfs:8888
+
+    storageClassName: seaweedfs-storage
+    # Deliberately NOT default -- see the note above.
+    isDefaultStorageClass: false
+
+    # FUSE mounting genuinely requires privileged + SYS_ADMIN + /dev/fuse;
+    # there is no unprivileged path for this driver. The seaweedfs namespace
+    # is already PSS-privileged (commit a2aa5e4 set that for SeaweedFS's own
+    # hostPath volumes), so this does not widen the namespace's posture --
+    # but it is worth stating plainly that these are real privileges on the
+    # node, not incidental chart defaults.
+    seaweedfsCsiPlugin:
+      privileged: true
+      capabilities:
+        add: ["SYS_ADMIN"]
+      # Single control-plane node runs all workloads, so the node plugin has
+      # to tolerate the control-plane taint or it will never schedule.
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+
+    mountService:
+      # Runs the actual FUSE mounts in a dedicated service rather than inside
+      # the plugin, so a plugin restart does not tear down live mounts.
+      enabled: true
+      privileged: true
+      capabilities:
+        add: ["SYS_ADMIN"]
+
+    controller:
+      replicas: 1
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
