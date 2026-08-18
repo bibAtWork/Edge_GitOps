@@ -11,6 +11,7 @@ resources:
   - kubeopencode-client-secret.yaml
   - schenkmatch-client-secret.yaml
   - zot-client-secret.yaml
+  - immich-client-secret.yaml
   - securitypolicy-referencegrant.yaml
   - setup-job.yaml
   - cilium-policy.yaml

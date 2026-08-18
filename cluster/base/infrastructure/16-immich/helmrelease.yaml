@@ -90,6 +90,22 @@ spec:
                   memory: 512Mi
                 limits:
                   memory: 2Gi
+              # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md):
+              # Keycloak OIDC login via a declarative partial config file
+              # (oauth-config-secret.yaml), not the runtime admin API --
+              # confirmed against Immich's own source that this is
+              # deep-merged on top of hardcoded defaults, not the DB, and
+              # that setting this env var makes the file authoritative.
+              env:
+                IMMICH_CONFIG_FILE: /run/secrets/immich-oauth/config.json
+      persistence:
+        oauth-config:
+          type: secret
+          name: immich-oauth-config
+          globalMounts:
+            - path: /run/secrets/immich-oauth/config.json
+              subPath: config.json
+              readOnly: true
 
     machine-learning:
       enabled: true

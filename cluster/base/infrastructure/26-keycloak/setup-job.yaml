@@ -33,6 +33,7 @@ data:
     KUBEOPENCODE_CLIENT_SECRET = os.environ["KUBEOPENCODE_CLIENT_SECRET"]
     SCHENKMATCH_CLIENT_SECRET = os.environ["SCHENKMATCH_CLIENT_SECRET"]
     ZOT_CLIENT_SECRET = os.environ["ZOT_CLIENT_SECRET"]
+    IMMICH_CLIENT_SECRET = os.environ["IMMICH_CLIENT_SECRET"]
     ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
     ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
 
@@ -231,6 +232,35 @@ data:
         "webOrigins": ["https://zot.homelab.data-harness.org"],
     }, ZOT_CLIENT_SECRET)
 
+    # immich: native OIDC via IMMICH_CONFIG_FILE (see helmrelease.yaml),
+    # not the runtime admin API -- Immich's role model is binary
+    # (admin/user), and the role claim only applies at account creation,
+    # not resynced on login (confirmed against immich's own source,
+    # server/src/config.ts's oauth.roleClaim and
+    # server/src/utils/config.ts's buildConfig). Redirect URIs confirmed
+    # against a real third-party OIDC integration guide for this app
+    # (authentik's), not assumed -- /user-settings is where an
+    # already-logged-in user re-links OAuth, /auth/login is the actual
+    # sign-in flow.
+    immich_uuid = ensure_client({
+        "clientId": "immich",
+        "enabled": True,
+        "name": "Immich",
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {},
+        "redirectUris": [
+            "https://immich.homelab.data-harness.org/auth/login",
+            "https://immich.homelab.data-harness.org/user-settings",
+        ],
+        "webOrigins": ["https://immich.homelab.data-harness.org"],
+    }, IMMICH_CLIENT_SECRET)
+
     # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
     # Client scopes are realm-wide reusable objects. Keycloak rejects any
     # authorization request naming a scope that isn't defined at the realm
@@ -259,6 +289,14 @@ data:
         status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{client_uuid}/optional-client-scopes/{scope_id}", token=tok)
         assert status == 204, f"Optional scope link failed: {status}"
 
+    def link_default_scope(client_uuid, scope_id):
+        # Default (not optional): immich's OAuth config only requests
+        # "openid email profile" and isn't being changed here to also ask
+        # for a custom scope -- a default scope is included in every token
+        # for the client regardless of what scope= the client requests.
+        status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{client_uuid}/default-client-scopes/{scope_id}", token=tok)
+        assert status == 204, f"Default scope link failed: {status}"
+
     groups_scope_id = ensure_client_scope("groups", {
         "name": "groups",
         "protocol": "openid-connect",
@@ -280,6 +318,29 @@ data:
     link_optional_scope(kubeopencode_uuid, groups_scope_id)
     link_optional_scope(zot_uuid, groups_scope_id)
     print("✓ 'groups' scope linked to grafana, paperless, hubble, kubeopencode, and zot clients")
+
+    # immich_role: a plain user attribute, not derived from group
+    # membership by Keycloak itself -- Immich's role model is binary
+    # (admin/user), so this repo sets the attribute directly wherever it
+    # already assigns group membership (below), rather than trying to
+    # express a group->literal-string mapping declaratively in Keycloak.
+    immich_role_scope_id = ensure_client_scope("immich-role", {
+        "name": "immich_role",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-usermodel-attribute-mapper",
+        "consentRequired": False,
+        "config": {
+            "user.attribute": "immich_role",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "immich_role",
+            "userinfo.token.claim": "true",
+        },
+    })
+    print("✓ Realm 'immich-role' client scope ensured")
+
+    link_default_scope(immich_uuid, immich_role_scope_id)
+    print("✓ 'immich_role' scope linked to immich client (default)")
 
     # --- ADR-002: Flattened Hierarchical RBAC group foundation (idempotent) ---
     # Level 0 tiers (reader/maintainer/owner) are never assigned to a user
@@ -413,10 +474,30 @@ data:
     else:
         print("✓ No legacy 'admin' group to migrate")
 
+    # Immich has no group concept of its own -- binary admin/user role,
+    # set via the immich_role user attribute (immich-role client scope
+    # above). platform-admin -> admin, everything else -> user. Applied
+    # wherever this script assigns Level 1 group membership, below.
+    IMMICH_ROLE_FOR_GROUP = {
+        "platform-admin": "admin",
+        "app-operator": "user",
+        "viewer": "user",
+    }
+
+    def set_immich_role(target_user_id, group_name):
+        # Keycloak's user PUT replaces the whole representation, not just
+        # the fields given (same gotcha ensure_client works around above)
+        # -- fetch first so this doesn't drop email/username/enabled/etc.
+        status, full_user = api("GET", f"/admin/realms/{REALM}/users/{target_user_id}", token=tok)
+        full_user.setdefault("attributes", {})["immich_role"] = [IMMICH_ROLE_FOR_GROUP[group_name]]
+        status, _ = api("PUT", f"/admin/realms/{REALM}/users/{target_user_id}", data=full_user, token=tok)
+        assert status == 204, f"Failed to set immich_role for user {target_user_id}: {status}"
+
     # --- Assign 'admin' user to /owner/platform-admin (PUT is idempotent) ---
     status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/groups/{level1_ids['platform-admin']}", token=tok)
     assert status == 204, f"platform-admin group assignment failed: {status}"
-    print("✓ User assigned to '/owner/platform-admin' group")
+    set_immich_role(user_id, "platform-admin")
+    print("✓ User assigned to '/owner/platform-admin' group (immich_role=admin)")
 
     # --- Known real users, assigned directly (not bootstrap identities like
     # 'admin' above) -- auto-signup SSO users referenced by username, added
@@ -433,7 +514,8 @@ data:
         target_id = matches[0]["id"]
         status, _ = api("PUT", f"/admin/realms/{REALM}/users/{target_id}/groups/{level1_ids[group_name]}", token=tok)
         assert status == 204, f"Failed to assign '{username}' to '{group_name}': {status}"
-        print(f"✓ User '{username}' assigned to '{group_name}' group")
+        set_immich_role(target_id, group_name)
+        print(f"✓ User '{username}' assigned to '{group_name}' group (immich_role={IMMICH_ROLE_FOR_GROUP[group_name]})")
 
     # --- Create permanent master-realm admin with the same identity (idempotent) ---
     status, existing_master = api("GET", f"/admin/realms/master/users?username={ADMIN_USER_EMAIL}&exact=true", token=tok)
@@ -498,12 +580,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-11
+  name: keycloak-setup-12
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "11"
+    run-id: "12"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -558,6 +640,11 @@ spec:
                 secretKeyRef:
                   name: keycloak-zot-oidc
                   key: zot-client-secret
+            - name: IMMICH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-immich-oidc
+                  key: immich-client-secret
             - name: ADMIN_USER_EMAIL
               value: admin@homelab.internal
             - name: ADMIN_USER_PASSWORD

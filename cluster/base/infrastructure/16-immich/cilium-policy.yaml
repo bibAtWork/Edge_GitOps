@@ -9,6 +9,36 @@ spec:
     - toEndpoints:
         - {}
 ---
+# ADR-002: immich-server's OIDC client fetches the discovery document from
+# its configured issuer (keycloak.homelab.data-harness.org) at startup, the
+# same shape as zot's OIDC integration (10-network-policies/
+# allow-zot-egress.yaml) -- Cilium evaluates this in-cluster-pod-to-Gateway-
+# VIP traffic against the VIP's real resolved backend (the
+# envoy-gateway-system pod on container port 10443, per ADR-001 and
+# docs/network-architecture.md's documented cilium/cilium#47617 gotcha),
+# not the VIP address, so this targets the pod directly rather than a
+# toCIDR rule for the VIP (confirmed not to work, live, for zot).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-immich-keycloak-egress
+  namespace: immich
+spec:
+  endpointSelector:
+    # Confirmed live label (not "immich-server" -- bjw-s chart names the
+    # component "server", scoped to the immich namespace/instance already).
+    matchLabels:
+      app.kubernetes.io/name: server
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+---
 # Hub-and-spoke migration (2026-08-17): immich-server -> immich-postgresql (DB_HOSTNAME),
 # -> immich-valkey (REDIS_HOSTNAME, chart default), -> immich-machine-learning (chart
 # default URL) -- all same-namespace, previously covered only by allow-cluster-internal.
