@@ -55,7 +55,7 @@ spec:
               # than itself, so a 16 client here produced a 20-byte file and
               # the size guard below rejected it. Bump this in step with the
               # postgresql chart, not independently.
-              image: docker.io/library/postgres:17-alpine
+              image: docker.io/library/postgres:18-alpine
               command:
                 - /bin/sh
                 - -c
