@@ -17,10 +17,22 @@ metadata:
   name: default-quota
   namespace: seaweedfs
 spec:
+  # Raised from 8Gi on 2026-08-18. The CSI mount DaemonSet needs a real memory
+  # limit (it holds the FUSE daemon for every SeaweedFS PVC on the node, and
+  # was OOMKilled at the LimitRange's 256Mi default, taking every mount down
+  # with it), and giving it 2Gi put this namespace at exactly 8Gi of 8Gi --
+  # 100% consumed, 7 active pods. At the cap nothing new admits, so the very
+  # next filer-postgres-backup CronJob run would have failed with "exceeded
+  # quota" and the metadata backups would have stopped silently.
+  #
+  # 12Gi leaves headroom for the backup jobs plus a second mount pod during a
+  # DaemonSet recycle. Node has 32Gi allocatable at ~44% use, so this is not
+  # over-committing the node -- it is making the quota reflect what the
+  # storage layer actually needs.
   hard:
     requests.cpu: "2"
-    requests.memory: 4Gi
-    limits.memory: 8Gi
+    requests.memory: 6Gi
+    limits.memory: 12Gi
     pods: "20"
 ---
 apiVersion: v1
