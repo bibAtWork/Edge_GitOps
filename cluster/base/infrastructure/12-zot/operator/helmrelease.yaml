@@ -63,6 +63,12 @@ spec:
                       - name: zot-auth
                         secret:
                           secretName: zot-htpasswd
+                      - name: zot-oidc-auth
+                        # ADR-002: separate from zot-auth above so the new
+                        # secret doesn't need to touch (and re-encrypt) the
+                        # existing SOPS-encrypted zot-htpasswd file.
+                        secret:
+                          secretName: zot-oidc-credentials
                     containers:
                       - name: zot
                         env:
@@ -82,6 +88,9 @@ spec:
                             readOnly: true
                           - name: zot-auth
                             mountPath: /secret
+                            readOnly: true
+                          - name: zot-oidc-auth
+                            mountPath: /secret-oidc
                             readOnly: true
   values:
     replicaCount: 1

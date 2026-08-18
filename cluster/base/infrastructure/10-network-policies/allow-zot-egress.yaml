@@ -26,6 +26,30 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+    # ADR-002: zot's own OIDC client (config-configmap.yaml) fetches the
+    # discovery document from its configured issuer
+    # (keycloak.homelab.data-harness.org) at startup -- unlike every other
+    # OIDC integration in this repo, zot has no separate internal-service
+    # override for that call (Issuer doubles as the discovery URL in
+    # zot's config schema), so it resolves and dials the Gateway VIP like
+    # a browser would, not keycloak's internal Service directly.
+    #
+    # Confirmed live via Hubble that this is NOT "reach the internet" and
+    # a toCIDR rule for the VIP doesn't work: docs/network-architecture.md's
+    # documented gotcha (cilium/cilium#47617) applies here too -- Cilium
+    # evaluates egress from an in-cluster pod against the VIP's REAL
+    # resolved backend (the envoy-gateway-system pod on its container port
+    # 10443, per ADR-001's useListenerPortAsContainerPort: false), not the
+    # VIP address itself. The flow that was actually being dropped was
+    # zot -> envoy-gateway-system pod :10443, not zot -> 192.168.178.200.
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
 ---
 # Hub-and-spoke migration (2026-08-17), PR 2/6: Trivy's own egress rule
 # (allow-trivy-zot-egress, allow-cross-namespace-egress.yaml) has existed for a while, but

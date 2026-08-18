@@ -4,6 +4,28 @@ metadata:
   name: zot-config
   namespace: zot
 data:
+  # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): OIDC provider
+  # key MUST be "oidc" (or "google"/"gitlab") -- zot's IsOpenIDSupported()
+  # rejects any other map key outright ("unsupported openid/oauth2
+  # provider"), confirmed against zot's own source
+  # (pkg/api/config/config.go's openIDSupportedProviders list), not
+  # assumed; an arbitrary friendly name like "keycloak" here crash-loops
+  # the pod. credentialsFile (not inline clientid/clientsecret, which zot
+  # deprecates) points at a separate zot-oidc-credentials Secret
+  # (oidc-credentials-secret.yaml), keeping the actual client secret out
+  # of this ConfigMap entirely. Not folded into the existing zot-htpasswd
+  # Secret: that file is already SOPS-encrypted from an earlier commit,
+  # and adding a key to an already-encrypted file needs decrypting it
+  # first -- a new file avoids that.
+  #
+  # accessControl gives platform-admin and app-operator identical repo
+  # permissions (full CRUD, including delete): ADR-002's Maintainer tier
+  # explicitly includes delete on standard resources, only excluding
+  # IAM-shaped access -- and a container image isn't IAM. Unlike Paperless
+  # (workflows/custom fields) or Keycloak (group management), zot has no
+  # per-repo-policy surface that's actually IAM-shaped to reserve for
+  # Owner alone, so the two tiers converge here rather than being
+  # artificially split.
   config.json: |
     {
       "distSpecVersion": "1.1.0",
@@ -25,6 +47,19 @@ data:
         "auth": {
           "htpasswd": {
             "path": "/secret/htpasswd"
+          },
+          "openid": {
+            "providers": {
+              "oidc": {
+                "name": "Keycloak",
+                "issuer": "https://keycloak.homelab.data-harness.org/realms/homelab",
+                "credentialsFile": "/secret-oidc/oidc-credentials.json",
+                "scopes": ["openid", "email", "groups"],
+                "claimMapping": {
+                  "groups": "groups"
+                }
+              }
+            }
           }
         },
         "accessControl": {
@@ -34,6 +69,14 @@ data:
                 {
                   "users": ["admin"],
                   "actions": ["read", "create", "update", "delete"]
+                },
+                {
+                  "groups": ["platform-admin", "app-operator"],
+                  "actions": ["read", "create", "update", "delete"]
+                },
+                {
+                  "groups": ["viewer"],
+                  "actions": ["read"]
                 }
               ],
               "defaultPolicy": "none",
