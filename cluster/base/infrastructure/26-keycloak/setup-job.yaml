@@ -350,18 +350,27 @@ data:
     assert status == 204, f"Password reset failed: {status}"
     print("✓ Password set")
 
-    # --- Assign admin group (PUT is idempotent — 204 whether new or existing) ---
-    status, groups = api("GET", f"/admin/realms/{REALM}/groups?search=admin&exact=true", token=tok)
-    if not groups:
-        print("ERROR: admin group not found in realm", file=sys.stderr)
-        sys.exit(1)
-    group_id = groups[0]["id"]
-    status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/groups/{group_id}", token=tok)
-    assert status == 204, f"Group assignment failed: {status}"
-    print("✓ User assigned to 'admin' group")
+    # --- Migrate legacy 'admin' group members into /owner/platform-admin, then
+    # delete the legacy group. ADR-002's Level 0/Level 1 groups are now what
+    # every app checks (see 04-grafana/helmrelease.yaml's role_attribute_path);
+    # this closes the additive-only window the previous PR deliberately left
+    # open so Grafana's re-point and this removal land in the same change. ---
+    status, legacy_groups = api("GET", f"/admin/realms/{REALM}/groups?search=admin&exact=true", token=tok)
+    legacy_admin_group = next((g for g in (legacy_groups or []) if g["name"] == "admin" and g.get("path") == "/admin"), None)
+    if legacy_admin_group:
+        legacy_group_id = legacy_admin_group["id"]
+        status, members = api("GET", f"/admin/realms/{REALM}/groups/{legacy_group_id}/members", token=tok)
+        for member in members or []:
+            status, _ = api("PUT", f"/admin/realms/{REALM}/users/{member['id']}/groups/{level1_ids['platform-admin']}", token=tok)
+            assert status == 204, f"Failed to move '{member['username']}' into platform-admin: {status}"
+            print(f"✓ Migrated '{member['username']}' from legacy 'admin' group to '/owner/platform-admin'")
+        status, _ = api("DELETE", f"/admin/realms/{REALM}/groups/{legacy_group_id}", token=tok)
+        assert status == 204, f"Failed to delete legacy 'admin' group: {status}"
+        print("✓ Legacy 'admin' group deleted")
+    else:
+        print("✓ No legacy 'admin' group to migrate")
 
-    # Additive per ADR-002: also in /owner/platform-admin from here on, alongside
-    # the legacy group above (not yet removed -- see the RBAC foundation comment).
+    # --- Assign 'admin' user to /owner/platform-admin (PUT is idempotent) ---
     status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/groups/{level1_ids['platform-admin']}", token=tok)
     assert status == 204, f"platform-admin group assignment failed: {status}"
     print("✓ User assigned to '/owner/platform-admin' group")
@@ -429,12 +438,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-6
+  name: keycloak-setup-7
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "6"
+    run-id: "7"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400

@@ -613,8 +613,12 @@ spec:
         api_url: https://keycloak.homelab.data-harness.org/realms/homelab/protocol/openid-connect/userinfo
         client_id: grafana
         client_secret: "$__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
-        # Users in the Keycloak 'admin' group get Grafana Admin role; all others get Viewer.
-        role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || 'Viewer'"
+        # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): Keycloak's
+        # /owner/platform-admin -> Grafana Admin, /maintainer/app-operator ->
+        # Editor, everyone else (including /reader/viewer) -> Viewer. Replaces
+        # the old flat 'admin' group check now that the group is gone --
+        # see setup-job.yaml's migration comment.
+        role_attribute_path: "contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'app-operator') && 'Editor' || 'Viewer'"
         use_pkce: true
         auto_login: false
     image:

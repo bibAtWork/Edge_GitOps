@@ -92,10 +92,6 @@ data:
       ],
       "groups": [
         {
-          "name": "admin",
-          "path": "/admin"
-        },
-        {
           "name": "reader",
           "path": "/reader",
           "subGroups": [
