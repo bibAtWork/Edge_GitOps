@@ -179,13 +179,13 @@ spec:
             claimName: paperless-data
         - name: media
           persistentVolumeClaim:
-            claimName: paperless-media
+            claimName: paperless-media-swfs
         - name: export
           persistentVolumeClaim:
-            claimName: paperless-export
+            claimName: paperless-export-swfs
         - name: consume
           persistentVolumeClaim:
-            claimName: paperless-consume
+            claimName: paperless-consume-swfs
         - name: tmp
           emptyDir: {}
         - name: rbac-script
