@@ -34,17 +34,39 @@ spec:
       passwordKey: admin-password
     persistence:
       enabled: true
-      # Migrated from local-path to SeaweedFS CSI (2026-08-18). Uses
-      # existingClaim rather than storageClassName so the old local-path PVC
-      # ("grafana") stays intact as a rollback: revert these two lines and
-      # Grafana comes straight back on the previous volume.
+      # On local-path deliberately, after a failed move to SeaweedFS CSI on
+      # 2026-08-18. Read the root cause before re-attempting it, because the
+      # obvious reading of the symptom is wrong.
       #
-      # Data was copied with Grafana scaled to zero and verified by content --
-      # all 413 files, identical md5s, 288,441,416 bytes both sides. Note that
-      # `du -sb` comparison is useless across these two filesystems: FUSE
-      # reports directory sizes as 0 while xfs counts inode overhead, so
-      # identical data appears to "mismatch" on size alone.
-      existingClaim: grafana-swfs
+      # Symptom: Grafana served 500 on every request, with its SQLite store
+      # reporting `disk I/O error (3850)` on settings reads, alert-rule
+      # updates and dashboard cleanup. That looks exactly like "SQLite does
+      # not work on FUSE" -- and it was NOT that.
+      #
+      # Actual cause: the seaweedfs-csi-driver mount pod, which holds the FUSE
+      # daemon for every SeaweedFS PVC on the node, was OOMKilled (exit 137)
+      # because the chart ships no resource limits and the seaweedfs
+      # LimitRange defaults containers to 256Mi. When it died, every mount it
+      # served turned into "transport endpoint is not connected" and every
+      # consumer got EIO simultaneously. SQLite was merely the loudest
+      # reporter, not the victim of an incompatibility. Fixed at source in
+      # 01-seaweedfs/csi-driver-helmrelease.yaml (mountService.resources).
+      #
+      # Two things still argue for leaving database volumes here anyway:
+      # the CSI chart itself documents that its mount service "is not yet
+      # resilient to its own restarts", and an EIO mid-write costs a bulk
+      # media volume some downtime but can cost a database its integrity.
+      # Bulk volumes are the ones that benefit from SeaweedFS; grafana.db is
+      # ~290MB of state that a local disk serves better.
+      #
+      # Also note what made this expensive: switching to `existingClaim`
+      # removed the chart-templated PVC from the rendered manifest, so the
+      # Helm upgrade PRUNED the old `grafana` PVC, and local-path's Delete
+      # reclaim policy wiped the directory with it. `existingClaim` is NOT a
+      # rollback path -- the old volume is gone the moment Helm reconciles.
+      # The data survived only because it had already been copied out.
+      storageClassName: local-path
+      size: 5Gi
       labels:
         velero.io/backup: "true"
     plugins:
