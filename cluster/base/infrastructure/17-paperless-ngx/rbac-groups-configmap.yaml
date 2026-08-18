@@ -24,7 +24,7 @@ data:
     # every login, so granting Django-side group-editing permissions here
     # would just get silently overwritten -- there's nothing for a "Django
     # IAM" permission to durably do in this model.
-    from django.contrib.auth.models import Group, Permission
+    from django.contrib.auth.models import Group, Permission, User
 
     # Content models: what Paperless exists to manage day to day.
     CONTENT_MODELS = [
@@ -62,3 +62,32 @@ data:
     ensure_group("viewer", viewer_perms)
     ensure_group("app-operator", operator_perms)
     ensure_group("platform-admin", admin_perms)
+
+    # Django superuser status can't be granted via a Group (Django has no
+    # "this permission set implies is_superuser" concept) -- but ADR-002's
+    # Owner tier ("unrestricted... including IAM management") is what
+    # is_superuser actually models. Paperless's own document-ownership
+    # model (documents/permissions.py's PaperlessObjectPermissions /
+    # _permitted_document_ids) only grants access to documents a user owns
+    # or was explicitly shared, even with every model-level permission
+    # granted via a Group -- confirmed live: a platform-admin user with
+    # full documents.* permissions still couldn't see documents owned by
+    # a different account. Django's own ModelBackend.has_perm() bypasses
+    # ownership/object checks entirely for is_superuser, which is the only
+    # mechanism in this app that actually matches "Owner: unrestricted".
+    #
+    # Two-way sync (promotes AND demotes) except for the bootstrap local
+    # account (PAPERLESS_ADMIN_USER, "admin") which stays a superuser
+    # unconditionally -- the non-SSO break-glass identity, same role
+    # cert-based kubeconfig access plays for kubectl.
+    platform_admin_members = set(
+        Group.objects.get(name="platform-admin").user_set.values_list("username", flat=True),
+    )
+    for user in User.objects.exclude(username="admin"):
+        should_be_superuser = user.username in platform_admin_members
+        if user.is_superuser != should_be_superuser or user.is_staff != should_be_superuser:
+            user.is_superuser = should_be_superuser
+            user.is_staff = should_be_superuser
+            user.save()
+            action = "Promoted" if should_be_superuser else "Demoted"
+            print(f"✓ {action} '{user.username}' {'to' if should_be_superuser else 'from'} superuser (platform-admin sync)")
