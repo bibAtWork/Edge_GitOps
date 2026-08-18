@@ -261,6 +261,35 @@ data:
         "webOrigins": ["https://immich.homelab.data-harness.org"],
     }, IMMICH_CLIENT_SECRET)
 
+    # kubernetes: the last of ADR-002's four surfaces -- kubectl access via
+    # kube-apiserver's own OIDC support (cluster/overlays/1-node/
+    # talos-machineconfigs/controlplane.yaml), not an app behind the
+    # Gateway. Public + PKCE, matching Grafana's pattern above: a CLI tool
+    # can't hold a confidential-client secret securely, and there's no
+    # server-side callback to receive one at. Empty string, not a real
+    # secret -- Keycloak doesn't check it for a public client.
+    # Redirect URIs match kubelogin's (int128/kubelogin, the standard
+    # kubectl OIDC plugin) documented default local callback ports; widen
+    # this list if a different port/tool is actually used.
+    kubernetes_uuid = ensure_client({
+        "clientId": "kubernetes",
+        "enabled": True,
+        "name": "Kubernetes",
+        "protocol": "openid-connect",
+        "publicClient": True,
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "authorizationServicesEnabled": False,
+        "attributes": {"pkce.code.challenge.method": "S256"},
+        "redirectUris": [
+            "http://localhost:8000",
+            "http://localhost:8000/callback",
+            "http://localhost:18000",
+        ],
+    }, "")
+
     # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
     # Client scopes are realm-wide reusable objects. Keycloak rejects any
     # authorization request naming a scope that isn't defined at the realm
@@ -318,6 +347,13 @@ data:
     link_optional_scope(kubeopencode_uuid, groups_scope_id)
     link_optional_scope(zot_uuid, groups_scope_id)
     print("✓ 'groups' scope linked to grafana, paperless, hubble, kubeopencode, and zot clients")
+
+    # Default, not optional, for kubernetes specifically: RBAC depends on
+    # this claim being present, and a CLI OIDC plugin can't be relied on to
+    # always know to request an optional scope the way a purpose-built
+    # app's own OAuth config can.
+    link_default_scope(kubernetes_uuid, groups_scope_id)
+    print("✓ 'groups' scope linked to kubernetes client (default)")
 
     # immich_role: a plain user attribute, not derived from group
     # membership by Keycloak itself -- Immich's role model is binary
@@ -580,12 +616,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-12
+  name: keycloak-setup-13
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "12"
+    run-id: "13"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400

@@ -1,0 +1,69 @@
+# ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): the last of the
+# four surfaces the ADR named needed real RBAC -- kubectl access to the API
+# server, tracked as a known gap in docs/backlog.md ("Kubernetes-native
+# RBAC has no identity layer") until now. Maps the three Keycloak groups
+# straight onto Kubernetes' own built-in ClusterRoles rather than
+# hand-rolling equivalents:
+#
+#   /owner/platform-admin   -> cluster-admin  (unrestricted, incl. RBAC itself)
+#   /maintainer/app-operator -> edit          (CRUD on workloads; excludes
+#                                               Role/RoleBinding/ClusterRole/
+#                                               ClusterRoleBinding by design --
+#                                               confirmed live via `kubectl get
+#                                               clusterrole edit -o yaml`, no
+#                                               rbac.authorization.k8s.io rules
+#                                               present, which is exactly
+#                                               ADR-002's "Maintainer excludes
+#                                               IAM" requirement, satisfied by
+#                                               a Kubernetes builtin with zero
+#                                               custom ClusterRole needed)
+#   /reader/viewer          -> view           (read-only)
+#
+# Group names carry the oidc: prefix from --oidc-groups-prefix
+# (talos-machineconfigs/controlplane.yaml) -- required by upstream Kubernetes
+# guidance to keep OIDC-sourced identities from colliding with any other
+# auth mechanism's names, so the raw Keycloak claim value ("platform-admin")
+# is never what RBAC actually sees.
+#
+# Cert-based admin kubeconfig access is completely unaffected by any of this
+# -- OIDC is an additional authenticator, not a replacement, and remains the
+# break-glass path regardless of whether these bindings or the API server
+# flags are ever exercised.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oidc-platform-admin-cluster-admin
+subjects:
+  - kind: Group
+    name: "oidc:platform-admin"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oidc-app-operator-edit
+subjects:
+  - kind: Group
+    name: "oidc:app-operator"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: edit
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oidc-viewer-view
+subjects:
+  - kind: Group
+    name: "oidc:viewer"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
