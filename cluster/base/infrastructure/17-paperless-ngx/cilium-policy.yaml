@@ -23,8 +23,8 @@ spec:
         - {}
 ---
 # Allow Paperless-ngx to reach Keycloak directly (internal service DNS) for
-# OIDC discovery/token/userinfo. See the matching rule in
-# 26-keycloak/cilium-policy.yaml for why this bypasses the gateway.
+# OIDC discovery. See the matching rule in 26-keycloak/cilium-policy.yaml
+# for why this bypasses the gateway.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -42,4 +42,38 @@ spec:
       toPorts:
         - ports:
             - port: "8080"
+              protocol: TCP
+---
+# ADR-002: fetching the discovery document over internal DNS (rule above)
+# is not the whole picture -- Keycloak's KC_HOSTNAME is a public https://
+# URL, so the token_endpoint the discovery document itself returns is
+# always the public hostname (confirmed live: allauth's OAuth2 client
+# posts directly to that URL from the document, not the internal address
+# used to fetch it). django-allauth's server-side token exchange therefore
+# dials the Gateway VIP like a browser would -- same
+# cilium/cilium#47617 gotcha this rollout already hit and fixed for zot
+# and immich (10-network-policies/allow-zot-egress.yaml,
+# 16-immich/cilium-policy.yaml): Cilium evaluates in-cluster-pod-to-VIP
+# traffic against the VIP's real resolved backend (the
+# envoy-gateway-system pod on container port 10443, per ADR-001), not the
+# VIP address, so this targets the pod directly. Root cause of "Connection
+# to keycloak.homelab.data-harness.org timed out" during the SSO callback,
+# confirmed via live paperless.auth logs.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-paperless-keycloak-gateway-egress
+  namespace: paperless
+spec:
+  endpointSelector:
+    matchLabels:
+      app: paperless-ngx
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "10443"
               protocol: TCP
