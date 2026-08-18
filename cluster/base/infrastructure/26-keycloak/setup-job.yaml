@@ -375,6 +375,23 @@ data:
     assert status == 204, f"platform-admin group assignment failed: {status}"
     print("✓ User assigned to '/owner/platform-admin' group")
 
+    # --- Known real users, assigned directly (not bootstrap identities like
+    # 'admin' above) -- auto-signup SSO users referenced by username, added
+    # here rather than left as a one-off manual change so the assignment
+    # survives a realm rebuild. No-op if the user hasn't signed in yet. ---
+    KNOWN_USER_GROUPS = {
+        "andreas": "platform-admin",
+    }
+    for username, group_name in KNOWN_USER_GROUPS.items():
+        status, matches = api("GET", f"/admin/realms/{REALM}/users?username={username}&exact=true", token=tok)
+        if not matches:
+            print(f"✓ '{username}' hasn't signed in yet -- skipping group assignment")
+            continue
+        target_id = matches[0]["id"]
+        status, _ = api("PUT", f"/admin/realms/{REALM}/users/{target_id}/groups/{level1_ids[group_name]}", token=tok)
+        assert status == 204, f"Failed to assign '{username}' to '{group_name}': {status}"
+        print(f"✓ User '{username}' assigned to '{group_name}' group")
+
     # --- Create permanent master-realm admin with the same identity (idempotent) ---
     status, existing_master = api("GET", f"/admin/realms/master/users?username={ADMIN_USER_EMAIL}&exact=true", token=tok)
     if not existing_master:
@@ -438,12 +455,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-7
+  name: keycloak-setup-8
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "7"
+    run-id: "8"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
