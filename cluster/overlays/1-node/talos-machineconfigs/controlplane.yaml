@@ -1,4 +1,22 @@
-# Apply with: talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
+# FIRST BOOT ONLY: talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
+#
+# ⚠️ DO NOT run apply-config against an already-running node to make a change.
+# This file is a TEMPLATE, not the live config: encryptionConfig below still
+# carries the literal REPLACE_WITH_ETCD_ENCRYPTION_KEY placeholder, which
+# bootstrap/scripts/apply-config.py substitutes at provisioning time. Applying
+# it wholesale to a live node would push that placeholder over the real etcd
+# encryption key. (An earlier revision of this repo -- PR #197's own
+# description -- told you to do exactly that; it was wrong.)
+#
+# To change a running node, patch only the delta instead, which leaves every
+# other field untouched and needs no reboot:
+#   talosctl patch machineconfig --patch @some-patch.yaml --dry-run   # inspect
+#   talosctl patch machineconfig --patch @some-patch.yaml             # apply
+#
+# Applied to the live node this way and verified (2026-08-18):
+#   - cluster.apiServer.extraArgs (OIDC, below) -- confirmed live on the
+#     running kube-apiserver via its --oidc-* flags
+#   - the UserVolumeConfig document at the end of this file
 ---
 machine:
   type: controlplane
@@ -60,13 +78,9 @@ cluster:
     # for exactly that reason -- "platform-admin" alone is not what
     # Kubernetes RBAC actually sees.
     #
-    # This file's own top-of-file comment ("talosctl apply-config
-    # --insecure") is leftover first-bootstrap guidance, not applicable
-    # to updating an already-running node -- apply with a real
-    # talosconfig instead: talosctl apply-config --nodes <node-ip>
-    # --file controlplane.yaml. Applying this specific change was not
-    # possible in the environment this was authored in (no talosconfig
-    # available there); it needs to be applied by whoever holds it.
+    # Applied live 2026-08-18 via `talosctl patch machineconfig` (NOT
+    # apply-config -- see the placeholder warning at the top of this file)
+    # and confirmed on the running kube-apiserver's --oidc-* flags.
     extraArgs:
       oidc-issuer-url: https://keycloak.homelab.data-harness.org/realms/homelab
       oidc-client-id: kubernetes
@@ -197,3 +211,32 @@ cluster:
                         --set=cgroup.hostRoot=/sys/fs/cgroup
                       kubectl delete clusterrolebinding cilium-install --ignore-not-found
                       kubectl delete serviceaccount cilium-install -n kube-system --ignore-not-found
+---
+# Dedicated NVMe for SeaweedFS, per Sidero's Talos+SeaweedFS guidance.
+#
+# The node has two disks and only one was in use: sda (500GB SATA SSD) holds
+# EFI/META/STATE/EPHEMERAL and therefore the OS, etcd, container images, and
+# every local-path PVC -- while nvme0n1 (512GB NVMe, faster) sat completely
+# unpartitioned and idle. Confirmed empty before provisioning: no partition
+# table, no filesystem signature, no label.
+#
+# Giving SeaweedFS its own disk takes cluster storage off the same spindle as
+# the OS and etcd, so SeaweedFS load or a runaway volume can no longer create
+# disk pressure on the control plane -- the shared-failure-domain risk called
+# out in the 2026-08-18 cluster audit.
+#
+# The selector can only ever match the NVMe: sda is transport "sata" and is
+# additionally excluded by !system_disk. Note Sidero's warning that a selector
+# matching no disk fails SILENTLY -- verify with `talosctl get volumestatus`
+# (expect u-seaweedfs phase=ready) rather than assuming success.
+#
+# Mounts at /var/mnt/seaweedfs. Verified live: /dev/nvme0n1p1, xfs, ready.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: seaweedfs
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 100GiB
+  maxSize: 480GiB
+  grow: false
