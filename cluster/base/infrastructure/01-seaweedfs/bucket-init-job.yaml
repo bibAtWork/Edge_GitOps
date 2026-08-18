@@ -64,7 +64,7 @@ spec:
               # rather than a prefix inside velero-backups on purpose: Velero rejects any
               # top-level directory in its own bucket that it does not own, and marks the
               # BackupStorageLocation Unavailable, which blocks all backups to it.
-              for bucket in etcd-backups velero-backups zot-registry filer-metadata pvs; do
+              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups pvs; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else

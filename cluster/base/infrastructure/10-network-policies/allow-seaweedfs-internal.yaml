@@ -38,6 +38,25 @@ spec:
         - matchLabels:
             app.kubernetes.io/name: zot
             io.kubernetes.pod.namespace: zot
+        # Database backup CronJobs. Each dumps its own database and uploads the
+        # artifact to the db-backups bucket; they need nothing from SeaweedFS
+        # beyond S3 on 8333. Added 2026-08-18 alongside the jobs themselves --
+        # without an entry here the upload hangs and the job eventually fails,
+        # since the drop is on SeaweedFS's ingress side, not the caller's
+        # egress (confirmed via hubble: "policy-verdict:none INGRESS DENIED").
+        #
+        # Selected by an explicit app.kubernetes.io/name label set on each
+        # CronJob's pod template: Job pods otherwise only carry job-name and
+        # controller-uid, which change every run and cannot be matched here.
+        - matchLabels:
+            app.kubernetes.io/name: immich-postgres-backup
+            io.kubernetes.pod.namespace: immich
+        - matchLabels:
+            app.kubernetes.io/name: keycloak-postgres-backup
+            io.kubernetes.pod.namespace: keycloak
+        - matchLabels:
+            app.kubernetes.io/name: paperless-sqlite-backup
+            io.kubernetes.pod.namespace: paperless
       toPorts:
         - ports:
             - port: "8333"
