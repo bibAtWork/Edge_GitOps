@@ -43,6 +43,18 @@ spec:
     # each), set as a steady-state floor rather than the peak — a request is a
     # reservation, not a cap. Limits are deliberately generous: the point is QoS
     # class and eviction ordering, not capping a component that has never OOMed.
+    # All hostPathPrefix values point at /var/mnt/seaweedfs -- the dedicated
+    # 512GB NVMe provisioned via UserVolumeConfig in
+    # cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml, NOT the
+    # system disk. Before this, SeaweedFS shared sda with the OS, etcd,
+    # container images and every local-path PVC, so storage load and control
+    # plane stability were the same failure domain (2026-08-18 audit).
+    #
+    # Data was migrated with SeaweedFS scaled to zero for a consistent copy,
+    # and verified byte-for-byte per directory (2,990,094,543 bytes total)
+    # before the switch. The old copy under /var/lib/seaweedfs is intentionally
+    # left in place as a rollback path -- revert these six values to
+    # /var/lib/seaweedfs/... and it comes straight back.
     master:
       enabled: true
       resources:
@@ -53,10 +65,10 @@ spec:
           memory: 512Mi
       data:
         type: hostPath
-        hostPathPrefix: /var/lib/seaweedfs/master
+        hostPathPrefix: /var/mnt/seaweedfs/master
       logs:
         type: hostPath
-        hostPathPrefix: /var/lib/seaweedfs/master-logs
+        hostPathPrefix: /var/mnt/seaweedfs/master-logs
 
     volume:
       enabled: true
@@ -71,11 +83,11 @@ spec:
       dataDirs:
         - name: data1
           type: hostPath
-          hostPathPrefix: /var/lib/seaweedfs/volume
+          hostPathPrefix: /var/mnt/seaweedfs/volume
           maxVolumes: 0
       logs:
         type: hostPath
-        hostPathPrefix: /var/lib/seaweedfs/volume-logs
+        hostPathPrefix: /var/mnt/seaweedfs/volume-logs
 
     filer:
       enabled: true
@@ -87,10 +99,10 @@ spec:
           memory: 1536Mi
       data:
         type: hostPath
-        hostPathPrefix: /var/lib/seaweedfs/filer
+        hostPathPrefix: /var/mnt/seaweedfs/filer
       logs:
         type: hostPath
-        hostPathPrefix: /var/lib/seaweedfs/filer-logs
+        hostPathPrefix: /var/mnt/seaweedfs/filer-logs
       # Metadata store: PostgreSQL, not the chart default leveldb2.
       #
       # SeaweedFS classifies leveldb/leveldb2/leveldb3 as "Local" stores --
