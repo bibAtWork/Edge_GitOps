@@ -59,7 +59,7 @@ spec:
               drop: [ALL]
       containers:
         - name: configure-collections
-          image: chrislusf/seaweedfs:4.41
+          image: chrislusf/seaweedfs:4.42
           command:
             - /bin/sh
             - -c
