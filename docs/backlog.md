@@ -146,3 +146,37 @@ re-enabling is a one-line change.
 3. Remove kubeopencode entirely — also drops the server ClusterRole's `pods/exec` surface.
 4. Upstream: request a namespace-scoped cache/`--namespace` option, which would resolve it
    without either tradeoff.
+
+---
+
+## Backup restore drill has never been performed
+
+**Status (2026-08-19): open. The "0" of 3-2-1-1-0.**
+
+Backups now exist and their artifacts are checked -- the database dump jobs refuse to upload
+an implausibly small file, both PostgreSQL dumps were confirmed to carry valid dump headers,
+and the Paperless SQLite snapshot passes `PRAGMA integrity_check`. That is stronger evidence
+than most setups have, and it is still not a restore.
+
+Nothing in this cluster has ever been restored from a backup. Until that happens the backups
+are believed-good rather than known-good, and the failure modes that only appear at restore
+time -- a dump that replays with errors, a missing role or extension, an artifact that
+decompresses but is logically incomplete -- remain undetected.
+
+This is deliberately called out alongside [ADR-003](adr/0003-backup-immutability-versioning-only.md),
+which declines Object Lock. Both are 3-2-1-1-0 gaps, but they are not equivalent: immutability
+was declined as disproportionate for a homelab, whereas a restore drill is cheap and is the
+more valuable of the two.
+
+**Suggested drill**, roughly 15 minutes and non-disruptive:
+
+1. Pull the newest Keycloak dump from `s3://db-backups/keycloak/`.
+2. Start a throwaway `postgres:16-alpine` pod with an empty database.
+3. `gunzip | psql` the dump into it and watch for errors rather than just exit status.
+4. Query for a known realm and a known user to prove the data is really there.
+5. Delete the pod.
+
+Repeat for Paperless (open the SQLite snapshot, count documents) and Immich (17MB dump,
+so allow more time). Worth doing after any PostgreSQL major-version change, since that is
+exactly what silently broke the Immich dump once already -- pg_dump 16 against a 17.6 server
+produced a 20-byte file that only the size guard caught.
