@@ -59,7 +59,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: otel-agent
-          image: otel/opentelemetry-collector-contrib:0.158.0
+          image: otel/opentelemetry-collector-contrib:0.159.0
           args: ["--config=/conf/config.yaml"]
           resources:
             requests:
