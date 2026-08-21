@@ -11,7 +11,7 @@ sops_version:      "3.13.3"
 # renovate: datasource=github-releases depName=FiloSottile/age
 age_version:       "1.3.1"
 # renovate: datasource=github-releases depName=hashicorp/terraform
-terraform_version: "1.15.8"
+terraform_version: "1.15.9"
 # renovate: datasource=github-releases depName=helm/helm
 helm_version:      "4.2.4"
 
