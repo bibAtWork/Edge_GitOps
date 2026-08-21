@@ -95,7 +95,7 @@ spec:
                     - ALL
           containers:
             - name: upload
-              image: docker.io/amazon/aws-cli:2.36.26
+              image: docker.io/amazon/aws-cli:2.36.27
               command:
                 - /bin/sh
                 - -c
