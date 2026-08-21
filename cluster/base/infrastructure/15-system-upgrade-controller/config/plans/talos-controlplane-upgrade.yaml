@@ -8,7 +8,7 @@ metadata:
   name: talos-controlplane
   namespace: system-upgrade
 spec:
-  version: v1.13.8
+  version: v1.13.9
   exclusive: true
   nodeSelector:
     matchLabels:
