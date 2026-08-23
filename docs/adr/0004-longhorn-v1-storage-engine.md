@@ -67,10 +67,20 @@ way: `talosctl upgrade` cordons and drains by default, and on a single node ther
 is nowhere to drain to. Every eviction times out against the client rate limiter,
 the drain error aborts the upgrade before the new image is written — and the
 command still **exits 0** with the node returning `Ready`. `--force` does not skip
-the drain either. The only signal that the upgrade did not happen was
-`/proc/modules` containing no `iscsi` entries. `--stage` writes the upgrade to
-META and applies it at boot before Kubernetes starts, so no drain occurs. Never
-trust the exit code here; verify the modules.
+the drain either; it was tried and produced the identical failure.
+
+`--stage` is the mechanism that works: it writes the upgrade to META and applies
+it at boot, before Kubernetes starts, so no drain occurs. Staging alone applies
+nothing — the node must then be rebooted.
+
+**Verify with `talosctl services`, looking for `ext-` entries.** Do not trust the
+exit code, and do not verify by reading `/proc/modules` from Git Bash on Windows:
+MSYS rewrites POSIX-looking arguments into Windows paths, so `talosctl read
+/proc/modules` silently reads the wrong path and returns nothing — indistinguishable
+from a genuine absence of modules. Set `MSYS_NO_PATHCONV=1` and pass `TALOSCONFIG`
+as a Windows path, or the tooling misleads in both directions. iSCSI modules also
+load on demand, so their absence is weak evidence even when read correctly; an
+`ext-iscsid` service is not.
 
 **`longhorn-system` runs with `enforce: privileged`.** Inherent to any CSI driver
 managing host block devices. Mitigated, not eliminated, by a network policy and by
