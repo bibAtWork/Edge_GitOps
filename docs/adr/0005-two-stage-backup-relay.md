@@ -193,21 +193,42 @@ Backup jobs now verify the gzip stream before upload and **read the object back 
 | 2 — Retention ConfigMap | Done, via Kustomize replacements |
 | 3 — Longhorn RecurringJobs | Done (snapshot / weekly / monthly, `default` group) |
 | 4 — SeaweedFS staging | Done, hardlinked daily snapshots |
-| 5–8 — AWS vault, Lifecycle, IAM, bucket policy | Written as Terraform, validated, **not applied** |
-| 9 — Relay | Done, ships **suspended** until the vault exists |
-| 10 — Local restore-test | Not implemented |
-| 11 — Reconciler and prune tagging | Not implemented |
-| 12 — Monthly remote probe | Not implemented |
-| 13 — Quarterly drill | Runbook written; never executed |
+| 5–8 — AWS vault, Lifecycle, IAM, bucket policy | **Applied.** `homelab-backup-vault`, Object Lock Governance 21d, SSE-S3 |
+| 9 — Relay | **Live.** 542 objects / 123 MB relayed; runs nightly at 05:00 |
+| 10 — Local restore-test | Done. Restores every Longhorn volume, samples 460 SeaweedFS objects |
+| 11 — Reconciler and prune tagging | Done. Gate verified closed against a failing restore-test |
+| 12 — Monthly remote probe | Done. Bounded read-back against the local copy |
+| 13 — Quarterly drill | Runbook written; **never executed** |
 | 14 — Off-site escrow | Runbook written; **not assembled** |
-| 15 — Monitoring | Partial — chain alerts done; Longhorn RecurringJob alerts pending real series |
+| 15 — Monitoring | Done. 11 alerts across coverage, verification and the prune path |
 
-Tasks 5–8 are unapplied because Terraform needs AWS admin credentials that the automation
-environment does not hold, and creating an Object Lock bucket is a commitment worth making
-deliberately. Tasks 11 and 12 depend on the vault and Inventory existing.
+The off-site copy is live and immutable. Two things it still depends on are not:
 
-**Until Tasks 5–9 are live, there is no off-site copy of anything.** Everything implemented so
-far is local, and a total loss of this node loses all of it.
+**Task 14 is the significant gap.** Without the SOPS private key, Terraform state
+and bucket coordinates stored outside AWS and outside the cluster, the vault is
+unreadable after a total loss. Nothing else in this design addresses that, and it
+requires no credentials — only somewhere physical to put them.
+
+**Task 13 has never been run.** Every automated check verifies a component. Only
+the drill verifies that a human can actually perform a recovery with what exists.
+
+### Known state as of 2026-08-24
+
+Five objects in SeaweedFS are unreadable — three Immich dumps, one Keycloak dump,
+and `zot-registry/_restore_complete` — survivors of a restore whose verification
+compared listings rather than bytes. They are unrecoverable and deliberately left
+in place so the loss stays visible.
+
+They have a consequence worth understanding: the restore-test correctly fails
+while they exist, and a failing restore-test freezes remote pruning by design. The
+vault will grow until either the objects are removed or the gate is otherwise
+satisfied. That is the system behaving as intended, not a defect, but it is a
+decision waiting on an operator.
+
+Sixteen of nineteen Longhorn volumes had no backup at the time of writing. The
+RecurringJobs were created the same day and the weekly tier first fires on the
+following Sunday, so this is expected — `LonghornVolumeNeverBackedUp` exists to
+notice if it is still true a week later.
 
 ## References
 
