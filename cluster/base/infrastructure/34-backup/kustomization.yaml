@@ -16,6 +16,7 @@ resources:
   - reconciler-cronjob.yaml
   - remote-probe-script.yaml
   - remote-probe-cronjob.yaml
+  - volume-backup-policy.yaml
   - backup-auditor-credential.yaml
 
 # Schedules and retain counts are injected from backup-retention-config so the
