@@ -30,8 +30,13 @@ echo "target image: ${IMAGE}"
 # Health gates
 # ---------------------------------------------------------------------------
 
-# Loop WHILE any volume reports a robustness other than "healthy". An empty
-# string means detached/not yet reporting, which is also acceptable.
+# Loop WHILE any ATTACHED volume reports a robustness other than "healthy".
+#
+# The attached filter is load-bearing. Longhorn reports robustness=unknown
+# for DETACHED volumes, not an empty string, so a gate accepting only
+# "healthy" or "" blocks forever the moment any volume is detached -- which
+# is normal for an unbound PVC or a scaled-down workload. Caught by running
+# this gate against the live cluster, which had two detached volumes.
 #
 # Do not "simplify" this to `until ... | grep -qv healthy`. `until` exits when
 # its command SUCCEEDS, and `grep -v` succeeds the moment it finds one
