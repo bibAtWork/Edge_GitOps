@@ -54,6 +54,13 @@ spec:
                   value: "20"
                 - name: PROBE_SAMPLE_SIZE
                   value: "50"
+                # 32MiB. The real bound on this job, because object count is not
+                # one: the sampled population mixes 400-byte metadata with 16MB
+                # database dumps, so the same fifty objects cost 1.1MB or 17MB
+                # depending on the draw. Objects skipped for budget are counted
+                # and reported rather than dropped quietly.
+                - name: PROBE_EGRESS_BUDGET_BYTES
+                  value: "33554432"
                 # The relay identity: it holds GetObject on the whole bucket,
                 # which is all a read-back needs. The auditor cannot be used --
                 # its GetObject is scoped to inventory/ only.
