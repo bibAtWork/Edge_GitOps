@@ -7,6 +7,7 @@ resources:
   - filer-postgres-secret.yaml
   - filer-postgres-schema.yaml
   - filer-postgres.yaml
+  - filer-postgres-cluster.yaml
   - filer-postgres-netpol.yaml
   - filer-postgres-backup-cronjob.yaml
   - csi-driver-helmrelease.yaml
