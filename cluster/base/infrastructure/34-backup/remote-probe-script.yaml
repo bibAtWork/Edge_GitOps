@@ -55,7 +55,13 @@ data:
     # breaks, egress jumps, which is why the byte count is a metric rather than
     # just a log line.
     # ------------------------------------------------------------------
-    SMALLEST="$(aws s3 ls "s3://$AWS_BUCKET/longhorn/" --recursive 2>/dev/null \
+    # Scoped to longhorn/backupstore/ rather than all of longhorn/. The vault
+    # accumulates objects that are not backup data -- probe files from
+    # permission testing, anything written by hand -- and nothing in the cluster
+    # can delete them, by design. The first live run selected a 5-byte probe
+    # object as "smallest", found no local counterpart, and verified nothing at
+    # all while still consuming the run.
+    SMALLEST="$(aws s3 ls "s3://$AWS_BUCKET/longhorn/backupstore/" --recursive 2>/dev/null \
       | awk '$3 > 0 {print $3, $4}' | sort -n | head -1)"
 
     if [ -z "$SMALLEST" ]; then
@@ -94,6 +100,7 @@ data:
         fi
         rm -f /tmp/remote.bin /tmp/local.bin
       done < /tmp/lhkeys
+      log "longhorn candidates: $(wc -l < /tmp/lhkeys)"
       log "longhorn: $LH_OK matched, $LH_BAD failed"
     fi
 
