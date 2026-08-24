@@ -28,6 +28,7 @@ data:
     LH_SKIPPED=0
     SW_TESTED=0
     SW_FAILED=0
+    SW_CHANGED=0
     FAILURES=""
 
     log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
@@ -267,6 +268,22 @@ data:
         STAGED_MD5="$(md5sum < "$STAGED" | cut -d' ' -f1)"
 
         if [ "$LIVE_MD5" != "$STAGED_MD5" ]; then
+          # A mismatch is only corruption if the object has not changed since the
+          # snapshot was taken. Some objects are mutable: Kopia rewrites its
+          # bookkeeping files (kopia.maintenance, indexes) in place, so a
+          # point-in-time staged copy legitimately differs from live and would
+          # fail this check forever.
+          #
+          # Re-read LastModified now rather than trusting the listing. The listing
+          # is taken once at the start of a run that takes half an hour, so an
+          # object modified during the run passes the cutoff filter and then fails
+          # the hash. A fresh HEAD at comparison time is the authoritative answer.
+          MOD_NOW="$(aws --endpoint-url "$S3_ENDPOINT" s3api head-object --bucket "$BUCKET" --key "$OBJ" --query LastModified --output text 2>/dev/null | cut -c1-19)"
+          if [ -n "$MOD_NOW" ] && [ "$MOD_NOW" ">" "$CUTOFF" ]; then
+            log "changed since snapshot, not corruption: $KEY"
+            SW_CHANGED=$(( SW_CHANGED + 1 ))
+            continue
+          fi
           fail "$KEY: staged copy differs from live"
           SW_FAILED=$(( SW_FAILED + 1 ))
           continue
@@ -313,7 +330,7 @@ data:
     # readable by another job.
     # ------------------------------------------------------------------
     if [ -n "$FAILURES" ]; then RESULT=fail; else RESULT=pass; fi
-    log "result=$RESULT longhorn_tested=$LH_TESTED longhorn_skipped=$LH_SKIPPED seaweedfs_tested=$SW_TESTED seaweedfs_failed=$SW_FAILED"
+    log "result=$RESULT longhorn_tested=$LH_TESTED longhorn_skipped=$LH_SKIPPED seaweedfs_tested=$SW_TESTED seaweedfs_failed=$SW_FAILED seaweedfs_changed=$SW_CHANGED"
 
     kubectl create configmap backup-restore-test-result -n longhorn-system \
       --from-literal=result="$RESULT" \
@@ -332,6 +349,7 @@ data:
       echo "backup_restore_test_longhorn_volumes_skipped $LH_SKIPPED"
       echo "backup_restore_test_seaweedfs_objects_tested $SW_TESTED"
       echo "backup_restore_test_seaweedfs_objects_failed $SW_FAILED"
+      echo "backup_restore_test_seaweedfs_objects_changed $SW_CHANGED"
     } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
 
     [ "$RESULT" = pass ] || exit 1
