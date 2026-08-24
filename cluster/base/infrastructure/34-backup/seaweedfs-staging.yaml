@@ -97,10 +97,25 @@ spec:
                   # deleted upstream must be absent here too. This is not the
                   # relay -- ADR-002 forbids delete against AWS, while local
                   # staging may prune freely.
+                  # Individual objects can be unreadable while their metadata is intact:
+                  # a chunk loss leaves a correct listing, a correct size, and a GET that
+                  # fails. Four dumps were in that state on 2026-08-24, survivors of an
+                  # incomplete restore whose verification compared listings rather than
+                  # bytes. So this loop must not abort on the first such object -- staging
+                  # everything readable and reporting the rest protects more than refusing
+                  # to run at all.
+                  UNREADABLE=0
                   for b in velero-backups db-backups filer-metadata zot-registry etcd-backups pvs; do
                     echo "--- $b"
-                    rclone sync "s3:$b" "$DEST/$b" --transfers 4 --checkers 8 --stats-one-line
+                    OUT="$(rclone sync "s3:$b" "$DEST/$b" --transfers 4 --checkers 8 --stats-one-line --retries 2 2>&1)" || true
+                    echo "$OUT"
+                    N="$(printf %s "$OUT" | grep -c "ERROR :" || true)"
+                    if [ "$N" -gt 0 ]; then
+                      UNREADABLE=$((UNREADABLE + N))
+                      echo "WARN: $b had $N unreadable object(s); staged the remainder"
+                    fi
                   done
+                  echo "unreadable source objects: $UNREADABLE"
 
                   # Fail loudly on an empty stage rather than reporting success
                   # and letting the relay mirror nothing. An empty staging tree
@@ -126,9 +141,14 @@ spec:
                     echo "seaweedfs_staging_last_success_timestamp $(date -u +%s)"
                     echo "seaweedfs_staging_bytes $BYTES"
                     echo "seaweedfs_staging_snapshots $SNAPS"
+                    echo "seaweedfs_staging_unreadable_objects $UNREADABLE"
                   } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || echo "WARN: metric push failed"
 
-                  echo "STAGING_OK $TODAY"
+                  # Exits 0 even with unreadable sources. The job did stage everything
+                  # that could be staged, and failing here would leave the CronJob
+                  # permanently red, hiding a genuine staging failure behind a known
+                  # one. The unreadable count is alerted on instead.
+                  echo "STAGING_OK $TODAY unreadable=$UNREADABLE"
               env:
                 - name: VM_IMPORT_URL
                   value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
