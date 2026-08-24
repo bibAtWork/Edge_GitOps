@@ -1284,7 +1284,7 @@ spec:
                       refId: B
                       conditions:
                         - evaluator:
-                            params: [52428800]
+                            params: [67108864]
                             type: gt
                           operator:
                             type: and
@@ -1305,7 +1305,7 @@ spec:
                   summary: >-
                     The remote probe transferred far more data than expected
                   description: >-
-                    The probe is deliberately bounded -- twenty backupstore objects and fifty sampled files, about 1.1MB in practice. A large jump almost always means the smallest-object selection logic broke and it is now pulling real volume data, which costs egress every month for no additional assurance. The threshold is set well above the observed envelope so ordinary growth does not trip it.
+                    The probe is bounded by a 32MiB egress budget, not by object count -- the sampled population mixes small metadata with 16MB database dumps, so a fixed count costs anywhere between 1MB and hundreds. A large jump almost always means the smallest-object selection logic broke and it is now pulling real volume data, which costs egress every month for no additional assurance. The threshold is set well above the observed envelope so ordinary growth does not trip it.
                 labels:
                   severity: warning
                 isPaused: false
