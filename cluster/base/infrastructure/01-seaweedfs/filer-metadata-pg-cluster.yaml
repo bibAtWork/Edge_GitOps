@@ -1,0 +1,81 @@
+# SeaweedFS filer metadata, run by CloudNativePG on node-local storage.
+#
+# Supersedes the filer-pg cluster in filer-postgres-cluster.yaml, which remains
+# deployed as rollback until this one has proven itself. Cutover is the filer's
+# WEED_POSTGRES_HOSTNAME in helmrelease.yaml.
+#
+# This database IS the SeaweedFS namespace: volume servers hold anonymous chunks,
+# and only this metadata maps them back to real files. Losing it renders every
+# byte on every volume server unrecoverable, which makes it the highest-value and
+# smallest-volume database in the cluster.
+#
+# Storage placement is load-bearing, and the rule is stricter than it first looks:
+# this database may live on neither SeaweedFS nor Longhorn.
+#
+# SeaweedFS is obvious -- recovering SeaweedFS would require SeaweedFS. Longhorn
+# was the original answer here (#254) and was correct for the architecture that
+# existed then, because Longhorn came up without the filer. ADR-002 closes the
+# loop from the other direction: Longhorn's backup target becomes the local
+# SeaweedFS S3 endpoint, so a filer on Longhorn means
+#
+#   Longhorn -> SeaweedFS S3 -> filer -> Postgres -> Longhorn
+#
+# and a Longhorn failure would make the very backupstore meant to repair it
+# unreadable. ADR-002 constraint 3 forbids exactly this; it names the volume
+# servers (already on a dedicated hostPath disk, and compliant), but the filer's
+# metadata store sits on the same critical path and inherits the rule.
+#
+# local-path is /var/lib/local-path-provisioner on the system disk -- a third
+# failure domain. It gives up expansion and snapshots for nothing measurable
+# here: with a single node this ran one Longhorn replica with strict-local data
+# locality, so no redundancy is lost. Durability for this database has always
+# come from the hourly logical dumps, never from the storage layer.
+#
+# Those dumps land in a SeaweedFS bucket, and an empty filer cannot list the
+# bucket holding its own backup. The relay to AWS (ADR-002 Task 9) is therefore
+# part of this database's recovery path, not a nice-to-have.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: filer-meta-pg
+  namespace: seaweedfs
+spec:
+  # Matches the StatefulSet being migrated from (postgres:16-alpine). A restore
+  # into an older major fails outright, and pg_dump refuses to read a newer
+  # server than itself.
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.10
+
+  # Single instance: one node, so a second replica has nowhere to run and CNPG
+  # would leave it permanently pending. Durability comes from the hourly logical
+  # dumps to the filer-metadata bucket, not from replication.
+  instances: 1
+
+  bootstrap:
+    initdb:
+      # Names carried over from the existing deployment so the filer's
+      # WEED_POSTGRES_* configuration changes only its hostname.
+      database: seaweedfs_filer
+      owner: seaweedfs
+
+  storage:
+    size: 5Gi
+    storageClass: local-path
+
+  walStorage:
+    size: 2Gi
+    storageClass: local-path
+
+  # Every file operation in the cluster becomes a query here once CSI volumes are
+  # served from SeaweedFS, so the connection ceiling matters more than raw size.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "128MB"
+      effective_cache_size: "512MB"
