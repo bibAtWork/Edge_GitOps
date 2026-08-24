@@ -1,0 +1,202 @@
+# ADR-002 Task 9: one-way relay to the AWS vault.
+#
+# SHIPS SUSPENDED. The vault and its credentials are created by
+# bootstrap/terraform (Tasks 5-8), which has not been applied. Enabling this
+# before the secret exists would produce a failing job every night, and a backup
+# alert that is always red is worse than no alert -- it trains the operator to
+# ignore the one that matters. To enable:
+#
+#   1. cd bootstrap/terraform && terraform apply
+#   2. create the credential secret from the Terraform outputs, then re-create it
+#      as a SOPS-encrypted manifest here so Flux owns it:
+#        kubectl create secret generic backup-relay-aws-credential \
+#          -n longhorn-system \
+#          --from-literal=AWS_ACCESS_KEY_ID="$(terraform output -raw backup_relay_access_key_id)" \
+#          --from-literal=AWS_SECRET_ACCESS_KEY="$(terraform output -raw backup_relay_secret_access_key)" \
+#          --from-literal=AWS_BUCKET="$(terraform output -raw backup_vault_bucket)"
+#   3. flip suspend to false in this file.
+#
+# COPY, NEVER SYNC. rclone sync issues deletes. The relay credential holds no
+# delete permission at all, so a sync would fail loudly rather than destroy
+# anything -- but the point is that the command must never be written here.
+# Remote pruning is the reconciler's job (Task 11): it tags objects and an S3
+# Lifecycle rule expires them, so AWS performs the deletion and no cluster
+# credential ever needs the permission.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-relay
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config by kustomization.yaml. Runs at 05:00,
+  # after staging (01:00) and all Longhorn backup tiers (02:00-04:00).
+  schedule: "PLACEHOLDER"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Selected by backup-jobs-egress in networkpolicy.yaml. Without this
+            # the pod inherits only longhorn-restrict, which permits no internet
+            # and no metrics endpoint.
+            adr002.backup/egress: "true"
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: relay
+              image: docker.io/rclone/rclone:1.71.1
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  START="$(date -u +%s)"
+                  FAILED=0
+
+                  # Longhorn backupstore -> longhorn/
+                  # The source is the LOCAL SeaweedFS backup target, never
+                  # Longhorn itself. Longhorn never learns that AWS exists.
+                  echo "=== relaying longhorn backupstore"
+                  rclone copy s3:longhorn-backups "aws:${AWS_BUCKET}/longhorn" \
+                    --transfers 4 --checkers 8 --stats-one-line --use-server-modtime \
+                    || FAILED=$((FAILED + 1))
+
+                  # SeaweedFS staging -> seaweedfs/
+                  # Only the newest staged snapshot is relayed. The older local
+                  # snapshots exist for rollback, and mirroring all of them would
+                  # multiply remote cost for history the vault's own versioning
+                  # already keeps.
+                  LATEST="$(ls -1d /staging/20*/ 2>/dev/null | sort | tail -1 || true)"
+                  if [ -n "$LATEST" ]; then
+                    echo "=== relaying staging snapshot"
+                    rclone copy "$LATEST" "aws:${AWS_BUCKET}/seaweedfs" \
+                      --transfers 4 --checkers 8 --stats-one-line \
+                      || FAILED=$((FAILED + 1))
+                  else
+                    echo "ERROR: no staged snapshot to relay" >&2
+                    FAILED=$((FAILED + 1))
+                  fi
+
+                  # Local index. Task 11 diffs S3 Inventory against this plus a
+                  # live listing to decide what is genuinely absent locally.
+                  # Lives on the staging PVC so it survives job restarts; losing
+                  # it would make every remote object look newly absent, which
+                  # is precisely the case the reconciler cap exists to stop.
+                  IDX=/staging/.relay-index
+                  mkdir -p "$IDX"
+                  NEW="$IDX/current.tsv"
+                  : > "$NEW"
+                  rclone lsf s3:longhorn-backups --recursive --format "ps" --separator "	" \
+                    | awk -F'\t' '{print "longhorn/" $1 "\t" $2}' >> "$NEW" || true
+                  if [ -n "$LATEST" ]; then
+                    ( cd "$LATEST" && find . -type f -printf "seaweedfs/%P\t%s\n" ) >> "$NEW" || true
+                  fi
+
+                  # Keep the earliest sighting per key, so the reconciler applies
+                  # its grace period to how long an object has been ABSENT rather
+                  # than to how old it is.
+                  SEEN="$IDX/first-seen.tsv"
+                  touch "$SEEN"
+                  NOW="$(date -u +%s)"
+                  awk -F'\t' -v now="$NOW" 'NR==FNR { first[$1]=$2; next } { print $1 "\t" (($1 in first) ? first[$1] : now) }' "$SEEN" "$NEW" > "$SEEN.tmp"
+                  mv "$SEEN.tmp" "$SEEN"
+
+                  OBJECTS="$(wc -l < "$NEW" | tr -d ' ')"
+                  BYTES="$(awk -F'\t' '{s+=$2} END{print s+0}' "$NEW")"
+                  DURATION=$(( $(date -u +%s) - START ))
+                  echo "relay objects=$OBJECTS bytes=$BYTES duration=${DURATION}s failures=$FAILED"
+
+                  # Metrics go straight into VictoriaMetrics rather than through a
+                  # Pushgateway: vmsingle accepts Prometheus exposition format on
+                  # /api/v1/import/prometheus, so a CronJob becomes observable
+                  # without adding a component to keep running.
+                  TS=0
+                  [ "$FAILED" -eq 0 ] && TS="$(date -u +%s)"
+                  {
+                    echo "backup_relay_last_success_timestamp $TS"
+                    echo "backup_relay_objects_total $OBJECTS"
+                    echo "backup_relay_bytes_total $BYTES"
+                    echo "backup_relay_duration_seconds $DURATION"
+                    echo "backup_relay_failures $FAILED"
+                  } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || echo "WARN: metric push failed"
+
+                  [ "$FAILED" -eq 0 ] || exit 1
+                  echo "RELAY_OK"
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                # Local SeaweedFS (source)
+                - name: RCLONE_CONFIG_S3_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_S3_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+                  value: "true"
+                - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                # AWS vault (destination). Write-only identity: no delete verb is
+                # granted, so a stray sync fails rather than destroying data.
+                - name: RCLONE_CONFIG_AWS_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_AWS_PROVIDER
+                  value: AWS
+                - name: RCLONE_CONFIG_AWS_REGION
+                  value: eu-central-1
+                - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_BUCKET
+              volumeMounts:
+                - name: staging
+                  mountPath: /staging
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  # Explicit, because ten namespaces carry a LimitRange defaulting
+                  # limit-less containers to 256Mi, which OOM-kills rclone mid-run.
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: staging
+              persistentVolumeClaim:
+                claimName: seaweedfs-staging

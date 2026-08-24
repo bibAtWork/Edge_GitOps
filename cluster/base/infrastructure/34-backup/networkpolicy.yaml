@@ -1,0 +1,66 @@
+# Egress for the ADR-002 backup jobs (Tasks 4, 9, 11, 12).
+#
+# Cilium is default-deny in both directions here, and the existing
+# longhorn-restrict policy in 32-longhorn/ covers what Longhorn itself needs:
+# intra-namespace, host, kube-apiserver, DNS, and SeaweedFS S3 on :8333. The
+# backup jobs run in this namespace and inherit all of that. Two things they
+# need that Longhorn does not:
+#
+#   - the public internet on 443, to reach the AWS vault
+#   - VictoriaMetrics on 8428, to push per-run metrics
+#
+# Scoped to pods carrying adr002.backup/egress=true rather than the whole
+# namespace. Longhorn's storage components have no business reaching the
+# internet, and this namespace runs with enforce: privileged, so the blast
+# radius of a compromise here is already large -- granting it blanket outbound
+# access would make an exfiltration path out of a backup job.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: backup-jobs-egress
+  namespace: longhorn-system
+spec:
+  endpointSelector:
+    matchLabels:
+      adr002.backup/egress: "true"
+  egress:
+    # AWS S3. toFQDNs would be tighter, but it requires the DNS proxy to be in
+    # the request path for every lookup, and S3 resolves to a wide and shifting
+    # address set -- a stale entry there fails a backup rather than a page load.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # VictoriaMetrics ingestion, so a job's success or failure is visible as a
+    # metric rather than only in pod logs that age out.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: vmsingle
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
+---
+# vmsingle's own ingress is restricted to an explicit allowlist, so the egress
+# rule above is only half the path.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-backup-jobs-to-vmsingle
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vmsingle
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: longhorn-system
+            adr002.backup/egress: "true"
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP

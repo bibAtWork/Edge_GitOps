@@ -1,0 +1,178 @@
+# ADR-002 Task 4: SeaweedFS live-data staging.
+#
+# Distinct from Task 1. Task 1 gives Longhorn a place to write ITS backups;
+# this protects SeaweedFS's OWN buckets -- Velero archives, the database dumps,
+# the Zot registry, and the filer metadata dumps. Nothing else covers them:
+# Velero's file-system backup silently skips hostPath volumes, and the SeaweedFS
+# volume servers are hostPath by design (ADR-002 constraint 3).
+#
+# Staged onto Longhorn deliberately, which is the mirror image of the filer
+# metadata decision. A copy of SeaweedFS living on Longhorn and a Longhorn
+# backupstore living on SeaweedFS are not circular -- each system holds the
+# other's copy, so either can be rebuilt from the survivor. What would be
+# circular is either one holding its own.
+#
+# These jobs run in longhorn-system rather than a namespace of their own so they
+# can read backup-retention-config by envFrom. ConfigMaps are namespaced, so a
+# separate namespace would mean a second copy of the retention values, which is
+# the two-sources-of-truth problem Task 2 exists to prevent.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-staging
+  namespace: longhorn-system
+spec:
+  storageClassName: longhorn
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Measured 2026-08-24: 72 MiB across all live buckets. Sized for growth in
+      # db-backups (49 MiB and accumulating daily), not for the retained copy
+      # count -- see the hardlink note in the job below, which makes 14 retained
+      # snapshots cost roughly one copy plus deltas rather than 14 copies.
+      # Longhorn reserves 30% of the disk, so an oversized claim here consumes a
+      # provisioning budget considerably smaller than the disk suggests.
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: seaweedfs-staging
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config by kustomization.yaml. Runs at 01:00,
+  # before the Longhorn backup tiers at 02:00-04:00 and well before the 05:00
+  # relay, so the relay sees a complete staged copy.
+  schedule: "PLACEHOLDER"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Selected by backup-jobs-egress in networkpolicy.yaml. Without this
+            # the pod inherits only longhorn-restrict, which permits no internet
+            # and no metrics endpoint.
+            adr002.backup/egress: "true"
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: stage
+              image: docker.io/rclone/rclone:1.71.1
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TODAY="$(date -u +%Y%m%d)"
+                  DEST="/staging/$TODAY"
+
+                  # Hardlink the previous snapshot forward before syncing over
+                  # it. Unchanged files then cost one inode rather than another
+                  # copy of the bytes, so the retained history is roughly one
+                  # full copy plus daily deltas. Most of this data is already
+                  # immutable (timestamped dumps, Velero archives), so nearly
+                  # everything hardlinks and almost nothing is rewritten.
+                  PREV="$(ls -1d /staging/20*/ 2>/dev/null | sort | tail -1 || true)"
+                  if [ -n "$PREV" ] && [ ! -d "$DEST" ]; then
+                    echo "seeding $TODAY from $(basename "$PREV") via hardlinks"
+                    cp -al "${PREV%/}" "$DEST"
+                  fi
+                  mkdir -p "$DEST"
+
+                  # sync, not copy, WITHIN the dated directory: each dated
+                  # directory must be a faithful point-in-time image, so a file
+                  # deleted upstream must be absent here too. This is not the
+                  # relay -- ADR-002 forbids delete against AWS, while local
+                  # staging may prune freely.
+                  for b in velero-backups db-backups filer-metadata zot-registry etcd-backups pvs; do
+                    echo "--- $b"
+                    rclone sync "s3:$b" "$DEST/$b" --transfers 4 --checkers 8 --stats-one-line
+                  done
+
+                  # Fail loudly on an empty stage rather than reporting success
+                  # and letting the relay mirror nothing. An empty staging tree
+                  # is indistinguishable from a healthy one downstream.
+                  BYTES="$(du -sb "$DEST" | cut -f1)"
+                  echo "staged bytes=$BYTES"
+                  if [ "$BYTES" -lt 1048576 ]; then
+                    echo "ERROR: staged only ${BYTES} bytes -- refusing to report success" >&2
+                    exit 1
+                  fi
+
+                  # Prune oldest snapshots beyond the retain count.
+                  KEEP="${SEAWEED_STAGING_RETAIN:-14}"
+                  ls -1d /staging/20*/ 2>/dev/null | sort | head -n "-$KEEP" | while read -r d; do
+                    echo "pruning $(basename "$d")"
+                    rm -rf "$d"
+                  done
+                  # Reported as a metric, not only as a log line: pod logs age out, and
+                  # a staging job that silently stops running is exactly the failure
+                  # this backup chain must not be able to hide.
+                  SNAPS="$(ls -1d /staging/20*/ 2>/dev/null | wc -l)"
+                  {
+                    echo "seaweedfs_staging_last_success_timestamp $(date -u +%s)"
+                    echo "seaweedfs_staging_bytes $BYTES"
+                    echo "seaweedfs_staging_snapshots $SNAPS"
+                  } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || echo "WARN: metric push failed"
+
+                  echo "STAGING_OK $TODAY"
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                - name: SEAWEED_STAGING_RETAIN
+                  valueFrom:
+                    configMapKeyRef:
+                      name: backup-retention-config
+                      key: seaweed_staging_retain
+                - name: RCLONE_CONFIG_S3_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_S3_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+                  value: "true"
+                - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: staging
+                  mountPath: /staging
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  # Explicit, because ten namespaces carry a LimitRange defaulting
+                  # limit-less containers to 256Mi, which OOM-kills rclone mid-sync
+                  # and leaves a half-written snapshot that looks complete.
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: staging
+              persistentVolumeClaim:
+                claimName: seaweedfs-staging
