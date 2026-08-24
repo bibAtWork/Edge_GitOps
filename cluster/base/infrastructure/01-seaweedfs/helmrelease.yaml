@@ -102,12 +102,22 @@ spec:
 
     filer:
       enabled: true
+      # Raised from 1536Mi on 2026-08-24 after the filer was OOMKilled (exit 137)
+      # streaming a bulk read of the 4GB etcd-snapshot bucket during the
+      # pre-repartition offsite copy. The failure surfaced as
+      # "Could not connect to the endpoint URL" in the *client*, which reads as a
+      # network fault rather than the filer dying underneath it -- the same
+      # misleading signature as the CSI mount daemon OOM.
+      #
+      # The filer streams object bodies for every S3 GET, so its memory scales
+      # with concurrent transfer size, not with stored data. Bulk operations are
+      # exactly when it is needed and exactly when it was capped.
       resources:
         requests:
           cpu: 100m
           memory: 512Mi
         limits:
-          memory: 1536Mi
+          memory: 3Gi
       data:
         type: hostPath
         hostPathPrefix: /var/mnt/seaweedfs/filer
