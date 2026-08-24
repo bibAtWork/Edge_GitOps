@@ -1,0 +1,59 @@
+# Keycloak's PostgreSQL, run by CloudNativePG on Longhorn block storage.
+#
+# Replaces the bitnami StatefulSet on local-path. Two things change that matter:
+# the data now lives on a real block device with ext4 rather than a hostPath
+# directory, so it can be backed up and the pod is no longer pinned to one node's
+# filesystem layout; and the operator owns failover, switchover and rolling minor
+# upgrades instead of leaving them as manual work.
+#
+# This database is the identity provider. Losing it means losing every user,
+# credential, client and group behind OIDC for Grafana, Immich, Paperless, Zot and
+# the Kubernetes API. The realm re-imports from Git; users and their credentials
+# do not. That is why it is the smallest volume here and still the highest-value.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-pg
+  namespace: keycloak
+spec:
+  # Must match the version being migrated from -- pg_dump refuses to read a
+  # server newer than itself, and a restore into an older major fails outright.
+  # The bitnami StatefulSet ran postgres:16-alpine.
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.10
+
+  # Single instance. This is a one-node cluster: a second replica has nowhere to
+  # run, and CNPG would leave it permanently pending. Durability comes from the
+  # backups below, not from replication -- see ADR-004.
+  instances: 1
+
+  storage:
+    size: 5Gi
+    # longhorn-db, not longhorn: reclaimPolicy Retain so a stray PVC delete cannot
+    # destroy PGDATA, and strict-local locality so a commit does not take a
+    # network hop. Block replication must not stack on application replication.
+    storageClass: longhorn-db
+
+  # Separate volume for the write-ahead log. WAL has a different write pattern
+  # from the heap -- sequential, fsync-heavy, and on the critical path of every
+  # commit -- so isolating it stops a heap-side burst from stalling commits, and
+  # stops WAL growth from filling PGDATA and wedging the database.
+  walStorage:
+    size: 2Gi
+    storageClass: longhorn-db
+
+  # Sized for a homelab identity provider, not a fleet. Keycloak's own load is
+  # small; the floor matters more than the ceiling.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  postgresql:
+    parameters:
+      # Conservative defaults for a small instance sharing a node with everything
+      # else. max_connections stays modest because each backend costs memory.
+      max_connections: "100"
+      shared_buffers: "128MB"
+      effective_cache_size: "512MB"
