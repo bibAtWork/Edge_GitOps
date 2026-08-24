@@ -330,7 +330,7 @@ data:
       restartPolicy: Never
       containers:
         - name: check
-          image: docker.io/library/alpine:3.20
+          image: docker.io/library/alpine:3.24
           securityContext:
             privileged: true
           command: ["/bin/sh", "-c"]

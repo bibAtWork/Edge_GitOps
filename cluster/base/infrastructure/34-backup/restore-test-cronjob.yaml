@@ -48,7 +48,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: restore-test
-              image: docker.io/library/alpine:3.20
+              image: docker.io/library/alpine:3.24
               command: ["/bin/sh", "/scripts/restore-test.sh"]
               env:
                 - name: S3_ENDPOINT
