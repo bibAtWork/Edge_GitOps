@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - retention-config.yaml
+  - longhorn-recurring-jobs.yaml
+  - longhorn-backup-target.yaml
+  - longhorn-backup-credential.yaml
+
+# Schedules and retain counts are injected from backup-retention-config so the
+# manifests above hold no retention literals (ADR-002 Task 2). See the ConfigMap
+# for why Flux postBuild.substituteFrom is not used instead.
+replacements:
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.snapshot_cron}
+    targets:
+      - select: {kind: RecurringJob, name: snapshot}
+        fieldPaths: [spec.cron]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.snapshot_retain}
+    targets:
+      - select: {kind: RecurringJob, name: snapshot}
+        fieldPaths: [spec.retain]
+        options: {create: true}
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_weekly_cron}
+    targets:
+      - select: {kind: RecurringJob, name: backup-weekly}
+        fieldPaths: [spec.cron]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_weekly_retain}
+    targets:
+      - select: {kind: RecurringJob, name: backup-weekly}
+        fieldPaths: [spec.retain]
+        options: {create: true}
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_monthly_cron}
+    targets:
+      - select: {kind: RecurringJob, name: backup-monthly}
+        fieldPaths: [spec.cron]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_monthly_retain}
+    targets:
+      - select: {kind: RecurringJob, name: backup-monthly}
+        fieldPaths: [spec.retain]
+        options: {create: true}

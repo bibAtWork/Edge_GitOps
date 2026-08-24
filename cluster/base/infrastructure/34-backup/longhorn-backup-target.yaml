@@ -1,0 +1,33 @@
+# Longhorn's backup target (ADR-002 Task 1).
+#
+# Points at the LOCAL SeaweedFS S3 endpoint, never AWS. ADR-002 constraint 2
+# states this without exception, and the reasoning is not merely about
+# credentials: Longhorn's backupstore takes and releases a .lck object around
+# every operation and its deduplicated .blk objects are shared between backups
+# and always current versions. Against AWS that needs delete rights the design
+# forbids, and leaves Lifecycle unable to prune safely. Locally, Longhorn has
+# full delete rights and behaves exactly as upstream intends.
+#
+# The AWS copy is produced by the relay job (Task 9) mirroring this bucket
+# one-way. Nothing on the Longhorn side is ever aware of AWS.
+#
+# The chart's defaultSettings.backupTarget is deliberately left unset; a
+# BackupTarget resource is authoritative and reconciles continuously, whereas
+# defaultSettings apply only at first install and drift silently afterwards.
+#
+# The bucket lives on SeaweedFS volume servers backed by a dedicated hostPath
+# disk (/var/mnt/seaweedfs), NOT Longhorn PVCs -- ADR-002 constraint 3. Verified
+# 2026-08-24. Placing this on Longhorn would put the backup target on top of the
+# storage it protects.
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  # The @region suffix is required syntax for Longhorn's S3 driver even though
+  # SeaweedFS ignores the region; it must match the region the bucket was
+  # created under in bucket-init-job.yaml.
+  backupTargetURL: "s3://longhorn-backups@us-east-1/"
+  credentialSecret: longhorn-s3-backup-credential
+  pollInterval: "5m0s"
