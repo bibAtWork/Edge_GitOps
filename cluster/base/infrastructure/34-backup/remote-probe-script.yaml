@@ -39,6 +39,7 @@ data:
     LH_BAD=0
     SW_OK=0
     SW_BAD=0
+    SW_CHANGED=0
     RESULT=pass
 
     log() { echo "[$(date -u +%H:%M:%S)] $*"; }
@@ -137,12 +138,25 @@ data:
       if [ "$(md5sum < /tmp/r.bin | cut -d' ' -f1)" = "$LIVE" ]; then
         SW_OK=$(( SW_OK + 1 ))
       else
-        bad "$K: vault copy differs from live"
-        SW_BAD=$(( SW_BAD + 1 ))
+        # A difference is only corruption if the live object has not changed
+        # since it was relayed. Kopia rewrites its bookkeeping files
+        # (kopia.maintenance and friends) in place, so the vault holds a copy
+        # from whenever the relay last ran and live has moved on. The first live
+        # run failed on three of them, which would have made this monthly check
+        # red every month for a reason that is not a fault.
+        V_MOD="$(aws s3api head-object --bucket "$AWS_BUCKET" --key "$K" --query LastModified --output text 2>/dev/null | cut -c1-19)"
+        L_MOD="$(AWS_ACCESS_KEY_ID="$SEAWEED_KEY" AWS_SECRET_ACCESS_KEY="$SEAWEED_SECRET" AWS_DEFAULT_REGION=us-east-1 aws --endpoint-url "$S3_ENDPOINT" s3api head-object --bucket "$BUCKET" --key "$OBJ" --query LastModified --output text 2>/dev/null | cut -c1-19)"
+        if [ -n "$V_MOD" ] && [ -n "$L_MOD" ] && [ "$L_MOD" ">" "$V_MOD" ]; then
+          log "changed after relay, not corruption: $K"
+          SW_CHANGED=$(( SW_CHANGED + 1 ))
+        else
+          bad "$K: vault copy differs from live"
+          SW_BAD=$(( SW_BAD + 1 ))
+        fi
       fi
       rm -f /tmp/r.bin
     done < /tmp/swsample
-    log "seaweedfs: $SW_OK matched, $SW_BAD failed"
+    log "seaweedfs: $SW_OK matched, $SW_BAD failed, $SW_CHANGED changed-since-relay"
 
     log "result=$RESULT egress_bytes=$EGRESS"
 
@@ -154,6 +168,7 @@ data:
       echo "backup_remote_probe_longhorn_failed $LH_BAD"
       echo "backup_remote_probe_seaweedfs_matched $SW_OK"
       echo "backup_remote_probe_seaweedfs_failed $SW_BAD"
+      echo "backup_remote_probe_seaweedfs_changed $SW_CHANGED"
     } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
 
     [ "$RESULT" = pass ] || exit 1
