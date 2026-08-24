@@ -41,10 +41,10 @@ spec:
           limits:
             memory: "2Gi"
         storage:
-          storageClassName: local-path
+          storageClassName: longhorn
           resources:
             requests:
-              storage: 20Gi
+              storage: 25Gi
 
     vlsingle:
       enabled: true
@@ -57,10 +57,10 @@ spec:
           limits:
             memory: "1Gi"
         storage:
-          storageClassName: local-path
+          storageClassName: longhorn
           resources:
             requests:
-              storage: 40Gi
+              storage: 20Gi
 
     # VictoriaTraces (experimental — acceptable for home lab)
     vtsingle:
@@ -73,10 +73,10 @@ spec:
           limits:
             memory: "512Mi"
         storage:
-          storageClassName: local-path
+          storageClassName: longhorn
           resources:
             requests:
-              storage: 10Gi
+              storage: 5Gi
 
     grafana:
       enabled: false
