@@ -26,6 +26,16 @@ spec:
   # backups below, not from replication -- see ADR-004.
   instances: 1
 
+  # Name the database and owner explicitly. CNPG otherwise creates a database
+  # called "app" owned by a role called "app", which is functional but obscures
+  # what the cluster actually holds -- and this is one of three, so the ambiguity
+  # would repeat. Explicit names also mean the JDBC URL in deployment.yaml reads
+  # the same as it did against the old StatefulSet.
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+
   storage:
     size: 5Gi
     # longhorn-db, not longhorn: reclaimPolicy Retain so a stray PVC delete cannot
