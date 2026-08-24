@@ -938,6 +938,285 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # Longhorn RecurringJob coverage. Held back until the VMServiceScrape in #272
+              # was live and these series had actually been observed, rather than written
+              # against label names taken on trust.
+              - uid: longhorn-volume-never-backed-up
+                title: LonghornVolumeNeverBackedUp
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'count(longhorn_volume_last_backup_at == 0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    Longhorn volumes have never been backed up
+                  description: >-
+                    One or more Longhorn volumes report no backup at all. RecurringJobs place every volume carrying no recurring-job label into the default group, so a volume showing zero is either newer than the first scheduled run or is being skipped. Sixteen volumes were in this state on 2026-08-24 because the jobs had just been created and the weekly tier had not yet fired -- expected then, but a volume still reporting zero after a full week is not.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: longhorn-backup-stale
+                title: LonghornBackupStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'count((time() - longhorn_volume_last_backup_at > 864000) and (longhorn_volume_last_backup_at > 0))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    A Longhorn volume has not been backed up in 10 days
+                  description: >-
+                    The weekly tier runs every Sunday, so ten days means at least one run was missed entirely rather than merely delayed. Filtered to volumes that already have a backup, because a volume with none reports zero and would otherwise look infinitely stale -- that case is LonghornVolumeNeverBackedUp instead.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-restore-test-failing
+                title: BackupRestoreTestFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'backup_restore_test_pass'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The backup restore-test is failing
+                  description: >-
+                    A real backup was restored and read back and something did not verify -- e2fsck errors, a volume that would not mount, a sqlite integrity failure, or a sampled object whose staged copy does not match live. This also freezes remote pruning: the reconciler gates on this result and refuses to tag anything while it is failing, which is deliberate.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-restore-test-stale
+                title: BackupRestoreTestStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'time() - backup_restore_test_last_run_timestamp'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [172800]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The backup restore-test has not run in 48 hours
+                  description: >-
+                    Backups are no longer being verified. The threshold matches the reconciler's gate exactly, so by the time this fires pruning has already frozen -- the safe direction, but it means the vault grows until the restore-test runs again.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-reconciler-mass-tagging
+                title: BackupReconcilerMassTagging
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'backup_reconcile_objects_tagged'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [50]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The reconciler tagged an unusual number of objects for expiry
+                  description: >-
+                    Each tagged object gets a delete marker within about a day. S3 Inventory does not report object tags, so this metric is the only routine visibility into the pruning path -- after the fact there is no way to see what was tagged except through CloudTrail. A normal day tags a handful. A large run means the local side looked emptier than it is, and those objects remain recoverable by an MFA admin inside the Object Lock window.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-reconciler-cap-abort
+                title: BackupReconcilerCapAbort
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'backup_reconcile_cap_abort'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The reconciler aborted on its safety cap
+                  description: >-
+                    The eligible-for-pruning set exceeded the cap, or the local listing came back empty, and the run refused to tag anything. This is the circuit breaker working: a large eligible set means the diff or local storage is broken, never that pruning should be more aggressive. Nothing was deleted, and nothing will be until the cause is found.
+                labels:
+                  severity: critical
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
