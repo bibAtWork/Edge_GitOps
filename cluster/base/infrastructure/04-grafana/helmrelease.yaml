@@ -1217,6 +1217,98 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
+              - uid: backup-remote-probe-failing
+                title: BackupRemoteProbeFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'backup_remote_probe_pass'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The monthly remote probe could not verify the vault
+                  description: >-
+                    The probe read objects back from AWS and either could not fetch them or found bytes that differ from the local copy. This is the only check that exercises the remote path at all -- every other signal in the chain is local and would stay green while the vault was unreadable, the credential had been rotated away, or the bucket policy had been tightened into refusal. noDataState is OK because the probe runs monthly and would otherwise report missing between runs; staleness is not meaningful at that cadence.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-remote-probe-egress-anomaly
+                title: BackupRemoteProbeEgressAnomaly
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'backup_remote_probe_egress_bytes'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [52428800]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The remote probe transferred far more data than expected
+                  description: >-
+                    The probe is deliberately bounded -- twenty backupstore objects and fifty sampled files, about 1.1MB in practice. A large jump almost always means the smallest-object selection logic broke and it is now pulling real volume data, which costs egress every month for no additional assurance. The threshold is set well above the observed envelope so ordinary growth does not trip it.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
