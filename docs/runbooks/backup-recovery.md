@@ -160,7 +160,16 @@ and nothing else in this design addresses that.
 Escrow off-site, outside AWS and outside the cluster — paper in a safe, or a hardware token
 plus a printed copy at a second location:
 
-- The SOPS/age **private** key. Without it every encrypted manifest in the repo is noise.
+- **`.age.key`** -- the SOPS/age **private** key. Without it every encrypted
+  manifest in the repo is noise: the relay and auditor AWS credentials, the
+  Longhorn backup-target credential, the SeaweedFS S3 secret, and the rest.
+  Identify it by its public half, `age1wgk7g6...`, which is the recipient
+  `.sops.yaml` encrypts to.
+
+  Named explicitly because a second age key sits beside it on the same machine
+  (`.talos-backup-age.key`, a different key for etcd snapshots, which ADR-005
+  scopes out). Escrowing the wrong one would look identical until a recovery
+  was attempted.
 - A clone or bundle of the Flux repository, or at minimum its URL plus credentials.
 - Terraform state, or enough to reconstruct it.
 - The `backup-admin` access key and MFA recovery seed.
