@@ -1,20 +1,16 @@
 # ADR-002 Task 9: one-way relay to the AWS vault.
 #
-# SHIPS SUSPENDED. The vault and its credentials are created by
-# bootstrap/terraform (Tasks 5-8), which has not been applied. Enabling this
-# before the secret exists would produce a failing job every night, and a backup
-# alert that is always red is worse than no alert -- it trains the operator to
-# ignore the one that matters. To enable:
+# ACTIVE since 2026-08-24. The vault exists, the credential is applied, and a
+# manual run has been verified end to end: 542 objects and 123MB reaching
+# s3://homelab-backup-vault under the longhorn/ and seaweedfs/ prefixes.
 #
-#   1. cd bootstrap/terraform && terraform apply
-#   2. create the credential secret from the Terraform outputs, then re-create it
-#      as a SOPS-encrypted manifest here so Flux owns it:
-#        kubectl create secret generic backup-relay-aws-credential \
-#          -n longhorn-system \
-#          --from-literal=AWS_ACCESS_KEY_ID="$(terraform output -raw backup_relay_access_key_id)" \
-#          --from-literal=AWS_SECRET_ACCESS_KEY="$(terraform output -raw backup_relay_secret_access_key)" \
-#          --from-literal=AWS_BUCKET="$(terraform output -raw backup_vault_bucket)"
-#   3. flip suspend to false in this file.
+# To re-create the credential after rotating the key:
+#   cd bootstrap/terraform && terraform apply
+#   ./scripts/make-relay-credential.sh
+#
+# The secret must be applied BEFORE this job runs against it. A CronJob firing
+# at a missing secret presents as CreateContainerConfigError, which names
+# nothing useful about the actual cause.
 #
 # COPY, NEVER SYNC. rclone sync issues deletes. The relay credential holds no
 # delete permission at all, so a sync would fail loudly rather than destroy
@@ -31,7 +27,7 @@ spec:
   # Injected from backup-retention-config by kustomization.yaml. Runs at 05:00,
   # after staging (01:00) and all Longhorn backup tiers (02:00-04:00).
   schedule: "PLACEHOLDER"
-  suspend: true
+  suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
