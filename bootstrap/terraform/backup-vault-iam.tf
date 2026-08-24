@@ -164,7 +164,7 @@ data "aws_iam_policy_document" "backup_admin" {
       "s3:PutBucketVersioning",
       "s3:PutLifecycleConfiguration",
       "s3:GetLifecycleConfiguration",
-      "s3:PutObjectLockConfiguration",
+      "s3:PutBucketObjectLockConfiguration",
       "s3:GetBucketObjectLockConfiguration",
       "s3:PutInventoryConfiguration",
       "s3:PutBucketPolicy",
