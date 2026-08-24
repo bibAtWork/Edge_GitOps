@@ -1,0 +1,81 @@
+# Longhorn node configuration — applied with `talosctl patch machineconfig`.
+#
+# Everything that varies per node lives here: the kubelet bind-mount, the user
+# volumes carved out of the NVMe, and the disk list Longhorn reads. Keeping the
+# physical layout and Longhorn's view of it in one file means adding a disk later
+# is a single edit rather than a hunt across three places.
+#
+# ⚠️ The UserVolumeConfig section below REPARTITIONS the NVMe. Read the note on
+# the seaweedfs volume before applying it to a running node.
+
+# --- kubelet bind-mount ------------------------------------------------------
+# Bind-mounts the PARENT directory, not each volume. With rshared propagation any
+# number of /var/mnt/* user volumes are carried into the kubelet container
+# automatically, so adding a disk later needs no change here.
+machine:
+  kubelet:
+    extraMounts:
+      - destination: /var/mnt
+        type: bind
+        source: /var/mnt
+        options:
+          - bind
+          - rshared
+          - rw
+
+  # --- Longhorn disk discovery ----------------------------------------------
+  # defaultDataPath in the Helm chart is a single cluster-wide string and cannot
+  # describe per-node layouts. Labeled-node disk configuration is used instead:
+  # Longhorn creates disks only on nodes carrying the label, and reads the disk
+  # list from the annotation.
+  nodeLabels:
+    node.longhorn.io/create-default-disk: "config"
+  nodeAnnotations:
+    node.longhorn.io/default-disks-config: |
+      [{"path":"/var/mnt/longhorn0","allowScheduling":true}]
+---
+# --- user volumes on the NVMe ------------------------------------------------
+# This node is design Case B: one node, two disks. The system disk (sda) holds
+# EPHEMERAL — etcd, container images, kubelet state — and is deliberately left
+# alone. Longhorn and SeaweedFS split the NVMe.
+#
+# Why Longhorn does NOT go on the system disk: /var/lib/longhorn would sit on
+# EPHEMERAL alongside /var/lib/etcd. etcd is unusually sensitive to fsync latency,
+# and sustained replica writes on the same filesystem push its fsync p99 up —
+# which presents as leader elections and slow API responses, i.e. looks like a
+# control-plane fault rather than a storage one. Putting Longhorn on the NVMe and
+# leaving etcd on the SATA disk separates them at the device level, not just the
+# filesystem level, which is stronger than the design's own Flavor A achieves.
+#
+# ⚠️ REPARTITION WARNING. The seaweedfs volume currently occupies the ENTIRE
+# 512GB NVMe as a single partition. Applying this shrinks it to make room for
+# longhorn0, which Talos can only do by destroying and recreating the partition —
+# all SeaweedFS data on it is lost. Evacuate first and restore afterwards.
+#
+# Sizes are explicit rather than using grow:true. With two volumes selecting the
+# same disk, grow on either one races the other for the remaining space depending
+# on evaluation order; fixed sizes are deterministic. 120 + 340 = 460GiB of the
+# ~477GiB usable, leaving headroom for partition alignment.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: seaweedfs
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 100GiB
+  maxSize: 120GiB
+  grow: false
+filesystem:
+  type: xfs
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: longhorn0
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 300GiB
+  maxSize: 340GiB
+  grow: false
+filesystem:
+  type: xfs

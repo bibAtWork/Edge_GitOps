@@ -1,0 +1,18 @@
+# Talos Image Factory schematic — the system extensions baked into the OS image.
+#
+# Talos is immutable: extensions cannot be installed at runtime, they are part of
+# the installer image. Changing this file means regenerating the schematic ID and
+# running `talosctl upgrade --image factory.talos.dev/installer/<id>:<version>`,
+# which reboots the node.
+#
+# Both extensions are required by Longhorn V1 (see ADR-004):
+#   iscsi-tools       — iscsid/iscsiadm; V1's engine attaches replicas over iSCSI
+#   util-linux-tools  — provides fstrim, which Longhorn calls to reclaim space
+#
+# Regenerate with:
+#   curl -X POST --data-binary @schematic.yaml https://factory.talos.dev/schematics
+customization:
+  systemExtensions:
+    officialExtensions:
+      - siderolabs/iscsi-tools
+      - siderolabs/util-linux-tools

@@ -1,0 +1,105 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: longhorn
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://charts.longhorn.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: longhorn
+      version: "1.12.0"
+      sourceRef:
+        kind: HelmRepository
+        name: longhorn
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  driftDetection:
+    mode: enabled
+  values:
+    # Fails the release before it touches the running cluster if the upgrade is
+    # incompatible, rather than discovering it half-applied.
+    preUpgradeChecker:
+      jobEnabled: true
+
+    # --- Footprint -----------------------------------------------------------
+    # Chart defaults assume a much larger cluster: four CSI sidecars at 3
+    # replicas each is 12 pods. All are leader-elected, so one replica apiece
+    # costs only a brief gap while a pod reschedules.
+    csi:
+      attacherReplicaCount: 1
+      provisionerReplicaCount: 1
+      resizerReplicaCount: 1
+      snapshotterReplicaCount: 1
+
+    # The UI ships with NO authentication whatsoever -- anyone who can reach the
+    # Service can detach volumes, delete replicas, or repoint the backup target.
+    # Disabling it removes two pods and that unauthenticated surface at once.
+    #
+    # The cost is that manual operations become CRD work. To bring it up
+    # temporarily, change this in git for the duration: driftDetection is enabled
+    # below, so an ad-hoc `kubectl scale` is reverted within the reconcile
+    # interval. If it is ever left running, expose it only via Tailscale with an
+    # auth layer in front, never a public Gateway listener.
+    longhornUI:
+      replicas: 0
+
+    defaultSettings:
+      # Per-node disk config comes from node labels/annotations set in the Talos
+      # patch, NOT from a global defaultDataPath -- a single cluster-wide string
+      # cannot describe nodes with different disk counts.
+      createDefaultDiskLabeledNodes: true
+
+      # V2 (SPDK) stays off deliberately -- see ADR-004. It has an open Talos
+      # SPDK/IOMMU bug and a separate PostgreSQL-during-backup I/O bug, and needs
+      # hugepages plus a dedicated core.
+      v2DataEngine: false
+
+      # Never evict the last healthy replica during a node drain. On this
+      # single-node cluster that means a drain will block rather than destroy the
+      # only copy -- which is why the upgrade script skips the drain entirely.
+      nodeDrainPolicy: block-if-contains-last-replica
+
+      # Without this (default 0 = disabled) every chart bump leaves engine images
+      # to be upgraded by hand.
+      concurrentAutomaticEngineUpgradePerNodeLimit: 1
+
+      defaultDataLocality: best-effort
+      replicaAutoBalance: best-effort
+
+      # This is a REQUEST, i.e. capacity removed from the schedulable pool whether
+      # or not Longhorn is busy. Valid range 0-40. Do not set 0 with PostgreSQL on
+      # the cluster -- replica processes can stall under contention.
+      guaranteedInstanceManagerCPU: 5
+
+      # Headroom guards. Over-provisioning at 100% means Longhorn will not promise
+      # more space than physically exists.
+      storageOverProvisioningPercentage: 100
+      storageMinimalAvailablePercentage: 15
+
+      # snapshotDataIntegrity is deliberately left at the chart default
+      # (fast-check). Disabling it saves CPU and I/O but removes silent-corruption
+      # detection, which is not a trade worth making with a database on consumer
+      # SSDs.
+
+      # backupTarget is intentionally unset. Longhorn RecurringJob backups need an
+      # S3 endpoint, and pointing them at the in-cluster SeaweedFS would put the
+      # backups in the same failure domain as the data -- on this single node,
+      # literally the same machine. Set it once an off-cluster target exists.
