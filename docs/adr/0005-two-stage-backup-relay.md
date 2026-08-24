@@ -204,10 +204,15 @@ Backup jobs now verify the gzip stream before upload and **read the object back 
 
 The off-site copy is live and immutable. Two things it still depends on are not:
 
-**Task 14 is the significant gap.** Without the SOPS private key, Terraform state
-and bucket coordinates stored outside AWS and outside the cluster, the vault is
-unreadable after a total loss. Nothing else in this design addresses that, and it
-requires no credentials — only somewhere physical to put them.
+**Task 14 is the significant gap.** Exactly one artefact is unrecoverable if lost:
+`.age.key`, the SOPS private key, without which every encrypted manifest in the
+repo is noise. Terraform state and `bootstrap/config.json` are worth escrowing for
+speed but are reconstructible — state via `terraform import`, config by reissuing
+the credentials it holds. See the runbook for the split.
+
+This is deliberately manual and cannot be automated: anything that copied the key
+on a schedule would have to store it somewhere, and that somewhere is what the
+escrow exists to survive.
 
 **Task 13 has never been run.** Every automated check verifies a component. Only
 the drill verifies that a human can actually perform a recovery with what exists.

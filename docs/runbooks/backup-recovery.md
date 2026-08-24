@@ -154,26 +154,62 @@ An untested restore is not a backup. This table being empty is itself a finding.
 
 ## 5. Off-site escrow
 
-**Not yet assembled.** Without this, the remote copy is unreadable after total homelab loss
-and nothing else in this design addresses that.
+**Not yet assembled.** Without this the remote copy is unreadable after total homelab
+loss, and nothing else in this design addresses that.
 
-Escrow off-site, outside AWS and outside the cluster — paper in a safe, or a hardware token
-plus a printed copy at a second location:
+Nothing automated can do this. Every other part of the backup chain runs on a schedule;
+this one is a deliberate manual act, because anything that copied these files
+automatically would have to hold them somewhere -- and that somewhere is what the escrow
+exists to survive.
 
-- **`.age.key`** -- the SOPS/age **private** key. Without it every encrypted
-  manifest in the repo is noise: the relay and auditor AWS credentials, the
-  Longhorn backup-target credential, the SeaweedFS S3 secret, and the rest.
-  Identify it by its public half, `age1wgk7g6...`, which is the recipient
-  `.sops.yaml` encrypts to.
+Store off-site, outside AWS and outside the cluster: paper in a safe, or a hardware token
+plus a printed copy at a second location.
 
-  Named explicitly because a second age key sits beside it on the same machine
-  (`.talos-backup-age.key`, a different key for etcd snapshots, which ADR-005
-  scopes out). Escrowing the wrong one would look identical until a recovery
-  was attempted.
-- A clone or bundle of the Flux repository, or at minimum its URL plus credentials.
-- Terraform state, or enough to reconstruct it.
-- The `backup-admin` access key and MFA recovery seed.
-- Bucket name, region, prefix layout, and a printed copy of section 1.
+### Required -- unrecoverable if lost
+
+**`.age.key`** (189 bytes). The SOPS/age **private** key. Without it every encrypted
+manifest in the repo is noise: the relay and auditor AWS credentials, the Longhorn
+backup-target credential, the SeaweedFS S3 secret, and the rest. There is no way to
+reconstruct it and no second copy anywhere.
+
+Identify it by its public half, `age1wgk7g6...`, which is the recipient `.sops.yaml`
+encrypts to. Named explicitly because a second age key sits beside it on the same machine
+(`.talos-backup-age.key`, a different key for etcd snapshots, which ADR-005 scopes out).
+Escrowing the wrong one would look identical until a recovery was attempted.
+
+It is 189 bytes of ASCII, so printing it on paper is entirely practical and survives
+things a USB stick does not.
+
+**The `backup-admin` access key and MFA recovery seed.** These exist nowhere on disk by
+design -- Terraform deliberately creates the admin user without an access key, because
+state holding the one credential able to destroy locked backups would put it on the
+machine whose loss this vault exists to survive.
+
+**Bucket coordinates**: `homelab-backup-vault`, `eu-central-1`, prefixes `longhorn/`,
+`seaweedfs/`, `inventory/`. Plus a printed copy of section 1, which is the restore order.
+
+### Optional -- recoverable, but slowly
+
+These are worth escrowing for speed, not survival. A recovery is possible without them; it
+is just longer and more error-prone at the worst possible moment.
+
+**`bootstrap/terraform/terraform.tfstate`** (~88 KB). Maps Terraform to the live AWS
+resources. Rebuildable with `terraform import`, one resource at a time, against a bucket
+you can still see in the console -- tedious rather than impossible.
+
+Take `terraform.tfstate`, **not** `terraform.tfstate.backup`. The `.backup` file is
+Terraform's own copy of the *previous* state, written before each apply; it lags by at
+least one change and has already been observed missing a vault resource the current state
+had. Note that state contains the relay and auditor secret keys in plaintext, so it needs
+the same handling as the age key.
+
+**`bootstrap/config.json`** (~2.3 KB). AWS credentials, GitHub and Cloudflare tokens.
+Every value in it can be rotated and reissued, so this is pure convenience -- it saves
+reissuing half a dozen credentials while already recovering from a disaster.
+
+**A clone or bundle of the Flux repository**, or at minimum its URL plus credentials. The
+repository lives on GitHub, so this only matters if GitHub access is part of what was
+lost.
 
 **Do not store any of this in the backup bucket.** An escrow that requires the thing it
 protects is not an escrow.
