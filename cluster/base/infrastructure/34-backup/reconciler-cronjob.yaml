@@ -1,0 +1,146 @@
+# Reconciliation and prune tagging (ADR-005 Task 11).
+#
+# This is the only thing in the cluster that can cause a remote object to be
+# deleted, and it does so without holding any delete permission: it writes one
+# tag, and a tag-filtered S3 Lifecycle rule expires the object. AWS performs the
+# deletion internally. That indirection is what lets the no-in-cluster-delete
+# rule hold with no exceptions.
+#
+# Because the bucket is versioned, that expiry writes a delete marker rather
+# than destroying the locked version, so a mistaken or malicious tagging run
+# stays reversible by an MFA admin for as long as Object Lock holds.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-reconciler
+  namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-reconciler
+  namespace: longhorn-system
+rules:
+  # Read-only, and only the restore-test verdict it gates on. This job creates
+  # nothing in the cluster; everything it does happens in S3.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-reconciler
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: backup-reconciler
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backup-reconciler
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-reconciler
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config. 09:00, after the 07:00 restore-test,
+  # because the gate reads that run's verdict. Reversing the order would have it
+  # gate on yesterday's result every day.
+  schedule: "PLACEHOLDER"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            adr002.backup/egress: "true"
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-reconciler
+          securityContext:
+            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reconcile
+              image: docker.io/library/alpine:3.20
+              command: ["/bin/sh", "/scripts/reconcile.sh"]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_DEFAULT_REGION
+                  value: eu-central-1
+                # 48h, matching ADR-005. Longer than the daily restore-test
+                # cadence so one missed run does not block pruning, short enough
+                # that a verifier which has genuinely stopped freezes it.
+                - name: GATE_MAX_AGE_SECONDS
+                  value: "172800"
+                - name: PRUNE_GRACE_DAYS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: backup-retention-config
+                      key: prune_grace_days
+                - name: PRUNE_TAG_CAP
+                  valueFrom:
+                    configMapKeyRef:
+                      name: backup-retention-config
+                      key: prune_tag_cap
+                # The auditor identity: reads Inventory, writes exactly one tag
+                # key, holds no delete verb. Deliberately NOT the relay
+                # credential -- one identity able to both write objects and tag
+                # them prunable would let a single compromise push data and then
+                # mark it for deletion.
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-auditor-aws-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-auditor-aws-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-auditor-aws-credential
+                      key: AWS_BUCKET
+                # Local SeaweedFS, for the live half of the diff.
+                - name: SEAWEED_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: SEAWEED_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: staging
+                  mountPath: /staging
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-reconciler-script
+            - name: staging
+              persistentVolumeClaim:
+                claimName: seaweedfs-staging

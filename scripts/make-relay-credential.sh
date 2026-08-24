@@ -31,6 +31,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF_DIR="${REPO_ROOT}/bootstrap/terraform"
 DEST_DIR="${REPO_ROOT}/cluster/base/infrastructure/34-backup"
 DEST="${DEST_DIR}/backup-relay-credential.yaml"
+AUDITOR_DEST="${DEST_DIR}/backup-auditor-credential.yaml"
 KUSTOMIZATION="${DEST_DIR}/kustomization.yaml"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -138,23 +139,28 @@ install -m 0600 "$TMP" "$DEST"
 chmod 0644 "$DEST"
 echo "wrote ${DEST#"${REPO_ROOT}/"}"
 
-# A manifest nothing references builds cleanly and is never applied.
-if grep -q 'backup-relay-credential.yaml' "$KUSTOMIZATION"; then
-  echo "kustomization already references it"
-else
-  python - "$KUSTOMIZATION" <<'PY'
-import io, sys
-p = sys.argv[1]
-s = io.open(p, encoding='utf-8').read()
-anchor = "  - backup-relay.yaml\n"
-if anchor in s:
-    s = s.replace(anchor, anchor + "  - backup-relay-credential.yaml\n", 1)
-else:
-    s = s.replace("resources:\n", "resources:\n  - backup-relay-credential.yaml\n", 1)
-io.open(p, 'w', encoding='utf-8', newline='\n').write(s)
-PY
-  echo "added it to kustomization.yaml"
-fi
+# A manifest nothing references builds cleanly and is never applied, so the
+# relay or reconciler would fail on a missing secret while the file sat in Git
+# looking correct. Shell-native and self-verifying: an earlier version embedded
+# python inside this heredoc, its escapes collapsed, and it failed silently
+# after the credential had already been written -- producing exactly the
+# unreferenced-manifest state it was meant to prevent.
+add_to_kustomization() {
+  f="$1"
+  if grep -q "$f" "$KUSTOMIZATION"; then
+    echo "kustomization already references $f"
+    return 0
+  fi
+  awk -v new="  - $f" '
+    { lines[NR] = $0; if ($0 ~ /^  - .*\.yaml$/) last = NR }
+    END { for (i = 1; i <= NR; i++) { print lines[i]; if (i == last) print new } }
+  ' "$KUSTOMIZATION" > "${KUSTOMIZATION}.tmp" && mv "${KUSTOMIZATION}.tmp" "$KUSTOMIZATION"
+  grep -q "$f" "$KUSTOMIZATION" || die "failed to add $f to kustomization.yaml"
+  echo "added $f to kustomization.yaml"
+}
+
+add_to_kustomization "backup-relay-credential.yaml"
+add_to_kustomization "backup-auditor-credential.yaml"
 
 cat <<'NEXT'
 

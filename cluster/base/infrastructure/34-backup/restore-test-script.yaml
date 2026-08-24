@@ -47,6 +47,21 @@ data:
     # inside it. A corrupt superblock or a truncated replica appears nowhere in
     # a file listing, so each volume that has a backup is restored in full.
     # ------------------------------------------------------------------
+    # Sweep scratch left by a previous run before starting. Per-volume cleanup at
+    # the end of each iteration is not enough on its own: a crash, an OOM, or a
+    # failed delete strands a restored volume, and a stranded volume consumes the
+    # same Longhorn provisioning budget the real volumes need. Observed on the
+    # first live run, which left rt-e4b652ebd5 behind. Sweeping at the start is
+    # more reliable than trying to make every exit path clean up after itself.
+    for STALE in $(kubectl get volumes.longhorn.io -n longhorn-system -o name 2>/dev/null | grep "/rt-" || true); do
+      N="${STALE##*/}"
+      log "sweeping stale scratch $N"
+      kubectl delete pod -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
+      kubectl delete pvc -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
+      kubectl delete pv "$N" --wait=false >/dev/null 2>&1 || true
+      kubectl delete volumes.longhorn.io -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
+    done
+    
     DEADLINE=$(( NOW + LONGHORN_BUDGET_SECONDS ))
 
     # Written to a file and read by redirect, NOT piped into the loop. A pipe
@@ -212,11 +227,17 @@ data:
       log "sampling against $(basename "$LATEST")"
       SEED="$(head -c 4 /dev/urandom | od -An -tu4 | tr -d ' ')"
       : > /tmp/all_keys
+      # Only objects predating the staged snapshot are eligible. The filer dumps
+      # hourly, so anything written after staging ran is legitimately absent from
+      # the staged copy rather than damaged. The first live run reported five such
+      # objects as failures, which would have kept this job permanently red and
+      # taught everyone to ignore it.
+      CUTOFF="$(date -u -r "$LATEST" +%Y-%m-%dT%H:%M:%S)"
+      log "snapshot cutoff: $CUTOFF (newer objects are not sampled)"
       for b in velero-backups db-backups filer-metadata zot-registry; do
         aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 --bucket "$b" \
-          --query 'Contents[].Key' --output text 2>/dev/null \
-          | tr '\t' '\n' \
-          | sed "s|^|$b/|" >> /tmp/all_keys
+          --query 'Contents[].[Key,LastModified]' --output text 2>/dev/null \
+          | awk -F"\t" -v c="$CUTOFF" -v b="$b" 'NF==2 && substr($2,1,19) < c { print b "/" $1 }' >> /tmp/all_keys
       done
       sed -i '/^$/d' /tmp/all_keys
 
