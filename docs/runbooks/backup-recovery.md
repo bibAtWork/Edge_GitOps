@@ -88,17 +88,46 @@ it to additionally confirm that `DeleteObject` is denied for both. ADR-005 requi
 *attempted*, not inferred — a policy that reads correctly and evaluates differently is the
 entire reason the test exists.
 
-Create the relay credential and unsuspend the relay:
+Create the relay credential:
 
 ```bash
-kubectl create secret generic backup-relay-aws-credential -n longhorn-system \
-  --from-literal=AWS_ACCESS_KEY_ID="$(terraform output -raw backup_relay_access_key_id)" \
-  --from-literal=AWS_SECRET_ACCESS_KEY="$(terraform output -raw backup_relay_secret_access_key)" \
-  --from-literal=AWS_BUCKET="$(terraform output -raw backup_vault_bucket)"
+./scripts/make-relay-credential.sh
 ```
 
-Re-create that secret as a SOPS-encrypted manifest under `34-backup/` so Flux owns it, then
-set `suspend: false` in `backup-relay.yaml`.
+This reads the Terraform outputs directly and writes
+`cluster/base/infrastructure/34-backup/backup-relay-credential.yaml`, already
+SOPS-encrypted, and adds it to the kustomization. The relay's AWS secret key never
+appears in a terminal, a shell history, or a chat window -- it goes from
+`terraform output` into a file that is encrypted before it is ever placed inside the
+repository. Encryption needs only the age *public* key, which is committed in
+`.sops.yaml`, so no private key material is required to run it.
+
+It fails closed. Plaintext is written to a temp file outside the working tree and
+shredded on every exit path, and the script refuses to place anything in the repo
+unless it can confirm both that the output contains ciphertext and that the
+plaintext secret does not appear in it. `sops` exiting 0 is not by itself proof the
+values were encrypted -- a `path_regex` that does not match produces a passthrough
+copy with no error.
+
+Commit and merge that, and let Flux apply the secret **before** unsuspending. Then
+unsuspend as a separate change:
+
+```
+cluster/base/infrastructure/34-backup/backup-relay.yaml  ->  suspend: false
+```
+
+The order is not cosmetic. Unsuspending first leaves the CronJob firing against a
+missing secret, which presents as `CreateContainerConfigError` rather than anything
+naming the real cause.
+
+Trigger the first run by hand rather than waiting for 05:00, and confirm objects
+actually arrive in the vault rather than trusting the exit code:
+
+```bash
+kubectl create job -n longhorn-system relay-test --from=cronjob/backup-relay
+kubectl logs -n longhorn-system -l job-name=relay-test --tail=40
+aws s3 ls s3://homelab-backup-vault/longhorn/ --recursive | head
+```
 
 ---
 
