@@ -60,7 +60,7 @@ spec:
                   set -eu
                   OUT=/work/keycloak.sql.gz
 
-                  pg_dump -h keycloak-postgresql -U keycloak \
+                  pg_dump -h keycloak-pg-rw -U keycloak \
                     -d keycloak --clean --if-exists | gzip -9 > "$OUT"
 
                   # Refuse to upload a truncated or empty dump. Without this the
@@ -77,8 +77,10 @@ spec:
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: keycloak-secrets
-                      key: postgres-password
+                      # CNPG-managed credential for the role the operator created,
+                      # not the hand-managed password the old StatefulSet used.
+                      name: keycloak-pg-app
+                      key: password
               volumeMounts:
                 - name: work
                   mountPath: /work
