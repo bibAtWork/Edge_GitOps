@@ -21,6 +21,18 @@ spec:
     - fromEntities:
         - host
         - remote-node
+    # vmagent scraping longhorn-manager on :9500. Without this the scrape is
+    # dropped by default-deny and Longhorn simply reports no metrics -- which is
+    # indistinguishable from Longhorn being healthy and idle, and is how this
+    # cluster ran with zero longhorn_* series and nobody noticing.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: vmagent
+      toPorts:
+        - ports:
+            - port: "9500"
+              protocol: TCP
   egress:
     - toEndpoints:
         - matchLabels:
