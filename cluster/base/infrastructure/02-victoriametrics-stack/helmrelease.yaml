@@ -11,7 +11,7 @@ spec:
   chart:
     spec:
       chart: victoria-metrics-k8s-stack
-      version: 0.91.2
+      version: 0.91.1
       sourceRef:
         kind: HelmRepository
         name: victoriametrics
@@ -41,6 +41,20 @@ spec:
           limits:
             memory: "2Gi"
         storage:
+          # On Longhorn since 2026-08-24: real block devices with ext4 rather than
+          # hostPath on the system disk, so these no longer share an I/O queue with
+          # etcd and can be backed up at the volume level.
+          #
+          # Sizes follow RETENTION, not current usage -- which pushed metrics UP.
+          # 62MB/day against 12-month retention is ~22GB at steady state; 107MB/day
+          # of logs against 90 days is ~10GB. Measured on a 42-day-old cluster, so
+          # none had reached steady state and observed usage alone would have
+          # under-provisioned metrics.
+          #
+          # Over-claiming is not free: Longhorn reserves 30% of the disk, leaving a
+          # ~238GiB budget of 340GiB, and oversized claims block real ones from
+          # scheduling. Expansion is enabled, shrinking is not -- size to
+          # observed-plus-headroom and grow later.
           storageClassName: longhorn
           resources:
             requests:
