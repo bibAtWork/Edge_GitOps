@@ -1,0 +1,55 @@
+# Single source of truth for every backup schedule and retention count in the
+# cluster (ADR-002 Task 2).
+#
+# ADR-002 requires these be configuration rather than manifest literals, so that
+# tuning retention never means editing a workload. Two mechanisms carry them:
+#
+#   - Structural fields (a RecurringJob's cron/retain, a CronJob's schedule) are
+#     injected at build time by the Kustomize `replacements` block in
+#     kustomization.yaml. Kustomize resolves them locally, within this directory.
+#   - Values read by job scripts arrive at runtime via `envFrom`, so a change
+#     takes effect on the next run with no rebuild.
+#
+# Flux's postBuild.substituteFrom would have been the obvious alternative and is
+# deliberately NOT used. This repo has a single cluster-wide Flux Kustomization,
+# and postBuild substitutes across everything it renders -- including the eight
+# existing manifests whose shell scripts contain ${VAR}. It would silently blank
+# ${SIZE} in the filer dump guard, which is the check that stops a truncated dump
+# being uploaded as if it were good. A retention knob is not worth breaking the
+# integrity guards to get.
+#
+# Schedules are ordered so each stage sees the previous one's output:
+# backups (02-04) -> relay (05) -> restore-test (07) -> reconcile (09).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-retention-config
+  namespace: longhorn-system
+data:
+  # Longhorn snapshots: same-disk, cheap, fine-grained rollback. Chains are kept
+  # short on purpose -- snapshots live on the replica disk, and a long chain
+  # costs both space and read performance.
+  snapshot_cron: "0 2 * * *"
+  snapshot_retain: "7"
+
+  # Longhorn backups to the local SeaweedFS target. The tiers deduplicate against
+  # each other, so 11 retained backups cost far less than 11 full copies.
+  backup_weekly_cron: "0 3 * * 0"
+  backup_weekly_retain: "5"
+  backup_monthly_cron: "0 4 1 * *"
+  backup_monthly_retain: "6"
+
+  # SeaweedFS live-bucket staging (distinct from the Longhorn backup target).
+  seaweed_staging_cron: "0 1 * * *"
+  seaweed_staging_retain: "14"
+
+  relay_cron: "0 5 * * *"
+  restore_test_cron: "0 7 * * *"
+  reconcile_cron: "0 9 * * *"
+  remote_probe_cron: "0 6 1 * *"
+
+  # An object must be absent locally this long before the reconciler will tag it
+  # prunable. The cap is a circuit breaker: a large eligible set means the diff
+  # or local storage is broken, never that pruning should be aggressive.
+  prune_grace_days: "14"
+  prune_tag_cap: "5000"
