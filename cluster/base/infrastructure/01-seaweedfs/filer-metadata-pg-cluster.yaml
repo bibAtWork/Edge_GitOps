@@ -1,8 +1,9 @@
 # SeaweedFS filer metadata, run by CloudNativePG on node-local storage.
 #
-# Supersedes the filer-pg cluster in filer-postgres-cluster.yaml, which remains
-# deployed as rollback until this one has proven itself. Cutover is the filer's
-# WEED_POSTGRES_HOSTNAME in helmrelease.yaml.
+# Replaced the filer-pg cluster (#265), which was kept alongside as rollback
+# until this one had proven itself and was removed once it had. The PVs behind
+# it use reclaimPolicy Retain, so that data survives the PVC deletion and can
+# still be recovered by binding a new claim to it if this ever proves wrong.
 #
 # This database IS the SeaweedFS namespace: volume servers hold anonymous chunks,
 # and only this metadata maps them back to real files. Losing it renders every
