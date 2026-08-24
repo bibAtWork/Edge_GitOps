@@ -62,7 +62,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: paperless-valkey-swfs
+            claimName: paperless-valkey-lh
 ---
 apiVersion: v1
 kind: Service

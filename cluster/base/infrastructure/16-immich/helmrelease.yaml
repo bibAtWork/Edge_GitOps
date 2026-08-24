@@ -47,18 +47,16 @@ spec:
     immich:
       persistence:
         library:
-          # Pre-created PVC required by chart checks.yaml; chart does not
-          # provision it -- so unlike the Grafana case, pointing this at a
-          # different claim does NOT cause Helm to prune the old one. The
-          # original immich-library PVC survives as the soak copy.
+          # Pre-created PVC required by chart checks.yaml; the chart does not
+          # provision it, so pointing at another claim does NOT prune the old
+          # one -- the SeaweedFS PVC survives as the soak copy.
           #
-          # Migrated to SeaweedFS 2026-08-18 while the library was still only
-          # 370MB / 154 files. This is the volume that most needs to be shared
-          # for immich to move between nodes, and it is the one that grows
-          # without bound -- doing it now costs minutes, doing it at 100GB
-          # would be an outage. Verified by content: identical file list,
-          # identical per-file md5s, 388,089,828 bytes on both sides.
-          existingClaim: immich-library-swfs
+          # On Longhorn since 2026-08-24. It previously sat on SeaweedFS CSI,
+          # whose mount service is documented upstream as not resilient to its
+          # own restarts -- one OOM of that daemon returned EIO to every
+          # SeaweedFS volume on the node at once. Copy verified by content:
+          # 155 files, identical md5s, 405,203,043 bytes, fuse.seaweedfs -> ext4.
+          existingClaim: immich-library-lh
 
     # The chart auto-sets REDIS_HOSTNAME=immich-valkey; enable the bundled Valkey.
     valkey:
@@ -68,27 +66,17 @@ spec:
           backup.velero.io/excluded-volumes: data
       persistence:
         data:
-          # Migrated to SeaweedFS CSI (2026-08-18). Pure cache (valkey), so a
-          # loss costs a warm-up, not data.
+          # Pure cache, so a loss costs a warm-up rather than data -- which is
+          # why it moved with no copy at all.
           #
-          # An earlier version of this comment claimed existingClaim "keeps the
-          # old local-path PVC intact for rollback". That is FALSE and worth
-          # stating plainly: pointing the chart at an existingClaim removes the
-          # chart-templated PVC from the rendered manifest, so Helm PRUNES it on
-          # the next upgrade, and local-path's Delete reclaim policy wipes the
-          # directory. The old "immich-valkey" PVC was destroyed this way
-          # (local-path-provisioner logged the delete). The same mistake cost
-          # Grafana its volume the same day -- see 04-grafana/helmrelease.yaml.
-          # There is no rollback here; the copy-out is the only safety net.
-          #
-          # `type` is required. Without it this chart defaults the volume to
-          # emptyDir and silently ignores existingClaim -- the pod comes up
-          # healthy on scratch space and nothing reports a problem. Dropping
-          # `type` when this block was first rewritten is exactly what happened,
-          # and it went unnoticed because a write test against the mount path
-          # succeeds just as well on emptyDir.
+          # `type` is required. Without it the chart silently falls back to
+          # emptyDir and ignores existingClaim: the pod comes up healthy on
+          # scratch space and nothing reports a problem. That happened once,
+          # and went unnoticed because writing a file to the mount path
+          # succeeds just as well on emptyDir. Check filesystem type, not
+          # writability.
           type: persistentVolumeClaim
-          existingClaim: immich-valkey-swfs
+          existingClaim: immich-valkey-lh
 
     # Efficiency review 2026-08-17: these resources blocks were previously set at
     # the component top level (server.resources / machine-learning.resources) —
@@ -152,16 +140,13 @@ spec:
       persistence:
         cache:
           enabled: true
-          # Migrated to SeaweedFS CSI (2026-08-18) as an EMPTY volume rather
-          # than copying the old contents. This holds downloaded ML models --
-          # pure cache that Immich re-fetches on demand, so copying ~10GB
-          # buys nothing. It also sidesteps a real problem: HuggingFace's
+          # Downloaded ML models -- pure cache Immich re-fetches on demand, so
+          # this moves as an EMPTY volume rather than being copied. That also
+          # sidesteps a real problem found earlier: HuggingFace's
           # .cache/huggingface/download/*.lock and *.metadata files did not
-          # survive cp -a, which the content verification correctly caught.
-          # Expect a one-off model re-download on first use after this.
+          # survive cp -a, which content verification correctly caught. Expect
+          # one model re-download on first use.
           #
-          # `type` is required here for the same reason as the valkey volume
-          # above -- without it the chart falls back to emptyDir and ignores
-          # existingClaim.
+          # `type` is required here for the same reason as the valkey volume.
           type: persistentVolumeClaim
-          existingClaim: immich-machine-learning-swfs
+          existingClaim: immich-ml-cache-lh
