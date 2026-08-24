@@ -37,3 +37,21 @@ variable "tags" {
     Environment = "homelab"
   }
 }
+
+variable "vault_object_lock_days" {
+  description = "ADR-002 backup vault default Object Lock retention, in days (Governance mode)"
+  type        = number
+  default     = 21
+}
+
+variable "vault_noncurrent_expiration_days" {
+  description = "Days before noncurrent versions in the backup vault expire. Must exceed vault_object_lock_days so Lifecycle never conflicts with an active lock."
+  type        = number
+  default     = 45
+}
+
+variable "vault_ia_transition_days" {
+  description = "Days before current vault objects move to Standard-IA. Not lower than 30: Standard-IA bills a 30-day minimum plus a per-object transition charge, so an earlier move costs money and buys nothing."
+  type        = number
+  default     = 30
+}

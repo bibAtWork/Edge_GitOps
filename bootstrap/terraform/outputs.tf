@@ -36,3 +36,38 @@ output "talos_backup_secret_access_key" {
   value       = aws_iam_access_key.talos_backup.secret
   sensitive   = true
 }
+
+# ADR-002 backup vault. Access keys are sensitive; read them with
+#   terraform output -raw backup_relay_secret_access_key
+# The admin identity deliberately has no key here -- see backup-vault-iam.tf.
+output "backup_vault_bucket" {
+  description = "Name of the ADR-002 immutable backup vault"
+  value       = aws_s3_bucket.vault.id
+}
+
+output "backup_relay_access_key_id" {
+  description = "Access key ID for the write-only relay identity"
+  value       = aws_iam_access_key.backup_relay.id
+}
+
+output "backup_relay_secret_access_key" {
+  description = "Secret access key for the write-only relay identity"
+  value       = aws_iam_access_key.backup_relay.secret
+  sensitive   = true
+}
+
+output "backup_auditor_access_key_id" {
+  description = "Access key ID for the read-and-tag auditor identity"
+  value       = aws_iam_access_key.backup_auditor.id
+}
+
+output "backup_auditor_secret_access_key" {
+  description = "Secret access key for the read-and-tag auditor identity"
+  value       = aws_iam_access_key.backup_auditor.secret
+  sensitive   = true
+}
+
+output "backup_admin_user_arn" {
+  description = "ARN of the interactive MFA admin identity (no access key is created by Terraform)"
+  value       = aws_iam_user.backup_admin.arn
+}
