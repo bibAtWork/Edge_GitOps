@@ -107,8 +107,14 @@ info "In-cluster credentials hold no delete permission"
 # correctly and evaluates differently is the entire reason for testing it.
 if [ -n "${RELAY_ACCESS_KEY_ID:-}" ] && [ -n "${RELAY_SECRET_ACCESS_KEY:-}" ]; then
   KEY="probe/delete-denial-check"
+  # A real body, not /dev/null. S3 rejects a zero-length PutObject against an
+  # Object Lock bucket, so an empty probe reports the write as denied and the
+  # check reads as a broken relay policy when the policy is correct.
+  PROBE_BODY="$(mktemp)"
+  trap 'rm -f "$PROBE_BODY"' EXIT
   if AWS_ACCESS_KEY_ID="$RELAY_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$RELAY_SECRET_ACCESS_KEY" \
-     aws s3api put-object --bucket "$BUCKET" --key "$KEY" --body /dev/null >/dev/null 2>&1; then
+     printf 'adr005-probe
+' > "$PROBE_BODY" &&      aws s3api put-object --bucket "$BUCKET" --key "$KEY" --body "$PROBE_BODY" >/dev/null 2>&1; then
     pass "relay can write (expected)"
   else
     fail "relay cannot write -- the relay will not work"

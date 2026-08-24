@@ -129,7 +129,18 @@ spec:
                   SEEN="$IDX/first-seen.tsv"
                   touch "$SEEN"
                   NOW="$(date -u +%s)"
-                  awk -F'\t' -v now="$NOW" 'NR==FNR { first[$1]=$2; next } { print $1 "\t" (($1 in first) ? first[$1] : now) }' "$SEEN" "$NEW" > "$SEEN.tmp"
+                  # Keyed on FILENAME, not the usual NR==FNR idiom, which is silently broken
+                  # when the first file is empty -- as first-seen.tsv is on the very first
+                  # run. With no records from file one, NR never advances past FNR, so
+                  # NR==FNR stays true for EVERY line of file two, every record takes the
+                  # next branch, and the output is empty. It then stays empty forever,
+                  # because the file it needs to be seeded from is the one it failed to
+                  # write. Observed live: 542 indexed objects, 0 first-seen entries.
+                  #
+                  # The consequence is not cosmetic. These timestamps are how the reconciler
+                  # applies its grace period to how long an object has been ABSENT; without
+                  # them there is nothing to measure the grace period against.
+                  awk -F'\t' -v now="$NOW" -v seen="$SEEN" 'FILENAME==seen { first[$1]=$2; next } { print $1 "\t" (($1 in first) ? first[$1] : now) }' "$SEEN" "$NEW" > "$SEEN.tmp"
                   mv "$SEEN.tmp" "$SEEN"
 
                   OBJECTS="$(wc -l < "$NEW" | tr -d ' ')"
