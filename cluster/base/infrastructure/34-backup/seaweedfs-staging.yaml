@@ -115,7 +115,14 @@ spec:
                     # chunk-loss failure is permanent, so retrying cannot help.
                     OUT="$(rclone sync "s3:$b" "$DEST/$b" --transfers 4 --checkers 8 --stats-one-line --retries 1 --low-level-retries 1 --timeout 60s --contimeout 20s 2>&1)" || true
                     echo "$OUT"
-                    N="$(printf %s "$OUT" | grep -c "ERROR :" || true)"
+                    # Count DISTINCT object paths, not ERROR lines. rclone logs one line per
+                    # failed attempt and repeats the same object across retries, and it also
+                    # emits an "Attempt N/M failed" summary line that is not an object at all.
+                    # A line count therefore overstates the damage: it first reported 11
+                    # against 4 genuinely damaged objects, including 4 for a bucket that holds
+                    # exactly one. An inflated integrity figure is its own hazard -- once the
+                    # real number turns out lower, the metric stops being believed.
+                    N="$(printf %s "$OUT" | awk -F'ERROR : ' '/ERROR : /{split($2,a,":"); if (a[1] !~ /^Attempt /) print a[1]}' | sort -u | grep -c . || true)"
                     if [ "$N" -gt 0 ]; then
                       UNREADABLE=$((UNREADABLE + N))
                       echo "WARN: $b had $N unreadable object(s); staged the remainder"
