@@ -61,6 +61,21 @@ spec:
     longhornUI:
       replicas: 0
 
+    # The chart creates its own "longhorn" StorageClass and marks it default with
+    # 3 replicas. Both are wrong here and the collision is not theoretical: a
+    # hand-written StorageClass of the same name fought the chart's, leaving TWO
+    # default classes (local-path and longhorn) and a test volume provisioned with
+    # replicas=3 on a node that has exactly one Longhorn disk.
+    #
+    # Configure the chart's class rather than duplicating it. defaultClass: false
+    # keeps local-path as the sole default until workloads are migrated and
+    # verified -- flipping the default early silently sends every new PVC to
+    # storage not yet proven under load here.
+    persistence:
+      defaultClass: false
+      defaultClassReplicaCount: 1
+      defaultFsType: ext4
+
     defaultSettings:
       # Per-node disk config comes from node labels/annotations set in the Talos
       # patch, NOT from a global defaultDataPath -- a single cluster-wide string

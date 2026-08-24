@@ -1,30 +1,8 @@
-# General-purpose class. NOT marked default — local-path stays default until
-# workloads are migrated one at a time and verified, the same discipline used for
-# seaweedfs-storage. Flipping the default early silently sends every new PVC to
-# storage that has not been proven under load here.
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: longhorn
-provisioner: driver.longhorn.io
-allowVolumeExpansion: true
-reclaimPolicy: Delete
-# Defers PV binding until the pod is scheduled, so replica placement and pod
-# placement agree. This is what makes dataLocality actually pay off.
-volumeBindingMode: WaitForFirstConsumer
-parameters:
-  # One node, so one replica. A second replica on a single-node cluster requires
-  # replicaSoftAntiAffinity and only protects against a disk failing, not a node
-  # failing -- and this node has exactly one Longhorn disk, so there is no second
-  # disk to place it on. Durability here comes from backups, not replication.
-  numberOfReplicas: "1"
-  # Minutes. A low value means a node offline for routine maintenance has its
-  # replicas deleted and rebuilt from scratch -- needless rebuild I/O and SSD
-  # wear for any reboot or slow Talos upgrade. 48h suits a home server.
-  staleReplicaTimeout: "2880"
-  dataLocality: "best-effort"
-  fsType: "ext4"
----
+# Only the database class is defined here. The general-purpose "longhorn" class
+# is the chart's own, configured via persistence.* in helmrelease.yaml -- defining
+# a second one with the same name here produced two default StorageClasses and a
+# replica count that ignored this file entirely.
+
 # Database class. Separate from the general one for two reasons that both point
 # the same way: PGDATA should never be casually deleted, and a database that
 # replicates at the application layer must not also replicate at the block layer.
