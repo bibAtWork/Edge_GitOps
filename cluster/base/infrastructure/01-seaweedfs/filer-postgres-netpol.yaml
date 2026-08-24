@@ -1,36 +1,12 @@
-# Ingress for the filer metadata database.
+# Ingress to the filer's metadata database, now the CloudNativePG-managed
+# instance. The rule for the old hand-rolled StatefulSet was removed with it.
 #
-# Needed because allow-seaweedfs-internal.yaml (10-network-policies/) scopes
-# itself with endpointSelector app.kubernetes.io/name=seaweedfs, and this
-# StatefulSet is labelled app=seaweedfs-filer-postgres -- so it matches no
-# existing rule and falls through to the clusterwide default-deny-ingress.
-# Confirmed live before adding: the filer could not open a TCP connection to
-# seaweedfs-filer-postgres:5432 at all.
-#
-# Scoped to the seaweedfs namespace rather than to the filer's labels
-# specifically, because two distinct callers need it: the filer itself, and
-# the hourly pg_dump CronJob (filer-postgres-backup-cronjob.yaml) whose pods
-# carry only batch.kubernetes.io/job-name-style labels. That is the same trap
-# documented in allow-seaweedfs-internal.yaml, where label-scoped rules
-# silently missed the bucket-init and collection-routing Jobs.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-filer-postgres-ingress
-  namespace: seaweedfs
-spec:
-  endpointSelector:
-    matchLabels:
-      app: seaweedfs-filer-postgres
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: seaweedfs
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
----
+# Without this the filer cannot reach its own database: the clusterwide CNPG
+# policy admits only the operator and sibling instances, and unlike keycloak this
+# namespace has no allow-intra-namespace-ingress to fall back on -- it has egress
+# only. The failure is a connection timeout from inside the same namespace, which
+# reads like a dead server rather than a policy drop.
+
 # Same rule for the CloudNativePG-managed instance that replaces the hand-rolled
 # StatefulSet above. Selected by CNPG's own pod label rather than app=, since the
 # operator owns those pods.
