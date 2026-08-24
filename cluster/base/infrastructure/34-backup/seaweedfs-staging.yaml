@@ -107,7 +107,13 @@ spec:
                   UNREADABLE=0
                   for b in velero-backups db-backups filer-metadata zot-registry etcd-backups pvs; do
                     echo "--- $b"
-                    OUT="$(rclone sync "s3:$b" "$DEST/$b" --transfers 4 --checkers 8 --stats-one-line --retries 2 2>&1)" || true
+                    # Retries and timeouts are bounded deliberately. An unreadable object does
+                    # not fail fast -- SeaweedFS returns a partial body then an unexpected EOF,
+                    # so rclone reads it as a transient network fault and retries the whole
+                    # transfer. Observed live: four damaged objects held a 72 MiB run past 20
+                    # minutes, which would overrun the window before the relay reads it. A
+                    # chunk-loss failure is permanent, so retrying cannot help.
+                    OUT="$(rclone sync "s3:$b" "$DEST/$b" --transfers 4 --checkers 8 --stats-one-line --retries 1 --low-level-retries 1 --timeout 60s --contimeout 20s 2>&1)" || true
                     echo "$OUT"
                     N="$(printf %s "$OUT" | grep -c "ERROR :" || true)"
                     if [ "$N" -gt 0 ]; then
