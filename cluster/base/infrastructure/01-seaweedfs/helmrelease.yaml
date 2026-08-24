@@ -141,7 +141,7 @@ spec:
         WEED_POSTGRES_ENABLED: "true"
         # CNPG read-write service, which always resolves to the current primary.
         # The previous value named the hand-rolled StatefulSet directly.
-        WEED_POSTGRES_HOSTNAME: filer-pg-rw
+        WEED_POSTGRES_HOSTNAME: filer-meta-pg-rw
         WEED_POSTGRES_PORT: "5432"
         WEED_POSTGRES_USERNAME: seaweedfs
         WEED_POSTGRES_DATABASE: seaweedfs_filer
@@ -159,7 +159,7 @@ spec:
       secretExtraEnvironmentVars:
         WEED_POSTGRES_PASSWORD:
           secretKeyRef:
-            name: filer-pg-app
+            name: filer-meta-pg-app
             key: password
       s3:
         enabled: true

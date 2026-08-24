@@ -5,5 +5,6 @@ resources:
   - s3-secret.yaml
   - bucket-init-job.yaml
   - filer-postgres-cluster.yaml
+  - filer-metadata-pg-cluster.yaml
   - filer-postgres-netpol.yaml
   - filer-postgres-backup-cronjob.yaml
