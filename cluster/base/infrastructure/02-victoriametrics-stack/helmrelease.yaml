@@ -41,10 +41,24 @@ spec:
           limits:
             memory: "2Gi"
         storage:
-          storageClassName: local-path
+          # On Longhorn since 2026-08-24: real block devices with ext4 rather than
+          # hostPath on the system disk, so these no longer share an I/O queue with
+          # etcd and can be backed up at the volume level.
+          #
+          # Sizes follow RETENTION, not current usage -- which pushed metrics UP.
+          # 62MB/day against 12-month retention is ~22GB at steady state; 107MB/day
+          # of logs against 90 days is ~10GB. Measured on a 42-day-old cluster, so
+          # none had reached steady state and observed usage alone would have
+          # under-provisioned metrics.
+          #
+          # Over-claiming is not free: Longhorn reserves 30% of the disk, leaving a
+          # ~238GiB budget of 340GiB, and oversized claims block real ones from
+          # scheduling. Expansion is enabled, shrinking is not -- size to
+          # observed-plus-headroom and grow later.
+          storageClassName: longhorn
           resources:
             requests:
-              storage: 20Gi
+              storage: 25Gi
 
     vlsingle:
       enabled: true
@@ -57,10 +71,10 @@ spec:
           limits:
             memory: "1Gi"
         storage:
-          storageClassName: local-path
+          storageClassName: longhorn
           resources:
             requests:
-              storage: 40Gi
+              storage: 20Gi
 
     # VictoriaTraces (experimental — acceptable for home lab)
     vtsingle:
@@ -73,10 +87,10 @@ spec:
           limits:
             memory: "512Mi"
         storage:
-          storageClassName: local-path
+          storageClassName: longhorn
           resources:
             requests:
-              storage: 10Gi
+              storage: 5Gi
 
     grafana:
       enabled: false
