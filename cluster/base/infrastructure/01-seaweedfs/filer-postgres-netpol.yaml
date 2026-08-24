@@ -30,3 +30,30 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
+---
+# Same rule for the CloudNativePG-managed instance that replaces the hand-rolled
+# StatefulSet above. Selected by CNPG's own pod label rather than app=, since the
+# operator owns those pods.
+#
+# Without this the filer cannot reach its own metadata database: the clusterwide
+# CNPG policy only admits the operator (cnpg-system) and sibling instances, and
+# unlike keycloak, this namespace has no allow-intra-namespace-ingress to fall
+# back on -- it has egress only. The failure is a connection timeout from inside
+# the same namespace, which reads like a dead server rather than a policy drop.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-filer-pg-cnpg-ingress
+  namespace: seaweedfs
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: seaweedfs
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
