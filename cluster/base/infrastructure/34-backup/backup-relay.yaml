@@ -99,10 +99,28 @@ spec:
                   mkdir -p "$IDX"
                   NEW="$IDX/current.tsv"
                   : > "$NEW"
-                  rclone lsf s3:longhorn-backups --recursive --format "ps" --separator "	" \
+                  # --files-only matters: rclone lsf -R lists directories too, and the
+                  # backupstore is deeply nested (blocks/xx/yy), so without it the index held
+                  # 106 entries for 34 real objects. S3 has no directories, so each of those
+                  # is a row the reconciler could never match against an Inventory entry.
+                  rclone lsf s3:longhorn-backups --recursive --files-only --format "ps" --separator "	" \
                     | awk -F'\t' '{print "longhorn/" $1 "\t" $2}' >> "$NEW" || true
                   if [ -n "$LATEST" ]; then
-                    ( cd "$LATEST" && find . -type f -printf "seaweedfs/%P\t%s\n" ) >> "$NEW" || true
+                    # find -printf is a GNU extension and this image ships busybox find, which
+                    # does not support it: the command printed its own usage to stderr and wrote
+                    # nothing, leaving the seaweedfs half of the index EMPTY while the relay
+                    # reported success. 508 objects copied, none recorded.
+                    #
+                    # That gap is not cosmetic. The reconciler diffs S3 against this index, so
+                    # all 508 would have read as absent locally and been tagged for pruning --
+                    # comfortably under the 5000 cap meant to catch exactly that runaway.
+                    #
+                    # Portable equivalent using only what busybox provides. The separator is a
+                    # literal tab, not an escape, because the surrounding YAML block scalar
+                    # makes backslash handling easy to get wrong in a way nothing validates.
+                    ( cd "$LATEST" && find . -type f | while read -r f; do
+                        echo "seaweedfs/${f#./}	$(stat -c %s "$f")"
+                      done ) >> "$NEW" || true
                   fi
 
                   # Keep the earliest sighting per key, so the reconciler applies
