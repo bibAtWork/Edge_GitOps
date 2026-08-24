@@ -4,14 +4,15 @@
 #
 # Valkey is a cache, so a SeaweedFS fault here costs a warm-up rather than data;
 # that is why it was among the first volumes moved. The old local-path PVC
-# (paperless-valkey) was removed once this had soaked.
+# (paperless-valkey) was removed once this had soaked. On Longhorn since
+# 2026-08-24, off the SeaweedFS FUSE mount.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: paperless-valkey-swfs
+  name: paperless-valkey-lh
   namespace: paperless
 spec:
-  storageClassName: seaweedfs-storage
+  storageClassName: longhorn
   accessModes:
     - ReadWriteOnce
   resources:
