@@ -120,9 +120,13 @@ spec:
                     # emits an "Attempt N/M failed" summary line that is not an object at all.
                     # A line count therefore overstates the damage: it first reported 11
                     # against 4 genuinely damaged objects, including 4 for a bucket that holds
-                    # exactly one. An inflated integrity figure is its own hazard -- once the
+                    # exactly one. Two rclone messages are excluded because they name a
+                    # subject that is not an object: the "Attempt N/M failed" summary, and
+                    # "Local file system at <path>: not deleting files as there were IO
+                    # errors", which reports on the destination rather than the source.
+                    # An inflated integrity figure is its own hazard -- once the
                     # real number turns out lower, the metric stops being believed.
-                    N="$(printf %s "$OUT" | awk -F'ERROR : ' '/ERROR : /{split($2,a,":"); if (a[1] !~ /^Attempt /) print a[1]}' | sort -u | grep -c . || true)"
+                    N="$(printf %s "$OUT" | awk -F'ERROR : ' '/ERROR : /{split($2,a,":"); if (a[1] !~ /^Attempt / && a[1] !~ /^Local file system at /) print a[1]}' | sort -u | grep -c . || true)"
                     if [ "$N" -gt 0 ]; then
                       UNREADABLE=$((UNREADABLE + N))
                       echo "WARN: $b had $N unreadable object(s); staged the remainder"
