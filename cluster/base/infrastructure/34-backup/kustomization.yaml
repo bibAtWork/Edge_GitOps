@@ -14,6 +14,8 @@ resources:
   - restore-test-cronjob.yaml
   - reconciler-script.yaml
   - reconciler-cronjob.yaml
+  - remote-probe-script.yaml
+  - remote-probe-cronjob.yaml
   - backup-auditor-credential.yaml
 
 # Schedules and retain counts are injected from backup-retention-config so the
@@ -62,4 +64,8 @@ replacements:
   - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.reconcile_cron}
     targets:
       - select: {kind: CronJob, name: backup-reconciler}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.remote_probe_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-remote-probe}
         fieldPaths: [spec.schedule]

@@ -1,0 +1,153 @@
+# Monthly remote probe (ADR-005 Task 12).
+#
+# The one job that deliberately spends AWS egress. Everything else in this
+# design verifies locally, which is the point of the two-stage architecture --
+# but a purely local verification cannot tell you the remote copy is readable.
+# The relay could be writing corrupt objects, the bucket policy could have been
+# tightened into unreadability, the credential could have been rotated out from
+# under it, and every local check would still pass.
+#
+# So this reads from AWS, once a month, on the smallest thing that proves the
+# path works.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-remote-probe-script
+  namespace: longhorn-system
+data:
+  probe.sh: |
+    #!/bin/sh
+    # Reads back from the vault and compares against the known-good local copy.
+    #
+    # DEVIATION from ADR-005, stated plainly: the design describes downloading a
+    # backupstore, pointing a temporary Longhorn backup target at it, and
+    # restoring. That needs a second S3 endpoint stood up to serve the
+    # downloaded data, which is substantial machinery to build and maintain for
+    # a monthly check. What is implemented instead reads the remote objects and
+    # compares them byte-for-byte against the local backupstore, which proves
+    # the same thing this check exists to prove -- that the remote path works
+    # and the bytes are intact.
+    #
+    # The full restore-from-remote is the quarterly drill (Task 13), performed by
+    # a human who can also confirm the escrow is readable. Automating it here
+    # would not remove the need for that.
+    set -u
+
+    NOW="$(date -u +%s)"
+    EGRESS=0
+    LH_OK=0
+    LH_BAD=0
+    SW_OK=0
+    SW_BAD=0
+    RESULT=pass
+
+    log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+    bad() { RESULT=fail; log "FAIL: $*"; }
+
+    apk add --no-cache aws-cli >/dev/null 2>&1 || { echo "FATAL: tool install failed" >&2; exit 1; }
+
+    # ------------------------------------------------------------------
+    # Longhorn: the SMALLEST backup, deliberately.
+    #
+    # Egress is the cost being managed here, and a monthly check that pulls the
+    # largest volume would be both expensive and no more informative -- a broken
+    # remote path breaks for small objects too. If this selection logic ever
+    # breaks, egress jumps, which is why the byte count is a metric rather than
+    # just a log line.
+    # ------------------------------------------------------------------
+    SMALLEST="$(aws s3 ls "s3://$AWS_BUCKET/longhorn/" --recursive 2>/dev/null \
+      | awk '$3 > 0 {print $3, $4}' | sort -n | head -1)"
+
+    if [ -z "$SMALLEST" ]; then
+      bad "no relayed Longhorn objects found in the vault"
+    else
+      SZ="$(echo "$SMALLEST" | awk '{print $1}')"
+      KEY="$(echo "$SMALLEST" | awk '{print $2}')"
+      log "smallest relayed object: $KEY ($SZ bytes)"
+
+      # Pull enough of the same backup's prefix to be meaningful rather than a
+      # single file: the directory holding it, capped.
+      PREFIX="$(dirname "$KEY")"
+      aws s3 ls "s3://$AWS_BUCKET/$PREFIX/" --recursive 2>/dev/null \
+        | awk '$3 > 0 {print $4}' | head -n "$PROBE_OBJECT_LIMIT" > /tmp/lhkeys
+
+      while read -r K; do
+        [ -z "$K" ] && continue
+        aws s3 cp "s3://$AWS_BUCKET/$K" /tmp/remote.bin --quiet 2>/dev/null || {
+          bad "cannot read s3://$AWS_BUCKET/$K"; LH_BAD=$(( LH_BAD + 1 )); continue; }
+        B="$(stat -c %s /tmp/remote.bin)"
+        EGRESS=$(( EGRESS + B ))
+
+        # The local counterpart: strip the longhorn/ prefix to get the key as it
+        # exists in the local backupstore bucket.
+        LOCAL_KEY="${K#longhorn/}"
+        AWS_ACCESS_KEY_ID="$SEAWEED_KEY" AWS_SECRET_ACCESS_KEY="$SEAWEED_SECRET" AWS_DEFAULT_REGION=us-east-1 \
+          aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://longhorn-backups/$LOCAL_KEY" /tmp/local.bin --quiet 2>/dev/null || {
+          log "no local counterpart for $LOCAL_KEY (pruned locally?), skipping"
+          rm -f /tmp/remote.bin; continue; }
+
+        if [ "$(md5sum < /tmp/remote.bin | cut -d' ' -f1)" = "$(md5sum < /tmp/local.bin | cut -d' ' -f1)" ]; then
+          LH_OK=$(( LH_OK + 1 ))
+        else
+          bad "$K: remote copy differs from the local backupstore"
+          LH_BAD=$(( LH_BAD + 1 ))
+        fi
+        rm -f /tmp/remote.bin /tmp/local.bin
+      done < /tmp/lhkeys
+      log "longhorn: $LH_OK matched, $LH_BAD failed"
+    fi
+
+    # ------------------------------------------------------------------
+    # SeaweedFS: a small random sample, compared against the live source.
+    # ------------------------------------------------------------------
+    SEED="$(head -c 4 /dev/urandom | od -An -tu4 | tr -d ' ')"
+    aws s3 ls "s3://$AWS_BUCKET/seaweedfs/" --recursive 2>/dev/null \
+      | awk '$3 > 0 {print $4}' > /tmp/swall
+    awk -v seed="$SEED" 'BEGIN{srand(seed)} {print rand()"|"$0}' /tmp/swall \
+      | sort -t'|' -k1,1 | cut -d'|' -f2- | head -n "$PROBE_SAMPLE_SIZE" > /tmp/swsample
+    log "seaweedfs sample: $(wc -l < /tmp/swsample) of $(wc -l < /tmp/swall) (seed $SEED)"
+
+    while read -r K; do
+      [ -z "$K" ] && continue
+      REL="${K#seaweedfs/}"
+      BUCKET="${REL%%/*}"
+      OBJ="${REL#*/}"
+
+      aws s3 cp "s3://$AWS_BUCKET/$K" /tmp/r.bin --quiet 2>/dev/null || {
+        bad "cannot read s3://$AWS_BUCKET/$K"; SW_BAD=$(( SW_BAD + 1 )); continue; }
+      EGRESS=$(( EGRESS + $(stat -c %s /tmp/r.bin) ))
+
+      LIVE="$(AWS_ACCESS_KEY_ID="$SEAWEED_KEY" AWS_SECRET_ACCESS_KEY="$SEAWEED_SECRET" AWS_DEFAULT_REGION=us-east-1 \
+        aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://$BUCKET/$OBJ" - 2>/dev/null | md5sum | cut -d' ' -f1)"
+      if [ -z "$LIVE" ] || [ "$LIVE" = "d41d8cd98f00b204e9800998ecf8427e" ]; then
+        # Absent or unreadable locally. Not a remote failure -- the remote copy
+        # may well be the only surviving one, which is the entire point of
+        # having it.
+        log "no readable live counterpart for $REL, skipping comparison"
+        rm -f /tmp/r.bin; continue
+      fi
+
+      if [ "$(md5sum < /tmp/r.bin | cut -d' ' -f1)" = "$LIVE" ]; then
+        SW_OK=$(( SW_OK + 1 ))
+      else
+        bad "$K: vault copy differs from live"
+        SW_BAD=$(( SW_BAD + 1 ))
+      fi
+      rm -f /tmp/r.bin
+    done < /tmp/swsample
+    log "seaweedfs: $SW_OK matched, $SW_BAD failed"
+
+    log "result=$RESULT egress_bytes=$EGRESS"
+
+    {
+      echo "backup_remote_probe_last_run_timestamp $NOW"
+      if [ "$RESULT" = pass ]; then echo "backup_remote_probe_pass 1"; else echo "backup_remote_probe_pass 0"; fi
+      echo "backup_remote_probe_egress_bytes $EGRESS"
+      echo "backup_remote_probe_longhorn_matched $LH_OK"
+      echo "backup_remote_probe_longhorn_failed $LH_BAD"
+      echo "backup_remote_probe_seaweedfs_matched $SW_OK"
+      echo "backup_remote_probe_seaweedfs_failed $SW_BAD"
+    } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+
+    [ "$RESULT" = pass ] || exit 1
+    echo "REMOTE_PROBE_OK"
