@@ -25,8 +25,15 @@ override.tf.json
 #
 # !example_override.tf
 
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
+# Saved plan output from `terraform plan -out=tfplan`.
+#
+# Uncommented 2026-08-24. A saved plan is not a summary -- it embeds the fully
+# resolved values it intends to apply, including outputs marked `sensitive`,
+# which for this configuration means the backup-relay and backup-auditor IAM
+# secret access keys in the clear. The rule shipped commented out as an example,
+# so a plan file left in the tree was untracked rather than ignored and would be
+# swept up by `git add -A` into a public repository.
+*tfplan*
 
 # Bootstrap config — contains all tokens and credentials, never commit
 bootstrap/config.json
