@@ -124,7 +124,7 @@ spec:
               # bitnami/kubectl was the obvious choice and is not pullable --
               # Bitnami moved their catalogue behind a subscription in 2025, so
               # the tag resolves to nothing.
-              image: docker.io/library/alpine:3.20
+              image: docker.io/library/alpine:3.24
               command:
                 - /bin/sh
                 - -c
