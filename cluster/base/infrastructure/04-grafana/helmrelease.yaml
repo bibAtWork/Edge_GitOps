@@ -737,6 +737,207 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+          - orgId: 1
+            name: Backup Alerts
+            folder: Infrastructure
+            interval: 10m
+            rules:
+              # ADR-002 Task 15. These watch the backup chain itself rather than the
+              # storage under it: a backup system that silently stops is
+              # indistinguishable from one that is working, right until a restore is
+              # attempted.
+              #
+              # These metric names are pushed by the jobs themselves to vmsingle via
+              # /api/v1/import/prometheus, so they are known to exist rather than
+              # assumed. Longhorn's own RecurringJob metrics are deliberately NOT
+              # alerted on yet -- nothing in longhorn-system was scraped at all until
+              # the VMServiceScrape added alongside this, and writing rules against
+              # unverified label names is exactly how the Trivy CVE alert above spent
+              # weeks silently matching nothing.
+              - uid: backup-unreadable-objects
+                title: SeaweedFSUnreadableBackupObjects
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'seaweedfs_staging_unreadable_objects'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Backup objects exist but cannot be read
+                  description: >-
+                    Objects in the SeaweedFS backup buckets list correctly and report correct sizes but fail on read -- their metadata survived while their chunks did not. Four dumps were in this state on 2026-08-24, including every Immich database backup, while the jobs that wrote them reported success. Listings and size guards cannot see this; only a real GET can. Run the staging job and read its WARN lines to identify them, then re-create the affected dumps from their live source.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-staging-stale
+                title: SeaweedFSStagingStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'time() - seaweedfs_staging_last_success_timestamp'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [129600]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    SeaweedFS staging has not succeeded in 36 hours
+                  description: >-
+                    The daily staging job copies SeaweedFS's own buckets -- Velero archives, database dumps, the Zot registry, filer metadata -- onto Longhorn. Nothing else protects them: Velero's file-system backup skips hostPath volumes and the SeaweedFS volume servers are hostPath by design. While this is stale those buckets have no current second copy. noDataState is Alerting here because a job that has stopped running emits nothing at all, and silence is the symptom.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-relay-failures
+                title: BackupRelayFailures
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'backup_relay_failures'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Relay to the AWS vault reported failures
+                  description: >-
+                    The nightly relay mirrors the local Longhorn backupstore and the newest SeaweedFS staging snapshot into the immutable AWS vault. Failures mean the off-site copy is diverging while local backups continue to look healthy. noDataState is OK because the relay ships suspended until the vault Terraform is applied.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: backup-relay-stale
+                title: BackupRelayStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'time() - backup_relay_last_success_timestamp'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [129600]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    AWS relay has not succeeded in 36 hours
+                  description: >-
+                    No new data has reached the off-site vault for over a day. Local backups are unaffected so nothing else will look wrong; this is the only signal that disaster-recovery coverage has stopped advancing. Expected to stay silent until the relay is unsuspended.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
