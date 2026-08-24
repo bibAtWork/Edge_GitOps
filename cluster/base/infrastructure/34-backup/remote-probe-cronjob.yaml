@@ -37,7 +37,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: probe
-              image: docker.io/library/alpine:3.20
+              image: docker.io/library/alpine:3.24
               command: ["/bin/sh", "/scripts/probe.sh"]
               env:
                 - name: VM_IMPORT_URL
