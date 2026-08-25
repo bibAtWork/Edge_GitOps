@@ -7,6 +7,7 @@ metadata:
     # SeaweedFS is the storage provider itself — needs hostPath for data dirs and
     # may run privileged containers (CSI driver). Cannot use baseline PSS.
     pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
 ---
 apiVersion: v1
 kind: Namespace
@@ -17,6 +18,7 @@ metadata:
     # These are blocked by baseline and restricted PSS. Monitoring is a trusted
     # system-level namespace; privileged enforcement is appropriate.
     pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
 ---
 apiVersion: v1
 kind: Namespace
@@ -26,6 +28,7 @@ metadata:
     # velero-node-agent DaemonSet runs as root (UID 0) with privileged: true to
     # traverse /var/lib/kubelet/pods and read PV data for Kopia file system backup.
     pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
 ---
 apiVersion: v1
 kind: Namespace
@@ -67,6 +70,7 @@ metadata:
     # Proxy pods (sysctler + tailscale containers) require privileged: true
     # to configure network interfaces and routing. baseline rejects this.
     pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
 ---
 apiVersion: v1
 kind: Namespace
@@ -81,7 +85,11 @@ kind: Namespace
 metadata:
   name: system-upgrade
   labels:
-    pod-security.kubernetes.io/enforce: privileged
+    # Restricted, not privileged. This namespace holds nothing: the Rancher chart
+    # hardcodes system-upgrade-controller into cattle-system, so the privileged
+    # label here was granting host access to an empty namespace while reading as
+    # though it were load-bearing.
+    pod-security.kubernetes.io/enforce: restricted
 ---
 apiVersion: v1
 kind: Namespace
@@ -89,6 +97,7 @@ metadata:
   name: cattle-system
   labels:
     pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
 ---
 apiVersion: v1
 kind: Namespace
@@ -116,6 +125,7 @@ metadata:
     # Falco Modern eBPF driver loads eBPF programs and needs SYS_BPF, PERFMON,
     # SYS_PTRACE capabilities that are blocked by baseline PSS.
     pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
 ---
 apiVersion: v1
 kind: Namespace
@@ -197,3 +207,64 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
+---
+# ── Namespaces this repo did not create ──────────────────────────────────────
+#
+# kube-system, kube-public, kube-node-lease and cilium-secrets are made by
+# Kubernetes and Cilium. They are adopted here only to carry a Pod Security
+# level: before this, the namespace running the CNI, CoreDNS and every static
+# control-plane pod had no PSS floor at all, which is a gap that reads as a
+# decision only once someone checks.
+#
+# Every one carries kustomize.toolkit.fluxcd.io/prune: disabled. Adopting an
+# object means Flux deletes it if it ever leaves Git, and for kube-system that
+# is a cluster-ending edit. The annotation makes Flux able to set labels and
+# unable to remove the namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Privileged is the honest level, not an aspiration: Cilium, CoreDNS and the
+    # static control-plane pods need host access and cannot run under baseline.
+    #
+    # audit and warn sit one bar higher on purpose. Nothing is blocked and
+    # nothing changes for what runs today, but anything NEW that would fail
+    # baseline is recorded in the audit log and surfaced at apply time -- which
+    # is how you find out whether a future workload here genuinely needs host
+    # access or merely inherited it.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-public
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Empty, and nothing here is expected to run pods.
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-node-lease
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Holds Lease objects only; no pods, by design.
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cilium-secrets
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Cilium's TLS material for Gateway listeners. Secrets only, never pods.
+    pod-security.kubernetes.io/enforce: restricted
