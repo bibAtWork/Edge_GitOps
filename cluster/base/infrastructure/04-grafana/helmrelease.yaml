@@ -33,22 +33,27 @@ spec:
       userKey: admin-user
       passwordKey: admin-password
     # Stateless. /var/lib/grafana is an emptyDir, so everything Grafana serves
-    # comes from this file on every start: datasources, the six gnetId
-    # dashboards, all fifty alert rules, and the admin user from
+    # comes from this file on every start: datasources, the eight gnetId
+    # dashboards, all twenty-three alert rules, and the admin user from
     # grafana-admin.
     #
     # The volume was removed rather than moved to Longhorn because it had
     # stopped being state and started being drift. Its dashboards directory is
     # written by the chart's download-dashboards init container, which only
-    # ever adds -- so two dashboards removed from this file months ago
-    # (kubernetes-cluster, seaweedfs) were still on disk and still loading, and
-    # one more existed only inside grafana.db, having been imported through the
-    # UI and never written down anywhere. None of the three were in Git. What
-    # Grafana showed and what this repository described had quietly diverged.
+    # ever adds, so an entry deleted from this list never removed the file it
+    # had written. Two dashboards were still on disk and still loading with
+    # nothing in Git describing them; both are declared again above.
+    #
+    # One of them is a good illustration of how little a filename proves. It
+    # was being served from a file called seaweedfs.json, which contained not a
+    # SeaweedFS dashboard but a copy of gnetId 14817, "Node Exporter - USE
+    # Method / Node" -- so the dashboard that appeared in Grafana had no
+    # relationship to the name of the file producing it, and no way to notice
+    # short of reading the JSON.
     #
     # What is genuinely lost, and it is not nothing:
     #
-    #  - Alert state. A restart re-evaluates all fifty rules from scratch, so
+    #  - Alert state. A restart re-evaluates every rule from scratch, so
     #    anything currently firing notifies again. Silences do not survive
     #    either; there were none.
     #  - Annotation history, starred dashboards, user preferences.
@@ -126,6 +131,29 @@ spec:
         envoy-overview:
           gnetId: 24459
           revision: 3
+          datasource: VictoriaMetrics
+        # These two were already being served before the move to a stateless
+        # Grafana, from files left on the old volume by dashboard entries
+        # deleted from this list months ago. The download-dashboards init
+        # container only ever adds, so removing an entry here never removed the
+        # file, and both kept loading with nothing in Git describing them.
+        #
+        # Declared rather than dropped: they were in daily use, and the point of
+        # going stateless was to make what Grafana serves match what is written
+        # down, not to lose dashboards.
+        #
+        # gnetId 14817 is a special case worth flagging before someone
+        # "corrects" it. https://grafana.com/api/dashboards/14817 returns 404,
+        # so it looks deleted -- but the revisions/N/download endpoint the chart
+        # actually calls returns it fine. Confirmed by fetching both and
+        # comparing against the copies recovered from the old volume.
+        node-exporter-use-method:
+          gnetId: 14817
+          revision: 1
+          datasource: VictoriaMetrics
+        kubernetes-cluster:
+          gnetId: 7249
+          revision: 1
           datasource: VictoriaMetrics
     alerting:
       rules.yaml:
