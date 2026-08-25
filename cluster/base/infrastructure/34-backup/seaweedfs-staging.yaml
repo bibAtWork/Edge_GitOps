@@ -79,6 +79,11 @@ spec:
                   TODAY="$(date -u +%Y%m%d)"
                   DEST="/staging/$TODAY"
 
+                  # The buckets this protects. Everything here is either the
+                  # only copy of something (database dumps, filer metadata) or
+                  # expensive to reconstruct (Velero archives).
+                  BUCKETS="velero-backups db-backups filer-metadata etcd-backups pvs"
+
                   # Hardlink the previous snapshot forward before syncing over
                   # it. Unchanged files then cost one inode rather than another
                   # copy of the bytes, so the retained history is roughly one
@@ -92,6 +97,27 @@ spec:
                   fi
                   mkdir -p "$DEST"
 
+                  # Drop anything the list above no longer names.
+                  #
+                  # Without this, removing a bucket from BUCKETS would stop
+                  # UPDATING it while the hardlink seed carried the last staged
+                  # copy forward for ever -- and the relay would keep shipping it
+                  # off-site. A bucket dropped for cost reasons would then go on
+                  # costing, silently, which is the opposite of the intent.
+                  #
+                  # Only the dated snapshot is touched. The previous snapshot
+                  # holds its own hardlinks, so its contents are unaffected and
+                  # the history stays a faithful record of what was staged then.
+                  for d in "$DEST"/*/; do
+                    [ -d "$d" ] || continue
+                    n="$(basename "$d")"
+                    case " $BUCKETS " in
+                      *" $n "*) ;;
+                      *) echo "removing $n from staging: no longer in the list"
+                         rm -rf "$d" ;;
+                    esac
+                  done
+
                   # sync, not copy, WITHIN the dated directory: each dated
                   # directory must be a faithful point-in-time image, so a file
                   # deleted upstream must be absent here too. This is not the
@@ -104,8 +130,16 @@ spec:
                   # bytes. So this loop must not abort on the first such object -- staging
                   # everything readable and reporting the rest protects more than refusing
                   # to run at all.
+                  # zot-registry is deliberately absent. Container images are
+                  # always recoverable from the registries they came from, so
+                  # copying them here would spend local disk and AWS storage to
+                  # protect data that upstream already protects. What is NOT
+                  # recoverable that way is an image built here and pushed
+                  # nowhere else -- if that ever becomes true, this decision has
+                  # to be revisited, because nothing else in this design covers
+                  # it.
                   UNREADABLE=0
-                  for b in velero-backups db-backups filer-metadata zot-registry etcd-backups pvs; do
+                  for b in $BUCKETS; do
                     echo "--- $b"
                     # Retries and timeouts are bounded deliberately. An unreadable object does
                     # not fail fast -- SeaweedFS returns a partial body then an unexpected EOF,

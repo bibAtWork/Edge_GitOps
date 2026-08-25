@@ -235,7 +235,13 @@ data:
       # taught everyone to ignore it.
       CUTOFF="$(date -u -r "$LATEST" +%Y-%m-%dT%H:%M:%S)"
       log "snapshot cutoff: $CUTOFF (newer objects are not sampled)"
-      for b in velero-backups db-backups filer-metadata zot-registry; do
+      # Must match the bucket list in seaweedfs-staging.yaml. This samples the
+      # live bucket and compares against the staged copy, so a bucket that is
+      # not staged has no counterpart to compare against -- every object in it
+      # would be reported as missing. zot-registry was dropped from staging
+      # because container images are recoverable from their source registries;
+      # it is dropped here for the same reason, one step later.
+      for b in velero-backups db-backups filer-metadata; do
         aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 --bucket "$b" \
           --query 'Contents[].[Key,LastModified]' --output text 2>/dev/null \
           | awk -F"\t" -v c="$CUTOFF" -v b="$b" 'NF==2 && substr($2,1,19) < c { print b "/" $1 }' >> /tmp/all_keys
