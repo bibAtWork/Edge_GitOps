@@ -223,7 +223,46 @@ Verify readability during each quarterly drill. An escrow nobody has ever read i
 
 ---
 
-## 6. Diagnosing a backup that "succeeded" but did not work
+## 6. Restoring a database
+
+Every database in this cluster is protected by a logical dump and by nothing else. There is
+no volume-level copy of any of them, deliberately: the dumps are small, the nightly
+restore-test actually replays them, and a Longhorn snapshot of a Postgres data volume was
+either unrestorable or redundant depending on the database. See
+`34-backup/volume-backup-policy.yaml` for which, and why.
+
+The practical consequence is that **a database is never restored by attaching a volume.**
+Create an empty cluster, then replay.
+
+| Database | Dump | Written by | Restore into |
+|---|---|---|---|
+| Immich | `s3://db-backups/immich/immich-<ts>.sql.gz` | `immich-postgres-backup`, 02:40 | `immich-postgresql` StatefulSet |
+| Keycloak | `s3://db-backups/keycloak/keycloak-<ts>.sql.gz` | `keycloak-postgres-backup`, 02:50 | `keycloak-pg` CNPG cluster |
+| Paperless | `s3://db-backups/paperless/paperless-db-<ts>.sqlite3.gz` | `paperless-sqlite-backup`, 02:45 | the Paperless data volume |
+| SeaweedFS filer | `s3://filer-metadata/filer-<ts>.sql.gz` | `seaweedfs-filer-postgres-backup`, hourly | `filer-meta-pg` CNPG cluster |
+
+The Postgres dumps are taken with `--clean --if-exists`, so they drop and recreate their own
+objects and can be replayed into a database that already has content:
+
+```bash
+gzip -dc immich-<ts>.sql.gz \
+  | kubectl exec -i -n immich immich-postgresql-0 -- psql -U immich -d immich
+```
+
+**Immich carries one caveat, and it is not an error when you see it.** The dump excludes
+`geodata_places` and `naturalearth_countries` -- reference data Immich ships and re-imports
+on its own, roughly 15MB compressed that would otherwise dominate a 247KB dump. After a
+restore, reverse geocoding returns nothing until Immich has re-imported them. Assets,
+albums, faces and search are unaffected. Wait for the import rather than concluding the
+dump was short.
+
+**Order matters for Keycloak.** Restore its database *before* anything that authenticates
+through it, or every OIDC login fails in a way that looks like a Keycloak fault rather than
+an empty realm.
+
+---
+
+## 7. Diagnosing a backup that "succeeded" but did not work
 
 The failure modes in this cluster have consistently been silent. Each of these reported
 success while being wrong:

@@ -51,6 +51,31 @@ data:
     # replaying the gzip stream and checking the dump header.
     keycloak-pg-1-wal
     filer-meta-pg-1-wal
+
+    # Postgres DATA volumes. Every database here already produces a logical
+    # dump on its own schedule, into the db-backups bucket, and that dump is
+    # the artefact the nightly restore-test actually replays. The volume copy
+    # was verified by nothing.
+    #
+    # keycloak-pg-1 was never a second path to begin with. CNPG puts its WAL on
+    # a separate volume (excluded just above) and Longhorn snapshots volumes
+    # independently, so what was being kept was a data volume at one instant
+    # paired with a WAL volume at another -- a combination Postgres cannot
+    # replay. Dropping it removes a copy that could not have been restored,
+    # not a copy that could.
+    #
+    # data-immich-postgresql-0 is the honest case: Immich runs a plain
+    # StatefulSet with pg_wal inside the data directory, so a single-volume
+    # snapshot is crash-consistent and genuinely restorable. It is dropped
+    # anyway, to hold one mechanism per database rather than two -- 485MB in
+    # every weekly tier to duplicate what a 247KB dump already covers.
+    #
+    # The cost is real and worth stating: restoring Immich now means creating
+    # the database and replaying a dump rather than attaching a volume, and
+    # the dump excludes the geodata tables, so reverse geocoding stays
+    # degraded until Immich re-imports them. See docs/runbooks/backup-recovery.md.
+    keycloak-pg-1
+    data-immich-postgresql-0
 ---
 apiVersion: v1
 kind: ServiceAccount
