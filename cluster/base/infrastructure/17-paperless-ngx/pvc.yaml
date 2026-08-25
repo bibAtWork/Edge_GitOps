@@ -1,21 +1,37 @@
 # Paperless volumes.
 #
-# paperless-data stays on local-path deliberately: it holds the SQLite database,
-# and a storage fault costs a blob volume some downtime but can cost a database
-# its integrity. The document blobs moved to Longhorn.
+# All four are on Longhorn. paperless-data was the last holdout on local-path,
+# kept there while the only alternative was the SeaweedFS CSI driver -- a FUSE
+# mount, which SQLite has real reasons to distrust. Longhorn is not that: it
+# presents an ordinary ext4 block device, so SQLite behaves exactly as it does
+# on a local disk.
+#
+# Staying on local-path had two costs that are now gone. A hostPath volume
+# cannot be captured by anything -- Velero's file-system backup silently skips
+# them, creating no PodVolumeBackup and reporting no error -- so the SQLite
+# dump in sqlite-backup-cronjob.yaml was the database's only protection. And a
+# hostPath volume pins the pod to one node, which matters the moment this
+# cluster has more than one.
+#
+# On longhorn-db rather than longhorn: Retain reclaim, so a pruned or renamed
+# claim cannot take the database with it, and strict-local data locality, so
+# reads and writes stay on the node holding the replica.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: paperless-data
+  name: paperless-data-lh
   namespace: paperless
   labels:
     velero.io/backup: "true"
 spec:
-  storageClassName: local-path
+  storageClassName: longhorn-db
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
+      # 13MB in use at migration. 5Gi carried forward from the local-path claim
+      # -- Longhorn reserves 30% of the disk, so headroom here is not free, and
+      # expansion is enabled if the index grows.
       storage: 5Gi
 ---
 # Document blobs, on Longhorn since 2026-08-24 -- a real block device with ext4
