@@ -5,8 +5,9 @@ Operational procedures for the two-stage backup architecture in
 these are the steps that need a human, either because they require MFA or because they are
 the ones you want to have practised before you need them.
 
-Read the *Implementation status* table in ADR-005 first. Several procedures below describe
-components that are written but not yet live.
+ADR-005 records the design and the invariants these procedures exist to protect; read it
+first if you need to know *why* a step is shaped the way it is. It deliberately carries no
+status, so for what is currently outstanding see `docs/backlog.md`.
 
 ---
 
