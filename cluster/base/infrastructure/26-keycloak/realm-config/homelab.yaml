@@ -1,0 +1,72 @@
+# Declarative realm state, applied by keycloak-config-cli.
+#
+# ── What this file is for ────────────────────────────────────────────────────
+# setup-job.yaml creates things and never removes them. Every ensure_* function
+# in it is create-if-missing, so a group added by hand in the admin console
+# survives every run for ever, and the CI rego cannot see it either -- that
+# check reads rbac-groups.json, not Keycloak. This file closes that gap: what is
+# declared here is what the realm converges to.
+#
+# ── Scope, deliberately partial ──────────────────────────────────────────────
+# Only realm-level login settings and the group tree are declared. Clients,
+# client scopes and protocol mappers stay with setup-job.yaml for now, because
+# moving eight working OIDC clients in the same change that enables public
+# registration is two risks wearing one coat. The config-cli Job sets
+# import.managed.client=no-delete so it cannot touch them regardless.
+#
+# The safety property this introduction leans on is documented upstream: with
+# import.remote-state.enabled (the default), keycloak-config-cli "purges only
+# resources they created before". On a first run it has created nothing, so it
+# can delete nothing.
+realm: homelab
+enabled: true
+
+# ── Self-registration ────────────────────────────────────────────────────────
+# registrationAllowed puts a "Register" link on the login page of a realm that
+# is reachable from the public internet. Anyone who finds it can create a
+# working account.
+#
+# That is acceptable only because of where those accounts land: defaultGroups
+# drops every new registration into /self-service, which grants read-only
+# access to Paperless and Immich and nothing else -- and in Paperless that
+# resolves to the documents they own, which for a new account is none.
+#
+# verifyEmail is FALSE, and not by choice. The realm has no smtpServer
+# configured, so Keycloak cannot send a verification mail; setting it true would
+# leave every registration stranded awaiting an email that is never sent.
+# resetPasswordAllowed is false for the same reason -- a reset link needs SMTP.
+#
+# Configure SMTP and both should be turned on. Until then registration is
+# unverified, which means an address nobody owns can hold an account.
+registrationAllowed: true
+registrationEmailAsUsername: false
+loginWithEmailAllowed: true
+verifyEmail: false
+resetPasswordAllowed: false
+
+defaultGroups:
+  - /self-service
+
+# ── Groups ───────────────────────────────────────────────────────────────────
+# The three ADR-002 tiers with their level-1 job functions, exactly as
+# rbac-groups.json declares them and the CI rego validates them, plus the flat
+# self-service group.
+#
+# self-service is deliberately NOT part of the ADR-002 hierarchy and not in
+# rbac-groups.json. That file describes the depth-1 privilege tiers; a group for
+# unvetted public signups is not a privilege tier, and adding it would make the
+# guardrail assert a parent for something that must never inherit one.
+groups:
+  - name: reader
+    subGroups:
+      - name: viewer
+  - name: maintainer
+    subGroups:
+      - name: app-operator
+  - name: owner
+    subGroups:
+      - name: platform-admin
+  - name: self-service
+    attributes:
+      description:
+        - "Public self-registration. Read-only, own content only. Never grant this group anything by adding permissions to it -- add a real tier instead."

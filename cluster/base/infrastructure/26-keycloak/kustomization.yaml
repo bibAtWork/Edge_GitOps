@@ -13,6 +13,7 @@ resources:
   - immich-client-secret.yaml
   - securitypolicy-referencegrant.yaml
   - setup-job.yaml
+  - config-cli-job.yaml
   - cilium-policy.yaml
   - postgres-backup-cronjob.yaml
   - postgres-cluster.yaml
@@ -37,5 +38,15 @@ configMapGenerator:
     namespace: keycloak
     files:
       - rbac-groups.json
+    options:
+      disableNameSuffixHash: true
+
+  # The declarative realm state keycloak-config-cli applies. Same
+  # disableNameSuffixHash reasoning as above: the CronJob's volume reference
+  # would not be rewritten to a hashed name.
+  - name: keycloak-realm-config
+    namespace: keycloak
+    files:
+      - realm-config/homelab.yaml
     options:
       disableNameSuffixHash: true
