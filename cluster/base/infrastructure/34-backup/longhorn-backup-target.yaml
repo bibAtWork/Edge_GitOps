@@ -1,6 +1,6 @@
-# Longhorn's backup target (ADR-002 Task 1).
+# Longhorn's backup target (ADR-005 Task 1).
 #
-# Points at the LOCAL SeaweedFS S3 endpoint, never AWS. ADR-002 constraint 2
+# Points at the LOCAL SeaweedFS S3 endpoint, never AWS. ADR-005 constraint 2
 # states this without exception, and the reasoning is not merely about
 # credentials: Longhorn's backupstore takes and releases a .lck object around
 # every operation and its deduplicated .blk objects are shared between backups
@@ -16,7 +16,7 @@
 # defaultSettings apply only at first install and drift silently afterwards.
 #
 # The bucket lives on SeaweedFS volume servers backed by a dedicated hostPath
-# disk (/var/mnt/seaweedfs), NOT Longhorn PVCs -- ADR-002 constraint 3. Verified
+# disk (/var/mnt/seaweedfs), NOT Longhorn PVCs -- ADR-005 constraint 3. Verified
 # 2026-08-24. Placing this on Longhorn would put the backup target on top of the
 # storage it protects.
 apiVersion: longhorn.io/v1beta2

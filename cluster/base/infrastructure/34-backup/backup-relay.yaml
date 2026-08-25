@@ -1,4 +1,4 @@
-# ADR-002 Task 9: one-way relay to the AWS vault.
+# ADR-005 Task 9: one-way relay to the AWS vault.
 #
 # ACTIVE since 2026-08-24. The vault exists, the credential is applied, and a
 # manual run has been verified end to end: 542 objects and 123MB reaching

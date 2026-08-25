@@ -1,10 +1,10 @@
-# ADR-002 Task 4: SeaweedFS live-data staging.
+# ADR-005 Task 4: SeaweedFS live-data staging.
 #
 # Distinct from Task 1. Task 1 gives Longhorn a place to write ITS backups;
 # this protects SeaweedFS's OWN buckets -- Velero archives, the database dumps,
 # the Zot registry, and the filer metadata dumps. Nothing else covers them:
 # Velero's file-system backup silently skips hostPath volumes, and the SeaweedFS
-# volume servers are hostPath by design (ADR-002 constraint 3).
+# volume servers are hostPath by design (ADR-005 constraint 3).
 #
 # Staged onto Longhorn deliberately, which is the mirror image of the filer
 # metadata decision. A copy of SeaweedFS living on Longhorn and a Longhorn
@@ -126,7 +126,7 @@ spec:
                   # sync, not copy, WITHIN the dated directory: each dated
                   # directory must be a faithful point-in-time image, so a file
                   # deleted upstream must be absent here too. This is not the
-                  # relay -- ADR-002 forbids delete against AWS, while local
+                  # relay -- ADR-005 forbids delete against AWS, while local
                   # staging may prune freely.
                   # Individual objects can be unreadable while their metadata is intact:
                   # a chunk loss leaves a correct listing, a correct size, and a GET that

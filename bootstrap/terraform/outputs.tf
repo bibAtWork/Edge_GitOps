@@ -37,11 +37,11 @@ output "talos_backup_secret_access_key" {
   sensitive   = true
 }
 
-# ADR-002 backup vault. Access keys are sensitive; read them with
+# ADR-005 backup vault. Access keys are sensitive; read them with
 #   terraform output -raw backup_relay_secret_access_key
 # The admin identity deliberately has no key here -- see backup-vault-iam.tf.
 output "backup_vault_bucket" {
-  description = "Name of the ADR-002 immutable backup vault"
+  description = "Name of the ADR-005 immutable backup vault"
   value       = aws_s3_bucket.vault.id
 }
 

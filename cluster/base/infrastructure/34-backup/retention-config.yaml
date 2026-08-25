@@ -1,7 +1,7 @@
 # Single source of truth for every backup schedule and retention count in the
-# cluster (ADR-002 Task 2).
+# cluster (ADR-005 Task 2).
 #
-# ADR-002 requires these be configuration rather than manifest literals, so that
+# ADR-005 requires these be configuration rather than manifest literals, so that
 # tuning retention never means editing a workload. Two mechanisms carry them:
 #
 #   - Structural fields (a RecurringJob's cron/retain, a CronJob's schedule) are

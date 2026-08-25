@@ -43,12 +43,25 @@ This meant the `LoadBalancer` path was viable all along, on a single node, with 
 - **Decoupled lifecycle, proven, not just claimed.** The cutover replaced the Gateway implementation under `homelab-gateway` with zero DNS change and zero downtime once executed, retaining the VIP (`192.168.178.200`) throughout. The mechanism that made this work — and the ordering constraint that made it safe rather than lucky — is operational detail, not a decision; see `Agent.md`, "Envoy Gateway cutover (2026-08-16) — two mechanisms that made it safe, not obvious from the manifests".
 - **No security posture regression.** `envoy-gateway-system` stayed at PSS `restricted` throughout — the `privileged: true` trade-off considered during the blocked period was never actually needed.
 
-**Not yet realized — scoped in the original proposal but not implemented:**
+**Enabled by the decision, and since built:**
 
-- **OpenTelemetry trace injection at the edge.** No `traceparent` behavior has been configured or verified. This was the proposal's original headline justification; it remains undone.
-- **Rate limiting via `BackendTrafficPolicy`.** Not implemented. A prior rate-limiting stack (Envoy `local_ratelimit` + a Valkey backend) existed under the old Cilium-native OPA-gate design and was removed as orphaned/unwired dead code before this cutover — there is currently no rate limiting on the Gateway at all.
-- **Observability of the Envoy fleet itself.** No `VMServiceScrape` targets `envoy-gateway-system`; no Grafana dashboard imports Envoy's metrics. Hubble (Cilium's own observability) covers the L4 data plane but not Envoy's L7 view.
-- **Edge OIDC.** Neither Hubble UI nor KubeOpenCode has real per-user login — both rely on OPA's coarse `admin_only_apps` allow/deny. A `SecurityPolicy.oidc` block against Keycloak was scoped as the correct fix and is not yet implemented.
+The original proposal scoped four capabilities this split makes possible but which
+did not exist at the time of the cutover. All four are now in place; they are
+listed because they are what the decision was *for*, not as a status report.
+
+- **OpenTelemetry trace injection at the edge**, via `EnvoyProxy.telemetry.tracing`
+  pointed at the OTel collector already feeding VictoriaTraces.
+- **Rate limiting**, via `BackendTrafficPolicy` on the Gateway — a first-class API
+  object, where the pre-cutover design needed a hand-wired Envoy filter and a
+  separate Valkey backend.
+- **Observability of the Envoy fleet**, via scrape configs for both the control
+  and data plane plus the upstream envoy-mixin dashboards. Hubble covers the L4
+  data plane; this is the L7 view it cannot give.
+- **Edge OIDC**, via `SecurityPolicy.oidc` against Keycloak for Hubble UI and
+  KubeOpenCode — real per-user login, replacing OPA's coarse allow/deny.
+
+Each of these is an object the Gateway API defines and Cilium's embedded Envoy did
+not expose. That is the substance of the decision rather than a footnote to it.
 
 **Negative:**
 
