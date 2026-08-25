@@ -5,6 +5,19 @@ machine:
   type: worker
 
 cluster:
-  etcd:
-    advertisedSubnets:
-      - 192.168.1.0/24
+  # Cilium is the CNI and runs with kubeProxyReplacement: true. Without these two
+  # stanzas Talos also deploys its own defaults -- flannel and kube-proxy -- which
+  # then conflict with Cilium: kube-proxy programs nftables DNAT for the same
+  # Services Cilium handles in eBPF. See the 1-node overlay's controlplane.yaml
+  # for the full rationale (security review 2026-08-14, finding H3).
+  #
+  # This applies to workers exactly as it does to control planes: the defaults are
+  # per-node, so a worker joining without them brings kube-proxy back on that node
+  # alone. Both control-plane configs carried this and the worker did not, which
+  # would have reintroduced on every worker precisely what was fixed on the
+  # control plane.
+  network:
+    cni:
+      name: none
+  proxy:
+    disabled: true
