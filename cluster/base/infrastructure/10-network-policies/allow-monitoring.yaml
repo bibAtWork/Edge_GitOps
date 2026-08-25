@@ -85,3 +85,46 @@ spec:
         - ports:
             - port: "8428"
               protocol: TCP
+---
+# Grafana -> the Gateway, for the OIDC token exchange.
+#
+# Symptom this fixes: after a successful Keycloak login the callback hung for 15
+# seconds and Envoy returned "upstream request timeout", while Paperless and
+# Immich SSO kept working. Grafana logs showed
+# `path=/login/generic_oauth ... duration=15.009s`, which is the server-side
+# token exchange stalling, not the browser redirect.
+#
+# Grafana's reachability to Keycloak used to ride on the clusterwide
+# allow-cluster-internal, which granted any pod ingress from any other. Removing
+# that was correct -- it made every narrower rule in this repo a no-op -- but it
+# took this path with it, and nothing failed until someone logged in.
+#
+# This targets the Envoy pod on container port 10443, NOT the VIP on 443. Cilium
+# evaluates in-cluster pod-to-VIP traffic against the VIP's resolved backend, and
+# ADR-001 remaps the listener ports to 10080/10443. Writing 443 here yields a
+# policy that reads correctly and matches nothing -- the same trap already hit
+# for zot, immich and paperless.
+#
+# No internal-DNS rule accompanies this one, unlike Paperless. Grafana is
+# configured with explicit auth_url/token_url/api_url, all public, so it never
+# fetches the discovery document and never dials keycloak.keycloak.svc. A rule
+# for that path would also not work: Keycloak's own ingress allowlist admits
+# opa, paperless and envoy only. Better absent than present-and-inert.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-grafana-keycloak-gateway-egress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
