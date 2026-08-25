@@ -252,3 +252,40 @@ its own change rather than a tail-end commit.
 
 `audit: baseline` is now set on `monitoring`, so the audit log will show exactly which
 workloads there would fail a stricter bar. Worth reading that before doing the split.
+
+---
+
+## Nothing prompts secret rotation
+
+Found 2026-08-25. `bootstrap/scripts/rotate-secrets.py` exists, is executable, and
+supports two-phase SOPS age rotation and per-credential rotation. No workflow, cron or
+issue template references it — `grep -rn rotate-secrets .github/` returns nothing.
+
+So rotation happens when somebody remembers, which in practice means never. The
+credentials that most warrant it are the ones whose compromise is hardest to notice: the
+SeaweedFS S3 admin key, the AWS relay and auditor keys, and the SOPS age key.
+
+**Do not automate the rotation itself.** SOPS age rotation is a two-phase operation —
+re-encrypt under both keys, commit, then drop the old key. A half-completed unattended
+run leaves every encrypted manifest in the repo unreadable, which is a worse outcome than
+an old key. The same argument applies more weakly to the S3 and AWS credentials, where a
+rotation that updates the secret but not every consumer breaks the backup chain silently.
+
+**Automate the prompt instead.** A scheduled workflow that:
+
+1. reads a tracked file — say `docs/rotation-log.md` or a small YAML — holding
+   `credential: last-rotated-date` and an interval per credential
+2. opens a GitHub issue for anything past its interval, titled with the credential and the
+   age ("SeaweedFS S3 admin key last rotated 94 days ago")
+3. closes or skips when the date moves forward
+
+Rotation stays a deliberate act; forgetting stops being silent. That is the same shape as
+the rest of the alerting in this cluster — the failure mode being guarded against is not
+"the key is old" but "nobody knows the key is old".
+
+Two scheduled workflows already exist (`cluster-health.yml`, `trivy-auto-patch.yml`), so
+the pattern and the permissions are established.
+
+**Worth pairing with**: `rotate-secrets.py` currently has to be told which file and key to
+act on. Having it read the same tracked file would let the issue body carry the exact
+command to run, which is the difference between a reminder and a runbook.
