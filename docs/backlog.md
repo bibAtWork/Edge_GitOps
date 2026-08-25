@@ -49,6 +49,16 @@ The 5x trigger turned out to be Renovate applying labels via separate API calls,
 (`cancel-in-progress: true`), not a `types:` change (rejected as riskier: could stop the gate
 from firing at all if Renovate's labeling order ever differs from what's assumed).
 
+**Correction (2026-08-25).** The concurrency group fixed the duplicate comments and the
+ambiguity over which result the merge honours, but not the cost. Measured across three
+Renovate PRs, the pattern was still 5 runs per PR — 4 cancelled, 1 successful — and a
+cancelled run has already claimed a runner and started checking out. The remaining half is
+fixed by skipping the job outright when a `labeled` event carries a label the gate does not
+act on: a job skipped by `if:` allocates no runner at all. This does not reintroduce the
+ordering risk, because the guard tests *which* label was just added rather than the order
+they arrive in. The concurrency group is split alongside it, so a skipped run lands in a
+group of its own and cannot cancel a real evaluation in flight.
+
 ---
 
 ## `schenkmatch:latest` bypasses the "No :latest image tags" CI gate
