@@ -1,7 +1,7 @@
 # ADR-005: Two-Stage Backup — Local Longhorn Target with One-Way Relay to an Immutable Vault
 
 **Date:** 2026-08-24
-**Status:** Accepted (partially implemented — see *Implementation status*)
+**Status:** Accepted
 **Supersedes:** [ADR-003](0003-backup-immutability-versioning-only.md) on the Object Lock question
 **Related:** [ADR-001](0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md), [ADR-004](0004-longhorn-v1-storage-engine.md)
 
@@ -66,8 +66,8 @@ worth keeping.
 ### Placement constraint, and why it is stricter than it first appears
 
 The SeaweedFS volume servers behind the backup target must not sit on Longhorn PVCs —
-otherwise the backup target rests on the storage it protects. They are on a dedicated
-hostPath disk (`/var/mnt/seaweedfs`), verified 2026-08-24.
+otherwise the backup target rests on the storage it protects. They belong on a dedicated
+disk (`/var/mnt/seaweedfs`).
 
 **The same rule extends to the filer's metadata database.** SeaweedFS serves S3 from the
 filer, and the filer keeps its namespace in PostgreSQL. That database was on Longhorn, which
@@ -121,7 +121,7 @@ Longhorn holds full delete rights against its local target and runs retention as
 
 **Remote retention equals local retention**, a direct consequence of reconciliation-based
 pruning. Extending the remote horizon would need independent remote retention logic and a
-second pruning criterion. Not implemented; a known limit.
+second pruning criterion. An accepted limit of this design, not an oversight in it.
 
 ### Retention is configuration
 
@@ -185,59 +185,67 @@ Backup jobs now verify the gzip stream before upload and **read the object back 
 - Remote retention cannot exceed local retention.
 - Tag-to-deletion latency is up to ~48h, since Lifecycle evaluates daily.
 
-## Implementation status
+## Components
 
-| Task | Status |
-|---|---|
-| 1 — Local SeaweedFS backup target | Done. Verified with two overlapping backups; zero `.lck` accumulation |
-| 2 — Retention ConfigMap | Done, via Kustomize replacements |
-| 3 — Longhorn RecurringJobs | Done (snapshot / weekly / monthly, `default` group) |
-| 4 — SeaweedFS staging | Done, hardlinked daily snapshots |
-| 5–8 — AWS vault, Lifecycle, IAM, bucket policy | **Applied.** `homelab-backup-vault`, Object Lock Governance 21d, SSE-S3 |
-| 9 — Relay | **Live.** 542 objects / 123 MB relayed; runs nightly at 05:00 |
-| 10 — Local restore-test | Done. Restores every Longhorn volume, samples 460 SeaweedFS objects |
-| 11 — Reconciler and prune tagging | Done. Gate verified closed against a failing restore-test |
-| 12 — Monthly remote probe | Done. Bounded read-back against the local copy |
-| 13 — Quarterly drill | Runbook written; **never executed** |
-| 14 — Off-site escrow | **Done** (2026-08-25, by the operator) |
-| 15 — Monitoring | Done. 11 alerts across coverage, verification and the prune path |
+The design decomposes into fifteen parts. They are numbered because the manifests
+in `cluster/base/infrastructure/34-backup/` cite these numbers; the numbering is an
+index into the design, not a sequence of work.
 
-The off-site copy is live and immutable. Two things it still depends on are not:
+| # | Part | Role in the design |
+|---|---|---|
+| 1 | Local SeaweedFS backup target | Longhorn's only backup endpoint. It never addresses AWS |
+| 2 | Retention ConfigMap | Schedules and retention counts as configuration, not manifest edits |
+| 3 | Longhorn RecurringJobs | The snapshot, weekly and monthly tiers, and what is in scope for them |
+| 4 | SeaweedFS staging | A point-in-time copy of SeaweedFS's own buckets onto block storage |
+| 5–8 | AWS vault, Lifecycle, IAM, bucket policy | The immutable remote, and the permission split that makes it one-way |
+| 9 | Relay | Copy-never-sync from staging to the vault, holding no delete verb |
+| 10 | Local restore-test | Restores real backup artefacts and reads bytes back |
+| 11 | Reconciler and prune tagging | Tags objects prunable; AWS performs every deletion |
+| 12 | Remote probe | A bounded periodic read from the vault, the only check that spends egress |
+| 13 | Recovery drill | The human-performed rehearsal, including reading the escrow |
+| 14 | Off-site escrow | The secrets a recovery cannot proceed without |
+| 15 | Monitoring | Alerts across coverage, verification and the prune path |
 
-**Task 14 is done.** The escrow was assembled on 2026-08-25. What it must contain,
-and why, is recorded here because the reasoning outlives the act: exactly one
-artefact is unrecoverable if lost:
-`.age.key`, the SOPS private key, without which every encrypted manifest in the
-repo is noise. Terraform state and `bootstrap/config.json` are worth escrowing for
-speed but are reconstructible — state via `terraform import`, config by reissuing
-the credentials it holds. See the runbook for the split.
+## Invariants
 
-This is deliberately manual and cannot be automated: anything that copied the key
-on a schedule would have to store it somewhere, and that somewhere is what the
-escrow exists to survive.
+The design is worth no more than the properties that stay true once nobody is
+watching. These are the ones it rests on.
 
-**Task 13 has never been run**, and is now the only remaining gap. Every automated
-check verifies a component; only the drill verifies that a human can actually
-perform a recovery with what exists -- including that the escrow assembled above
-is readable, which is the one property nothing else tests.
+**No credential inside the cluster can delete a remote object.** Not the relay, not
+the reconciler, not the backup target. This is the pivot everything else turns on,
+and it is verifiable by reading four IAM policies rather than by trusting the jobs
+to behave.
 
-### Known state as of 2026-08-24
+**Pruning is gated on a verification that recently passed.** A verifier that has
+stopped must freeze the destructive path, never permit it. The direction is easy to
+invert by accident: the restore-test result gates the run, it does not mark objects
+for deletion. Tagging *verified* backups for expiry would delete precisely the
+copies known to be good.
 
-Five objects in SeaweedFS are unreadable — three Immich dumps, one Keycloak dump,
-and `zot-registry/_restore_complete` — survivors of a restore whose verification
-compared listings rather than bytes. They are unrecoverable and deliberately left
-in place so the loss stays visible.
+**Verification reads bytes.** A listing cannot see an object whose metadata survived
+while its chunks did not, and this cluster has produced exactly that failure. Size
+checks and HEAD requests inherit the same blindness.
 
-They have a consequence worth understanding: the restore-test correctly fails
-while they exist, and a failing restore-test freezes remote pruning by design. The
-vault will grow until either the objects are removed or the gate is otherwise
-satisfied. That is the system behaving as intended, not a defect, but it is a
-decision waiting on an operator.
+**Scope is decided declaratively and confirmed by observation.** What is backed up is
+recorded in Git; what is *actually* backed up is a property of the running system,
+and the two are checked against each other rather than assumed equal.
 
-Sixteen of nineteen Longhorn volumes had no backup at the time of writing. The
-RecurringJobs were created the same day and the weekly tier first fires on the
-following Sunday, so this is expected — `LonghornVolumeNeverBackedUp` exists to
-notice if it is still true a week later.
+**The escrow is never stored in what it protects.** Exactly one artefact is
+unrecoverable if lost: `.age.key`, the SOPS private key, without which every
+encrypted manifest in the repository is noise. Terraform state and
+`bootstrap/config.json` are worth escrowing for speed but are reconstructible —
+state via `terraform import`, config by reissuing the credentials it holds.
+
+That escrow is deliberately manual and cannot be automated. Anything copying the key
+on a schedule would have to put it somewhere, and that somewhere is what the escrow
+exists to survive.
+
+**Only a human drill closes the loop.** Every automated check verifies a component.
+None of them verifies that a person can perform a recovery with what exists, or that
+the escrow is readable — which is the one property nothing else can test.
+
+**Remote retention cannot exceed local retention.** The remote copy is derived from
+the local one; an object pruned locally stops being replenished.
 
 ## References
 
