@@ -64,8 +64,21 @@ spec:
                   ( set -o pipefail 2>/dev/null ) && set -o pipefail || true
                   OUT=/work/immich.sql.gz
 
+                  # geodata_places and naturalearth_countries are excluded by DATA, not by
+                  # schema. Together they are ~126MB of the 138MB database and none of it is
+                  # user data: they are the static reverse-geocoding dataset Immich ships and
+                  # re-imports on demand. Dumping them nightly at 12-month retention stores
+                  # the same public dataset several hundred times over.
+                  #
+                  # --exclude-table-data keeps the CREATE TABLE, so a restore produces an
+                  # empty table that Immich repopulates rather than a missing one that breaks
+                  # its migrations. Reverse geocoding is degraded until that import runs;
+                  # assets, albums, faces and search embeddings are unaffected.
                   pg_dump -h immich-postgresql -U immich \
-                    -d immich --clean --if-exists | gzip -9 > "$OUT"
+                    -d immich --clean --if-exists \
+                    --exclude-table-data=geodata_places \
+                    --exclude-table-data=naturalearth_countries \
+                    | gzip -9 > "$OUT"
 
                   # Refuse to upload a truncated or empty dump. Without this the
                   # job would report success while storing nothing -- exactly the
