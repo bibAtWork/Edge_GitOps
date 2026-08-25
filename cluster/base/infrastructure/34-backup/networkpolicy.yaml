@@ -1,12 +1,14 @@
 # Egress for the ADR-005 backup jobs (Tasks 4, 9, 11, 12).
 #
-# The selector label is still `adr002.backup/egress`, and stays that way on
-# purpose. Every backup job carries it and this policy selects on it, so renaming
-# means changing selector and pod labels together; any job that started inside
-# the window between them would lose egress and fail. Renaming a label that gates
-# network access, to correct a number in its name, is not a trade worth making.
-# The prose in these files was corrected; the label is an identifier, not a
-# reference.
+# The selector label is `backup.homelab/egress`. It names what the label is for,
+# not the document that introduced it -- it was `adr002.backup/egress`, which was
+# both wrong (that decision is ADR-005) and the wrong kind of name: an ADR number
+# describes where a choice was written down, which is of no use to someone
+# reading a policy to find out what it does.
+#
+# Renaming it meant changing this selector and every job's pod label in one
+# change, since a job starting between the two would match neither and lose
+# egress. Applied with no backup job running.
 #
 # Cilium is default-deny in both directions here, and the existing
 # longhorn-restrict policy in 32-longhorn/ covers what Longhorn itself needs:
@@ -17,7 +19,7 @@
 #   - the public internet on 443, to reach the AWS vault
 #   - VictoriaMetrics on 8428, to push per-run metrics
 #
-# Scoped to pods carrying adr002.backup/egress=true rather than the whole
+# Scoped to pods carrying backup.homelab/egress=true rather than the whole
 # namespace. Longhorn's storage components have no business reaching the
 # internet, and this namespace runs with enforce: privileged, so the blast
 # radius of a compromise here is already large -- granting it blanket outbound
@@ -30,7 +32,7 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      adr002.backup/egress: "true"
+      backup.homelab/egress: "true"
   egress:
     # AWS S3. toFQDNs would be tighter, but it requires the DNS proxy to be in
     # the request path for every lookup, and S3 resolves to a wide and shifting
@@ -67,7 +69,7 @@ spec:
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: longhorn-system
-            adr002.backup/egress: "true"
+            backup.homelab/egress: "true"
       toPorts:
         - ports:
             - port: "8428"

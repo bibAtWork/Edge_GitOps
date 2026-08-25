@@ -33,7 +33,7 @@ spec:
         metadata:
           labels:
             # Needed for apk (package mirrors) and for pushing metrics.
-            adr002.backup/egress: "true"
+            backup.homelab/egress: "true"
         spec:
           restartPolicy: OnFailure
           serviceAccountName: backup-restore-test

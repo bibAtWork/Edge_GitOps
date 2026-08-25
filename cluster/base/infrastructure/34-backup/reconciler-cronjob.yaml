@@ -60,7 +60,7 @@ spec:
       template:
         metadata:
           labels:
-            adr002.backup/egress: "true"
+            backup.homelab/egress: "true"
         spec:
           restartPolicy: OnFailure
           serviceAccountName: backup-reconciler
