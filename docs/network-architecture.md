@@ -160,7 +160,7 @@ flowchart TB
     end
 
     subgraph targeted["Targeted multi-caller rules, not cluster-wide"]
-        sw["allow-seaweedfs-internal\nvelero, talos-backup, zot -> :8333"]
+        sw["allow-seaweedfs-internal\nvelero, zot -> :8333"]
     end
 
     subgraph escape["Escape hatch: ingressDeny wins over any allow"]
@@ -209,8 +209,8 @@ Every namespace now gets ingress exactly one of these ways:
    so metrics scraping doesn't need a bespoke rule per target), `allow-dns-ingress`
    (CoreDNS — found missing entirely during the migration; see below).
 3. **A targeted multi-caller rule**, for the rare case of "several specific namespaces,
-   not everyone" — `allow-seaweedfs-internal`'s caller list (`velero`, `talos-backup`,
-   `zot`) is the only current example. This is what closes the gap `CLAUDE.md`'s
+   not everyone" — `allow-seaweedfs-internal`'s caller list (`velero`, `zot`) is the
+   only current example. This is what closes the gap `CLAUDE.md`'s
    SeaweedFS architecture note always assumed existed: the Cilium policy restricting
    `:8333` genuinely is the primary auth boundary now, with the shared admin credential
    as real defence-in-depth rather than the only thing actually enforcing anything.
@@ -243,7 +243,7 @@ There has never been a cluster-wide "allow all egress" policy: `default-deny-egr
 real baseline on both sides now. Every namespace opts into exactly what it needs:
 `allow-intra-namespace-egress`, `allow-dns-egress` (port 53 to CoreDNS only),
 `allow-internet-egress-https-only` (world, port 443 only), and narrow per-target rules like
-`allow-velero-egress`/`allow-zot-egress`/`allow-talos-backup-egress` (SeaweedFS `:8333`, S3
+`allow-velero-egress`/`allow-zot-egress` (SeaweedFS `:8333`, S3
 FQDNs on `:443`, DNS — nothing else).
 
 The `default-deny-ingress` rule is scoped with `reserved.ingress: DoesNotExist`
