@@ -1,15 +1,44 @@
-# system-upgrade-controller watches the Talos GitHub releases channel.
-# When a new version is detected, it schedules an upgrade Job on each matching node.
-# The Job calls `talosctl upgrade` via the Talos API using credentials from the secret.
-# exclusive: true ensures only one node upgrades at a time (safe for HA etcd).
+# Automated Talos upgrade for control-plane nodes.
+#
+# ── Why this lives in cattle-system ──────────────────────────────────────────
+# system-upgrade-controller only reads Plans from its OWN namespace
+# (SYSTEM_UPGRADE_CONTROLLER_NAMESPACE is a downward-API fieldRef to
+# metadata.namespace, so it cannot be pointed elsewhere), and the Rancher chart
+# hardcodes `namespace: cattle-system` as a literal in every template -- there is
+# no namespace key in its values.yaml to override.
+#
+# So the controller is pinned to cattle-system and the Plans have to follow it.
+# The `system-upgrade` namespace still exists next door and holds only the
+# HelmRelease. That emptiness is the trap: these Plans sat there for 44 days
+# looking correct and were never once read, which is why the node stayed on an
+# old release while every version pin in the repo said otherwise.
+#
+# Verify with `kubectl get plans -n cattle-system`, never by reading this file.
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
   name: talos-controlplane
-  namespace: system-upgrade
+  namespace: cattle-system
 spec:
+  # Pinned, never a channel. Upgrading Talos requires a Factory image whose
+  # schematic matches the extensions below, and a channel would move the version
+  # without anyone regenerating that schematic.
   version: v1.13.9
   exclusive: true
+  # A Talos upgrade reboots the node. On the 1-node profile that is a full
+  # cluster outage for the duration, so it happens on a schedule rather than
+  # whenever a version pin changes.
+  #
+  # Sunday 20:00-22:00 is chosen to miss every backup job: staging 01:00,
+  # snapshot 02:00, the database dumps 02:40-02:50, the weekly tier Sunday
+  # 03:00, monthly 04:00, relay 05:00, probe 06:00, restore-test 07:00,
+  # reconciler 09:00, and the volume policy hourly at :25. Rebooting mid-backup
+  # would leave a partial artefact that the restore-test then has to catch.
+  window:
+    days: ["su"]
+    startTime: "20:00"
+    endTime: "22:00"
+    timeZone: Europe/Berlin
   nodeSelector:
     matchLabels:
       node-role.kubernetes.io/control-plane: ""
@@ -18,6 +47,8 @@ spec:
       operator: Exists
       effect: NoSchedule
   secrets:
+    # Mounted into the upgrade Job, which the controller creates in its own
+    # namespace -- so this Secret must exist in cattle-system too.
     - name: talos-credentials
       path: /var/run/secrets/talos
   cordon: true
@@ -27,9 +58,23 @@ spec:
       - /bin/sh
       - -c
       - |
+        # The Factory installer, NOT ghcr.io/siderolabs/installer.
+        #
+        # This node runs an Image Factory build carrying siderolabs/iscsi-tools
+        # and siderolabs/util-linux-tools, both required by Longhorn V1. Talos is
+        # immutable and extensions exist only inside the installer image, so
+        # upgrading through the stock installer silently drops both and Longhorn
+        # loses iSCSI attach on the next boot. The plan used to name the stock
+        # image; it never ran, which is the only reason that was never discovered
+        # the hard way.
+        #
+        # The schematic ID must match talos-machineconfigs/schematic.yaml and the
+        # installer pin in controlplane.yaml. Regenerate it whenever the
+        # extension list changes:
+        #   curl -X POST --data-binary @schematic.yaml https://factory.talos.dev/schematics
         talosctl upgrade \
           --talosconfig /var/run/secrets/talos/talosconfig \
           --nodes "${SYSTEM_UPGRADE_NODE_IP}" \
-          --image "ghcr.io/siderolabs/installer:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
+          --image "factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
           --preserve=true \
           --wait=true
