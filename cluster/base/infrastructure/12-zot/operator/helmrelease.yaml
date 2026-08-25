@@ -95,6 +95,19 @@ spec:
   values:
     replicaCount: 1
 
+    # The chart defaults to NodePort, which had zot answering on a high port on
+    # the node address, outside the Gateway and therefore outside its OIDC and
+    # OPA path. Nothing referenced that port -- the HTTPRoute is the intended
+    # way in -- so it was reachable without being used, which is the worst of
+    # both.
+    #
+    # Worth knowing for the next chart that does this: the Service was never in
+    # this repository as a NodePort, because the chart chose the type and the
+    # values said nothing. Grepping the manifests for NodePort finds nothing;
+    # only asking the cluster does.
+    service:
+      type: ClusterIP
+
     image:
       repository: ghcr.io/project-zot/zot-linux-amd64
       tag: ""
