@@ -788,6 +788,27 @@ spec:
               # the VMServiceScrape added alongside this, and writing rules against
               # unverified label names is exactly how the Trivy CVE alert above spent
               # weeks silently matching nothing.
+              #
+              # Every push-based rule below wraps its metric in last_over_time().
+              # That is not stylistic. These jobs run daily or monthly, while an
+              # instant query resolves a series only if it has a sample within
+              # VictoriaMetrics' staleness window -- five minutes. So for all but a
+              # few minutes of each day, every one of these rules evaluated NoData
+              # rather than against its data.
+              #
+              # It failed in both directions at once. The two rules with
+              # noDataState: Alerting fired permanently: on 2026-08-25 both
+              # SeaweedFSStagingStale and BackupRestoreTestStale were firing with
+              # state "Alerting (NoData)" while their jobs had last succeeded 7 and 1
+              # hours earlier, against thresholds of 36 and 48 hours. The rest,
+              # noDataState: OK, could never fire at all -- including
+              # SeaweedFSUnreadableBackupObjects, the alert for the one failure mode
+              # this cluster has actually experienced.
+              #
+              # The lookbehind is one job interval plus margin, except on the
+              # staleness rules, where it is longer than the rule's own threshold so
+              # the value comparison gets to fire first and absence only takes over
+              # past that point.
               - uid: backup-unreadable-objects
                 title: SeaweedFSUnreadableBackupObjects
                 condition: B
@@ -798,7 +819,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'seaweedfs_staging_unreadable_objects'
+                      expr: 'last_over_time(seaweedfs_staging_unreadable_objects[26h])'
                       instant: true
                       range: false
                       refId: A
@@ -844,7 +865,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'time() - seaweedfs_staging_last_success_timestamp'
+                      expr: 'time() - last_over_time(seaweedfs_staging_last_success_timestamp[48h])'
                       instant: true
                       range: false
                       refId: A
@@ -890,7 +911,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'backup_relay_failures'
+                      expr: 'last_over_time(backup_relay_failures[26h])'
                       instant: true
                       range: false
                       refId: A
@@ -936,7 +957,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'time() - backup_relay_last_success_timestamp'
+                      expr: 'time() - last_over_time(backup_relay_last_success_timestamp[48h])'
                       instant: true
                       range: false
                       refId: A
@@ -961,7 +982,12 @@ spec:
                         type: __expr__
                         uid: '-100'
                       expression: A
-                noDataState: OK
+                # Alerting, matching the other two staleness rules. Beyond the
+                # 48h lookbehind the series stops resolving, so absence is the
+                # only remaining evidence -- and for a rule whose entire job is
+                # to notice that something stopped, absence is the symptom, not
+                # a reason to stay quiet.
+                noDataState: Alerting
                 execErrState: Error
                 for: 0m
                 annotations:
@@ -1077,7 +1103,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'backup_restore_test_pass'
+                      expr: 'last_over_time(backup_restore_test_pass[26h])'
                       instant: true
                       range: false
                       refId: A
@@ -1123,7 +1149,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'time() - backup_restore_test_last_run_timestamp'
+                      expr: 'time() - last_over_time(backup_restore_test_last_run_timestamp[60h])'
                       instant: true
                       range: false
                       refId: A
@@ -1169,7 +1195,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'backup_reconcile_objects_tagged'
+                      expr: 'last_over_time(backup_reconcile_objects_tagged[26h])'
                       instant: true
                       range: false
                       refId: A
@@ -1215,7 +1241,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'backup_reconcile_cap_abort'
+                      expr: 'last_over_time(backup_reconcile_cap_abort[26h])'
                       instant: true
                       range: false
                       refId: A
@@ -1261,7 +1287,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'backup_remote_probe_pass'
+                      expr: 'last_over_time(backup_remote_probe_pass[35d])'
                       instant: true
                       range: false
                       refId: A
@@ -1307,7 +1333,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'backup_remote_probe_egress_bytes'
+                      expr: 'last_over_time(backup_remote_probe_egress_bytes[35d])'
                       instant: true
                       range: false
                       refId: A
