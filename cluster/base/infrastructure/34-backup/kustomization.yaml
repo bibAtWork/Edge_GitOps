@@ -5,6 +5,19 @@ resources:
   - longhorn-recurring-jobs.yaml
   - longhorn-backup-target.yaml
   - longhorn-backup-credential.yaml
+  - seaweedfs-staging.yaml
+  - backup-relay.yaml
+  - backup-relay-credential.yaml
+  - networkpolicy.yaml
+  - restore-test-rbac.yaml
+  - restore-test-script.yaml
+  - restore-test-cronjob.yaml
+  - reconciler-script.yaml
+  - reconciler-cronjob.yaml
+  - remote-probe-script.yaml
+  - remote-probe-cronjob.yaml
+  - volume-backup-policy.yaml
+  - backup-auditor-credential.yaml
 
 # Schedules and retain counts are injected from backup-retention-config so the
 # manifests above hold no retention literals (ADR-002 Task 2). See the ConfigMap
@@ -37,3 +50,23 @@ replacements:
       - select: {kind: RecurringJob, name: backup-monthly}
         fieldPaths: [spec.retain]
         options: {create: true}
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.seaweed_staging_cron}
+    targets:
+      - select: {kind: CronJob, name: seaweedfs-staging}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.relay_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-relay}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.restore_test_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-restore-test}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.reconcile_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-reconciler}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.remote_probe_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-remote-probe}
+        fieldPaths: [spec.schedule]

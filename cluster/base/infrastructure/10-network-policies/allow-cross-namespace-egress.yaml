@@ -1,0 +1,43 @@
+---
+# The egress half of metrics scraping.
+#
+# Two other files -- allow-monitoring-scrape-ingress.yaml and allow-gateway-ingress.yaml --
+# already describe this policy by name and reason about its `toEndpoints: [{}]` tradeoff, but
+# it did not exist. It was referenced during the 2026-08-17 hub-and-spoke migration and never
+# actually written, and nothing failed loudly enough to notice.
+#
+# What that cost, measured 2026-08-24: 19 of 40 vmagent targets were down, which was every
+# cross-namespace target the cluster has. flux-system, kube-system, cert-manager, velero,
+# falco, kyverno, trivy-system, envoy-gateway-system and longhorn-system had no metrics
+# collected at all. vmagent could only reach targets inside its own namespace, via
+# allow-intra-namespace-egress.
+#
+# It stayed invisible because of how the failure presents. A Cilium egress drop is a silent
+# discard, so the scrape times out with "context deadline exceeded" rather than being
+# refused; the VMServiceScrape objects still report `operational`, since that reflects the
+# operator parsing the CR and not any target being reachable; and a metric that is never
+# collected produces no series, so every alert built on one sits permanently in noData
+# instead of firing. Absence of data reads identically to absence of problems.
+#
+# No toPorts: each application exposes metrics on its own port, so the restriction is the
+# source selector rather than the destination. This is the same tradeoff the ingress half
+# documents, and it is deliberate on both sides.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-vmagent-scrape-egress
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - monitoring
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - vmagent
+          - otel-agent
+  egress:
+    - toEndpoints:
+        - {}

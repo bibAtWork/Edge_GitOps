@@ -1,0 +1,194 @@
+# Which Longhorn volumes are worth backing up (ADR-005 Task 3, exclusions).
+#
+# RecurringJobs join the `default` group, which Longhorn applies to any volume
+# carrying no recurring-job label. That default is deliberate and fails safe: a
+# new volume is protected without anyone remembering to opt it in. The cost is
+# that everything is protected, including things that should not be.
+#
+# Measured 2026-08-24, actual sizes: 14.5GB across all volumes, of which 10.8GB
+# (73%) is VictoriaMetrics and VictoriaLogs. Backing those up weekly would make
+# metrics history the dominant ongoing cost of the entire backup system, and
+# they churn constantly so each delta stays large. Losing them costs
+# observability history, not function -- the stack rebuilds and starts recording
+# again.
+#
+# Longhorn has no declarative per-volume exclusion: Volume resources are created
+# by the CSI driver at provisioning time, so they cannot be labelled from Git.
+# This job reconciles the labels from the list below, which keeps the decision
+# reviewable in a PR even though the mechanism is imperative.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volume-backup-policy
+  namespace: longhorn-system
+data:
+  # PVCs excluded from Longhorn backups, with the reason. Anything not listed
+  # here is backed up, so forgetting an entry costs storage rather than data.
+  ephemeral-pvcs: |
+    # Metrics and logs: 10.8GB of the 14.5GB total, high churn, and expendable.
+    # Losing them costs history, not capability.
+    vlsingle-vmstack-victoria-metrics-k8s-stack
+    vmsingle-vmstack-victoria-metrics-k8s-stack
+    vtsingle-vmstack-victoria-metrics-k8s-stack
+
+    # The staging copy of SeaweedFS. Backing this up is circular -- it would
+    # store a Longhorn backup of a copy of SeaweedFS, inside SeaweedFS.
+    seaweedfs-staging
+
+    # Caches and spools. Reconstructible by the applications that own them:
+    # Immich re-downloads its models, valkey is a cache, and the paperless
+    # consume directory is a transient ingest spool whose contents are moved
+    # into paperless-media almost immediately.
+    immich-ml-cache-lh
+    immich-valkey-lh
+    paperless-valkey-lh
+    paperless-consume-lh
+
+    # Postgres WAL volumes. A WAL backup is only meaningful alongside its data
+    # volume captured at the same instant, which independent volume backups do
+    # not guarantee. The coherent artefact for these databases is the hourly
+    # logical dump in the db-backups bucket, which the restore-test verifies by
+    # replaying the gzip stream and checking the dump header.
+    keycloak-pg-1-wal
+    filer-meta-pg-1-wal
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volume-backup-policy
+  namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: volume-backup-policy
+  namespace: longhorn-system
+rules:
+  # Label volumes, and nothing else. No create, no delete: this job decides what
+  # is backed up, so it must never be able to remove a volume it decided not to
+  # back up.
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: volume-backup-policy
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: volume-backup-policy
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: volume-backup-policy
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: volume-backup-policy
+  namespace: longhorn-system
+spec:
+  # Hourly, and well before the 02:00 snapshot tier. Volumes are created at
+  # provisioning time, so a volume created after the last run would otherwise be
+  # backed up once before the label caught up -- harmless, but it would put a
+  # copy of a cache in the backupstore.
+  schedule: "25 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Needed for apk to reach the alpine mirrors.
+            adr002.backup/egress: "true"
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: volume-backup-policy
+          securityContext:
+            # root, because apk installs kubectl at start.
+            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: policy
+              # alpine plus apk, matching the other jobs in this directory.
+              # bitnami/kubectl was the obvious choice and is not pullable --
+              # Bitnami moved their catalogue behind a subscription in 2025, so
+              # the tag resolves to nothing.
+              image: docker.io/library/alpine:3.24
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  apk add --no-cache kubectl >/dev/null 2>&1 || {
+                    echo "FATAL: kubectl install failed" >&2; exit 1; }
+                  LABELLED=0
+                  CLEARED=0
+
+                  # Strip comments and blanks so the ConfigMap can carry the
+                  # reasoning alongside the list.
+                  sed 's/#.*//' /policy/ephemeral-pvcs | tr -d ' \t' | grep -v '^$' > /tmp/ephemeral
+
+                  echo "excluded PVCs: $(wc -l < /tmp/ephemeral)"
+
+                  kubectl get volumes.longhorn.io -n longhorn-system \
+                    -o custom-columns=V:.metadata.name,P:.status.kubernetesStatus.pvcName --no-headers > /tmp/vols
+
+                  while read -r VOL PVC; do
+                    [ -z "${VOL:-}" ] && continue
+                    [ -z "${PVC:-}" ] && continue
+                    [ "$PVC" = "<none>" ] && continue
+
+                    HAS="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
+                      -o jsonpath='{.metadata.labels.recurring-job-group\.longhorn\.io/ephemeral}' 2>/dev/null || true)"
+
+                    if grep -qx "$PVC" /tmp/ephemeral; then
+                      if [ "$HAS" != "enabled" ]; then
+                        # Any explicit recurring-job-group label removes the
+                        # volume from Longhorn's `default` group, which is what
+                        # excludes it from the backup tiers.
+                        kubectl label volumes.longhorn.io -n longhorn-system "$VOL" \
+                          "recurring-job-group.longhorn.io/ephemeral=enabled" --overwrite >/dev/null
+                        echo "  excluded $PVC"
+                        LABELLED=$((LABELLED + 1))
+                      fi
+                    elif [ "$HAS" = "enabled" ]; then
+                      # Removed from the list: put it back under `default` so an
+                      # entry deleted in a PR actually restores protection.
+                      kubectl label volumes.longhorn.io -n longhorn-system "$VOL" \
+                        "recurring-job-group.longhorn.io/ephemeral-" >/dev/null
+                      echo "  re-included $PVC"
+                      CLEARED=$((CLEARED + 1))
+                    fi
+                  done < /tmp/vols
+
+                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED"
+              volumeMounts:
+                - name: policy
+                  mountPath: /policy
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: policy
+              configMap:
+                name: volume-backup-policy

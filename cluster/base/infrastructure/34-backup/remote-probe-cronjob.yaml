@@ -1,0 +1,105 @@
+# Monthly remote probe (ADR-005 Task 12).
+#
+# Deliberately the only job here that spends AWS egress. Everything else
+# verifies locally, which is what the two-stage architecture buys -- but no
+# local check can tell you the remote copy is readable. The relay could be
+# writing corrupt objects, the bucket policy could have been tightened into
+# unreadability, the credential could have been rotated out from under it, and
+# every local signal would still be green.
+#
+# Monthly rather than daily because the failure it catches is a broken path, not
+# a corrupted object, and a broken path stays broken. A month is the acceptable
+# window for noticing.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-remote-probe
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config: 06:00 on the 1st.
+  schedule: "PLACEHOLDER"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            adr002.backup/egress: "true"
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: probe
+              image: docker.io/library/alpine:3.24
+              command: ["/bin/sh", "/scripts/probe.sh"]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: AWS_DEFAULT_REGION
+                  value: eu-central-1
+                # Bounded on purpose. Egress is the cost being managed, and the
+                # envelope these two produce is what backup_remote_probe_egress_bytes
+                # is alerted against -- a sudden jump usually means the
+                # smallest-object selection broke, not that more data needed checking.
+                - name: PROBE_OBJECT_LIMIT
+                  value: "20"
+                - name: PROBE_SAMPLE_SIZE
+                  value: "50"
+                # 32MiB. The real bound on this job, because object count is not
+                # one: the sampled population mixes 400-byte metadata with 16MB
+                # database dumps, so the same fifty objects cost 1.1MB or 17MB
+                # depending on the draw. Objects skipped for budget are counted
+                # and reported rather than dropped quietly.
+                - name: PROBE_EGRESS_BUDGET_BYTES
+                  value: "33554432"
+                # The relay identity: it holds GetObject on the whole bucket,
+                # which is all a read-back needs. The auditor cannot be used --
+                # its GetObject is scoped to inventory/ only.
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_BUCKET
+                - name: SEAWEED_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: SEAWEED_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-remote-probe-script

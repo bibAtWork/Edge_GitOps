@@ -172,7 +172,17 @@ resource "aws_s3_bucket_inventory" "vault" {
 
   destination {
     bucket {
-      format     = "Parquet"
+      # CSV rather than the Parquet ADR-005 specifies. Parquet buys columnar
+      # compression that matters at millions of objects; this vault holds
+      # roughly five hundred, where it buys nothing and costs a great deal.
+      #
+      # The reconciler is the only consumer, it runs in a minimal container, and
+      # reading Parquet there needs python plus pyarrow -- a heavyweight
+      # dependency inside the one job whose failure mode is either "never prunes"
+      # or "tags the wrong objects". Gzipped CSV is parsed with awk, which is
+      # already present. Revisit if this bucket ever reaches a scale where the
+      # report size is a real cost.
+      format     = "CSV"
       bucket_arn = aws_s3_bucket.vault.arn
       prefix     = "inventory"
     }

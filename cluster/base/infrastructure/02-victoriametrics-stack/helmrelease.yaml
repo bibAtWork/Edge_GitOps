@@ -11,7 +11,7 @@ spec:
   chart:
     spec:
       chart: victoria-metrics-k8s-stack
-      version: 0.91.1
+      version: 0.91.2
       sourceRef:
         kind: HelmRepository
         name: victoriametrics
@@ -107,6 +107,41 @@ spec:
 
     alertmanager:
       enabled: false
+
+    # kube-controller-manager and kube-scheduler generate an in-memory
+    # self-signed certificate on every start, valid for localhost and 127.0.0.1
+    # only. The scrape reaches them on the node address, so verifying against
+    # the ServiceAccount CA can never succeed -- the chart default fails with
+    # "certificate is valid for 127.0.0.1, not <node ip>".
+    #
+    # insecureSkipVerify is the standard answer for these two components and is
+    # what kube-prometheus-stack ships by default. It does not make the endpoint
+    # anonymous: authentication is the bearer token, which is a ServiceAccount
+    # token bound to a role that permits the scrape. What is given up is proof
+    # of server identity on a connection to the node this scrape already runs on.
+    #
+    # The alternative would be issuing real certificates for both components and
+    # setting --tls-cert-file on each, which means managing a certificate
+    # lifecycle for two endpoints that serve nothing but metrics.
+    kubeControllerManager:
+      vmScrape:
+        spec:
+          endpoints:
+            - port: http-metrics
+              scheme: https
+              bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+              tlsConfig:
+                insecureSkipVerify: true
+
+    kubeScheduler:
+      vmScrape:
+        spec:
+          endpoints:
+            - port: http-metrics
+              scheme: https
+              bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+              tlsConfig:
+                insecureSkipVerify: true
 
     vmalert:
       spec:

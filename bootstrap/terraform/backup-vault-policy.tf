@@ -30,12 +30,20 @@ data "aws_iam_policy_document" "vault_deny_destructive" {
       identifiers = ["*"]
     }
 
+    # Action names here are validated by S3; IAM does not validate them at all.
+    # This list originally carried "s3:PutObjectLockConfiguration", which does
+    # not exist -- the bucket-level action is PutBucketObjectLockConfiguration.
+    # The IAM policy in backup-vault-iam.tf accepted the invented name without
+    # complaint and applied cleanly, silently granting the admin nothing, while
+    # PutBucketPolicy rejected the identical string with MalformedPolicy. A
+    # permission that IAM reports as granted and AWS never honours is the worse
+    # of the two failures, and only this stricter validation surfaced it.
     actions = [
       "s3:DeleteObject",
       "s3:DeleteObjectVersion",
       "s3:BypassGovernanceRetention",
       "s3:PutBucketVersioning",
-      "s3:PutObjectLockConfiguration",
+      "s3:PutBucketObjectLockConfiguration",
       "s3:PutLifecycleConfiguration",
       "s3:PutBucketPolicy",
       "s3:PutInventoryConfiguration",
