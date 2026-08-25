@@ -72,6 +72,14 @@
       "matchStrings": ["image:\\s*factory\\.talos\\.dev/installer/[0-9a-f]+:(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "siderolabs/talos"
+    },
+    {
+      "customType": "regex",
+      "description": "Factory installer tag inside the SUC upgrade plans. This is the image the automated upgrade actually installs, so it is the one that decides whether the Longhorn extensions survive a reboot. Tracked alongside spec.version and the talosctl tool image in the same files -- all three must move together, and the grouped talos PR is where that is checked.",
+      "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/plans/.+\\.yaml$/"],
+      "matchStrings": ["factory\\.talos\\.dev/installer/[0-9a-f]+:(?<currentValue>v[\\d.]+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
     }
   ],
   "packageRules": [

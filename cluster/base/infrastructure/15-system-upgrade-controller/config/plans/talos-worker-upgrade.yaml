@@ -1,13 +1,37 @@
-# Worker node upgrade plan — runs after control-plane plan completes.
-# On single-node (no dedicated workers), this plan selects zero nodes and is a no-op.
+# Automated Talos upgrade for worker nodes.
+#
+# Runs after the control-plane plan. On the 1-node profile this selects zero
+# nodes and is a no-op; it exists so the 3-node profile needs no new manifest.
+#
+# Lives in cattle-system for the same reason as the control-plane plan -- see the
+# note there.
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
   name: talos-worker
-  namespace: system-upgrade
+  namespace: cattle-system
 spec:
-  channel: https://api.github.com/repos/siderolabs/talos/releases/latest
+  # Pinned to match the control-plane plan, talos-image.env and the installer in
+  # controlplane.yaml.
+  #
+  # This was `channel: .../releases/latest`, which is wrong here in two ways. It
+  # would upgrade workers to whatever Talos ships next, while the repo's stated
+  # policy is that Talos is never auto-merged because a human has to regenerate
+  # the Factory schematic first -- and a schematic is built per version, so a
+  # channel move can land on an image whose extensions were never rebuilt. It
+  # also resolved through the unauthenticated GitHub API, which is rate-limited
+  # and has already caused flakiness elsewhere in this repo.
+  version: v1.13.9
   exclusive: true
+  # Two hours after the control-plane window, so workers only start once the
+  # control plane is back. `exclusive: true` on both plans keeps SUC to one
+  # upgrade at a time regardless, but the offset means a worker never waits on a
+  # control plane that is still rebooting.
+  window:
+    days: ["su"]
+    startTime: "22:00"
+    endTime: "23:59"
+    timeZone: Europe/Berlin
   nodeSelector:
     matchExpressions:
       - key: node-role.kubernetes.io/control-plane
@@ -16,7 +40,6 @@ spec:
     - name: talos-credentials
       path: /var/run/secrets/talos
   cordon: true
-  # Workers run after control-plane plan to prevent simultaneous cluster disruption
   prepare:
     image: ghcr.io/siderolabs/talosctl:v1.13.9
     command:
@@ -32,9 +55,13 @@ spec:
       - /bin/sh
       - -c
       - |
+        # Factory installer, not the stock one -- workers need the same
+        # iscsi-tools and util-linux-tools extensions as the control plane,
+        # because Longhorn schedules replicas on them. See the control-plane
+        # plan for the full reasoning.
         talosctl upgrade \
           --talosconfig /var/run/secrets/talos/talosconfig \
           --nodes "${SYSTEM_UPGRADE_NODE_IP}" \
-          --image "ghcr.io/siderolabs/installer:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
+          --image "factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
           --preserve=true \
           --wait=true
