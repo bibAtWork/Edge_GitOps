@@ -190,3 +190,65 @@ Repeat for Paperless (open the SQLite snapshot, count documents) and Immich (17M
 so allow more time). Worth doing after any PostgreSQL major-version change, since that is
 exactly what silently broke the Immich dump once already -- pg_dump 16 against a 17.6 server
 produced a 20-byte file that only the size guard caught.
+
+---
+
+## The 3-node overlay would not produce a working cluster
+
+Found 2026-08-25 while reviewing the repository against the live cluster.
+
+`cluster/overlays/3-node/kustomization.yaml` lists **16** infrastructure components.
+`1-node` lists **33**. The 18 it is missing are not trimmings:
+
+```
+00-gateway-api  00-local-path-provisioner  16-immich  17-paperless-ngx
+18-falco  19-kyverno  20-kubescape  22-schenkmatch  24-opa  26-keycloak
+27-kubeopencode  28-envoy-gateway  29-metrics-server  30-trivy-renovate-bridge
+31-cluster-rbac  32-longhorn  33-cloudnative-pg  34-backup
+```
+
+That is no storage, no ingress, no identity, no databases and no backups. It stops at
+`21-flux-notifications`, roughly where the repo stood when the overlay was last touched;
+everything added since went to `1-node` only.
+
+There is also **no `3-node-config` overlay**. The `config` layer is what applies
+CRD-dependent resources — including the Talos upgrade Plans — so on 3-node those would
+not deploy at all. And `3-node/talos-machineconfigs/controlplane.yaml` has no installer
+pin, so a rebuilt node would not land on the pinned Talos version.
+
+**Why this is worse than an incomplete profile.** It looks deployable. `kustomize build`
+succeeds, CI validates it, and nothing signals that the result is a fraction of the
+product. The moment it would be reached for is a rebuild after losing the cluster, which
+is the worst possible time to discover it.
+
+**This is a decision, not a task.** Either:
+
+1. **Maintain it** — port the 18 components, add `3-node-config`, add the installer pin,
+   and add CI that fails when the two overlays diverge. The last part matters most: without
+   it, this recurs.
+2. **Mark it aspirational** — a header in its `kustomization.yaml` and a line in the README
+   saying it is not deployable today, so nobody reaches for it in a recovery.
+
+Option 2 is minutes and removes the trap. Option 1 is the real fix and only worth doing if
+a second and third node are actually planned.
+
+---
+
+## M8 follow-up: split node-exporter out of `monitoring`
+
+Partially addressed 2026-08-25 (see the PSS commit giving every namespace an explicit
+level). What remains is the substantive half.
+
+`monitoring` is PSS `privileged` for one reason: `node-exporter` needs host access. But
+Grafana, VictoriaMetrics, VictoriaLogs, VictoriaTraces and the OTel collector all run in
+the same namespace and none of them do — so a compromise in any of them starts with
+permission to mount host paths and use host namespaces.
+
+The fix is to run `node-exporter` in its own privileged namespace and drop `monitoring` to
+`restricted` or `baseline`. It is a chart restructure: `prometheus-node-exporter` ships as
+a subchart of `victoria-metrics-k8s-stack`, so it means disabling it there and deploying it
+separately, then confirming the scrape config still finds it. Real breakage risk, hence
+its own change rather than a tail-end commit.
+
+`audit: baseline` is now set on `monitoring`, so the audit log will show exactly which
+workloads there would fail a stricter bar. Worth reading that before doing the split.
