@@ -16,6 +16,23 @@
 # by the CSI driver at provisioning time, so they cannot be labelled from Git.
 # This job reconciles the labels from the list below, which keeps the decision
 # reviewable in a PR even though the mechanism is imperative.
+#
+# Exclusion means REMOVING recurring-job-group.longhorn.io/default, not adding
+# some other group label. Longhorn's documented rule is that a volume with no
+# recurring-job-group label joins `default`, but it materialises that rule as a
+# real label stamped on every volume at creation. Membership is additive, so a
+# volume carrying both `default` and `ephemeral` is in both groups and is still
+# backed up.
+#
+# The first version of this job added `ephemeral` and left `default` alone. It
+# reported volumes as excluded on every run, for its entire life, while
+# excluding nothing -- established 2026-08-25 by running the snapshot job and
+# finding all three VictoriaMetrics volumes snapshotted along with everything
+# else, then re-running it with `default` removed from one and watching that
+# one alone be skipped.
+#
+# Judge this job by which volumes are in the `default` group, never by what it
+# says it did. The closing lines of the script print exactly that.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -174,30 +191,56 @@ spec:
                     [ -z "${PVC:-}" ] && continue
                     [ "$PVC" = "<none>" ] && continue
 
-                    HAS="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
+                    EPH="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
                       -o jsonpath='{.metadata.labels.recurring-job-group\.longhorn\.io/ephemeral}' 2>/dev/null || true)"
+                    DEF="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
+                      -o jsonpath='{.metadata.labels.recurring-job-group\.longhorn\.io/default}' 2>/dev/null || true)"
 
                     if grep -qx "$PVC" /tmp/ephemeral; then
-                      if [ "$HAS" != "enabled" ]; then
-                        # Any explicit recurring-job-group label removes the
-                        # volume from Longhorn's `default` group, which is what
-                        # excludes it from the backup tiers.
+                      if [ -n "$DEF" ] || [ "$EPH" != "enabled" ]; then
+                        # Removing `default` is what excludes the volume.
+                        # Adding `ephemeral` does not: Longhorn stamps
+                        # recurring-job-group.longhorn.io/default=enabled on
+                        # every volume at creation, membership is additive, and
+                        # a volume carrying both labels is in both groups and
+                        # still backed up.
+                        #
+                        # `ephemeral` is kept alongside as a marker, so this job
+                        # can tell a volume it deliberately excluded from one
+                        # Longhorn has simply not labelled yet.
                         kubectl label volumes.longhorn.io -n longhorn-system "$VOL" \
+                          "recurring-job-group.longhorn.io/default-" \
                           "recurring-job-group.longhorn.io/ephemeral=enabled" --overwrite >/dev/null
                         echo "  excluded $PVC"
                         LABELLED=$((LABELLED + 1))
                       fi
-                    elif [ "$HAS" = "enabled" ]; then
-                      # Removed from the list: put it back under `default` so an
-                      # entry deleted in a PR actually restores protection.
+                    elif [ "$EPH" = "enabled" ] || [ -z "$DEF" ]; then
+                      # Removed from the list, or never labelled at all: put it
+                      # back under `default` so an entry deleted in a PR
+                      # actually restores protection.
                       kubectl label volumes.longhorn.io -n longhorn-system "$VOL" \
-                        "recurring-job-group.longhorn.io/ephemeral-" >/dev/null
+                        "recurring-job-group.longhorn.io/ephemeral-" \
+                        "recurring-job-group.longhorn.io/default=enabled" --overwrite >/dev/null
                       echo "  re-included $PVC"
                       CLEARED=$((CLEARED + 1))
                     fi
                   done < /tmp/vols
 
-                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED"
+                  # Report the set that will actually be backed up, rather than
+                  # the set this job believes it acted on. Those two disagreed
+                  # for the whole life of the previous version and nothing said
+                  # so: it printed "excluded" on every run while every volume
+                  # stayed in `default`.
+                  echo "in the default group, and so backed up:"
+                  kubectl get volumes.longhorn.io -n longhorn-system \
+                    -l "recurring-job-group.longhorn.io/default=enabled" \
+                    -o custom-columns=P:.status.kubernetesStatus.pvcName --no-headers \
+                    | sed 's/^/  /'
+                  IN_DEFAULT="$(kubectl get volumes.longhorn.io -n longhorn-system \
+                    -l "recurring-job-group.longhorn.io/default=enabled" \
+                    --no-headers 2>/dev/null | wc -l)"
+
+                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED in_default=$IN_DEFAULT"
               volumeMounts:
                 - name: policy
                   mountPath: /policy
