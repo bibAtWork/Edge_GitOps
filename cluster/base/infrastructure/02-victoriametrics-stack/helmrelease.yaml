@@ -33,7 +33,18 @@ spec:
     vmsingle:
       enabled: true
       spec:
-        retentionPeriod: "12"
+        # 3 months. The bare number is months in VictoriaMetrics, so this reads
+        # as "3" rather than "3m" -- which would mean three minutes.
+        #
+        # Was 12. Nothing in this cluster has ever looked a year back: the
+        # dashboards are operational, the alerts evaluate over hours, and a
+        # homelab's year-old apiserver latency answers no question anyone asks.
+        # A quarter still spans a season of behaviour, which is the longest
+        # window that has actually been useful here.
+        #
+        # This deletes nothing today -- the cluster is 44 days old, so no data
+        # is yet past 90 days. It caps future growth instead.
+        retentionPeriod: "3"
         resources:
           requests:
             memory: "512Mi"
@@ -45,16 +56,20 @@ spec:
           # hostPath on the system disk, so these no longer share an I/O queue with
           # etcd and can be backed up at the volume level.
           #
-          # Sizes follow RETENTION, not current usage -- which pushed metrics UP.
-          # 62MB/day against 12-month retention is ~22GB at steady state; 107MB/day
-          # of logs against 90 days is ~10GB. Measured on a 42-day-old cluster, so
-          # none had reached steady state and observed usage alone would have
-          # under-provisioned metrics.
+          # Sizes follow RETENTION, not current usage. 25Gi was sized for
+          # 62MB/day against 12-month retention, ~22GB at steady state.
           #
-          # Over-claiming is not free: Longhorn reserves 30% of the disk, leaving a
-          # ~238GiB budget of 340GiB, and oversized claims block real ones from
-          # scheduling. Expansion is enabled, shrinking is not -- size to
-          # observed-plus-headroom and grow later.
+          # That retention is now 3 months and the apiserver histograms above are
+          # dropped, so this claim is roughly four times larger than the new
+          # steady state needs -- and it stays 25Gi regardless, because Longhorn
+          # can grow a volume but cannot shrink one. Reclaiming it would mean
+          # provisioning a smaller volume and copying across, which is real risk
+          # and downtime to recover space nothing else is currently waiting on.
+          # Left deliberately oversized; revisit only if the ~238GiB Longhorn
+          # budget (30% of 340GiB is reserved) starts blocking a real claim.
+          #
+          # vlsingle's 20Gi is still correctly sized: 107MB/day against its
+          # unchanged 90-day retention is ~10GB.
           storageClassName: longhorn
           resources:
             requests:
@@ -107,6 +122,47 @@ spec:
 
     alertmanager:
       enabled: false
+
+    # The kube-apiserver scrape is by far the most expensive thing this stack
+    # collects. Measured 2026-08-25: seven of its histograms accounted for
+    # 114,716 of 414,446 series -- 28% of the entire database -- for metrics
+    # nothing in this cluster reads. No dashboard references them (all eight
+    # were checked) and no alerting or recording rule does either.
+    #
+    # Histograms are expensive in a way their name hides: one series per bucket
+    # boundary per label combination. apiserver_request_duration_seconds_bucket
+    # alone is 41,400 series because it crosses verb x resource x scope x
+    # component x bucket.
+    #
+    # Only `_bucket` is dropped. `_sum` and `_count` are separate metric names
+    # and survive, so average latency and request rates remain available; what
+    # is given up is quantiles, which requires the buckets.
+    #
+    # etcd_request_duration_seconds_bucket is in this list and is not a mistake:
+    # it is the apiserver's own etcd-client metric, exposed on the apiserver
+    # endpoint, not by etcd. Confirmed live -- every one of these carries
+    # job="apiserver". The kube-etcd scrape is left alone; its histograms are
+    # small and three of them are referenced by shipped rules.
+    #
+    # apiserver_request_sli_duration_seconds_bucket is deliberately NOT dropped
+    # despite being the third largest. The chart ships 44 SLO recording rules
+    # built on it. Those recorded series are themselves unread here, so
+    # disabling that rule group would save another 22,660 series -- a separate
+    # decision, and not one to make silently inside a relabel regex.
+    kubeApiServer:
+      vmScrape:
+        spec:
+          endpoints:
+            - port: https
+              scheme: https
+              bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+              tlsConfig:
+                caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                serverName: kubernetes
+              metricRelabelConfigs:
+                - action: drop
+                  sourceLabels: [__name__]
+                  regex: "apiserver_request_duration_seconds_bucket|etcd_request_duration_seconds_bucket|apiserver_request_body_size_bytes_bucket|apiserver_watch_list_duration_seconds_bucket|apiserver_watch_cache_read_wait_seconds_bucket|apiserver_response_sizes_bucket|apiserver_watch_events_sizes_bucket"
 
     # kube-controller-manager and kube-scheduler generate an in-memory
     # self-signed certificate on every start, valid for localhost and 127.0.0.1
