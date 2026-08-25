@@ -125,9 +125,34 @@ spec:
                 - |
                   set -eu
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
-                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/paperless-db.sqlite3.gz \
-                    "s3://db-backups/paperless/paperless-db-${TS}.sqlite3.gz"
+                  KEY="s3://db-backups/paperless/paperless-db-${TS}.sqlite3.gz"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/paperless-db.sqlite3.gz "$KEY"
                   echo "uploaded paperless-db-${TS}.sqlite3.gz"
+
+                  # A successful PUT is not a readable object. Objects in these
+                  # buckets have carried correct metadata and correct sizes while
+                  # their chunks were gone, so every listing and every size guard
+                  # passed while the object could not be fetched at all.
+                  #
+                  # The integrity_check above proves the snapshot was a valid
+                  # database before upload. It says nothing about what survived
+                  # the upload, and those are different claims.
+                  #
+                  # The Immich, Keycloak and filer-metadata jobs all read their
+                  # object back. This one did not, which made it the only database
+                  # dump here whose durability was assumed rather than shown.
+                  EXPECT="$(stat -c %s /work/paperless-db.sqlite3.gz)"
+                  if ! aws --endpoint-url "$S3_ENDPOINT" s3 cp "$KEY" /work/readback --quiet; then
+                    echo "ERROR: uploaded object cannot be read back -- not a durable backup" >&2
+                    exit 1
+                  fi
+                  GOT="$(stat -c %s /work/readback)"
+                  rm -f /work/readback
+                  if [ "$GOT" != "$EXPECT" ]; then
+                    echo "ERROR: read-back ${GOT}B vs uploaded ${EXPECT}B -- refusing to report success" >&2
+                    exit 1
+                  fi
+                  echo "read-back verified: ${GOT} bytes"
               env:
                 - name: S3_ENDPOINT
                   value: http://seaweedfs-s3.seaweedfs.svc:8333
