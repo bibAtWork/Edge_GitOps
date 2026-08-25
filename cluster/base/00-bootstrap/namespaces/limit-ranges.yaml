@@ -145,3 +145,28 @@ spec:
       defaultRequest:
         cpu: 100m
         memory: 128Mi
+---
+# system-upgrade-controller holds cluster-admin and ran with no memory bound at
+# all. Its chart (rancher/system-upgrade-controller 110.0.0) exposes no
+# resources value, so a LimitRange is the only lever short of a post-render
+# patch.
+#
+# The namespace is cattle-system, not system-upgrade-controller. The latter
+# exists and is empty; the controller Deployment has always landed here, which
+# is easy to miss when checking whether it is governed.
+#
+# 256Mi is the shared default and is ample: the controller idles at a few MiB
+# and only brokers upgrade Jobs, which carry their own resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: cattle-system
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi

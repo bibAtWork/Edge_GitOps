@@ -49,6 +49,30 @@ spec:
       resizerReplicaCount: 1
       snapshotterReplicaCount: 1
 
+    # --- Resource governance, and the one that must NOT be applied here --------
+    #
+    # DO NOT add longhorn-system to 00-bootstrap/namespaces/limit-ranges.yaml.
+    #
+    # That LimitRange defaults limit-less containers to 256Mi. instance-manager
+    # was measured at 646Mi and it is the process serving every Longhorn volume
+    # on the node, so the default would OOM-kill it and take all storage down
+    # with it. The same pattern already cost Immich an outage when a chart
+    # dropped its own resources and the namespace default silently caught it.
+    #
+    # instance-manager and the CSI plugin are therefore left unbounded on
+    # purpose. Longhorn's own guidance is not to cap instance-manager memory:
+    # an OOM there is not a restart, it is I/O loss on live volumes.
+    #
+    # longhorn-manager is different. It is the control plane, not the data path,
+    # so a ceiling costs a restart rather than storage. Measured at 243Mi.
+    longhornManager:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+
     # The UI ships with NO authentication whatsoever -- anyone who can reach the
     # Service can detach volumes, delete replicas, or repoint the backup target.
     # Disabling it removes two pods and that unauthenticated surface at once.
