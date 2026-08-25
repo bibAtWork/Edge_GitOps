@@ -1,4 +1,4 @@
-# Longhorn RecurringJobs (ADR-002 Task 3).
+# Longhorn RecurringJobs (ADR-005 Task 3).
 #
 # Retain counts here are real and enforced. Longhorn holds full delete rights on
 # its backup target because that target is the local SeaweedFS endpoint, not AWS

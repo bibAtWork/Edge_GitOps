@@ -1,4 +1,4 @@
-# ADR-002 Task 6: Lifecycle rules and Inventory for the backup vault.
+# ADR-005 Task 6: Lifecycle rules and Inventory for the backup vault.
 #
 # The pruning mechanism lives here. Objects deleted at the source are never
 # overwritten in S3, so they stay current versions forever -- versioning and
@@ -11,7 +11,7 @@
 # INVARIANT: rule 1 and rule 6 are the only rules that expire CURRENT versions,
 # and both are filtered -- rule 1 on the prune tag, rule 6 on inventory/. An
 # unfiltered current-version expiration rule here would silently destroy live
-# backup data. ADR-002's definition of done requires reading this configuration
+# backup data. ADR-005's definition of done requires reading this configuration
 # back from AWS to confirm that; see scripts/verify-backup-vault.sh.
 resource "aws_s3_bucket_lifecycle_configuration" "vault" {
   bucket = aws_s3_bucket.vault.id
@@ -125,7 +125,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "vault" {
 }
 
 # S3 Inventory feeds the reconciler's diff (Task 11). Two configurations rather
-# than one because an Inventory filter accepts a single prefix, and ADR-002 asks
+# than one because an Inventory filter accepts a single prefix, and ADR-005 asks
 # for longhorn/ and seaweedfs/ while excluding inventory/ so the report does not
 # describe itself and grow without bound.
 #
@@ -145,7 +145,7 @@ locals {
     "ETag",
   ]
 
-  # ADR-002 Task 6 also lists IsLatest. AWS rejects it: IsLatest is an implicit
+  # ADR-005 Task 6 also lists IsLatest. AWS rejects it: IsLatest is an implicit
   # column of a versioned inventory, not a requestable optional field, and
   # `terraform validate` fails on it. It would carry no information here anyway,
   # because included_object_versions is Current, so every listed row is by

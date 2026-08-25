@@ -1,4 +1,4 @@
-# ADR-002 Task 8: bucket policy, defense in depth.
+# ADR-005 Task 8: bucket policy, defense in depth.
 #
 # Deliberately redundant with the IAM policies in backup-vault-iam.tf. Those
 # grant nothing destructive, so in a correct configuration this policy denies
@@ -54,7 +54,7 @@ data "aws_iam_policy_document" "vault_deny_destructive" {
       "${aws_s3_bucket.vault.arn}/*",
     ]
 
-    # Account root is included as break-glass, per ADR-002. Without it, deleting
+    # Account root is included as break-glass, per ADR-005. Without it, deleting
     # or renaming the admin identity would permanently brick bucket
     # configuration -- the policy would deny every principal able to change the
     # policy, with no way back.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reads the ADR-002 backup vault effective configuration back from AWS and
+# Reads the ADR-005 backup vault effective configuration back from AWS and
 # asserts the properties the design depends on.
 #
 # This exists because the definition of done asks for a read-back rather than a
@@ -47,7 +47,7 @@ elif [ "$ALG" = "aws:kms" ]; then
   # Not a style preference: a CMK whose deletion can be scheduled is a backdoor
   # around Object Lock. Schedule the key for deletion and every locked object
   # becomes permanently unreadable while retention still reports healthy.
-  fail "SSE-KMS in use -- ADR-002 rejects this; a schedulable CMK bypasses Object Lock"
+  fail "SSE-KMS in use -- ADR-005 rejects this; a schedulable CMK bypasses Object Lock"
 else
   fail "encryption is '$ALG', expected AES256"
 fi
@@ -103,7 +103,7 @@ INV=$(aws s3api list-bucket-inventory-configurations --bucket "$BUCKET" --output
 if [ "${INV:-0}" -ge 1 ]; then pass "$INV inventory configuration(s)"; else fail "no inventory configured -- the reconciler has nothing to diff against"; fi
 
 info "In-cluster credentials hold no delete permission"
-# ADR-002 asks for this to be attempted, not inferred. A policy that reads
+# ADR-005 asks for this to be attempted, not inferred. A policy that reads
 # correctly and evaluates differently is the entire reason for testing it.
 if [ -n "${RELAY_ACCESS_KEY_ID:-}" ] && [ -n "${RELAY_SECRET_ACCESS_KEY:-}" ]; then
   KEY="probe/delete-denial-check"
@@ -122,7 +122,7 @@ if [ -n "${RELAY_ACCESS_KEY_ID:-}" ] && [ -n "${RELAY_SECRET_ACCESS_KEY:-}" ]; t
 
   if AWS_ACCESS_KEY_ID="$RELAY_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$RELAY_SECRET_ACCESS_KEY" \
      aws s3api delete-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
-    fail "relay CAN DELETE -- violates the central ADR-002 constraint"
+    fail "relay CAN DELETE -- violates the central ADR-005 constraint"
   else
     pass "relay denied DeleteObject"
   fi
@@ -133,7 +133,7 @@ fi
 if [ -n "${AUDITOR_ACCESS_KEY_ID:-}" ] && [ -n "${AUDITOR_SECRET_ACCESS_KEY:-}" ]; then
   if AWS_ACCESS_KEY_ID="$AUDITOR_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AUDITOR_SECRET_ACCESS_KEY" \
      aws s3api delete-object --bucket "$BUCKET" --key "probe/delete-denial-check" >/dev/null 2>&1; then
-    fail "auditor CAN DELETE -- violates the central ADR-002 constraint"
+    fail "auditor CAN DELETE -- violates the central ADR-005 constraint"
   else
     pass "auditor denied DeleteObject"
   fi

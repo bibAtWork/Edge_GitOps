@@ -1,6 +1,6 @@
-# ADR-002 Task 7: the three vault identities.
+# ADR-005 Task 7: the three vault identities.
 #
-# The whole design reduces to what these policies do NOT contain. ADR-002's
+# The whole design reduces to what these policies do NOT contain. ADR-005's
 # central constraint is that no in-cluster credential holds any S3 delete
 # permission -- not scoped, not conditioned, not on a lock prefix. That is
 # affordable only because Longhorn's backup target is the local SeaweedFS

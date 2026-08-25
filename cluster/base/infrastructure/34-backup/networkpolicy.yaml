@@ -1,4 +1,12 @@
-# Egress for the ADR-002 backup jobs (Tasks 4, 9, 11, 12).
+# Egress for the ADR-005 backup jobs (Tasks 4, 9, 11, 12).
+#
+# The selector label is still `adr002.backup/egress`, and stays that way on
+# purpose. Every backup job carries it and this policy selects on it, so renaming
+# means changing selector and pod labels together; any job that started inside
+# the window between them would lose egress and fail. Renaming a label that gates
+# network access, to correct a number in its name, is not a trade worth making.
+# The prose in these files was corrected; the label is an identifier, not a
+# reference.
 #
 # Cilium is default-deny in both directions here, and the existing
 # longhorn-restrict policy in 32-longhorn/ covers what Longhorn itself needs:

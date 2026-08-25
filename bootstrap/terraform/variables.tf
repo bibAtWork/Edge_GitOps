@@ -39,7 +39,7 @@ variable "tags" {
 }
 
 variable "vault_object_lock_days" {
-  description = "ADR-002 backup vault default Object Lock retention, in days (Governance mode)"
+  description = "ADR-005 backup vault default Object Lock retention, in days (Governance mode)"
   type        = number
   default     = 21
 }
