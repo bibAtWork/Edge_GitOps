@@ -1,0 +1,176 @@
+# Central Trivy server, so scan jobs stop competing for one cache directory.
+#
+# trivy-operator packs every container of a workload into a single scan pod and
+# gives them one shared emptyDir mounted at /tmp, then passes each the same
+# `--cache-dir /tmp/trivy/.cache`. Trivy 0.71+ locks that directory, so with two
+# or more containers the first scanner takes the lock and the rest die with
+# "Failed to acquire cache or database lock".
+#
+# The effect was quiet and selective: single-container workloads scanned fine
+# (123 reports exist), while every multi-container workload lost one image. On
+# 2026-08-25 that meant library/postgres:16-alpine and 17-alpine -- the pg_dump
+# images in the database backup CronJobs, which run holding database
+# credentials -- had never been scanned at all, and nothing said so.
+#
+# Giving each container its own cache directory is the obvious fix and is not
+# available: the scan containers run with readOnlyRootFilesystem: true, so the
+# cache has to sit on a mounted volume, and the only mounted volume is the
+# shared one. Relaxing that on a security scanner to work around a lock is the
+# wrong trade.
+#
+# In ClientServer mode the clients hold no cache and no database at all: they
+# ship the image reference to this server and receive results. The lock cannot
+# be contended because there is only one holder.
+#
+# It also removes a per-scan cost that was easy to miss. Every scan job was
+# downloading the 109MB vulnerability database before scanning. One server
+# downloads it once and keeps it.
+#
+# Deployed as a plain Deployment rather than the aquasecurity/trivy chart: the
+# image is pinned to exactly the version trivy-operator already runs for scans,
+# so client and server cannot drift apart across a chart bump.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy-server
+  namespace: trivy-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+spec:
+  replicas: 1
+  strategy:
+    # The vulnerability DB lives on an emptyDir, so a rolling update would have
+    # two replicas downloading it at once for no benefit. Recreate keeps it to
+    # one at the cost of a short gap, during which scans fail and are retried.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trivy-server
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: trivy
+          # Same tag trivy-operator passes to its scan jobs. Renovate tracks the
+          # operator chart, not this, so a drift here is silent -- keep the two
+          # aligned when the chart moves.
+          image: mirror.gcr.io/aquasec/trivy:0.73.0
+          args:
+            - server
+            - --listen
+            - 0.0.0.0:4954
+            - --cache-dir
+            - /cache
+          ports:
+            - name: trivy-http
+              containerPort: 4954
+              protocol: TCP
+          env:
+            - name: TRIVY_DB_REPOSITORY
+              value: mirror.gcr.io/aquasec/trivy-db
+            - name: TRIVY_JAVA_DB_REPOSITORY
+              value: mirror.gcr.io/aquasec/trivy-java-db
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: trivy-http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: trivy-http
+            # The first start downloads ~109MB before it will serve. A short
+            # readiness delay would flap the endpoint and fail scans that are
+            # already in flight.
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # The DB is memory-mapped during scans; 1Gi is comfortable for a
+              # single-node homelab and explicit because ten namespaces carry a
+              # LimitRange that would otherwise cap this at 256Mi and OOM it
+              # mid-download.
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-server
+  namespace: trivy-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+spec:
+  selector:
+    app.kubernetes.io/name: trivy-server
+  ports:
+    - name: trivy-http
+      port: 4954
+      targetPort: trivy-http
+      protocol: TCP
+---
+# Cilium is default-deny in both directions. Scan jobs already have
+# allow-intra-namespace-egress, so this is the ingress half plus the server's
+# own reach to the database mirror.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-trivy-server
+  namespace: trivy-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-server
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: trivy-system
+      toPorts:
+        - ports:
+            - port: "4954"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+    # Pulls the vulnerability database from the registry mirror. This is the
+    # only egress the server needs; the clients need none at all once they stop
+    # downloading it themselves.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

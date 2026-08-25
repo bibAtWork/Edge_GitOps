@@ -61,6 +61,29 @@ spec:
       ignoreUnfixed: false
       severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
+      # ClientServer, not Standalone. In Standalone every scan container carries
+      # its own cache and database, and trivy-operator packs all containers of a
+      # workload into ONE pod sharing a single emptyDir with one --cache-dir.
+      # Trivy 0.71+ locks that directory, so the first scanner wins and the rest
+      # die with "Failed to acquire cache or database lock".
+      #
+      # It failed selectively, which is why it went unnoticed for so long: 123
+      # single-container reports existed while every multi-container workload
+      # silently lost one image. library/postgres:16-alpine and 17-alpine -- the
+      # pg_dump images in the database backup CronJobs, which run holding database
+      # credentials -- had never been scanned at all.
+      #
+      # Per-container cache directories would also solve it and are not available:
+      # scan containers run readOnlyRootFilesystem: true, so the cache must sit on
+      # a mounted volume and the only mounted volume is the shared one. Relaxing
+      # that on a security scanner to work around a lock is the wrong trade.
+      #
+      # In ClientServer the clients hold no cache and no database, so there is
+      # nothing to contend for. It also stops every scan job downloading the 109MB
+      # vulnerability database before it can start.
+      mode: ClientServer
+      serverURL: http://trivy-server.trivy-system.svc:4954
+
     serviceMonitor:
       enabled: false
 
