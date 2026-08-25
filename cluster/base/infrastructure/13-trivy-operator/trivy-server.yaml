@@ -113,11 +113,15 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
-              # The DB is memory-mapped during scans; 1Gi is comfortable for a
-              # single-node homelab and explicit because ten namespaces carry a
-              # LimitRange that would otherwise cap this at 256Mi and OOM it
-              # mid-download.
-              memory: 1Gi
+              # 512Mi, measured rather than guessed: the server idles at 24Mi and
+              # the database is memory-mapped rather than read whole. The first
+              # value here was 1Gi, which took half the namespace quota and left
+              # too little to admit a scan pod at all -- the server was sized as
+              # though it were the expensive component when the scan jobs are.
+              #
+              # Explicit because ten namespaces carry a LimitRange that would
+              # otherwise default this to 256Mi and OOM it mid-download.
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

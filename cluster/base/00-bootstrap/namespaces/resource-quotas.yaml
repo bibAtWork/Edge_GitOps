@@ -109,11 +109,23 @@ kind: ResourceQuota
 metadata:
   name: default-quota
   namespace: trivy-system
+  # Raised 2026-08-25 for the Trivy server added alongside the operator.
+  # At 2Gi the namespace held operator (512Mi) + server (512Mi) and could not
+  # admit a scan pod, which asks for a 1G limit -- scan Jobs sat in FailedCreate
+  # with "exceeded quota" and produced no reports at all. A quota rejection
+  # stops pods being created rather than failing them, so nothing crash-looped
+  # and nothing appeared in the operator log; the only symptom was reports
+  # quietly not being refreshed.
+  #
+  # 3Gi covers operator + server + one scan pod with margin.
+  # scanJobsConcurrentLimit is 2, so two simultaneous scans would still be
+  # refused -- deliberately: refusing the second is better than OOM-killing the
+  # operator, which currently runs at 499Mi against its own 512Mi limit.
 spec:
   hard:
     requests.cpu: "1"
-    requests.memory: 1Gi
-    limits.memory: 2Gi
+    requests.memory: 1536Mi
+    limits.memory: 3Gi
     pods: "12"
 ---
 apiVersion: v1
