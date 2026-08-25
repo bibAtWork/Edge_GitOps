@@ -22,7 +22,7 @@ spec:
       path: /var/run/secrets/talos
   cordon: true
   upgrade:
-    image: ghcr.io/siderolabs/talosctl:v1.13.6
+    image: ghcr.io/siderolabs/talosctl:v1.13.9
     command:
       - /bin/sh
       - -c
