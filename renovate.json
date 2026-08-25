@@ -51,6 +51,14 @@
     },
     {
       "customType": "regex",
+      "description": "Talos installer pin in talos-image.env. Source of truth for manual node upgrades; the SUC plan below covers the automated path and the two must not drift. A bump here REQUIRES regenerating SCHEMATIC_ID from schematic.yaml via the Image Factory, which Renovate cannot do -- hence the talos group is never auto-merged.",
+      "managerFilePatterns": ["/cluster/overlays/.+/talos-machineconfigs/talos-image\\.env$/"],
+      "matchStrings": ["TALOS_VERSION=(?<currentValue>v[\\d.]+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
+    },
+    {
+      "customType": "regex",
       "description": "Talos version in SUC upgrade plans (spec.version drives the installer tag via SYSTEM_UPGRADE_PLAN_LATEST_VERSION)",
       "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/plans/.+\\.yaml$/"],
       "matchStrings": ["version:\\s*(?<currentValue>v[\\d.]+)"],
