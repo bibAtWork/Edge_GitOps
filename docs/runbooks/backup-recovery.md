@@ -154,8 +154,13 @@ An untested restore is not a backup. This table being empty is itself a finding.
 
 ## 5. Off-site escrow
 
-**Not yet assembled.** Without this the remote copy is unreadable after total homelab
-loss, and nothing else in this design addresses that.
+**Assembled 2026-08-25.** Verify it again at each quarterly drill -- an escrow is only
+as good as the last time somebody read it back, and the contents below drift: the
+`.age.key` fingerprint changes if SOPS is ever re-keyed, and Terraform state changes on
+every apply.
+
+Without this the remote copy is unreadable after total homelab loss, and nothing else
+in this design addresses that. What follows is the record of what it holds and why.
 
 Nothing automated can do this. Every other part of the backup chain runs on a schedule;
 this one is a deliberate manual act, because anything that copied these files

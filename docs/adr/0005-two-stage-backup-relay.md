@@ -199,12 +199,14 @@ Backup jobs now verify the gzip stream before upload and **read the object back 
 | 11 — Reconciler and prune tagging | Done. Gate verified closed against a failing restore-test |
 | 12 — Monthly remote probe | Done. Bounded read-back against the local copy |
 | 13 — Quarterly drill | Runbook written; **never executed** |
-| 14 — Off-site escrow | Runbook written; **not assembled** |
+| 14 — Off-site escrow | **Done** (2026-08-25, by the operator) |
 | 15 — Monitoring | Done. 11 alerts across coverage, verification and the prune path |
 
 The off-site copy is live and immutable. Two things it still depends on are not:
 
-**Task 14 is the significant gap.** Exactly one artefact is unrecoverable if lost:
+**Task 14 is done.** The escrow was assembled on 2026-08-25. What it must contain,
+and why, is recorded here because the reasoning outlives the act: exactly one
+artefact is unrecoverable if lost:
 `.age.key`, the SOPS private key, without which every encrypted manifest in the
 repo is noise. Terraform state and `bootstrap/config.json` are worth escrowing for
 speed but are reconstructible — state via `terraform import`, config by reissuing
@@ -214,8 +216,10 @@ This is deliberately manual and cannot be automated: anything that copied the ke
 on a schedule would have to store it somewhere, and that somewhere is what the
 escrow exists to survive.
 
-**Task 13 has never been run.** Every automated check verifies a component. Only
-the drill verifies that a human can actually perform a recovery with what exists.
+**Task 13 has never been run**, and is now the only remaining gap. Every automated
+check verifies a component; only the drill verifies that a human can actually
+perform a recovery with what exists -- including that the escrow assembled above
+is readable, which is the one property nothing else tests.
 
 ### Known state as of 2026-08-24
 
