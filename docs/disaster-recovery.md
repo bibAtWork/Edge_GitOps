@@ -19,7 +19,8 @@ Three recovery scenarios are covered:
 Before running any recovery, ensure you have the following items **offline** (never stored on the cluster or in git):
 
 - [ ] **SOPS age private key** (`sops.age.key`) — decrypts all Git secrets
-- [ ] **talos-backup age private key** (`talos-backup.age.key`) — decrypts etcd snapshots
+- [ ] ~~**talos-backup age private key** (`talos-backup.age.key`)~~ — decrypted etcd
+      snapshots. No longer required: no snapshots exist. See Scenario B.
 - [ ] **secrets bundle** (generated during bootstrap: `talosconfig`, `secrets.yaml`, and/or `controlplane.yaml`) — required for full cluster recovery
 - [ ] **AWS credentials** — to fetch offsite etcd snapshots from S3 (full recovery only)
 
@@ -97,10 +98,32 @@ kubectl get pods -n <namespace>
 
 Rebuild the cluster from scratch using an etcd snapshot. This wipes all nodes.
 
+> **This scenario cannot currently be executed. There are no etcd snapshots to recover
+> from, and there never have been.**
+>
+> A `talos-backup` CronJob ran every six hours for 44 days and exited 0 every time. It
+> took the snapshot — the logs record a real one, 219 MB — and then never uploaded it.
+> The `etcd-backups` bucket it targeted holds zero objects, confirmed with the SeaweedFS
+> admin credential, and the AWS `homelab-etcd-backups-offsite` bucket that phases 3–5
+> below read from has no mechanism writing to it at all. The CronJob was removed on
+> 2026-08-25 rather than left reporting success.
+>
+> The steps below are kept because the *procedure* is correct and the only missing
+> ingredient is the snapshot. If etcd backups are reinstated, this works again as
+> written. Until then, treat phases 3–5 as unavailable.
+>
+> **What recovery does exist.** Everything except cluster identity is covered by
+> [ADR-005](adr/0005-two-stage-backup-relay.md): Longhorn volume backups and database
+> dumps, relayed to an immutable off-site vault and verified nightly. A rebuild without
+> an etcd snapshot means re-provisioning Talos from `secrets.yaml`, letting Flux
+> reconstruct every cluster resource from Git, and restoring data from those backups.
+> What is lost is runtime-only state that Git does not describe.
+
 ### Pre-flight checklist
 
 - [ ] Offline SOPS age private key (`sops.age.key`)
-- [ ] Offline talos-backup age private key (`talos-backup.age.key`)
+- [ ] ~~Offline talos-backup age private key (`talos-backup.age.key`)~~ — see the note
+      above; phases 3–5 cannot run
 - [ ] `secrets.yaml` (Talos secrets bundle generated at bootstrap)
 - [ ] AWS credentials with read access to the etcd-backups S3 bucket
 - [ ] Node IP addresses (or DHCP-assigned addresses visible on network)

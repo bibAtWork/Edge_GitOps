@@ -138,17 +138,6 @@ apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: allow-intra-namespace-egress
-  namespace: talos-backup
-spec:
-  endpointSelector: {}
-  egress:
-    - toEndpoints:
-        - {}
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-intra-namespace-egress
   namespace: falco
 spec:
   endpointSelector: {}
