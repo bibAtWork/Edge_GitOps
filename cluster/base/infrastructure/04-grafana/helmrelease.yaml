@@ -1479,7 +1479,24 @@ spec:
         # Editor, everyone else (including /reader/viewer) -> Viewer. Replaces
         # the old flat 'admin' group check now that the group is gone --
         # see setup-job.yaml's migration comment.
-        role_attribute_path: "contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'app-operator') && 'Editor' || 'Viewer'"
+        # No trailing 'Viewer' fallback, and role_attribute_strict on. Together
+        # they mean a user whose groups match none of these is refused a role,
+        # and Grafana then refuses the login.
+        #
+        # This became load-bearing the moment public self-registration was
+        # enabled on the realm. The previous expression ended in || 'Viewer',
+        # so ANY account Keycloak authenticated -- including one a stranger had
+        # just created for themselves -- was granted Grafana Viewer and could
+        # read every dashboard and all metrics. Self-registered accounts are
+        # scoped to Paperless and Immich; this is what keeps them out of here.
+        #
+        # Consequence worth knowing: a real person added to Keycloak but not yet
+        # put in a tier group cannot log in to Grafana at all. That is the
+        # intended direction of failure -- refused rather than quietly admitted
+        # as a Viewer -- but it will look like a broken login rather than a
+        # missing group membership.
+        role_attribute_path: "contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'app-operator') && 'Editor' || contains(groups[*], 'viewer') && 'Viewer'"
+        role_attribute_strict: true
         use_pkce: true
         auto_login: false
     image:

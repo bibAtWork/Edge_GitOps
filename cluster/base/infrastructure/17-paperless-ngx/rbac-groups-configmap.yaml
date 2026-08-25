@@ -59,9 +59,36 @@ data:
         f"{action}_{m}" for m in CONFIG_MODELS for action in ("view", "add", "change", "delete")
     ]
 
+    # Public self-registration lands here, via the Keycloak /self-service group
+    # and PAPERLESS_SOCIAL_ACCOUNT_SYNC_GROUPS matching on name.
+    #
+    # Deliberately narrower than viewer, which is an ADR-002 tier granted to
+    # people who were vetted. This set is the minimum that lets the UI render a
+    # document the user owns: the document itself, the metadata shown on it, and
+    # uisettings, without which the frontend will not load at all.
+    #
+    # What is left out matters more than what is in. No sharelink or
+    # sharelinkbundle -- those are how documents are exposed outside the app,
+    # and a self-registered account has no business enumerating them. No
+    # paperlesstask, which leaks the filenames of documents being consumed. No
+    # add/change/delete of anything.
+    #
+    # "Own workspace only" is not enforced by this list; it is enforced by
+    # Paperless's object permissions, which show a non-superuser only documents
+    # they own or have been granted. Verified 2026-08-25: 0 of 2 documents have
+    # a null owner, so there is nothing an unowned-document fallback could
+    # expose. That invariant is worth re-checking if documents are ever
+    # bulk-imported, because an import that skips owner assignment makes every
+    # such document visible to everyone holding view_document.
+    self_service_perms = [
+        "view_document", "view_correspondent", "view_tag",
+        "view_documenttype", "view_storagepath", "view_uisettings",
+    ]
+
     ensure_group("viewer", viewer_perms)
     ensure_group("app-operator", operator_perms)
     ensure_group("platform-admin", admin_perms)
+    ensure_group("self-service", self_service_perms)
 
     # Django superuser status can't be granted via a Group (Django has no
     # "this permission set implies is_superuser" concept) -- but ADR-002's
