@@ -50,6 +50,24 @@ spec:
         # draft ADRs specified — leaves the second pod Pending forever. Revisit
         # together with the 3-node overlay, not before.
         replicas: 1
+        # The proxy had a 512Mi request and no limit. The gateway-helm chart
+        # bounds its own operator (1Gi) but not the data plane it generates, so
+        # the one pod every external request passes through was the unbounded
+        # one.
+        #
+        # 1Gi against 47Mi observed. The headroom is deliberate and the direction
+        # of the risk is worth stating: a limit on this container means a memory
+        # leak takes ingress down at 1Gi instead of taking the node down at
+        # whatever the kernel decides. That is the better failure, but it is a
+        # real failure, so the ceiling sits far above anything measured rather
+        # than snugly above it.
+        container:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
       envoyService:
         patch:
           type: StrategicMerge
