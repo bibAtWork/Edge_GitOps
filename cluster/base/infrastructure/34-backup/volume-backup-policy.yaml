@@ -174,8 +174,11 @@ spec:
                   set -eu
                   apk add --no-cache kubectl >/dev/null 2>&1 || {
                     echo "FATAL: kubectl install failed" >&2; exit 1; }
+                  NOW="$(date -u +%s)"
                   LABELLED=0
                   CLEARED=0
+                  VOLS_TOTAL=0
+                  EXPECTED_EXCLUDED=0
 
                   # Strip comments and blanks so the ConfigMap can carry the
                   # reasoning alongside the list.
@@ -190,6 +193,8 @@ spec:
                     [ -z "${VOL:-}" ] && continue
                     [ -z "${PVC:-}" ] && continue
                     [ "$PVC" = "<none>" ] && continue
+                    VOLS_TOTAL=$((VOLS_TOTAL + 1))
+                    grep -qx "$PVC" /tmp/ephemeral && EXPECTED_EXCLUDED=$((EXPECTED_EXCLUDED + 1)) || true
 
                     EPH="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
                       -o jsonpath='{.metadata.labels.recurring-job-group\.longhorn\.io/ephemeral}' 2>/dev/null || true)"
@@ -231,16 +236,53 @@ spec:
                   # for the whole life of the previous version and nothing said
                   # so: it printed "excluded" on every run while every volume
                   # stayed in `default`.
-                  echo "in the default group, and so backed up:"
                   kubectl get volumes.longhorn.io -n longhorn-system \
                     -l "recurring-job-group.longhorn.io/default=enabled" \
                     -o custom-columns=P:.status.kubernetesStatus.pvcName --no-headers \
-                    | sed 's/^/  /'
-                  IN_DEFAULT="$(kubectl get volumes.longhorn.io -n longhorn-system \
-                    -l "recurring-job-group.longhorn.io/default=enabled" \
-                    --no-headers 2>/dev/null | wc -l)"
+                    | grep -v '^<none>' | sort > /tmp/in_default
 
-                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED in_default=$IN_DEFAULT"
+                  echo "in the default group, and so backed up:"
+                  sed 's/^/  /' /tmp/in_default
+
+                  IN_DEFAULT="$(wc -l < /tmp/in_default)"
+                  EXPECTED="$((VOLS_TOTAL - EXPECTED_EXCLUDED))"
+                  DRIFT="$((IN_DEFAULT - EXPECTED))"
+
+                  # Metrics, so this is visible without reading pod logs that age
+                  # out after three runs.
+                  #
+                  # backup_volume_policy_drift is the one that matters and the one
+                  # alerted on. It is the difference between the volumes actually
+                  # in `default` and the number the list says should be, so it is
+                  # self-adjusting: adding an app adds a volume to both sides and
+                  # nothing fires, while an exclusion that stops taking effect
+                  # moves only one side. The previous version of this job would
+                  # have reported drift=10 from its first run.
+                  #
+                  # backup_volume_policy_in_scope carries a pvc label so the
+                  # Longhorn backup-age rules can be scoped to volumes that are
+                  # supposed to have backups. Without it they count the deliberate
+                  # exclusions too and alert forever about volumes nobody intends
+                  # to back up.
+                  {
+                    echo "backup_volume_policy_last_run_timestamp $NOW"
+                    echo "backup_volume_policy_in_default $IN_DEFAULT"
+                    echo "backup_volume_policy_expected_in_default $EXPECTED"
+                    echo "backup_volume_policy_drift $DRIFT"
+                    echo "backup_volume_policy_volumes_total $VOLS_TOTAL"
+                    echo "backup_volume_policy_excluded $LABELLED"
+                    echo "backup_volume_policy_reincluded $CLEARED"
+                    while read -r P; do
+                      [ -z "$P" ] && continue
+                      echo "backup_volume_policy_in_scope{pvc=\"$P\"} 1"
+                    done < /tmp/in_default
+                  } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" \
+                    || echo "WARN: metric push failed"
+
+                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED in_default=$IN_DEFAULT expected=$EXPECTED drift=$DRIFT"
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
               volumeMounts:
                 - name: policy
                   mountPath: /policy

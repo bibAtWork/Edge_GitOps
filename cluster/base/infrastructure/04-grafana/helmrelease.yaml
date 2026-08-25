@@ -34,7 +34,7 @@ spec:
       passwordKey: admin-password
     # Stateless. /var/lib/grafana is an emptyDir, so everything Grafana serves
     # comes from this file on every start: datasources, the eight gnetId
-    # dashboards, all twenty-three alert rules, and the admin user from
+    # dashboards, all twenty-four alert rules, and the admin user from
     # grafana-admin.
     #
     # The volume was removed rather than moved to Longhorn because it had
@@ -1001,6 +1001,16 @@ spec:
               # Longhorn RecurringJob coverage. Held back until the VMServiceScrape in #272
               # was live and these series had actually been observed, rather than written
               # against label names taken on trust.
+              #
+              # Both are scoped to volumes the policy job says should be backed up, by
+              # joining on the pvc label that Longhorn's own metric already carries.
+              # Unscoped they count the deliberate exclusions too -- 13 volumes rather
+              # than 4 -- and since nothing ever backs those up, they would report a
+              # permanent fault about volumes nobody intends to protect. An alert that
+              # is always red is an alert nobody reads.
+              #
+              # The join makes these depend on the policy job still running. That is the
+              # correct direction: if it stops, BackupScopeDrift goes off on NoData.
               - uid: longhorn-volume-never-backed-up
                 title: LonghornVolumeNeverBackedUp
                 condition: B
@@ -1011,7 +1021,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'count(longhorn_volume_last_backup_at == 0)'
+                      expr: 'count((longhorn_volume_last_backup_at == 0) * on(pvc) group_left() last_over_time(backup_volume_policy_in_scope[3h]))'
                       instant: true
                       range: false
                       refId: A
@@ -1057,7 +1067,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'count((time() - longhorn_volume_last_backup_at > 864000) and (longhorn_volume_last_backup_at > 0))'
+                      expr: 'count(((time() - longhorn_volume_last_backup_at > 864000) and (longhorn_volume_last_backup_at > 0)) * on(pvc) group_left() last_over_time(backup_volume_policy_in_scope[3h]))'
                       instant: true
                       range: false
                       refId: A
@@ -1368,6 +1378,67 @@ spec:
                     The probe is bounded by a 32MiB egress budget, not by object count -- the sampled population mixes small metadata with 16MB database dumps, so a fixed count costs anywhere between 1MB and hundreds. A large jump almost always means the smallest-object selection logic broke and it is now pulling real volume data, which costs egress every month for no additional assurance. The threshold is set well above the observed envelope so ordinary growth does not trip it.
                 labels:
                   severity: warning
+                isPaused: false
+              # Backup scope. This is the rule that would have caught the
+              # exclusion bug fixed in the same series of changes: the policy job
+              # reported volumes as excluded on every run, for its whole life,
+              # while every one of them stayed in Longhorn's `default` group and
+              # was still being backed up.
+              #
+              # Alerting on drift rather than on an absolute count keeps it
+              # self-adjusting. Adding an application adds a volume to both the
+              # actual and the expected side, so nothing fires; an exclusion that
+              # stops taking effect moves only one side. A fixed threshold on
+              # in_default would have to be revised every time an app is added,
+              # and a threshold nobody maintains is one nobody trusts.
+              - uid: backup-scope-drift
+                title: BackupScopeDrift
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 10800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'abs(last_over_time(backup_volume_policy_drift[3h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # The job runs hourly, so three hours of silence is the job
+                # having stopped -- and a scope reconciler that has stopped is
+                # exactly when scope drifts unnoticed.
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Longhorn backup scope does not match the policy
+                  description: >-
+                    The number of volumes in Longhorn's `default` group differs from the number the exclusion list in 34-backup/volume-backup-policy.yaml says should be there. Either an exclusion has stopped taking effect and something is being backed up that should not be, or a volume that should be protected has dropped out of the group. Compare `kubectl get volumes.longhorn.io -n longhorn-system -l recurring-job-group.longhorn.io/default=enabled` against that list, and read the tail of the last volume-backup-policy run, which prints both. Do not judge this from the job's "excluded" lines; those describe what it attempted, not what took effect.
+                labels:
+                  severity: critical
                 isPaused: false
     initChownData:
       enabled: false
