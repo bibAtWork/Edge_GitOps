@@ -40,7 +40,7 @@ assurance, and it trains everyone to ignore the one alarm that should never be i
 | Layer | Velero | SeaweedFS native | Logical dumps |
 |---|---|---|---|
 | Kubernetes objects | yes | no concept of them | no |
-| Databases (local-path) | hostPath skipped | cannot see them | yes |
+| Databases | hostPath skipped when on local-path | cannot see them | yes |
 | Application blobs (SeaweedFS) | FUSE path fails | yes | no |
 
 The recommended Kubernetes approach — CSI volume snapshots — is unavailable here: the
@@ -53,10 +53,17 @@ backup was in use at all, and it is the fallback that failed.
 - **Homelab, not production.** Proportionality governs. Immutability was evaluated and
   declined in [ADR-003](adr/0003-backup-immutability-versioning-only.md); versioning plus
   lifecycle retention is the accepted offsite protection level.
-- **Databases stay on local-path.** PostgreSQL depends on POSIX `fsync` durability, which is
-  not a safe assumption on a network FUSE filesystem, and the CSI mount service is documented
+- **Databases stay off FUSE.** PostgreSQL depends on POSIX `fsync` durability, which is not a
+  safe assumption on a network FUSE filesystem, and the CSI mount service is documented
   upstream as not resilient to its own restarts. Keeping databases off SeaweedFS also means a
   total storage failure does not take out the identity provider needed to log in and repair it.
+
+  This originally meant `local-path`, the only alternative at the time. Since
+  [ADR-004](adr/0004-longhorn-v1-storage-engine.md) it means Longhorn, which presents an
+  ordinary ext4 block device and so satisfies the same requirement without pinning a pod to
+  one node or hiding the volume from every backup mechanism. The one deliberate exception is
+  the SeaweedFS filer's own metadata database, which stays on `local-path` so that restoring
+  SeaweedFS never depends on SeaweedFS.
 - **Prefer few moving parts.** Every component is one more thing to maintain, and one more
   thing that can fail quietly.
 
@@ -68,7 +75,7 @@ job copies SeaweedFS offsite. Nothing traverses FUSE on the backup path.
 ```mermaid
 flowchart LR
     subgraph src["Sources"]
-        DB[("PostgreSQL / SQLite<br/>local-path")]
+        DB[("PostgreSQL / SQLite")]
         APP["Application blobs<br/>photos, documents"]
         K8S["Kubernetes objects<br/>incl. runtime-only state"]
     end
