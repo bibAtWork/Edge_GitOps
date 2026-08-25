@@ -15,10 +15,10 @@ metadata:
   # whenever this file's pod spec changes for any reason (not just manual
   # edits — Renovate PRs count) and Flux will garbage-collect the old-named
   # Job cleanly instead of trying to patch it in place.
-  name: seaweedfs-bucket-init-3
+  name: seaweedfs-bucket-init-4
   namespace: seaweedfs
   annotations:
-    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-3 -n seaweedfs
+    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-4 -n seaweedfs
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 6
@@ -67,7 +67,16 @@ spec:
               # longhorn-backups is Longhorn's backup target (ADR-002 Task 1). It is a
               # dedicated bucket so the relay to AWS can mirror one prefix wholesale
               # without entangling it with Velero's or Zot's contents.
-              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups pvs longhorn-backups seaweedfs-staging; do
+              # "pvs" is deliberately absent. It was a vestige of an earlier plan to back
+              # application PVCs with SeaweedFS through its CSI driver, which was never
+              # carried through: the driver was removed entirely in #264 once no PVC used
+              # it, and application volumes are on Longhorn. Creating the bucket every
+              # reconcile advertised a storage path that does not exist.
+              #
+              # Confirmed empty before removal, on 2026-08-17 when this was first proposed
+              # and again on 2026-08-25 -- the 64MB it briefly held in between was debris
+              # from a SeaweedFS round-trip integrity test, since cleared.
+              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups longhorn-backups seaweedfs-staging; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else
