@@ -99,6 +99,15 @@ spec:
           volumeMounts:
             - name: cache
               mountPath: /cache
+            # Trivy writes the downloaded artifact to a temp path before moving
+            # it into the cache. With readOnlyRootFilesystem: true and no
+            # writable /tmp it cannot, and fails with a generic "failed to
+            # download artifact" that names neither the path nor the
+            # permission -- it reads like a network problem, which is where the
+            # first hour of debugging went. The scan jobs carry the same mount
+            # for the same reason.
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 100m
@@ -119,6 +128,9 @@ spec:
         - name: cache
           emptyDir:
             sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
 ---
 apiVersion: v1
 kind: Service
