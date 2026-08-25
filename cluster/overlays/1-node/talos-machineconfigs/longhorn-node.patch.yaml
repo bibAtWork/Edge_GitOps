@@ -7,6 +7,19 @@
 #
 # ⚠️ The UserVolumeConfig section below REPARTITIONS the NVMe. Read the note on
 # the seaweedfs volume before applying it to a running node.
+#
+# APPLIED — confirmed live 2026-08-25 by the backing devices, not by the file:
+#
+#   /var                → /dev/sda4        497GB   etcd, system, local-path
+#   /var/mnt/longhorn0  → /dev/nvme0n1p2   365GB   Longhorn
+#   /var/mnt/seaweedfs  → /dev/nvme0n1p1   129GB   SeaweedFS
+#
+# Longhorn and etcd are on physically separate disks, which is the whole point of
+# ADR-004 and the reason this patch exists. Recorded here because a warning with
+# no confirmation beside it reads as unapplied, and a reviewer reasonably asked
+# whether Longhorn was still sharing a spindle with etcd. Check the mountpoints
+# rather than this comment if it matters again -- node_filesystem_size_bytes
+# carries the device per mountpoint.
 
 # --- kubelet bind-mount ------------------------------------------------------
 # Bind-mounts the PARENT directory, not each volume. With rshared propagation any
