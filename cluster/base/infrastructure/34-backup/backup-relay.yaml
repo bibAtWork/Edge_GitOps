@@ -40,7 +40,7 @@ spec:
             # Selected by backup-jobs-egress in networkpolicy.yaml. Without this
             # the pod inherits only longhorn-restrict, which permits no internet
             # and no metrics endpoint.
-            adr002.backup/egress: "true"
+            backup.homelab/egress: "true"
         spec:
           restartPolicy: OnFailure
           automountServiceAccountToken: false

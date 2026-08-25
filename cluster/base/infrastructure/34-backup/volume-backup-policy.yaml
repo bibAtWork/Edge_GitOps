@@ -151,7 +151,7 @@ spec:
         metadata:
           labels:
             # Needed for apk to reach the alpine mirrors.
-            adr002.backup/egress: "true"
+            backup.homelab/egress: "true"
         spec:
           restartPolicy: OnFailure
           serviceAccountName: volume-backup-policy
