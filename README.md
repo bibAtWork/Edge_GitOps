@@ -18,8 +18,12 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 - **GitOps**: FluxCD v2 + SOPS/Age encrypted secrets
 - **Storage**: Longhorn (block storage for application PVCs) + SeaweedFS (S3-compatible object storage: Velero backup target, database dumps, Zot registry, Longhorn backup target)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
-- **Backup**: Longhorn snapshots/backups to local SeaweedFS, relayed one-way to an immutable AWS S3 vault ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md)) + Velero + talos-backup etcd
-- **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning)
+- **Backup**: Longhorn snapshots/backups to local SeaweedFS, relayed one-way to an immutable AWS S3 vault ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md)) + Velero for Kubernetes objects + per-database logical dumps
+- **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with a Trivy/Renovate bridge that reports images carrying critical CVEs
+- **Ingress**: Envoy Gateway (Gateway API), fronting every application ([ADR-001](./docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md))
+- **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)), enforced at the Gateway via OPA
+- **Databases**: CloudNativePG operator (Keycloak, SeaweedFS filer metadata)
+- **Policy & runtime security**: Kyverno (admission policy), Falco (runtime detection), Kubescape (NSA/MITRE posture scanning)
 - **VPN**: Tailscale Kubernetes Operator
 - **Certs**: cert-manager + Let's Encrypt DNS-01 via Cloudflare
 - **Auto-upgrade**: system-upgrade-controller (Talos OS) + Renovate (Helm charts + CVE alerts)
@@ -29,8 +33,8 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 ```
 cluster/
 ├── base/                    # Shared by both profiles
-│   ├── 00-bootstrap/        # Namespaces, SOPS, talos-backup CronJob
-│   └── infrastructure/      # HelmReleases 01-15
+│   ├── 00-bootstrap/        # Namespaces, LimitRanges, SOPS
+│   └── infrastructure/      # Components 00-34
 ├── overlays/
 │   ├── 3-node/              # ← Flux path for HA cluster
 │   └── 1-node/              # ← Flux path for single node
@@ -38,7 +42,7 @@ bootstrap/
 ├── config.json.template     # ← fill this in once; bootstrap reads it
 ├── ansible/                 # Ansible orchestrator + tool installer roles
 ├── scripts/                 # Bootstrap, config apply, secret rotation, DR
-└── terraform/               # AWS S3 + KMS + IAM for offsite backups
+└── terraform/               # AWS S3 + IAM for the offsite backup vault
 docs/                        # Architecture decisions, disaster recovery
 ```
 
@@ -167,13 +171,12 @@ No environment variables to export — everything comes from `config.json`. The 
 
 The bootstrap handles end-to-end:
 
-1. **talos-backup age keypair** generation — store offline, delete from disk after
-2. **All `REPLACE_WITH_*` placeholders** filled from `config.json` via `apply-config.py`
-3. **SOPS encryption** of every secret file in `cluster/`
-4. **Talos machine config** generation, apply, etcd bootstrap, kubeconfig retrieval
-5. **talosconfig** injected into the system-upgrade-controller secret automatically
-6. **Flux bootstrap** from the GitHub repo
-7. **Terraform** (AWS S3 + KMS + IAM) — Velero IAM credentials captured from output and written to `cluster/base/infrastructure/07-velero/aws-secret.yaml` automatically
+1. **All `REPLACE_WITH_*` placeholders** filled from `config.json` via `apply-config.py`
+2. **SOPS encryption** of every secret file in `cluster/`
+3. **Talos machine config** generation, apply, etcd bootstrap, kubeconfig retrieval
+4. **talosconfig** injected into the system-upgrade-controller secret automatically
+5. **Flux bootstrap** from the GitHub repo
+6. **Terraform** (AWS S3 + IAM) — Velero IAM credentials captured from output and written to `cluster/base/infrastructure/07-velero/aws-secret.yaml` automatically
 
 After the script completes, commit and push the encrypted secrets Flux needs:
 
@@ -236,9 +239,9 @@ export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 | Inter-node pod traffic | WireGuard configured but no-op on single-node (no inter-node traffic) |
 | Same-node pod traffic | No pod-to-pod encryption (SPIRE mTLS disabled — races with Cilium bootstrap) |
 | Internet-bound egress | HTTPS-only enforced via `CiliumClusterwideNetworkPolicy` |
-| etcd snapshots at rest | Age encryption (talos-backup keypair) |
 | Git secrets at rest | SOPS + Age (SOPS keypair) |
-| AWS S3 objects | SSE-KMS (managed KMS key, auto-rotation) |
+| AWS S3 — backup vault | SSE-S3 ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md) — SSE-KMS was declined here: a KMS outage or key-policy error makes the vault unreadable exactly when it is needed) |
+| AWS S3 — Velero offsite bucket | SSE-KMS (managed key, auto-rotation) |
 
 ### Network policies
 
@@ -249,7 +252,6 @@ Default deny-all ingress/egress with explicit allow rules:
 - Velero egress (AWS S3)
 - SeaweedFS internal cluster traffic
 - Monitoring scrape
-- talos-backup API access
 - **Internet egress: HTTPS (port 443) only** — pods needing plain HTTP must add an explicit per-namespace policy
 
 ## Automated Patching
@@ -292,19 +294,14 @@ export SOPS_AGE_KEY_FILE=/path/to/sops.age.key
 # After updating .sops.yaml to remove the old key, finalize:
 ./bootstrap/scripts/rotate-secrets.py sops-age --phase2
 
-# Rotate the talos-backup age key (updates Kubernetes secret)
-./bootstrap/scripts/rotate-secrets.py backup-age
-
 # Update a single credential in a SOPS-encrypted secret file
 ./bootstrap/scripts/rotate-secrets.py credential \
-  --file cluster/base/00-bootstrap/talos-backup/secret.yaml \
-  --key AWS_SECRET_ACCESS_KEY
+  --file cluster/base/infrastructure/01-seaweedfs/s3-secret.yaml \
+  --key admin_access_key_id
 ```
 
 **Age key rotation rules:**
-- SOPS key and talos-backup key are independent keypairs. Rotating one does not affect the other.
 - During SOPS key rotation, keep both old and new private keys offline until Phase 2 is committed and deployed.
-- During talos-backup key rotation, keep both keys offline until all snapshots encrypted with the old key have expired (7 days).
 
 ## Disaster Recovery
 
@@ -333,7 +330,6 @@ python3 bootstrap/scripts/dr.py add-node
 | Local object copy | SeaweedFS buckets staged onto Longhorn | 14 daily | staging CronJob |
 | Off-site | AWS S3 `homelab-backup-vault`, Object Lock 21d | matches local | relay CronJob |
 | Databases | SeaweedFS `db-backups` bucket | hourly/daily dumps | per-app CronJob |
-| etcd snapshots | AWS S3 | 7 days | talos-backup |
 
 Velero backs up PVCs through its node-agent DaemonSet (Kopia file-system backup), **not**
 CSI VolumeSnapshots — no CSI driver or VolumeSnapshotClass is registered on this cluster.
