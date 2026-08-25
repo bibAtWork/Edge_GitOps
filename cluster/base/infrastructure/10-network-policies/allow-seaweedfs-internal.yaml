@@ -38,6 +38,13 @@ spec:
         - matchLabels:
             app.kubernetes.io/name: zot
             io.kubernetes.pod.namespace: zot
+        # Longhorn's backup target is this endpoint (ADR-002 Task 1). Whole
+        # namespace rather than a pod selector: the backup data path is the
+        # instance-manager pods, while backup-target polling and validation come
+        # from longhorn-manager, and both must reach S3 or backups fail in ways
+        # that present as a storage fault rather than a policy drop.
+        - matchLabels:
+            io.kubernetes.pod.namespace: longhorn-system
         # Database backup CronJobs. Each dumps its own database and uploads the
         # artifact to the db-backups bucket; they need nothing from SeaweedFS
         # beyond S3 on 8333. Added 2026-08-18 alongside the jobs themselves --

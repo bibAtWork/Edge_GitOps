@@ -44,14 +44,19 @@ spec:
             - name: KC_DB
               value: postgres
             - name: KC_DB_URL
-              value: jdbc:postgresql://keycloak-postgresql:5432/keycloak
+              # CNPG read-write service: always points at the current primary, so a
+              # failover or switchover needs no application change. The old value was
+              # the StatefulSet pod itself.
+              value: jdbc:postgresql://keycloak-pg-rw:5432/keycloak
             - name: KC_DB_USERNAME
               value: keycloak
             - name: KC_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: keycloak-secrets
-                  key: postgres-password
+                  # Generated and rotated by CNPG for the role it created, not the
+                  # hand-managed password the StatefulSet used.
+                  name: keycloak-pg-app
+                  key: password
             - name: KEYCLOAK_ADMIN
               value: admin
             - name: KEYCLOAK_ADMIN_PASSWORD

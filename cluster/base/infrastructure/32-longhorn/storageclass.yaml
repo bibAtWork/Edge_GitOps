@@ -1,0 +1,28 @@
+# Only the database class is defined here. The general-purpose "longhorn" class
+# is the chart's own, configured via persistence.* in helmrelease.yaml -- defining
+# a second one with the same name here produced two default StorageClasses and a
+# replica count that ignored this file entirely.
+
+# Database class. Separate from the general one for two reasons that both point
+# the same way: PGDATA should never be casually deleted, and a database that
+# replicates at the application layer must not also replicate at the block layer.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-db
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+# Retain, not Delete: a stray PVC deletion must not destroy PGDATA. Deleted PVCs
+# leave the PV and its data behind for manual cleanup. That is the intended
+# trade -- a one-character mistake in a manifest should not be unrecoverable.
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "2880"
+  # strict-local pins engine and replica to the same node, so a commit does not
+  # take a network round trip. Correct whenever the database owns its own HA --
+  # stacking CNPG streaming replication on replicated Longhorn volumes multiplies
+  # physical copies of every write for no added durability.
+  dataLocality: "strict-local"
+  fsType: "ext4"

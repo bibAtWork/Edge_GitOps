@@ -61,6 +61,7 @@ spec:
                 - -c
                 - |
                   set -eu
+                  ( set -o pipefail 2>/dev/null ) && set -o pipefail || true
                   OUT=/work/immich.sql.gz
 
                   pg_dump -h immich-postgresql -U immich \
@@ -75,7 +76,13 @@ spec:
                     echo "ERROR: dump is only ${SIZE} bytes -- refusing to upload" >&2
                     exit 1
                   fi
-                  echo "dump ok: ${SIZE} bytes"
+                  # Size proves the file is not empty; it cannot tell a complete
+                  # dump from a truncated one. Testing the gzip stream does.
+                  if ! gzip -t "$OUT"; then
+                    echo "ERROR: dump failed gzip integrity check -- refusing to upload" >&2
+                    exit 1
+                  fi
+                  echo "dump ok: ${SIZE} bytes, gzip verified"
               env:
                 - name: PGPASSWORD
                   valueFrom:
@@ -98,7 +105,7 @@ spec:
                     - ALL
           containers:
             - name: upload
-              image: docker.io/amazon/aws-cli:2.36.24
+              image: docker.io/amazon/aws-cli:2.36.29
               command:
                 - /bin/sh
                 - -c
@@ -108,6 +115,23 @@ spec:
                   aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/immich.sql.gz \
                     "s3://db-backups/immich/immich-${TS}.sql.gz"
                   echo "uploaded immich-${TS}.sql.gz"
+
+                  # A successful PUT is not a readable object. Four dumps in this
+                  # bucket carried correct metadata and correct sizes while their
+                  # chunks were gone, so every listing and every size guard passed
+                  # while the objects could not be fetched at all. Read it back.
+                  EXPECT="$(stat -c %s /work/immich.sql.gz)"
+                  if ! aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://db-backups/immich/immich-${TS}.sql.gz" /work/readback --quiet; then
+                    echo "ERROR: uploaded object cannot be read back -- not a durable backup" >&2
+                    exit 1
+                  fi
+                  GOT="$(stat -c %s /work/readback)"
+                  rm -f /work/readback
+                  if [ "$GOT" != "$EXPECT" ]; then
+                    echo "ERROR: read-back ${GOT}B vs uploaded ${EXPECT}B -- refusing to report success" >&2
+                    exit 1
+                  fi
+                  echo "read-back verified: ${GOT} bytes"
               env:
                 - name: S3_ENDPOINT
                   value: http://seaweedfs-s3.seaweedfs.svc:8333

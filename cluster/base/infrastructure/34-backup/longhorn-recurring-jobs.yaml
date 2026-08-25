@@ -1,0 +1,59 @@
+# Longhorn RecurringJobs (ADR-002 Task 3).
+#
+# Retain counts here are real and enforced. Longhorn holds full delete rights on
+# its backup target because that target is the local SeaweedFS endpoint, not AWS
+# -- which is the whole point of the two-stage architecture. Earlier revisions of
+# this design pointed Longhorn at AWS, where a delete-free credential cannot
+# implement retention, and had to leave these unbounded.
+#
+# cron and retain values are injected from backup-retention-config by the
+# replacements block in kustomization.yaml. Do not hardcode them here.
+#
+# Group membership: Longhorn places any volume carrying no recurring-job label
+# into the `default` group, so listing `default` here opts every current and
+# future volume in automatically, which is the safe direction to fail. A volume
+# opts OUT by carrying any explicit group label instead, e.g.
+#   kubectl -n longhorn-system label volume <pv-name> \
+#     recurring-job-group.longhorn.io/ephemeral=enabled
+# which removes it from `default`. Reserved for volumes whose contents are
+# genuinely reconstructible (ML model caches, valkey caches, ingest spools).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot
+  namespace: longhorn-system
+spec:
+  cron: "PLACEHOLDER"
+  task: snapshot
+  groups:
+    - default
+  retain: 0
+  concurrency: 1
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-weekly
+  namespace: longhorn-system
+spec:
+  cron: "PLACEHOLDER"
+  task: backup
+  groups:
+    - default
+    - weekly
+  retain: 0
+  concurrency: 1
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-monthly
+  namespace: longhorn-system
+spec:
+  cron: "PLACEHOLDER"
+  task: backup
+  groups:
+    - default
+    - monthly
+  retain: 0
+  concurrency: 1

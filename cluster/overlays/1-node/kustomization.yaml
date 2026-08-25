@@ -39,6 +39,9 @@ resources:
   - ../../base/infrastructure/29-metrics-server
   - ../../base/infrastructure/30-trivy-renovate-bridge
   - ../../base/infrastructure/31-cluster-rbac
+  - ../../base/infrastructure/32-longhorn
+  - ../../base/infrastructure/33-cloudnative-pg
+  - ../../base/infrastructure/34-backup
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml

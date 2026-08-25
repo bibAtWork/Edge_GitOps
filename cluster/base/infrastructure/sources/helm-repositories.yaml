@@ -8,19 +8,6 @@ spec:
   interval: 12h
   url: https://seaweedfs.github.io/seaweedfs/helm
 ---
-# The CSI driver ships as a SEPARATE chart from seaweedfs itself -- this is
-# exactly what commit d4de32a hit when it found "no StorageClass exists for
-# PVC provisioning" and fell back to local-path-provisioner as a stopgap that
-# then became permanent. Adding the source here closes that gap.
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: seaweedfs-csi-driver
-  namespace: flux-system
-spec:
-  interval: 12h
-  url: https://seaweedfs.github.io/seaweedfs-csi-driver/helm
----
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:

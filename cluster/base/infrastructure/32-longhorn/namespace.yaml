@@ -1,0 +1,17 @@
+# PSA labels are declared here rather than applied with kubectl: an imperative
+# label is undeclared state that vanishes on a cluster rebuild and drifts from
+# git. This must be the first resource in the kustomization so the namespace is
+# reconciled before the HelmRelease lands pods in it.
+#
+# enforce: privileged is inherent to any CSI driver managing host block devices —
+# Longhorn's engine and replica processes need direct device access. It is
+# mitigated, not eliminated, by the network policy alongside this file and by not
+# running the UI (see helmrelease.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

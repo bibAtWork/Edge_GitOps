@@ -57,7 +57,16 @@ spec:
         limits:
           memory: 1Gi
       persistence:
-        storageClass: local-path
+        # longhorn-db, not local-path. This database keeps its purpose-built
+        # image (vchord + vector extensions for CLIP embedding search), so it is
+        # NOT migrated to CloudNativePG -- CNPG ships no image carrying those,
+        # and a stock image would import cleanly then silently break semantic
+        # search. Only the storage moves: off hostPath onto a real block device
+        # with ext4, which is what made the fsync-durability question go away
+        # and what makes volume-level backup possible at all.
+        #
+        # Retain reclaim policy, so a stray PVC delete cannot destroy PGDATA.
+        storageClass: longhorn-db
         accessMode: ReadWriteOnce
         size: 10Gi
         labels:

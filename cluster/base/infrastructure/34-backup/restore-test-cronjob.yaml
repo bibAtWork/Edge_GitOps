@@ -1,0 +1,102 @@
+# Local restore-test (ADR-005 Task 10).
+#
+# Restores real backups and reads them back. This is the check that would have
+# caught the five damaged objects found on 2026-08-24 proactively, rather than
+# by accident during a staging run: every other signal in the chain -- job exit
+# codes, object listings, sizes, timestamps -- reported those as healthy, and
+# only consuming the artefact reveals them.
+#
+# Runs entirely locally. The Longhorn backups live on the in-cluster SeaweedFS
+# target and the staged SeaweedFS copy sits on a Longhorn PVC, so verification
+# costs no AWS egress. Earlier revisions of this design could not have this:
+# with the backup target on AWS, restoring anything meant paying to read it.
+#
+# Result is written to the backup-restore-test-result ConfigMap, which the
+# reconciler (Task 11) gates on. A stalled or failing restore-test must stop
+# remote pruning rather than permit it.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-restore-test
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config. 07:00, after the 05:00 relay, so the
+  # staged snapshot it samples is the same one the relay mirrored.
+  schedule: "PLACEHOLDER"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            # Needed for apk (package mirrors) and for pushing metrics.
+            adr002.backup/egress: "true"
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-restore-test
+          # Runs as root: apk installs e2fsprogs and the aws CLI at start. That
+          # is a deliberate tradeoff -- pinning a purpose-built image would avoid
+          # the runtime dependency, but every candidate either lacks e2fsck or
+          # lacks the aws CLI, and building one here would put an image registry
+          # in the recovery path of the thing that verifies recovery.
+          securityContext:
+            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: restore-test
+              image: docker.io/library/alpine:3.24
+              command: ["/bin/sh", "/scripts/restore-test.sh"]
+              env:
+                - name: S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                # ~458 gives 99% confidence of catching 1% uniformly distributed
+                # corruption, independent of dataset size: n = ln(1-0.99)/ln(1-0.01).
+                # Rounded up.
+                - name: SAMPLE_SIZE
+                  value: "460"
+                # Volume restores are sequential and each one copies real blocks,
+                # so an unbounded run could still be going when the next stage is
+                # due. Volumes not reached are logged and counted, never silently
+                # dropped -- see backup_restore_test_longhorn_volumes_skipped.
+                - name: LONGHORN_BUDGET_SECONDS
+                  value: "3600"
+                - name: AWS_DEFAULT_REGION
+                  value: us-east-1
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: staging
+                  mountPath: /staging
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  # Explicit: ten namespaces carry a LimitRange defaulting
+                  # limit-less containers to 256Mi, which would OOM this
+                  # mid-restore and leave scratch volumes behind.
+                  memory: 1Gi
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-restore-test-script
+            - name: staging
+              persistentVolumeClaim:
+                claimName: seaweedfs-staging

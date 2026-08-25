@@ -20,6 +20,16 @@
 ---
 machine:
   type: controlplane
+  install:
+    # Factory image, not the stock ghcr.io/siderolabs/installer -- it carries the
+    # iscsi-tools and util-linux-tools extensions Longhorn V1 needs. Talos is
+    # immutable, so extensions are part of the image and cannot be added at
+    # runtime.
+    #
+    # Keep this in step with talos-image.env, which pins the schematic ID and the
+    # Talos version this tag must match. Changing schematic.yaml means a new
+    # schematic ID and a new value here.
+    image: factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:v1.13.6
   features:
     kubernetesTalosAPIAccess:
       enabled: true
@@ -61,6 +71,32 @@ cluster:
   etcd:
     advertisedSubnets:
       - 192.168.178.0/24
+
+  # kube-controller-manager and kube-scheduler bind their metrics and health
+  # endpoints to 127.0.0.1 by default on Talos, which means nothing off the
+  # node can scrape them. vmagent reported both as "connection refused" and
+  # they sat down indefinitely -- and because a metric that is never collected
+  # produces no series, any alert built on them would sit in noData rather
+  # than firing. Two of the three components that decide what runs where were
+  # therefore unobserved.
+  #
+  # 0.0.0.0 rather than the node IP: Talos renders this config before the
+  # address is known, so pinning it would mean templating the machine config
+  # per node. The endpoints are not open by binding them -- both use delegated
+  # authn/authz against the API server, so a scrape still needs a token bound
+  # to a role that permits it, which is what the vmagent ServiceAccount has.
+  #
+  # Applied live via `talosctl patch machineconfig` (NOT apply-config -- see
+  # the placeholder warning at the top of this file). Both components restart,
+  # which pauses scheduling and controller reconciliation for a few seconds on
+  # a single-node cluster; running workloads are unaffected.
+  controllerManager:
+    extraArgs:
+      bind-address: 0.0.0.0
+
+  scheduler:
+    extraArgs:
+      bind-address: 0.0.0.0
 
   apiServer:
     # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): closes the

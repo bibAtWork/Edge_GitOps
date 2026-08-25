@@ -27,7 +27,25 @@ spec:
     storageLocation: seaweedfs-local
     ttl: 96h
     snapshotVolumes: false
-    defaultVolumesToFsBackup: true
+    # Objects only. Velero's file-system backup has never captured a single PVC
+    # in this cluster: Kopia silently skips hostPath volumes (every local-path
+    # PVC), so no PodVolumeBackup is even created, and on SeaweedFS CSI volumes
+    # the data path fails outright. Across 37 days the only volumes it ever
+    # stored were ephemeral -- dshm, tmp, empty-dir.
+    #
+    # Leaving it on was worse than useless: it produced failed PodVolumeBackups
+    # and PartiallyFailed backups, which is a red signal that protects nothing
+    # and trains people to ignore it. Turning it off also lets the node-agent
+    # DaemonSet be removed entirely (see helmrelease.yaml) -- that pod ran as
+    # root and hostPath-mounted /var/lib/kubelet/pods, i.e. every pod's volumes
+    # on the node.
+    #
+    # Volume data is protected by layer instead, all of it landing in SeaweedFS:
+    # databases via logical dumps to the db-backups bucket, application blobs by
+    # living on SeaweedFS already. Velero's job here is the Kubernetes object
+    # graph -- notably the runtime-generated state that Git does not hold, such
+    # as cert-manager's issued TLS secrets and PV binding identity.
+    defaultVolumesToFsBackup: false
     includedNamespaces:
       - immich
       - paperless
@@ -48,7 +66,8 @@ spec:
     storageLocation: aws-s3
     ttl: 2160h
     snapshotVolumes: false
-    defaultVolumesToFsBackup: true
+    # Objects only -- see daily-local above.
+    defaultVolumesToFsBackup: false
     includedNamespaces:
       - immich
       - paperless
@@ -69,7 +88,8 @@ spec:
     storageLocation: aws-s3
     ttl: 8760h
     snapshotVolumes: false
-    defaultVolumesToFsBackup: true
+    # Objects only -- see daily-local above.
+    defaultVolumesToFsBackup: false
     includedNamespaces:
       - immich
       - paperless

@@ -1,0 +1,75 @@
+# CloudNativePG operator <-> instance traffic.
+#
+# Cilium is default-deny in both directions here, and the operator lives in
+# cnpg-system while the database instances live in each application's own
+# namespace. Without these rules the cluster provisions and the pod runs, but the
+# operator cannot read instance status and the Cluster sits in
+# "Instance Status Extraction Error: HTTP communication issue" forever --
+# confirmed via hubble:
+#   cnpg-system/cloudnative-pg -> keycloak/keycloak-pg-1:8000 EGRESS DENIED
+#
+# That failure is easy to misread: the pod is Running and readyInstances is 1/1,
+# so the database itself is fine. Only the operator's view of it is broken, which
+# means failover, switchover and backup orchestration silently would not work.
+#
+# Port 8000 is the instance manager's status endpoint; 5432 is Postgres itself.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-cnpg-operator-to-instances
+spec:
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: cnpg-system
+      app.kubernetes.io/name: cloudnative-pg
+  egress:
+    # Instances are matched by the label CNPG puts on every database pod, so this
+    # covers current and future clusters in any namespace without needing a new
+    # rule each time a database is added.
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+            - port: "5432"
+              protocol: TCP
+    - toEntities:
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+---
+# The ingress side, on the instances themselves. Same reasoning: matched by the
+# CNPG pod label rather than per-namespace, so adding a database needs no new
+# policy.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-cnpg-instance-ingress
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cnpg-system
+            app.kubernetes.io/name: cloudnative-pg
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+            - port: "5432"
+              protocol: TCP
+    # Instances in the same cluster talk to each other for replication. Harmless
+    # at instances: 1, required the moment a replica is added.
+    - fromEndpoints:
+        - matchLabels:
+            cnpg.io/podRole: instance

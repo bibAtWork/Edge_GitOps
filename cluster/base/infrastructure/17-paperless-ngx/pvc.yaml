@@ -1,3 +1,8 @@
+# Paperless volumes.
+#
+# paperless-data stays on local-path deliberately: it holds the SQLite database,
+# and a storage fault costs a blob volume some downtime but can cost a database
+# its integrity. The document blobs moved to Longhorn.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -13,55 +18,56 @@ spec:
     requests:
       storage: 5Gi
 ---
-# Document blobs, on SeaweedFS so paperless can be rescheduled onto another
-# node. paperless-data is deliberately not here: it holds the SQLite database
-# and stays on local-path, because a mount fault costs a blob volume some
-# downtime and can cost a database its integrity.
+# Document blobs, on Longhorn since 2026-08-24 -- a real block device with ext4
+# rather than the SeaweedFS FUSE mount, whose shared mount daemon returned EIO to
+# every volume it served when it was OOMKilled.
 #
-# The previous local-path PVCs were removed after the migration soaked. Flux
-# pruning them also destroys the underlying directories -- local-path's reclaim
-# policy is Delete.
+# Sized to observed usage plus headroom rather than copied forward. The previous
+# 50Gi claim held 144KB, and Longhorn reserves 30% of the disk, so oversized
+# claims consume a provisioning budget that is much smaller than the disk implies.
+# Expansion is enabled; shrinking is not.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: paperless-media-swfs
+  name: paperless-media-lh
   namespace: paperless
   labels:
     velero.io/backup: "true"
 spec:
-  storageClassName: seaweedfs-storage
+  storageClassName: longhorn
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 50Gi
+      storage: 10Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: paperless-export-swfs
+  name: paperless-export-lh
   namespace: paperless
   labels:
     velero.io/backup: "true"
 spec:
-  storageClassName: seaweedfs-storage
+  storageClassName: longhorn
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
 ---
+# Ingest directory -- transient by nature, files are consumed and removed.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: paperless-consume-swfs
+  name: paperless-consume-lh
   namespace: paperless
   labels:
     velero.io/backup: "true"
 spec:
-  storageClassName: seaweedfs-storage
+  storageClassName: longhorn
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      storage: 5Gi

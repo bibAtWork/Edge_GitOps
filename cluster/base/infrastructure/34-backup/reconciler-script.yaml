@@ -1,0 +1,215 @@
+# The reconciler (ADR-005 Task 11), held in a ConfigMap for the same reason as
+# the restore-test: this is the job that decides what gets deleted, and it is
+# the last place to accept escaping that no validator checks.
+#
+# It never deletes anything. It applies one tag, and an S3 Lifecycle rule acts on
+# that tag, so AWS performs the deletion and no cluster credential holds a delete
+# verb at all. That is the pivot the whole ADR-005 design turns on.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-reconciler-script
+  namespace: longhorn-system
+data:
+  reconcile.sh: |
+    #!/bin/sh
+    # Diffs S3 Inventory against what exists locally and tags objects that are
+    # genuinely gone. Reads Inventory reports rather than listing the bucket:
+    # Inventory is produced by AWS for free, while a full ListObjectsV2 sweep is
+    # billed per request and grows with the bucket.
+    #
+    # It never downloads backup objects to hash them. That would duplicate a
+    # durability guarantee S3 already provides and defeat the cost goal; remote
+    # integrity is checked once a month by the probe (Task 12), on one small
+    # object, deliberately.
+    set -u
+
+    NOW="$(date -u +%s)"
+    STATE=/staging/.reconcile
+    mkdir -p "$STATE"
+
+    EVALUATED=0
+    ABSENT=0
+    ELIGIBLE=0
+    TAGGED=0
+    GATE=blocked
+    CAP_ABORT=0
+
+    log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+
+    emit() {
+      {
+        echo "backup_reconcile_last_run_timestamp $NOW"
+        echo "backup_reconcile_gate_open $1"
+        echo "backup_reconcile_objects_evaluated $EVALUATED"
+        echo "backup_reconcile_objects_absent $ABSENT"
+        echo "backup_reconcile_objects_eligible $ELIGIBLE"
+        echo "backup_reconcile_objects_tagged $TAGGED"
+        echo "backup_reconcile_cap_abort $CAP_ABORT"
+        shift
+        for m in "$@"; do echo "$m"; done
+      } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+    }
+
+    apk add --no-cache aws-cli kubectl gzip jq >/dev/null 2>&1 || {
+      echo "FATAL: tool install failed" >&2; exit 1; }
+
+    # ------------------------------------------------------------------
+    # GATE FIRST. Nothing below runs unless the most recent restore-test passed
+    # and is recent.
+    #
+    # The direction matters and is easy to get backwards. The restore-test
+    # result GATES the run; it does not mark objects for pruning. Tagging
+    # backups as "verified" and then expiring verified objects would delete
+    # precisely the copies known to be good. And a stalled restore-test must
+    # STOP pruning rather than permit it -- a verifier that silently stops
+    # should freeze the destructive path, not open it.
+    # ------------------------------------------------------------------
+    RESULT="$(kubectl get configmap -n longhorn-system backup-restore-test-result -o jsonpath='{.data.result}' 2>/dev/null)"
+    EPOCH="$(kubectl get configmap -n longhorn-system backup-restore-test-result -o jsonpath='{.data.epoch}' 2>/dev/null)"
+
+    if [ -z "$RESULT" ]; then
+      log "GATE CLOSED: no restore-test result exists; refusing to tag anything"
+      emit 0
+      exit 0
+    fi
+    if [ "$RESULT" != "pass" ]; then
+      log "GATE CLOSED: last restore-test result was '$RESULT'; refusing to tag anything"
+      emit 0
+      exit 0
+    fi
+    AGE=$(( NOW - ${EPOCH:-0} ))
+    if [ "$AGE" -gt "$GATE_MAX_AGE_SECONDS" ]; then
+      log "GATE CLOSED: restore-test is ${AGE}s old, limit ${GATE_MAX_AGE_SECONDS}s; refusing to tag anything"
+      emit 0
+      exit 0
+    fi
+    GATE=open
+    log "gate open: restore-test passed ${AGE}s ago"
+
+    # ------------------------------------------------------------------
+    # Latest Inventory report.
+    # ------------------------------------------------------------------
+    MANIFEST="$(aws s3 ls "s3://$AWS_BUCKET/inventory/$AWS_BUCKET/" --recursive 2>/dev/null \
+      | awk '{print $4}' | grep 'manifest.json$' | sort | tail -1)"
+
+    if [ -z "$MANIFEST" ]; then
+      # Expected for up to 48h after the bucket is created; AWS produces the
+      # first report on its own schedule. Not an error, but explicitly not a
+      # pass either -- nothing is tagged.
+      log "no Inventory report yet (AWS takes up to 48h for the first one); nothing to reconcile"
+      emit 1
+      exit 0
+    fi
+    log "using manifest $MANIFEST"
+
+    aws s3 cp "s3://$AWS_BUCKET/$MANIFEST" /tmp/manifest.json --quiet 2>/dev/null || {
+      log "ERROR: could not fetch the manifest"; emit 1; exit 1; }
+
+    : > /tmp/remote_keys
+    for DKEY in $(jq -r '.files[].key' /tmp/manifest.json 2>/dev/null); do
+      aws s3 cp "s3://$AWS_BUCKET/$DKEY" /tmp/part.csv.gz --quiet 2>/dev/null || continue
+      # Inventory CSV is quoted; column 2 is the key, URL-encoded.
+      gzip -dc /tmp/part.csv.gz \
+        | awk -F'","' '{gsub(/^"/,"",$1); print $2}' >> /tmp/remote_keys
+      rm -f /tmp/part.csv.gz
+    done
+    sed -i 's/%2F/\//g; s/+/ /g' /tmp/remote_keys
+    sed -i '/^$/d' /tmp/remote_keys
+    sort -u /tmp/remote_keys -o /tmp/remote_keys
+    EVALUATED="$(wc -l < /tmp/remote_keys)"
+    log "inventory lists $EVALUATED objects"
+
+    # ------------------------------------------------------------------
+    # What exists locally. The relay index is authoritative for what was sent;
+    # a live listing catches anything added since.
+    # ------------------------------------------------------------------
+    : > /tmp/local_keys
+    if [ -f /staging/.relay-index/current.tsv ]; then
+      cut -f1 /staging/.relay-index/current.tsv >> /tmp/local_keys
+    fi
+    # The local endpoint needs the SeaweedFS credential, not the AWS one. The
+    # process-wide AWS_* variables belong to the auditor identity, so they are
+    # overridden for this one call; without that the listing fails auth and the
+    # local set comes back short, which reads as "these objects are gone" and
+    # is exactly how a diff-driven pruner deletes live data.
+    AWS_ACCESS_KEY_ID="$SEAWEED_KEY" AWS_SECRET_ACCESS_KEY="$SEAWEED_SECRET" AWS_DEFAULT_REGION=us-east-1 \
+      aws --endpoint-url "$S3_ENDPOINT" s3 ls s3://longhorn-backups --recursive 2>/dev/null \
+      | awk '{print "longhorn/" $4}' >> /tmp/local_keys
+    LATEST="$(ls -1d /staging/20*/ 2>/dev/null | sort | tail -1)"
+    if [ -n "$LATEST" ]; then
+      ( cd "$LATEST" && find . -type f | sed 's|^\./|seaweedfs/|' ) >> /tmp/local_keys
+    fi
+    sed -i '/^$/d' /tmp/local_keys
+    sort -u /tmp/local_keys -o /tmp/local_keys
+    log "local inventory: $(wc -l < /tmp/local_keys) objects"
+
+    # A local listing that came back empty means the local side is broken, not
+    # that every remote object should be deleted. Refuse rather than proceed.
+    if [ "$(wc -l < /tmp/local_keys)" -eq 0 ]; then
+      log "ABORT: local inventory is empty; that is a local failure, not a reason to prune"
+      CAP_ABORT=1
+      emit 1
+      exit 1
+    fi
+
+    comm -23 /tmp/remote_keys /tmp/local_keys > /tmp/absent
+    ABSENT="$(wc -l < /tmp/absent)"
+    log "absent locally: $ABSENT"
+
+    # ------------------------------------------------------------------
+    # Grace period, applied to how long an object has been ABSENT rather than
+    # to its age. An object deleted locally yesterday is not the same as an
+    # object that has been gone a fortnight.
+    # ------------------------------------------------------------------
+    FA="$STATE/first-absent.tsv"
+    touch "$FA"
+    awk -F'\t' -v now="$NOW" -v fa="$FA" '
+      FILENAME==fa { seen[$1]=$2; next }
+      { print $1 "\t" (($1 in seen) ? seen[$1] : now) }
+    ' "$FA" /tmp/absent > "$FA.tmp"
+    mv "$FA.tmp" "$FA"
+
+    GRACE=$(( PRUNE_GRACE_DAYS * 86400 ))
+    awk -F'\t' -v now="$NOW" -v g="$GRACE" '(now - $2) >= g { print $1 }' "$FA" > /tmp/eligible
+    ELIGIBLE="$(wc -l < /tmp/eligible)"
+    log "eligible after ${PRUNE_GRACE_DAYS}d grace: $ELIGIBLE"
+
+    # ------------------------------------------------------------------
+    # The circuit breaker. A large eligible set means the diff is wrong or the
+    # local side failed, never that pruning should be aggressive.
+    # ------------------------------------------------------------------
+    if [ "$ELIGIBLE" -gt "$PRUNE_TAG_CAP" ]; then
+      log "ABORT: $ELIGIBLE eligible exceeds cap $PRUNE_TAG_CAP -- tagging nothing"
+      CAP_ABORT=1
+      emit 1
+      exit 1
+    fi
+
+    while read -r K; do
+      [ -z "$K" ] && continue
+      if aws s3api put-object-tagging --bucket "$AWS_BUCKET" --key "$K" \
+           --tagging 'TagSet=[{Key=lifecycle,Value=prunable}]' >/dev/null 2>&1; then
+        TAGGED=$(( TAGGED + 1 ))
+      else
+        log "WARN: could not tag $K"
+      fi
+    done < /tmp/eligible
+    log "tagged $TAGGED objects lifecycle=prunable"
+
+    # ------------------------------------------------------------------
+    # Inventory-derived health signals. These are free -- the report is already
+    # downloaded -- and they are the only continuous view of the remote copy.
+    #
+    # Object tags are NOT in Inventory, so tagging activity is invisible here.
+    # backup_reconcile_objects_tagged above is the only routine visibility into
+    # the pruning path, which is why it is alerted on.
+    # ------------------------------------------------------------------
+    LH_COUNT="$(grep -c '^longhorn/' /tmp/remote_keys || true)"
+    SW_COUNT="$(grep -c '^seaweedfs/' /tmp/remote_keys || true)"
+
+    emit 1 \
+      "backup_vault_objects{prefix=\"longhorn\"} $LH_COUNT" \
+      "backup_vault_objects{prefix=\"seaweedfs\"} $SW_COUNT"
+
+    echo "RECONCILE_OK gate=$GATE evaluated=$EVALUATED absent=$ABSENT eligible=$ELIGIBLE tagged=$TAGGED"

@@ -1,0 +1,415 @@
+# The local restore-test script (ADR-005 Task 10), held in a ConfigMap rather
+# than inline in the CronJob.
+#
+# Two reasons. It is long enough that a YAML block scalar becomes hard to review,
+# and every backslash in it -- awk field separators, printf formats, find
+# patterns -- is one more chance for the escaping to be silently wrong in a way
+# no validator catches. Three separate defects in the relay came from exactly
+# that, and each one reported success while doing nothing.
+#
+# Mounted read-only and executed by restore-test-cronjob.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-restore-test-script
+  namespace: longhorn-system
+data:
+  restore-test.sh: |
+    #!/bin/sh
+    # Restores real backups and reads them back. Everything here is local: the
+    # Longhorn backups live on the in-cluster SeaweedFS target and the staged
+    # SeaweedFS copy is on a Longhorn PVC, so this costs no AWS egress. That is
+    # exactly the property the two-stage architecture exists to buy.
+    set -u
+
+    NOW="$(date -u +%s)"
+    STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    LH_TESTED=0
+    LH_SKIPPED=0
+    SW_TESTED=0
+    SW_FAILED=0
+    SW_CHANGED=0
+    FAILURES=""
+
+    log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
+    fail() { FAILURES="${FAILURES}${1}; "; log "FAIL: $1"; }
+
+    log "installing tools"
+    apk add --no-cache aws-cli e2fsprogs sqlite gzip kubectl >/dev/null 2>&1 || {
+      echo "FATAL: tool install failed (egress to the alpine mirrors?)" >&2
+      exit 1
+    }
+    mkdir -p /staging/.restore-test
+
+    # ------------------------------------------------------------------
+    # Longhorn: volume-level, every volume, never sampled.
+    #
+    # A block device's integrity is not meaningfully assessed by sampling files
+    # inside it. A corrupt superblock or a truncated replica appears nowhere in
+    # a file listing, so each volume that has a backup is restored in full.
+    # ------------------------------------------------------------------
+    # Sweep scratch left by a previous run before starting. Per-volume cleanup at
+    # the end of each iteration is not enough on its own: a crash, an OOM, or a
+    # failed delete strands a restored volume, and a stranded volume consumes the
+    # same Longhorn provisioning budget the real volumes need. Observed on the
+    # first live run, which left rt-e4b652ebd5 behind. Sweeping at the start is
+    # more reliable than trying to make every exit path clean up after itself.
+    for STALE in $(kubectl get volumes.longhorn.io -n longhorn-system -o name 2>/dev/null | grep "/rt-" || true); do
+      N="${STALE##*/}"
+      log "sweeping stale scratch $N"
+      kubectl delete pod -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
+      kubectl delete pvc -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
+      kubectl delete pv "$N" --wait=false >/dev/null 2>&1 || true
+      kubectl delete volumes.longhorn.io -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
+    done
+    
+    DEADLINE=$(( NOW + LONGHORN_BUDGET_SECONDS ))
+
+    # Written to a file and read by redirect, NOT piped into the loop. A pipe
+    # puts the loop body in a subshell, so every counter it increments and every
+    # failure it records is discarded when the loop ends -- the run would report
+    # zero tested and zero failed, which reads exactly like a clean pass.
+    kubectl get backupvolumes.longhorn.io -n longhorn-system -o custom-columns=A:.metadata.name,B:.status.lastBackupName --no-headers > /tmp/bvs 2>/dev/null
+
+    while read -r BV LASTBACKUP; do
+      [ -z "${BV:-}" ] && continue
+      if [ -z "${LASTBACKUP:-}" ] || [ "$LASTBACKUP" = "<none>" ]; then
+        log "skip $BV: no backups yet"
+        continue
+      fi
+
+      if [ "$(date -u +%s)" -ge "$DEADLINE" ]; then
+        # Logged, never silent. A capped run that still reports success reads as
+        # full coverage, which is worse than an obviously partial one.
+        log "BUDGET EXHAUSTED before $BV -- NOT verified this run"
+        LH_SKIPPED=$(( LH_SKIPPED + 1 ))
+        continue
+      fi
+
+      URL="$(kubectl get backups.longhorn.io -n longhorn-system "$LASTBACKUP" -o jsonpath='{.status.url}' 2>/dev/null)"
+      SIZE="$(kubectl get backups.longhorn.io -n longhorn-system "$LASTBACKUP" -o jsonpath='{.status.volumeSize}' 2>/dev/null)"
+      if [ -z "$URL" ] || [ -z "$SIZE" ]; then
+        fail "$BV: backup $LASTBACKUP exposes no restore URL or size"
+        continue
+      fi
+
+      RT="rt-$(echo "$BV" | md5sum | cut -c1-10)"
+      log "restoring $BV from $LASTBACKUP into $RT"
+
+      printf '%s\n' \
+        "apiVersion: longhorn.io/v1beta2" \
+        "kind: Volume" \
+        "metadata:" \
+        "  name: $RT" \
+        "  namespace: longhorn-system" \
+        "spec:" \
+        "  fromBackup: \"$URL\"" \
+        "  numberOfReplicas: 1" \
+        "  size: \"$SIZE\"" \
+        "  frontend: blockdev" \
+        | kubectl create -f - >/dev/null 2>&1
+
+      # Wait for the restore to finish. restoreRequired flipping false is the
+      # signal every block was fetched and checksummed, which is the part that
+      # actually exercises the backup rather than the metadata around it.
+      RESTORED=""
+      i=0
+      while [ "$i" -lt 120 ]; do
+        ST="$(kubectl get volumes.longhorn.io -n longhorn-system "$RT" -o jsonpath='{.status.state}' 2>/dev/null)"
+        RS="$(kubectl get volumes.longhorn.io -n longhorn-system "$RT" -o jsonpath='{.status.restoreRequired}' 2>/dev/null)"
+        if [ "$ST" = "detached" ] && [ "$RS" != "true" ]; then
+          RESTORED=yes
+          break
+        fi
+        i=$(( i + 1 ))
+        sleep 5
+      done
+
+      if [ -z "$RESTORED" ]; then
+        fail "$BV: restore did not complete (state=${ST:-none})"
+        kubectl delete volumes.longhorn.io -n longhorn-system "$RT" --wait=false >/dev/null 2>&1
+        continue
+      fi
+
+      # Bound as a raw block device. Block mode rather than filesystem so e2fsck
+      # reads the device directly -- a filesystem mount would have kubelet check
+      # and possibly repair it first, destroying the evidence this test exists
+      # to collect.
+      printf '%s\n' \
+        "apiVersion: v1" \
+        "kind: PersistentVolume" \
+        "metadata:" \
+        "  name: $RT" \
+        "spec:" \
+        "  capacity:" \
+        "    storage: $SIZE" \
+        "  accessModes: [ReadWriteOnce]" \
+        "  volumeMode: Block" \
+        "  persistentVolumeReclaimPolicy: Delete" \
+        "  storageClassName: longhorn-static" \
+        "  csi:" \
+        "    driver: driver.longhorn.io" \
+        "    volumeHandle: $RT" \
+        "    fsType: ext4" \
+        "---" \
+        "apiVersion: v1" \
+        "kind: PersistentVolumeClaim" \
+        "metadata:" \
+        "  name: $RT" \
+        "  namespace: longhorn-system" \
+        "spec:" \
+        "  accessModes: [ReadWriteOnce]" \
+        "  volumeMode: Block" \
+        "  storageClassName: longhorn-static" \
+        "  volumeName: $RT" \
+        "  resources:" \
+        "    requests:" \
+        "      storage: $SIZE" \
+        | kubectl create -f - >/dev/null 2>&1
+
+      sed -e "s|RTNAME|$RT|g" /scripts/verify-pod.yaml.tmpl | kubectl create -f - >/dev/null 2>&1
+
+      j=0
+      while [ "$j" -lt 90 ]; do
+        PH="$(kubectl get pod -n longhorn-system "$RT" -o jsonpath='{.status.phase}' 2>/dev/null)"
+        if [ "$PH" = "Succeeded" ] || [ "$PH" = "Failed" ]; then
+          break
+        fi
+        j=$(( j + 1 ))
+        sleep 5
+      done
+
+      OUT="$(kubectl logs -n longhorn-system "$RT" 2>/dev/null)"
+      echo "$OUT" | sed 's/^/      /'
+
+      # e2fsck: 0 clean, 4 uncorrected errors. With -n nothing can be repaired,
+      # so any non-zero result means the restored filesystem is damaged.
+      RC="$(echo "$OUT" | sed -n 's/^e2fsck_rc=//p' | head -1)"
+      MOUNTED="$(echo "$OUT" | sed -n 's/^mount_ok=//p' | head -1)"
+      INTEG="$(echo "$OUT" | sed -n 's/^sqlite_integrity=//p' | head -1)"
+      PGCTL="$(echo "$OUT" | sed -n 's/^pg_control=//p' | head -1)"
+
+      if [ "${RC:-9}" != "0" ]; then
+        fail "$BV: e2fsck rc=${RC:-none} on the restored volume"
+      elif [ "${MOUNTED:-0}" != "1" ]; then
+        fail "$BV: restored volume would not mount"
+      elif [ -n "$INTEG" ] && [ "$INTEG" != "ok" ]; then
+        fail "$BV: sqlite integrity_check said '$INTEG'"
+      elif [ "${PGCTL:-}" = "MISSING" ]; then
+        fail "$BV: postgres data directory has no pg_control"
+      else
+        LH_TESTED=$(( LH_TESTED + 1 ))
+        log "OK $BV"
+      fi
+
+      kubectl delete pod -n longhorn-system "$RT" --wait=false >/dev/null 2>&1
+      kubectl delete pvc -n longhorn-system "$RT" --wait=false >/dev/null 2>&1
+      kubectl delete pv "$RT" --wait=false >/dev/null 2>&1
+      kubectl delete volumes.longhorn.io -n longhorn-system "$RT" --wait=false >/dev/null 2>&1
+    done < /tmp/bvs
+
+    # ------------------------------------------------------------------
+    # SeaweedFS: file-level, sampled.
+    #
+    # n = ln(1-confidence)/ln(1-fraction). For 99% confidence of catching 1%
+    # uniformly-distributed corruption that is ~458, independent of dataset
+    # size. The seed is fresh from /dev/urandom every run, never fixed, so
+    # coverage accumulates across runs into a rolling scrub instead of
+    # re-testing the same objects forever.
+    #
+    # Stated plainly because it matters: this assumes corruption is uniformly
+    # distributed. Clustered damage -- one truncated prefix, one encrypted
+    # directory -- is detected far less reliably than 99% suggests.
+    # ------------------------------------------------------------------
+    LATEST="$(ls -1d /staging/20*/ 2>/dev/null | sort | tail -1)"
+    if [ -z "$LATEST" ]; then
+      fail "seaweedfs: no staged snapshot to compare against"
+    else
+      log "sampling against $(basename "$LATEST")"
+      SEED="$(head -c 4 /dev/urandom | od -An -tu4 | tr -d ' ')"
+      : > /tmp/all_keys
+      # Only objects predating the staged snapshot are eligible. The filer dumps
+      # hourly, so anything written after staging ran is legitimately absent from
+      # the staged copy rather than damaged. The first live run reported five such
+      # objects as failures, which would have kept this job permanently red and
+      # taught everyone to ignore it.
+      CUTOFF="$(date -u -r "$LATEST" +%Y-%m-%dT%H:%M:%S)"
+      log "snapshot cutoff: $CUTOFF (newer objects are not sampled)"
+      for b in velero-backups db-backups filer-metadata zot-registry; do
+        aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 --bucket "$b" \
+          --query 'Contents[].[Key,LastModified]' --output text 2>/dev/null \
+          | awk -F"\t" -v c="$CUTOFF" -v b="$b" 'NF==2 && substr($2,1,19) < c { print b "/" $1 }' >> /tmp/all_keys
+      done
+      sed -i '/^$/d' /tmp/all_keys
+
+      TOTAL="$(wc -l < /tmp/all_keys)"
+      log "population=$TOTAL sample_target=$SAMPLE_SIZE seed=$SEED"
+
+      awk -v seed="$SEED" 'BEGIN{srand(seed)} {print rand()"|"$0}' /tmp/all_keys \
+        | sort -t'|' -k1,1 \
+        | cut -d'|' -f2- \
+        | head -n "$SAMPLE_SIZE" > /tmp/sample
+
+      while read -r KEY; do
+        [ -z "$KEY" ] && continue
+        BUCKET="${KEY%%/*}"
+        OBJ="${KEY#*/}"
+        STAGED="${LATEST}${BUCKET}/${OBJ}"
+
+        if [ ! -f "$STAGED" ]; then
+          # Expected for objects already known unreadable: staging cannot copy
+          # what SeaweedFS will not serve. Counted, never silently skipped.
+          fail "$KEY: absent from the staged copy"
+          SW_FAILED=$(( SW_FAILED + 1 ))
+          continue
+        fi
+
+        LIVE_MD5="$(aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://$BUCKET/$OBJ" - 2>/dev/null | md5sum | cut -d' ' -f1)"
+        STAGED_MD5="$(md5sum < "$STAGED" | cut -d' ' -f1)"
+
+        if [ "$LIVE_MD5" != "$STAGED_MD5" ]; then
+          # A mismatch is only corruption if the object has not changed since the
+          # snapshot was taken. Some objects are mutable: Kopia rewrites its
+          # bookkeeping files (kopia.maintenance, indexes) in place, so a
+          # point-in-time staged copy legitimately differs from live and would
+          # fail this check forever.
+          #
+          # Re-read LastModified now rather than trusting the listing. The listing
+          # is taken once at the start of a run that takes half an hour, so an
+          # object modified during the run passes the cutoff filter and then fails
+          # the hash. A fresh HEAD at comparison time is the authoritative answer.
+          MOD_NOW="$(aws --endpoint-url "$S3_ENDPOINT" s3api head-object --bucket "$BUCKET" --key "$OBJ" --query LastModified --output text 2>/dev/null | cut -c1-19)"
+          if [ -n "$MOD_NOW" ] && [ "$MOD_NOW" ">" "$CUTOFF" ]; then
+            log "changed since snapshot, not corruption: $KEY"
+            SW_CHANGED=$(( SW_CHANGED + 1 ))
+            continue
+          fi
+          fail "$KEY: staged copy differs from live"
+          SW_FAILED=$(( SW_FAILED + 1 ))
+          continue
+        fi
+
+        # Format validity, on the sample only. A matching hash proves the copy
+        # is faithful; it does not prove the original was ever valid.
+        BAD=""
+        case "$OBJ" in
+          *.gz)
+            if gzip -t "$STAGED" 2>/dev/null; then
+              case "$OBJ" in
+                *.sqlite3.gz)
+                  gzip -dc "$STAGED" > /tmp/s.db 2>/dev/null
+                  R="$(sqlite3 /tmp/s.db 'PRAGMA integrity_check' 2>&1 | head -1)"
+                  rm -f /tmp/s.db
+                  [ "$R" = "ok" ] || BAD="sqlite integrity_check said '$R'"
+                  ;;
+                *.sql.gz)
+                  gzip -dc "$STAGED" 2>/dev/null | head -c 4096 | grep -q "PostgreSQL database dump" \
+                    || BAD="no PostgreSQL dump header"
+                  ;;
+              esac
+            else
+              BAD="gzip stream is corrupt"
+            fi
+            ;;
+        esac
+
+        if [ -n "$BAD" ]; then
+          fail "$KEY: $BAD"
+          SW_FAILED=$(( SW_FAILED + 1 ))
+          continue
+        fi
+
+        SW_TESTED=$(( SW_TESTED + 1 ))
+        echo "$KEY" >> /staging/.restore-test/tested.log
+      done < /tmp/sample
+    fi
+
+    # ------------------------------------------------------------------
+    # Result. Task 11 gates on this: a stalled or failing restore-test must stop
+    # pruning rather than permit it, so both the verdict and its age have to be
+    # readable by another job.
+    # ------------------------------------------------------------------
+    if [ -n "$FAILURES" ]; then RESULT=fail; else RESULT=pass; fi
+    log "result=$RESULT longhorn_tested=$LH_TESTED longhorn_skipped=$LH_SKIPPED seaweedfs_tested=$SW_TESTED seaweedfs_failed=$SW_FAILED seaweedfs_changed=$SW_CHANGED"
+
+    kubectl create configmap backup-restore-test-result -n longhorn-system \
+      --from-literal=result="$RESULT" \
+      --from-literal=timestamp="$STAMP" \
+      --from-literal=epoch="$NOW" \
+      --from-literal=longhorn_tested="$LH_TESTED" \
+      --from-literal=longhorn_skipped="$LH_SKIPPED" \
+      --from-literal=seaweedfs_tested="$SW_TESTED" \
+      --from-literal=failures="${FAILURES:-none}" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+
+    {
+      echo "backup_restore_test_last_run_timestamp $NOW"
+      if [ "$RESULT" = pass ]; then echo "backup_restore_test_pass 1"; else echo "backup_restore_test_pass 0"; fi
+      echo "backup_restore_test_longhorn_volumes_tested $LH_TESTED"
+      echo "backup_restore_test_longhorn_volumes_skipped $LH_SKIPPED"
+      echo "backup_restore_test_seaweedfs_objects_tested $SW_TESTED"
+      echo "backup_restore_test_seaweedfs_objects_failed $SW_FAILED"
+      echo "backup_restore_test_seaweedfs_objects_changed $SW_CHANGED"
+    } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+
+    [ "$RESULT" = pass ] || exit 1
+    echo "RESTORE_TEST_OK"
+
+  # The pod that reads the restored device. Kept as a template rather than a
+  # heredoc inside the loop: a heredoc nested in a shell that is itself inside a
+  # YAML block scalar needs two layers of escaping, and that is precisely the
+  # construction that produced silent no-ops elsewhere in this directory.
+  verify-pod.yaml.tmpl: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: RTNAME
+      namespace: longhorn-system
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: check
+          image: docker.io/library/alpine:3.24
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apk add --no-cache e2fsprogs sqlite >/dev/null 2>&1
+              e2fsck -n -f /dev/rtdev
+              echo "e2fsck_rc=$?"
+              mkdir -p /mnt/v
+              if mount -o ro /dev/rtdev /mnt/v 2>&1; then
+                echo "mount_ok=1"
+              else
+                echo "mount_ok=0"
+              fi
+              echo "files=$(find /mnt/v -type f 2>/dev/null | wc -l)"
+              if [ -f /mnt/v/PG_VERSION ]; then
+                echo "content=postgres"
+                echo "pg_version=$(cat /mnt/v/PG_VERSION 2>/dev/null)"
+                if [ -s /mnt/v/global/pg_control ]; then
+                  echo "pg_control=present"
+                else
+                  echo "pg_control=MISSING"
+                fi
+              elif ls /mnt/v/*.sqlite3 >/dev/null 2>&1; then
+                echo "content=sqlite"
+                echo "sqlite_integrity=$(sqlite3 /mnt/v/*.sqlite3 'PRAGMA integrity_check' 2>&1 | head -1)"
+              else
+                echo "content=generic"
+              fi
+              umount /mnt/v 2>/dev/null
+          volumeDevices:
+            - name: v
+              devicePath: /dev/rtdev
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: v
+          persistentVolumeClaim:
+            claimName: RTNAME
