@@ -1,7 +1,21 @@
 # ADR-003: Offsite Backup Immutability — Versioning Only, No Object Lock
 
 **Date:** 2026-08-19
-**Status:** Accepted
+**Status:** Superseded by [ADR-005](0005-two-stage-backup-relay.md) (2026-08-24)
+
+> **Superseded.** ADR-005 adopts S3 Object Lock in Governance mode with 21-day default
+> retention, reversing the decision recorded below.
+>
+> The reversal is not simply a change of appetite. This ADR reasoned about a design in which
+> the offsite copy was written by credentials that also held delete rights, making Object Lock
+> one control among several against the same credential — which is what made it look
+> redundant for a homelab. ADR-005's relay credential cannot delete at all, and Object Lock's
+> role there is narrower and different: it bounds the damage of a compromised *auditor*
+> credential tagging objects for expiry. That is a specific risk the new tag-gated pruning
+> mechanism introduces and this ADR never had to consider.
+>
+> The cost analysis below remains accurate and is worth reading before assuming Object Lock is
+> free.
 
 ## Context
 

@@ -16,9 +16,9 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 - **OS**: Talos Linux (immutable, no SSH, API-driven)
 - **CNI**: Cilium (Gateway API, Hubble, kube-proxy replacement, WireGuard configured)
 - **GitOps**: FluxCD v2 + SOPS/Age encrypted secrets
-- **Storage**: SeaweedFS (S3-compatible, CSI driver)
+- **Storage**: Longhorn (block storage for application PVCs) + SeaweedFS (S3-compatible object storage: Velero backup target, database dumps, Zot registry, Longhorn backup target)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
-- **Backup**: Velero (SeaweedFS local) + talos-backup etcd (AWS S3 offsite)
+- **Backup**: Longhorn snapshots/backups to local SeaweedFS, relayed one-way to an immutable AWS S3 vault ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md)) + Velero + talos-backup etcd
 - **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning)
 - **VPN**: Tailscale Kubernetes Operator
 - **Certs**: cert-manager + Let's Encrypt DNS-01 via Cloudflare
@@ -327,12 +327,22 @@ python3 bootstrap/scripts/dr.py add-node
 
 | Copy | Storage | Retention | Tool |
 |---|---|---|---|
-| Primary (live data) | SeaweedFS primary collection | — | SeaweedFS CSI |
-| Local backup | SeaweedFS backup collection / second server | 4 days (96h) daily | Velero |
-| Offsite backup | AWS S3 Glacier Deep Archive | 90 days (weekly), 365 days (monthly) | Velero |
-| etcd snapshots | SeaweedFS local + AWS S3 | 7 days | talos-backup |
+| Primary (live data) | Longhorn (local NVMe, ext4 block devices) | — | — |
+| Local snapshots | Longhorn, same replica disk | 7 daily | Longhorn RecurringJob |
+| Local backups | SeaweedFS `longhorn-backups` bucket | 5 weekly + 6 monthly | Longhorn RecurringJob |
+| Local object copy | SeaweedFS buckets staged onto Longhorn | 14 daily | staging CronJob |
+| Off-site | AWS S3 `homelab-backup-vault`, Object Lock 21d | matches local | relay CronJob |
+| Databases | SeaweedFS `db-backups` bucket | hourly/daily dumps | per-app CronJob |
+| etcd snapshots | AWS S3 | 7 days | talos-backup |
 
-Velero runs CSI VolumeSnapshots for consistent PVC backups alongside manifest backups.
+Velero backs up PVCs through its node-agent DaemonSet (Kopia file-system backup), **not**
+CSI VolumeSnapshots — no CSI driver or VolumeSnapshotClass is registered on this cluster.
+
+Longhorn never talks to AWS. Its backup target is the local SeaweedFS endpoint, where it
+holds full delete rights and runs retention normally; a separate relay mirrors that
+backupstore one-way to a vault whose credentials hold no delete permission of any kind.
+See [ADR-005](./docs/adr/0005-two-stage-backup-relay.md) for why, and
+[the recovery runbook](./docs/runbooks/backup-recovery.md) for restore order.
 
 ## Architecture
 

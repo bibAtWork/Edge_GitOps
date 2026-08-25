@@ -72,6 +72,32 @@ cluster:
     advertisedSubnets:
       - 192.168.178.0/24
 
+  # kube-controller-manager and kube-scheduler bind their metrics and health
+  # endpoints to 127.0.0.1 by default on Talos, which means nothing off the
+  # node can scrape them. vmagent reported both as "connection refused" and
+  # they sat down indefinitely -- and because a metric that is never collected
+  # produces no series, any alert built on them would sit in noData rather
+  # than firing. Two of the three components that decide what runs where were
+  # therefore unobserved.
+  #
+  # 0.0.0.0 rather than the node IP: Talos renders this config before the
+  # address is known, so pinning it would mean templating the machine config
+  # per node. The endpoints are not open by binding them -- both use delegated
+  # authn/authz against the API server, so a scrape still needs a token bound
+  # to a role that permits it, which is what the vmagent ServiceAccount has.
+  #
+  # Applied live via `talosctl patch machineconfig` (NOT apply-config -- see
+  # the placeholder warning at the top of this file). Both components restart,
+  # which pauses scheduling and controller reconciliation for a few seconds on
+  # a single-node cluster; running workloads are unaffected.
+  controllerManager:
+    extraArgs:
+      bind-address: 0.0.0.0
+
+  scheduler:
+    extraArgs:
+      bind-address: 0.0.0.0
+
   apiServer:
     # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): closes the
     # gap docs/backlog.md tracked as "Kubernetes-native RBAC has no

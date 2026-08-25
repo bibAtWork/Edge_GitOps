@@ -228,3 +228,28 @@ spec:
       relabelConfigs:
         - targetLabel: job
           replacement: envoy-gateway-proxy
+---
+# Longhorn manager metrics (:9500). Added 2026-08-24 after finding that nothing
+# in longhorn-system was being scraped at all -- `up{namespace="longhorn-system"}`
+# returned an empty vector and not a single longhorn_* series existed.
+#
+# That gap mattered more than it looks. Longhorn now backs every application
+# volume in the cluster and, under ADR-002, its RecurringJobs are the mechanism
+# that produces backups at all. Without these series there is no way to alert on
+# a backup tier silently ceasing to run, which is the failure this whole design
+# is built to notice.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: longhorn
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+  selector:
+    matchLabels:
+      app: longhorn-manager
+  endpoints:
+    - port: manager
+      path: /metrics

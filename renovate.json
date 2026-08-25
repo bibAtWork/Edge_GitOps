@@ -5,7 +5,9 @@
     ":semanticCommits",
     ":separatePatchReleases"
   ],
-  "baseBranches": ["ops/talos_linux"],
+  "baseBranchPatterns": [
+    "ops/talos_linux"
+  ],
   "labels": ["renovate"],
   "minimumReleaseAge": "48 hours",
   "vulnerabilityAlerts": {
@@ -16,39 +18,50 @@
   "osvVulnerabilityAlerts": true,
   "flux": {
     "enabled": true,
-    "fileMatch": ["cluster/.+\\.yaml$"]
+    "managerFilePatterns": [
+      "/cluster/.+\\.yaml$/"
+    ]
   },
   "helm-values": {
-    "fileMatch": ["cluster/.+helmrelease\\.yaml$"]
+    "managerFilePatterns": [
+      "/cluster/.+helmrelease\\.yaml$/"
+    ]
   },
   "kubernetes": {
     "enabled": true,
-    "fileMatch": ["cluster/.+\\.yaml$"]
+    "managerFilePatterns": [
+      "/cluster/.+\\.yaml$/"
+    ]
   },
-  "regexManagers": [
+  "customManagers": [
     {
+      "customType": "regex",
       "description": "Ansible tool versions in group_vars/all.yml (comment-driven)",
-      "fileMatch": ["bootstrap/ansible/group_vars/all\\.yml$"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\w+_version:\\s*\"(?<currentValue>[\\d.]+)\""
-      ],
+      "managerFilePatterns": ["/bootstrap/ansible/group_vars/all\\.yml$/"],
+      "matchStrings": ["# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\w+_version:\\s*\"(?<currentValue>[\\d.]+)\""],
       "versioningTemplate": "semver"
     },
     {
+      "customType": "regex",
       "description": "talos-backup image in CronJob",
-      "fileMatch": ["cluster/base/00-bootstrap/talos-backup/cronjob\\.yaml$"],
-      "matchStrings": [
-        "image:\\s*ghcr\\.io/siderolabs/talos-backup:(?<currentValue>[\\w.-]+)"
-      ],
+      "managerFilePatterns": ["/cluster/base/00-bootstrap/talos-backup/cronjob\\.yaml$/"],
+      "matchStrings": ["image:\\s*ghcr\\.io/siderolabs/talos-backup:(?<currentValue>[\\w.-]+)"],
       "datasourceTemplate": "docker",
       "depNameTemplate": "ghcr.io/siderolabs/talos-backup"
     },
     {
+      "customType": "regex",
+      "description": "Talos installer pin in talos-image.env. Source of truth for manual node upgrades; the SUC plan below covers the automated path and the two must not drift. A bump here REQUIRES regenerating SCHEMATIC_ID from schematic.yaml via the Image Factory, which Renovate cannot do -- hence the talos group is never auto-merged.",
+      "managerFilePatterns": ["/cluster/overlays/.+/talos-machineconfigs/talos-image\\.env$/"],
+      "matchStrings": ["TALOS_VERSION=(?<currentValue>v[\\d.]+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
+    },
+    {
+      "customType": "regex",
       "description": "Talos version in SUC upgrade plans (spec.version drives the installer tag via SYSTEM_UPGRADE_PLAN_LATEST_VERSION)",
-      "fileMatch": ["cluster/base/infrastructure/15-system-upgrade-controller/config/plans/.+\\.yaml$"],
-      "matchStrings": [
-        "version:\\s*(?<currentValue>v[\\d.]+)"
-      ],
+      "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/plans/.+\\.yaml$/"],
+      "matchStrings": ["version:\\s*(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "siderolabs/talos"
     }
@@ -75,15 +88,20 @@
     {
       "description": "Disable digest updates for Talos images",
       "matchDatasources": ["docker"],
-      "matchPackagePatterns": ["siderolabs/*"],
       "matchUpdateTypes": ["digest"],
-      "enabled": false
+      "enabled": false,
+      "matchPackageNames": [
+        "/siderolabs/*/"
+      ]
     },
     {
       "description": "Group Flux updates",
-      "matchPackagePatterns": ["fluxcd/*", "flux2"],
       "groupName": "flux",
-      "automerge": false
+      "automerge": false,
+      "matchPackageNames": [
+        "/fluxcd/*/",
+        "/flux2/"
+      ]
     },
     {
       "description": "Route all patch updates through Trivy gate (no Renovate-side automerge)",
