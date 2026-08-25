@@ -13,12 +13,35 @@ on:
 # several times over, all evaluating the identical commit to the identical
 # conclusion. Narrowing `types:` risks the opposite failure (never firing with
 # the right label present, if Renovate's labeling order differs from
-# assumed), so this fixes the symptom without touching trigger semantics:
-# only the most recently triggered run for a given PR is allowed to finish:
-# earlier ones are cancelled outright rather than completing and posting a
-# redundant comment.
+# assumed), so the first fix left trigger semantics alone and cancelled all but
+# the most recent run for a given PR.
+#
+# That stopped the duplicate comments and the ambiguity about which result the
+# merge decision honours. It did not stop the waste: measured 2026-08-25 across
+# three Renovate PRs, the pattern is still 5 runs — 4 cancelled, 1 successful —
+# and a cancelled run has already claimed a runner and begun checking out.
+#
+# So the run itself is now skipped when a `labeled` event carries a label this
+# gate does not care about. A job skipped by `if:` allocates no runner at all,
+# where a cancelled one has already paid for itself.
+#
+# This does NOT reintroduce the ordering risk. The guard tests which label was
+# just added, never the order they arrive in: whenever `minor-update` or
+# `security` lands, that specific event runs the gate, and the `opened` event
+# still covers the case where Renovate applies labels atomically.
+#
+# The concurrency group is split for a reason that is easy to miss. Concurrency
+# is evaluated per workflow run, before any job `if:` — so without the split, an
+# irrelevant `labeled` event arriving after a real one would enter the same
+# group, cancel the running gate, then skip its own job, and the gate would
+# never report at all. Skipped runs are therefore parked in a group of their own
+# where they can cancel nothing.
 concurrency:
-  group: trivy-gate-${{ github.event.pull_request.number }}
+  group: >-
+    trivy-gate-${{ github.event.pull_request.number }}-${{
+      (github.event.action == 'labeled' &&
+       !contains(fromJSON('["minor-update","security"]'), github.event.label.name))
+      && 'ignored' || 'active' }}
   cancel-in-progress: true
 
 permissions:
@@ -27,9 +50,18 @@ permissions:
 
 jobs:
   trivy-gate:
-    # Only run on Renovate PRs that touch minor/patch or security (vulnerability-alert) updates.
+    # Only run on Renovate PRs that touch minor/patch or security
+    # (vulnerability-alert) updates.
+    #
+    # The middle clause is the deduplication: on a `labeled` event, proceed only
+    # if the label just added is one this gate acts on. Every other trigger type
+    # passes it untouched, so `opened` and `synchronize` behave exactly as
+    # before. The final clause is unchanged and still decides eligibility from
+    # the PR's full label set, not from whichever label happened to arrive.
     if: |
       github.actor == 'renovate[bot]' &&
+      (github.event.action != 'labeled' ||
+       contains(fromJSON('["minor-update","security"]'), github.event.label.name)) &&
       (contains(github.event.pull_request.labels.*.name, 'minor-update') ||
        contains(github.event.pull_request.labels.*.name, 'security'))
     runs-on: ubuntu-latest
