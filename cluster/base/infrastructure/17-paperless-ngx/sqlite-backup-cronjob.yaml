@@ -1,11 +1,17 @@
 # Logical backup of the Paperless SQLite database to S3.
 #
-# This is the only protection this database has. Velero's file-system backup
-# does not capture it: paperless-data is a local-path (hostPath) volume, and
-# Kopia silently skips hostPath volumes -- no PodVolumeBackup is even created,
-# so nothing errors and nothing warns. Verified 2026-08-18 that across every
-# backup this cluster has taken, the only volumes ever captured were ephemeral
-# (dshm, tmp, empty-dir); not one PVC.
+# Kept after the move to Longhorn, unlike the Postgres data volumes, which were
+# dropped from Longhorn's scope precisely because a dump already covered them.
+# The asymmetry is deliberate and rests on what each volume holds. Those held a
+# database and nothing else, so the dump and the snapshot were two copies of the
+# same thing. paperless-data-lh holds more than the database: the Whoosh search
+# index, the celerybeat schedule, the log directory. The snapshot covers those
+# and the dump does not, so the two are complements rather than duplicates -- at
+# 13MB, cheaply.
+#
+# The dump remains the verified half. It is the artefact the nightly
+# restore-test replays, and it carries its own integrity_check; the snapshot is
+# a fast path that nothing routinely proves.
 #
 # Uses SQLite's online backup API rather than copying db.sqlite3. The database
 # runs in WAL mode -- db.sqlite3-wal and db.sqlite3-shm sit next to it -- so a
@@ -15,9 +21,9 @@
 # consistent snapshot of a live database with writers active, which is exactly
 # the situation here since paperless is not stopped for this.
 #
-# Scanned documents live on paperless-media-swfs and are NOT in here. This
-# covers the database only: document metadata, tags, correspondents, users and
-# the search index's source of truth. A restore needs both.
+# Scanned documents live on paperless-media-lh and are NOT in here. This covers
+# the database only: document metadata, tags, correspondents, users and the
+# search index's source of truth. A restore needs both.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -152,6 +158,6 @@ spec:
           volumes:
             - name: data
               persistentVolumeClaim:
-                claimName: paperless-data
+                claimName: paperless-data-lh
             - name: work
               emptyDir: {}

@@ -176,7 +176,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: paperless-data
+            claimName: paperless-data-lh
         - name: media
           persistentVolumeClaim:
             claimName: paperless-media-lh
