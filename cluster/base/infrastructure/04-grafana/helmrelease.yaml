@@ -32,32 +32,38 @@ spec:
       existingSecret: grafana-admin
       userKey: admin-user
       passwordKey: admin-password
+    # Stateless. /var/lib/grafana is an emptyDir, so everything Grafana serves
+    # comes from this file on every start: datasources, the six gnetId
+    # dashboards, all fifty alert rules, and the admin user from
+    # grafana-admin.
+    #
+    # The volume was removed rather than moved to Longhorn because it had
+    # stopped being state and started being drift. Its dashboards directory is
+    # written by the chart's download-dashboards init container, which only
+    # ever adds -- so two dashboards removed from this file months ago
+    # (kubernetes-cluster, seaweedfs) were still on disk and still loading, and
+    # one more existed only inside grafana.db, having been imported through the
+    # UI and never written down anywhere. None of the three were in Git. What
+    # Grafana showed and what this repository described had quietly diverged.
+    #
+    # What is genuinely lost, and it is not nothing:
+    #
+    #  - Alert state. A restart re-evaluates all fifty rules from scratch, so
+    #    anything currently firing notifies again. Silences do not survive
+    #    either; there were none.
+    #  - Annotation history, starred dashboards, user preferences.
+    #  - ~255MB of plugin payload, re-downloaded from grafana.com on every
+    #    start (208MB of it victoriametrics-logs-datasource). This puts an
+    #    external dependency on the startup path: if grafana.com is
+    #    unreachable, Grafana comes up without the VictoriaLogs datasource
+    #    rather than not at all, which is the quieter of the two failures and
+    #    so the one worth knowing about in advance.
+    #
+    # No API keys or service accounts live in that database -- nothing in this
+    # cluster authenticates to Grafana -- so nothing else breaks when it is
+    # discarded. Anything that should survive a restart belongs in this file.
     persistence:
-      enabled: true
-      # On local-path deliberately. A move to SeaweedFS CSI on 2026-08-18 failed,
-      # and the root cause is worth keeping because the obvious reading of the
-      # symptom was wrong.
-      #
-      # Grafana served 500 on every request with its SQLite store reporting
-      # "disk I/O error (3850)". That looks exactly like "SQLite does not work on
-      # FUSE" -- and it was not that. The CSI mount pod, which held the FUSE
-      # daemon for every SeaweedFS PVC on the node, had been OOMKilled, so every
-      # mount it served returned EIO at once. SQLite was the loudest reporter,
-      # not the victim of an incompatibility.
-      #
-      # That CSI driver has since been removed entirely -- all volumes moved to
-      # Longhorn -- so the specific failure cannot recur. This volume stays on
-      # local-path anyway: it is ~300MB of SQLite state that a local disk serves
-      # perfectly well, and moving it would buy nothing.
-      #
-      # Worth remembering regardless: switching to `existingClaim` removes the
-      # chart-templated PVC from the rendered manifest, so Helm PRUNES the old
-      # one and local-path's Delete reclaim wipes the directory. existingClaim is
-      # NOT a rollback path. The data survived only because it was copied out.
-      storageClassName: local-path
-      size: 5Gi
-      labels:
-        velero.io/backup: "true"
+      enabled: false
     plugins:
       - victoriametrics-logs-datasource
     datasources:
