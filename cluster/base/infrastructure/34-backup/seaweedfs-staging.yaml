@@ -82,7 +82,12 @@ spec:
                   # The buckets this protects. Everything here is either the
                   # only copy of something (database dumps, filer metadata) or
                   # expensive to reconstruct (Velero archives).
-                  BUCKETS="velero-backups db-backups filer-metadata etcd-backups pvs"
+                  #
+                  # etcd-backups is gone with the talos-backup CronJob that was
+                  # supposed to fill it and never did. Staging an empty bucket
+                  # cost nothing but implied a protection that did not exist,
+                  # which is the more expensive of the two.
+                  BUCKETS="velero-backups db-backups filer-metadata pvs"
 
                   # Hardlink the previous snapshot forward before syncing over
                   # it. Unchanged files then cost one inode rather than another

@@ -2,12 +2,12 @@
 # (fromEndpoints: [{}]), which is what CLAUDE.md's SeaweedFS architecture note assumed was
 # "the primary auth boundary" for S3 access but wasn't actually enforcing anything -- see
 # docs/network-architecture.md section 3. Replaced with the explicit, confirmed-live caller
-# list: velero (allow-velero-egress), talos-backup (allow-talos-backup-egress), zot
-# (allow-zot-egress) all already egress to this port today. The kube-system grant is
-# dropped entirely: it was written for a SeaweedFS CSI driver
-# (allow-csi-seaweedfs-egress's own comment) that a live audit confirmed does not exist in
-# this cluster (`kubectl get csidrivers` returns nothing; every PVC in this repo uses
-# local-path-provisioner).
+# list: velero (allow-velero-egress) and zot (allow-zot-egress), which already egress to
+# this port today. talos-backup was on this list until 2026-08-25, when its CronJob was
+# removed for never having uploaded anything. The kube-system grant is dropped entirely:
+# it was written for a SeaweedFS CSI driver (allow-csi-seaweedfs-egress's own comment)
+# that a live audit confirmed does not exist in this cluster -- `kubectl get csidrivers`
+# returns nothing.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -32,9 +32,6 @@ spec:
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: velero
-        - matchLabels:
-            app.kubernetes.io/name: talos-backup
-            io.kubernetes.pod.namespace: talos-backup
         - matchLabels:
             app.kubernetes.io/name: zot
             io.kubernetes.pod.namespace: zot
