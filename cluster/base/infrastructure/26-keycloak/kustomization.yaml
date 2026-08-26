@@ -8,7 +8,6 @@ resources:
   - paperless-client-secret.yaml
   - hubble-client-secret.yaml
   - kubeopencode-client-secret.yaml
-  - schenkmatch-client-secret.yaml
   - zot-client-secret.yaml
   - immich-client-secret.yaml
   - securitypolicy-referencegrant.yaml

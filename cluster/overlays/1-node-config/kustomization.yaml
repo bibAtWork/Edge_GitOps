@@ -26,8 +26,6 @@ resources:
   - ../../base/infrastructure/17-paperless-ngx/config
   # kyverno: ClusterPolicy (kyverno.io) — needs Kyverno CRDs from 19-kyverno HelmRelease
   - ../../base/infrastructure/19-kyverno/config
-  # schenkmatch: HTTPRoute (gateway.networking.k8s.io)
-  - ../../base/infrastructure/22-schenkmatch/config
   # keycloak: HTTPRoute (gateway.networking.k8s.io) for OIDC endpoint
   - ../../base/infrastructure/26-keycloak/config
   # kubeopencode: HTTPRoute (gateway.networking.k8s.io) + Agent (kubeopencode.io CRD

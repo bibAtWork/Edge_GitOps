@@ -82,8 +82,14 @@ jobs:
         run: |
           FAIL=0
           for overlay in 1-node 3-node; do
+            # The `-?` is load-bearing. Container specs render as list items
+            # (`      - image: foo:latest`), and the previous pattern required
+            # whitespace immediately before `image:`, so the leading dash broke
+            # every match. This gate passed on everything for as long as it has
+            # existed, including on the one image in this repo that did use
+            # :latest -- which is exactly what it was written to catch.
             hits=$(kustomize build cluster/overlays/${overlay} \
-              | grep -E '^\s+image:\s+\S+:latest(\s|$)' || true)
+              | grep -E '^\s*-?\s*image:\s+\S+:latest(\s|$)' || true)
             if [ -n "$hits" ]; then
               echo "ERROR: :latest tags found in ${overlay} overlay (bypasses Trivy gate and Renovate tracking):"
               echo "$hits"
