@@ -110,8 +110,12 @@ spec:
     grafana:
       enabled: false
 
+    # Deployed on its own into monitoring-agents instead -- see
+    # infrastructure/35-node-exporter. It is the only workload in this chart that
+    # needs hostNetwork/hostPID/hostPath, and leaving it here forced the whole
+    # monitoring namespace to PSS privileged.
     prometheus-node-exporter:
-      enabled: true
+      enabled: false
 
     kube-state-metrics:
       enabled: true

@@ -1,0 +1,32 @@
+# Replaces the VMServiceScrape the victoria-metrics-k8s-stack subchart used to
+# generate. vmagent has selectAllByDefault: true and no namespace selector, and
+# the VictoriaMetrics operator is cluster-scoped, so a VMServiceScrape here is
+# picked up without any change on the vmagent side.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: node-exporter
+  namespace: monitoring-agents
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-node-exporter
+  endpoints:
+    - port: metrics
+      # The subchart's scrape resolved the job name indirectly, via
+      # `jobLabel: jobLabel` reading a `jobLabel: node-exporter` label off the
+      # Service. Set outright here instead: every dashboard and alert querying
+      # node metrics matches on job="node-exporter", and having that depend on a
+      # label the upstream chart happens to stamp is a silent breakage waiting
+      # for a chart bump.
+      relabelConfigs:
+        - target_label: job
+          replacement: node-exporter
+      metricRelabelConfigs:
+        # Carried over unchanged. Every pod with a volume produces a filesystem
+        # series per bind mount under /var/lib/kubelet/pods, which is thousands
+        # of series describing the same underlying disk.
+        - action: drop
+          source_labels:
+            - mountpoint
+          regex: /var/lib/kubelet/pods.+

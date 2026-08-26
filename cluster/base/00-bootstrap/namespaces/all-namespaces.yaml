@@ -23,6 +23,27 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: monitoring-agents
+  labels:
+    # The two node-level collectors, and nothing else. Both genuinely need the
+    # host, which is exactly why they are not in monitoring any more:
+    #
+    #   node-exporter  hostNetwork, hostPID, hostPath /proc /sys /
+    #   otel-agent     hostPath /var/log/pods, /var/log/kubernetes/audit
+    #
+    # hostPath alone is a baseline violation, so both pin whatever namespace they
+    # sit in to privileged. Keeping them here is what lets monitoring -- which
+    # holds the dashboards, the query endpoints and the stored data -- run at
+    # baseline instead.
+    #
+    # Nothing else belongs in this namespace. Anything added here inherits host
+    # access it almost certainly does not need.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: velero
   labels:
     # velero-node-agent DaemonSet runs as root (UID 0) with privileged: true to
