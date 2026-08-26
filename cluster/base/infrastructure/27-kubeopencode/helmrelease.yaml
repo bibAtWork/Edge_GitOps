@@ -67,7 +67,12 @@ spec:
       # the Gateway SecurityPolicy authenticates. Anything driven by the
       # controller -- CronTask, AgentTemplate, Task reconciliation -- does not
       # work, and did not work before this change either.
-      replicaCount: 0
+      # `replicas`, not `replicaCount`. This chart uses the former; setting
+      # replicaCount was accepted into the HelmRelease and silently ignored by
+      # the template, leaving the Deployment at 1 and the controller still
+      # crash-looping while the values block claimed otherwise. Verified by
+      # watching spec.replicas actually reach 0.
+      replicas: 0
       podSecurityContext:
         runAsNonRoot: true
         seccompProfile:
