@@ -14,11 +14,18 @@ kind: Namespace
 metadata:
   name: monitoring
   labels:
-    # prometheus-node-exporter requires hostPID, hostNetwork, and hostPath volumes.
-    # These are blocked by baseline and restricted PSS. Monitoring is a trusted
-    # system-level namespace; privileged enforcement is appropriate.
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: baseline
+    # Grafana, VictoriaMetrics/Logs/Traces, vmagent, vmalert and the OTel gateway.
+    # None of them touch the host: the two workloads that did -- node-exporter and
+    # the OTel agent -- now run in monitoring-agents.
+    #
+    # Not restricted, and not by oversight. The VictoriaMetrics operator generates
+    # its own pod specs from VMSingle/VMAgent/VMAlert CRs and sets no
+    # runAsNonRoot, seccompProfile, capabilities.drop or allowPrivilegeEscalation
+    # on them, so restricted would refuse to admit six of the seven workloads here.
+    # Raising that bar means overriding securityContext per CR, which is a separate
+    # change with its own failure mode.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
 ---
 apiVersion: v1
 kind: Namespace
