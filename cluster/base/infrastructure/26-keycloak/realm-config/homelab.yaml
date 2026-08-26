@@ -175,6 +175,38 @@ clients:
     webOrigins:
       - https://paperless.homelab.data-harness.org
     secret: $(env:PAPERLESS_CLIENT_SECRET)
+  # ── Shared edge-authentication client ──────────────────────────────────────
+  # One client for every app gated at the Gateway rather than by its own OIDC
+  # integration. hubble and kubeopencode both use it; anything added later that
+  # needs a login but has no native SSO uses it too, with no Keycloak change --
+  # an HTTPRoute and a SecurityPolicy referencing this client is the whole cost.
+  #
+  # The wildcard redirect is what makes that work, and it is the trade being
+  # made: Keycloak will send a token to any host under the domain, so every
+  # subdomain sits inside this client's trust boundary. Acceptable because the
+  # whole domain is this cluster's Gateway and external-dns is the only thing
+  # creating records under it.
+  #
+  # It is also why this client stays edge-only. Apps holding their own user
+  # data keep a dedicated client with an exact redirect URI -- grafana,
+  # paperless, immich and zot all do -- so a wildcard match can never land a
+  # token meant for one of them somewhere else.
+  - clientId: homelab-edge
+    name: Homelab Edge Auth
+    description: Shared client for Gateway-level OIDC. Wildcard redirect; edge-gated apps only.
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    authorizationServicesEnabled: false
+    redirectUris:
+      - https://*.homelab.data-harness.org/oauth2/callback
+    webOrigins:
+      - https://*.homelab.data-harness.org
+    secret: $(env:EDGE_CLIENT_SECRET)
   - clientId: hubble
     name: Hubble UI
     enabled: true

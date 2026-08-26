@@ -47,9 +47,13 @@ spec:
           name: keycloak
           namespace: keycloak
           port: 80
-    clientID: hubble
+    # Shared edge client, not a per-app one. homelab-edge covers every
+    # app gated at the Gateway rather than by its own OIDC integration, via
+    # a wildcard redirect URI -- so adding an edge-gated app needs no
+    # Keycloak change, just this policy and a copy of the secret.
+    clientID: homelab-edge
     clientSecret:
-      name: hubble-oidc-client-secret
+      name: keycloak-edge-oidc
     forwardAccessToken: true
     # No PKCE requirement on the Keycloak client side (see
     # 26-keycloak/setup-job.yaml's ensure_client for the precedent) — this is

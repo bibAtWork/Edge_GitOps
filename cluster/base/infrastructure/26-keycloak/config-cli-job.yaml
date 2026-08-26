@@ -176,6 +176,11 @@ spec:
                 # substituted via $(env:...) exactly as the Google IdP secret
                 # is. Same Secrets the setup Job reads, so the two agree while
                 # ownership moves across.
+                - name: EDGE_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-edge-oidc
+                      key: client-secret
                 - name: GRAFANA_CLIENT_SECRET
                   valueFrom:
                     secretKeyRef:
