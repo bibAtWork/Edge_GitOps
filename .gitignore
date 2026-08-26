@@ -65,3 +65,10 @@ docs/security-review-*.md
 # a public repo. Match on the shape of the name, not one chosen spelling of it.
 docs/cluster-review*.md
 docs/*-review-????-??-??.md
+# Findings files, same rule again. An earlier ignore for these was lost from the
+# working tree before it was ever committed, which is its own argument for
+# keeping the pattern broad: the protection is only real once it is in git.
+# Anything named for findings, anywhere under docs/, at any depth.
+docs/**/*finding*
+docs/*finding*
+findings*.md
