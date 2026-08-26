@@ -124,6 +124,34 @@ cluster:
       oidc-username-prefix: "oidc:"
       oidc-groups-claim: groups
       oidc-groups-prefix: "oidc:"
+      # Six metric families the apiserver no longer registers at all.
+      #
+      # Its /metrics response had grown to 16.4 MiB against vmagent's 16 MiB
+      # scrape limit, so the scrape failed outright -- 0% success for the six
+      # hours before this was found, 66% over the preceding day as the payload
+      # crossed and re-crossed the line. A core component's monitoring had gone
+      # dark and nothing alerted, because no rule watches scrape health.
+      #
+      # 86% of that payload was histogram buckets. Prometheus text exposition
+      # repeats the full label set on every bucket line, so a single observation
+      # of apiserver_request_duration_seconds costs 24 lines at ~154 bytes each.
+      #
+      # These six were chosen because nothing consumes them: no dashboard and no
+      # alert rule in this repo references any apiserver metric, and the only
+      # consumers of _sli_duration are 44 chart-shipped SLO recording rules
+      # whose own output is equally unread.
+      #
+      # This flag removes the ENTIRE metric, not just its buckets -- _sum and
+      # _count go with it. That is why apiserver_request_duration_seconds and
+      # etcd_request_duration_seconds are deliberately NOT listed: their average
+      # latency and request rates are worth keeping, so their buckets are
+      # dropped at scrape instead, in 02-victoriametrics-stack/helmrelease.yaml.
+      # Relabelling cannot shrink the apiserver's own heap; only this can.
+      #
+      # Expected: ~45,000 fewer exported series and /metrics down to roughly
+      # 9.5 MiB, which brings the scrape back under the limit without raising
+      # maxScrapeSize.
+      disabled-metrics: "apiserver_request_body_size_bytes,apiserver_response_sizes,apiserver_watch_events_sizes,apiserver_watch_list_duration_seconds,apiserver_watch_cache_read_wait_seconds,apiserver_request_sli_duration_seconds"
     encryptionConfig:
       providers:
         - aescbc:
