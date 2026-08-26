@@ -46,6 +46,40 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Verify every Talos version pin agrees
+        run: |
+          set -euo pipefail
+          # The version is pinned in nine places across five files. Renovate's
+          # grouped PR edits all nine atomically; a hand-edit does not, and a
+          # miss produces a Plan that installs a different version than the
+          # machine config declares -- the class of bug that left this cluster
+          # running v1.13.6 while every pin claimed otherwise.
+          #
+          # Matched structurally, on the specific keys, never by grepping for a
+          # version pattern. talos-image.env's own comments mention v1.12.0 and
+          # v1.13.9 in prose, and a blanket grep would report those as pins.
+          plans=cluster/base/infrastructure/15-system-upgrade-controller/config/plans
+
+          {
+            grep -hoP '^TALOS_VERSION=\Kv[0-9]+\.[0-9]+\.[0-9]+' \
+              cluster/overlays/*/talos-machineconfigs/talos-image.env || true
+            grep -rhoP 'image:\s*factory\.talos\.dev/installer/[0-9a-f]{64}:\Kv[0-9]+\.[0-9]+\.[0-9]+' \
+              cluster/overlays/*/talos-machineconfigs/ || true
+            grep -rhoP '^\s+version:\s*\Kv[0-9]+\.[0-9]+\.[0-9]+' "$plans" || true
+            grep -rhoP 'image:\s*ghcr\.io/siderolabs/talosctl:\Kv[0-9]+\.[0-9]+\.[0-9]+' \
+              "$plans" || true
+          } > /tmp/versions.txt
+
+          echo "Pins found: $(wc -l < /tmp/versions.txt)"
+          sort /tmp/versions.txt | uniq -c | sed 's/^/  /'
+
+          distinct=$(sort -u /tmp/versions.txt | wc -l)
+          if [ "$distinct" -ne 1 ]; then
+            echo "::error::Talos version pins disagree ($distinct distinct values). All nine references -- TALOS_VERSION, the Factory installer tag, spec.version in each SUC Plan, and every talosctl image -- must name the same version. A mismatch means the automated upgrade installs something other than what the machine config declares."
+            exit 1
+          fi
+          echo "All pins agree on $(cat /tmp/versions.txt | head -1)"
+
       - name: Verify schematic ID matches schematic.yaml
         run: |
           set -euo pipefail
