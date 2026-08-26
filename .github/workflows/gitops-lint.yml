@@ -3,8 +3,17 @@ name: GitOps Lint
 on:
   pull_request:
     branches: [ops/talos_linux]
-    paths:
-      - 'cluster/**/*.yaml'
+  # No `paths:` filter, deliberately.
+  #
+  # These jobs validate whole repo state -- they build the overlays and check
+  # the result -- so they behave identically no matter which files a PR
+  # touches, and cost under ten seconds.
+  #
+  # Filtering them on cluster/**/*.yaml made them unusable as required status
+  # checks. A required check whose workflow never triggers is not treated as
+  # skipped: the PR sits on "Expected -- waiting for status to be reported"
+  # for ever. Every docs, README, renovate.json or .gitignore PR would have
+  # deadlocked, which is most of what lands here between cluster changes.
 
 permissions:
   contents: read
