@@ -38,7 +38,82 @@ spec:
           containers:
             - name: config-cli
               image: docker.io/adorsys/keycloak-config-cli:6.5.1-26.0.5
+              # Wrapped rather than run directly, to answer a question the tool
+              # itself will not: did this run have to change anything?
+              #
+              # keycloak-config-cli logs nothing at INFO when it corrects drift.
+              # Verified by reverting a hand-flipped realm setting and a
+              # hand-made group in one run: both were fixed, and the only output
+              # was "ran in 00:01.4". Parsing its logs would therefore detect
+              # nothing, so this fingerprints the managed surface either side of
+              # the run and compares.
+              #
+              # Reverting silently is the actual problem. The correction is
+              # welcome; not knowing that somebody had console access to make
+              # the change in the first place is not.
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -u
+                  KC="$KEYCLOAK_URL"
+
+                  tok() {
+                    curl -s --fail -d client_id=admin-cli \
+                      -d "username=$KEYCLOAK_USER" \
+                      -d "password=$KEYCLOAK_PASSWORD" \
+                      -d grant_type=password \
+                      "$KC/realms/master/protocol/openid-connect/token" \
+                      | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p'
+                  }
+
+                  # Only the surface this tool declares. A whole-realm dump would
+                  # churn on counters and timestamps and cry wolf every hour.
+                  fingerprint() {
+                    T="$(tok)"
+                    [ -z "$T" ] && { echo "AUTH_FAILED"; return; }
+                    {
+                      curl -s -H "Authorization: Bearer $T" "$KC/admin/realms/homelab" \
+                        | tr ',' '\n' \
+                        | grep -E '"(registrationAllowed|verifyEmail|resetPasswordAllowed|loginWithEmailAllowed|registrationEmailAsUsername|bruteForceProtected)"'
+                      curl -s -H "Authorization: Bearer $T" "$KC/admin/realms/homelab/groups" \
+                        | tr ',' '\n' | grep '"path"'
+                      curl -s -H "Authorization: Bearer $T" "$KC/admin/realms/homelab/identity-provider/instances" \
+                        | tr ',' '\n' | grep -E '"(alias|enabled|trustEmail)"'
+                    } | sort | sha256sum | cut -d' ' -f1
+                  }
+
+                  BEFORE="$(fingerprint)"
+                  java -jar /app/keycloak-config-cli.jar
+                  RC=$?
+                  AFTER="$(fingerprint)"
+
+                  CORRECTED=0
+                  if [ "$BEFORE" = "AUTH_FAILED" ] || [ "$AFTER" = "AUTH_FAILED" ]; then
+                    # Unknown, not clean. Reported as drift so a broken probe is
+                    # never mistaken for a quiet realm.
+                    CORRECTED=1
+                    echo "WARN: could not fingerprint the realm; reporting as drift"
+                  elif [ "$BEFORE" != "$AFTER" ]; then
+                    CORRECTED=1
+                    echo "DRIFT CORRECTED: realm did not match realm-config/homelab.yaml"
+                    echo "  before=$BEFORE"
+                    echo "  after=$AFTER"
+                  else
+                    echo "no drift: realm already matched the declared config"
+                  fi
+
+                  {
+                    echo "keycloak_config_last_run_timestamp $(date -u +%s)"
+                    echo "keycloak_config_drift_corrected $CORRECTED"
+                    echo "keycloak_config_import_failed $([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+                  } | curl -s --max-time 15 --data-binary @- "$VM_IMPORT_URL" \
+                    || echo "WARN: metric push failed"
+
+                  exit "$RC"
               env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
                 - name: KEYCLOAK_URL
                   value: http://keycloak.keycloak.svc
                 # The permanent realm admin, not the bootstrap KEYCLOAK_ADMIN.
@@ -57,11 +132,34 @@ spec:
                   value: 120s
                 - name: IMPORT_FILES_LOCATIONS
                   value: /config/homelab.yaml
+                # Without this the whole job is decorative.
+                #
+                # import.cache.enabled defaults to true, and it makes
+                # keycloak-config-cli checksum the import file and SKIP the
+                # import entirely when that checksum is unchanged. An hourly run
+                # against a file that rarely changes therefore does nothing at
+                # all -- it connects, decides the file is the same as last time,
+                # logs "ran in 00:00.6" and exits 0.
+                #
+                # Proven on 2026-08-26: with the cache on, flipping
+                # registrationAllowed by hand and creating a rogue group were
+                # both still there after a run. With it off, the same run
+                # reverted the setting and deleted the group.
+                #
+                # The cost is a full reconcile every hour instead of a checksum
+                # comparison, which for one realm is under two seconds.
+                - name: IMPORT_CACHE_ENABLED
+                  value: "false"
                 # Purge only what this tool created. Documented upstream as the
                 # default; set explicitly because the alternative -- deleting
                 # every realm entity absent from the import file -- would remove
                 # all eight OIDC clients on the first run and take down every
                 # login in the cluster.
+                #
+                # Sharper than it sounds for groups: a group created by hand in
+                # the admin console IS removed on the next run, which is the
+                # drift-erasing behaviour this tool was adopted for. Create
+                # groups in realm-config/homelab.yaml, never in the console.
                 - name: IMPORT_REMOTESTATE_ENABLED
                   value: "true"
                 # Belt and braces on top of remote-state. Clients are owned by

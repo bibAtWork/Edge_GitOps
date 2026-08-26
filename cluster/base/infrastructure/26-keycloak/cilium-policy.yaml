@@ -114,3 +114,28 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+---
+# keycloak-config-cli -> VictoriaMetrics, so its reconcile result is visible as
+# a metric rather than only in pod logs that age out after three runs.
+#
+# Scoped to the config-cli pod, not the namespace. Keycloak itself has no reason
+# to reach the metrics store, and this namespace holds the identity provider --
+# the blast radius of a broad egress grant here is larger than most.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-config-cli-metrics-egress
+  namespace: keycloak
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak-config-cli
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: vmsingle
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
