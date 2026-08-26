@@ -40,6 +40,34 @@ spec:
     # default; kubeopencode's doesn't, so it's added explicitly here for both
     # workloads the chart creates.
     controller:
+      # Scaled to zero: parked, not running-and-broken.
+      #
+      # The controller builds a cluster-wide informer cache at startup and
+      # cannot establish a Secret watch, because none of the kubeopencode
+      # ClusterRoles grants any rule on secrets -- confirmed with `kubectl auth
+      # can-i list secrets --all-namespaces` as its ServiceAccount, which
+      # answers no. controller-runtime times out and the manager aborts, so it
+      # had restarted 590 times over three days:
+      #
+      #   Timeout: failed waiting for *v1.Secret Informer to sync
+      #
+      # docs/backlog.md carries this as parked. Parked and crash-looping are
+      # not the same thing: a CrashLoopBackOff generates events, burns kubelet
+      # cycles and sits in every "what is unhealthy" check for ever, which
+      # trains you to ignore that list. Zero replicas says the same thing and
+      # stays quiet.
+      #
+      # The fix is upstream -- kubeopencode/kubeopencode#298 adds
+      # --watch-namespaces so the informer can be scoped rather than demanding
+      # cluster-wide Secret read. Granting that read is the alternative, and a
+      # poor one for an LLM-agent tool this repo's own security review flags as
+      # prompt-injection surface.
+      #
+      # The server is unaffected and still runs: it serves the UI and is what
+      # the Gateway SecurityPolicy authenticates. Anything driven by the
+      # controller -- CronTask, AgentTemplate, Task reconciliation -- does not
+      # work, and did not work before this change either.
+      replicaCount: 0
       podSecurityContext:
         runAsNonRoot: true
         seccompProfile:
