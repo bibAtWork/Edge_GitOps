@@ -27,5 +27,4 @@ resources:
   # Tracked in docs/backlog.md. Note prune: true means applying this removes
   # the Agent CR (and the controller-owned session PVC) from the cluster.
   # - agent.yaml
-  - oidc-client-secret.yaml
   - oidc-securitypolicy.yaml
