@@ -29,37 +29,31 @@ spec:
   # cluster outage for the duration, so it happens inside a window rather than
   # whenever a version pin changes.
   #
-  # Daily, not weekly. The window is an opportunity, not a schedule: SUC only
-  # acts when a node's running version differs from the `version` pin above, so
-  # a daily window means a merged version bump is picked up the next night
-  # instead of waiting up to seven days. On every other night it is a no-op.
+  # Sunday evening, because it is the only cadence that misses every backup job.
+  # The daily schedules cluster in the small hours -- staging 01:00, snapshot
+  # 02:00, the three database dumps 02:40-02:50, the weekly tier Sunday 03:00,
+  # monthly 04:00, relay 05:00, probe 06:00, restore-test 07:00, reconciler
+  # 09:00 -- plus three hourly jobs at :17, :25 and :40. Nothing at all runs
+  # between 09:00 and 01:00 except those hourly three, so a late window is the
+  # only one with room in it. Rebooting mid-backup leaves a partial artefact
+  # that restore-test then has to catch.
   #
-  # timeZone is UTC deliberately. Every CronJob in this cluster schedules in UTC
-  # (none sets spec.timeZone), and the previous Europe/Berlin window drifted an
-  # hour against all of them twice a year at the DST boundaries -- so a window
-  # picked to sit between two backup jobs quietly stopped doing that for half
-  # the year.
+  # The cost of weekly is latency: a merged version bump waits until the next
+  # Sunday before it is eligible. That is the accepted trade -- an unattended
+  # reboot landing on top of a database dump is worse than an upgrade applying
+  # a few days later.
   #
-  # 02:00-04:00 was requested. It is worth being honest that it does not avoid
-  # the backup jobs the way the old Sunday-evening window did:
-  #
-  #   02:00  longhorn snapshot            <- collides at the window boundary
-  #   02:17  seaweedfs filer dump         (hourly at :17)
-  #   02:25  volume backup policy         (hourly at :25)
-  #   02:40  immich postgres dump
-  #   02:45  paperless sqlite dump
-  #   02:50  keycloak postgres dump
-  #   03:00  weekly backup tier (Sundays)
-  #
-  # A daily window cannot avoid all of these -- three of them run hourly, so no
-  # daily two-hour slot is ever clear. The exposure is bounded by how rarely
-  # this actually fires: only on the night after a Talos version bump merges. If
-  # a reboot does land mid-dump, the artefact is partial and backup-restore-test
-  # at 07:00 is what catches it.
+  # timeZone is UTC, not Europe/Berlin as it was originally. Every CronJob in
+  # this cluster schedules in UTC (none sets spec.timeZone), so a Berlin window
+  # drifted an hour against all of them twice a year at the DST boundaries --
+  # meaning a slot picked to sit clear of the backup jobs quietly stopped doing
+  # that for half the year. The gap here is wide enough that an hour either way
+  # would not have collided, but the drift is silent and there is no reason to
+  # keep it.
   window:
-    days: ["su", "mo", "tu", "we", "th", "fr", "sa"]
-    startTime: "02:00"
-    endTime: "04:00"
+    days: ["su"]
+    startTime: "20:00"
+    endTime: "22:00"
     timeZone: UTC
   nodeSelector:
     matchLabels:

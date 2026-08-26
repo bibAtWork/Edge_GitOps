@@ -28,12 +28,12 @@ spec:
   # upgrade at a time regardless, but the offset means a worker never waits on a
   # control plane that is still rebooting.
   #
-  # Daily and UTC, tracking the control-plane plan -- see the longer note there
-  # for why the timezone changed and which backup jobs this window overlaps.
+  # Sunday and UTC, tracking the control-plane plan -- see the longer note there
+  # for why this is weekly rather than daily, and why the timezone is UTC.
   window:
-    days: ["su", "mo", "tu", "we", "th", "fr", "sa"]
-    startTime: "04:00"
-    endTime: "06:00"
+    days: ["su"]
+    startTime: "22:00"
+    endTime: "23:59"
     timeZone: UTC
   nodeSelector:
     matchExpressions:
