@@ -148,11 +148,12 @@ spec:
     # job="apiserver". The kube-etcd scrape is left alone; its histograms are
     # small and three of them are referenced by shipped rules.
     #
-    # apiserver_request_sli_duration_seconds_bucket is deliberately NOT dropped
-    # despite being the third largest. The chart ships 44 SLO recording rules
-    # built on it. Those recorded series are themselves unread here, so
-    # disabling that rule group would save another 22,660 series -- a separate
-    # decision, and not one to make silently inside a relabel regex.
+    # apiserver_request_sli_duration_seconds was the third largest and is now
+    # gone entirely -- disabled at source rather than dropped here. The 44 SLO
+    # recording rules the chart builds on it therefore have no input; their
+    # recorded output was already unread, which is what made the metric
+    # expendable. To get those rules back, re-enable the metric in the machine
+    # config first.
     kubeApiServer:
       vmScrape:
         spec:
