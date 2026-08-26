@@ -191,16 +191,6 @@ spec:
                     secretKeyRef:
                       name: keycloak-paperless-oidc
                       key: paperless-client-secret
-                - name: HUBBLE_CLIENT_SECRET
-                  valueFrom:
-                    secretKeyRef:
-                      name: keycloak-hubble-oidc
-                      key: hubble-client-secret
-                - name: KUBEOPENCODE_CLIENT_SECRET
-                  valueFrom:
-                    secretKeyRef:
-                      name: keycloak-kubeopencode-oidc
-                      key: kubeopencode-client-secret
                 - name: ZOT_CLIENT_SECRET
                   valueFrom:
                     secretKeyRef:
