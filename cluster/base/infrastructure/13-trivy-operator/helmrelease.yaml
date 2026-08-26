@@ -61,6 +61,31 @@ spec:
       ignoreUnfixed: false
       severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
+      # Two paths excluded from scanning, both permanent false positives that
+      # kept ImageExposedSecret firing continuously.
+      #
+      # An alert that is always firing is one nobody reads, and this one was in
+      # exactly that state: five findings across five workloads, none of them a
+      # secret, and no way to notice if a real leak joined them. Silencing the
+      # noise is what makes the alert mean something again -- the rule is worth
+      # keeping, because an actual key baked into an image is a serious finding.
+      #
+      # ssl-cert-snakeoil.key is Debian's placeholder. The ssl-cert package
+      # generates it on install with a throwaway self-signed pair, so services
+      # that demand a certificate path have one. It protects nothing and exists
+      # on every Debian image. It reaches this cluster through the CloudNativePG
+      # postgres images backing keycloak and the SeaweedFS filer.
+      #
+      # _fetchers.py is scikit-image's sample-data downloader, which carries a
+      # JWT literal used to reach its test-data host. It ships inside the
+      # library, arrives via immich-machine-learning, and is not ours.
+      #
+      # Deliberately narrow: two individual files, not a directory and not a
+      # rule disable. Turning off the `private-key` rule outright would hide a
+      # genuine key in any image, which is where most of this alert's value is.
+      # If a third false positive appears, add its path -- do not widen these.
+      skipFiles: /etc/ssl/private/ssl-cert-snakeoil.key,/opt/venv/lib/python3.11/site-packages/skimage/data/_fetchers.py
+
       # ClientServer, not Standalone. In Standalone every scan container carries
       # its own cache and database, and trivy-operator packs all containers of a
       # workload into ONE pod sharing a single emptyDir with one --cache-dir.
