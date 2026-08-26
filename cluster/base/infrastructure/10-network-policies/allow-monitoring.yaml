@@ -69,9 +69,23 @@ spec:
 # immich/paperless/schenkmatch. Now covered by the clusterwide allow-gateway-ingress.
 ---
 # Restrict vmsingle (VictoriaMetrics query/write API on :8428) to authorized consumers.
-# Deny-list: kube-state-metrics, node-exporter, and otel-agent push data to vmagent/
-# otel-gateway respectively; they have no legitimate reason to call vmsingle directly.
-# The cluster-wide allow-cluster-internal ingress still allows all other monitoring pods.
+#
+# Deny-list: kube-state-metrics and node-exporter are scrape targets. They never
+# initiate anything, so a connection from either to vmsingle means something is
+# wrong, and denying it outright says so.
+#
+# otel-agent was on that deny-list too, and should not have been. Its
+# prometheusremotewrite exporter sends the Hubble flow metrics it scrapes off
+# each cilium-agent directly to vmsingle:8428 -- the "it pushes to the gateway
+# instead" premise held for logs and traces but never for that one pipeline.
+#
+# The deny was live and biting: `hubble_flows_processed_total` returned an empty
+# series list, and the agent logged "Exporting failed. Dropping data ...
+# context deadline exceeded" with 350-500 datapoints dropped every ten seconds,
+# continuously. Cilium drops silently, so the exporter saw a timeout rather than
+# a refusal, which is why this read as slowness rather than as policy for as
+# long as it did. Nothing alerted, because a metric that never arrives has no
+# series to write a rule against.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -88,9 +102,6 @@ spec:
     - fromEndpoints:
         - matchLabels:
             app.kubernetes.io/name: kube-state-metrics
-    - fromEndpoints:
-        - matchLabels:
-            app.kubernetes.io/name: otel-agent
   ingress:
     - fromEndpoints:
         - matchLabels:
@@ -103,6 +114,9 @@ spec:
             app.kubernetes.io/name: victoria-metrics-operator
         - matchLabels:
             app.kubernetes.io/name: otel-collector-gateway
+        - matchLabels:
+            app.kubernetes.io/name: otel-agent
+            io.kubernetes.pod.namespace: monitoring-agents
       toPorts:
         - ports:
             - port: "8428"
