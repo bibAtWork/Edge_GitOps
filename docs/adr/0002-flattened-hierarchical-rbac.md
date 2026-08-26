@@ -66,7 +66,7 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   rest of the cluster is — a manual console change would otherwise go uncaught indefinitely.
 - **Scope of this rollout:** every identity-aware surface in the cluster — Grafana, Paperless
   (already Keycloak-integrated); Hubble UI and KubeOpenCode (currently edge-authenticated via
-  Envoy `SecurityPolicy.oidc` but only binary-gated downstream); Immich, schenkmatch, and zot
+  Envoy `SecurityPolicy.oidc` but only binary-gated downstream); Immich and zot
   (no Keycloak integration today — this adds it); and the Kubernetes API server itself, closing
   the gap `docs/backlog.md` tracks as deferred, via `apiServer.extraArgs`
   (`oidc-issuer-url`/`oidc-client-id`/`oidc-groups-claim`) in

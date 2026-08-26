@@ -18,7 +18,7 @@ regardless of severity. Do not copy findings, resource names, or exploit specifi
 this file, commit messages, or PR descriptions.
 
 As of the last review (2026-08-14), fixes exist for every finding except the two explicitly
-deferred ones (Kubernetes-native RBAC via Talos OIDC; the `schenkmatch:latest` CI gate, both
+deferred ones (Kubernetes-native RBAC via Talos OIDC, both
 still tracked below) — H3 (kube-proxy/flannel disabled) was fixed live in-session; C1, H1, H2,
 M1 (partial), M2, M3, M4, L1, and L2 each have an open PR against `ops/talos_linux` pending
 review/merge. Ask to see the actual review locally if you need the specifics — they're
@@ -61,17 +61,27 @@ group of its own and cannot cancel a real evaluation in flight.
 
 ---
 
-## `schenkmatch:latest` bypasses the "No :latest image tags" CI gate
+## Closed: `schenkmatch:latest`, and the CI gate that never caught it
 
-Found 2026-08-16 while auditing Renovate coverage. `22-schenkmatch/deployment.yaml` runs `ghcr.io/bibatwork/schenkmatch:latest`. The `gitops-lint.yml` job meant to catch exactly this (`grep -E '^\s+image:\s+\S+:latest(\s|$)'` against rendered kustomize output) has a regex bug: it requires the line to start with literal `image:` after whitespace, but real container specs render as list items (`- image: ...`), so the leading `-` breaks the match. Confirmed live: `kubectl kustomize` output contains `      - image: ghcr.io/bibatwork/schenkmatch:latest` verbatim, and the check passes anyway.
+Closed 2026-08-26 by removing the schenkmatch application entirely, which made the
+long-blocked half of this finally safe to fix.
 
-Fixing the regex alone (`^\s*-?\s*image:\s+\S+:latest(\s|$)`, tested against the real rendered output and confirmed to catch this without new false positives) would make the gate start **failing on every future PR repo-wide** the moment it's merged, since `schenkmatch` has never published a tagged release — checked its GitHub tags via the API: none exist, only `:latest`.
+Two separate faults sat here. The visible one was an image pinned to `:latest`, bypassing
+Renovate tracking and the Trivy CVE gate; it carried 3 critical and 21 high CVEs at removal.
+The one that mattered more was that `gitops-lint.yml`'s guard against exactly this had a
+regex bug -- `^\s+image:` requires whitespace immediately before `image:`, but container
+specs render as list items (`      - image: ...`), so the leading dash broke every match.
+The gate had passed on everything for as long as it existed.
 
-**Needs a decision before the regex gets fixed**, not just the regex fix itself:
+The regex could not be fixed on its own: schenkmatch had never published a tagged release,
+so a working gate would have failed every PR repo-wide from the moment it merged. That is
+why this sat open rather than being a one-line change. With the application gone there are
+zero `:latest` images in any overlay under the corrected pattern, so the fix went in
+alongside the removal.
 
-1. Pin `schenkmatch`'s deployment to a specific image **digest** (`ghcr.io/bibatwork/schenkmatch@sha256:...`) instead of a tag — makes it reproducible today, and Renovate's `docker` datasource can track digest updates even without semver tags.
-2. Or add a real release/tagging pipeline to the `schenkmatch` repo itself (separate repo, not this one).
-3. Only then fix the CI regex, or the fix will immediately red-X unrelated PRs.
+Worth keeping in mind: a guard that has never once fired is indistinguishable from a guard
+that has nothing to catch. This one was checked by hand only because an audit went looking
+for what Renovate did not cover.
 
 ---
 

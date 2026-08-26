@@ -45,7 +45,6 @@ flowchart TB
             grafana["monitoring/grafana"]
             immich["immich/immich-server"]
             paperless["paperless/paperless-ngx"]
-            schenkmatch["schenkmatch/schenkmatch"]
             zot["zot/zot"]
             keycloak["keycloak/keycloak"]
             hubble["kube-system/hubble-ui\n(admin_only_apps)"]
@@ -60,7 +59,7 @@ flowchart TB
     proxy -->|"ext_authz gRPC, per request"| secpol
     secpol -.->|"Envoy → OPA"| opa
     opa -.->|"allow / deny + body"| secpol
-    proxy -->|"HTTPRoute match on Host header"| grafana & immich & paperless & schenkmatch & zot & keycloak
+    proxy -->|"HTTPRoute match on Host header"| grafana & immich & paperless & zot & keycloak
     proxy -->|"OPA denies unless admin"| hubble
     proxy -->|"OPA denies unless admin"| koc
     gw -.->|"configures"| proxy
