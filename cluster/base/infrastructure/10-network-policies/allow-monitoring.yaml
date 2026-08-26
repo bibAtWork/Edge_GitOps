@@ -128,3 +128,24 @@ spec:
         - ports:
             - port: "10443"
               protocol: TCP
+---
+# The ingress half of allow-config-cli-metrics-egress. vmsingle's ingress is an
+# explicit allowlist, so an egress rule alone reaches a closed door.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-keycloak-config-cli-to-vmsingle
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vmsingle
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: keycloak
+            app.kubernetes.io/name: keycloak-config-cli
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP

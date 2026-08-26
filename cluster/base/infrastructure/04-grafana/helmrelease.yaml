@@ -34,7 +34,7 @@ spec:
       passwordKey: admin-password
     # Stateless. /var/lib/grafana is an emptyDir, so everything Grafana serves
     # comes from this file on every start: datasources, the eight gnetId
-    # dashboards, all twenty-four alert rules, and the admin user from
+    # dashboards, all twenty-six alert rules, and the admin user from
     # grafana-admin.
     #
     # The volume was removed rather than moved to Longhorn because it had
@@ -645,6 +645,114 @@ spec:
                     More than 10 requests were denied by OPA in the last 5 minutes. Possible causes: expired/invalid API tokens, unauthorized access attempts on admin-only apps (hubble-ui), or a misconfigured client. Check Envoy stats: kubectl exec -n kube-system ds/cilium-envoy -- wget -qO- localhost:9964/stats/prometheus | grep ext_authz
                 labels:
                   severity: warning
+                isPaused: false
+              # Keycloak realm drift. keycloak-config-cli reverts it hourly; the
+              # point of alerting is that reverting SILENTLY teaches you nothing.
+              # A correction means somebody changed the identity provider outside
+              # Git, and the useful question is who had console access to do it,
+              # not whether the group came back.
+              #
+              # The tool logs nothing at INFO when it corrects drift, so this
+              # rides on a metric the Job derives itself by fingerprinting the
+              # managed surface either side of the run.
+              - uid: keycloak-config-drift
+                title: KeycloakRealmDriftCorrected
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 10800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(keycloak_config_drift_corrected[3h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting on NoData: the Job runs hourly, so three hours of
+                # silence is the reconciler having stopped -- and a stopped
+                # reconciler means drift is neither corrected nor reported,
+                # which is strictly worse than drift that is.
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Keycloak realm had drifted from Git and was reverted
+                  description: >-
+                    keycloak-config-cli found the realm did not match realm-config/homelab.yaml and corrected it. The change is already undone, so nothing is broken -- what needs looking at is why it happened. Someone edited the realm through the admin console, or a component wrote to it directly. Read the Job log for the before/after fingerprints, then check Keycloak's admin events for who made the change. If it was deliberate, it belongs in Git; if it was not, someone holds console access they should not.
+                labels:
+                  severity: warning
+                isPaused: false
+              # The reconcile failing is a different problem from it finding
+              # drift, and it is the more urgent one: while the import errors,
+              # nothing is converging the realm at all.
+              - uid: keycloak-config-import-failed
+                title: KeycloakConfigImportFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 10800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(keycloak_config_import_failed[3h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    keycloak-config-cli import is failing
+                  description: >-
+                    The realm reconcile exited non-zero, so the realm is no longer converging on realm-config/homelab.yaml and drift will accumulate unnoticed. Usual causes: the admin credential rotated without the Secret being updated, a syntax error in the realm file, or Keycloak being unreachable from the Job. Read the Job log directly -- kubectl logs -n keycloak job/<latest keycloak-config-cli job>.
+                labels:
+                  severity: critical
                 isPaused: false
           # Added 2026-08-18 after an outage that was invisible until users hit
           # it. The seaweedfs-csi-driver mount pod holds the FUSE daemon for
