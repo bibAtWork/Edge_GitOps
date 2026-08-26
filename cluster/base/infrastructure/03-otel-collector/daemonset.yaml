@@ -1,9 +1,18 @@
+# The OTel agent runs in monitoring-agents, not monitoring, while the gateway in
+# this same directory stays in monitoring.
+#
+# The split is on host access, not on component. This DaemonSet hostPath-mounts
+# /var/log/pods and /var/log/kubernetes/audit to read container and audit logs
+# off the node; hostPath is forbidden by PSS baseline, so wherever it runs is
+# pinned to privileged. The gateway is an ordinary Deployment that receives OTLP
+# over the network and needs nothing from the host, so it stays with the rest of
+# the observability stack.
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: otel-agent
-  namespace: monitoring
+  namespace: monitoring-agents
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -26,7 +35,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: otel-agent
-    namespace: monitoring
+    namespace: monitoring-agents
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -36,7 +45,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: otel-agent
-  namespace: monitoring
+  namespace: monitoring-agents
 spec:
   selector:
     matchLabels:

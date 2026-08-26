@@ -27,4 +27,4 @@ spec:
             io.kubernetes.pod.namespace: monitoring
         - matchLabels:
             app.kubernetes.io/name: otel-agent
-            io.kubernetes.pod.namespace: monitoring
+            io.kubernetes.pod.namespace: monitoring-agents

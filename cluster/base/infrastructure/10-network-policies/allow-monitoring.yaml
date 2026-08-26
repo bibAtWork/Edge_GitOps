@@ -1,14 +1,23 @@
 ---
+# otel-agent lives in monitoring-agents now, so this policy follows it there --
+# a CiliumNetworkPolicy only selects endpoints in its own namespace, and left in
+# `monitoring` it would have silently stopped matching anything, taking the
+# agent's egress with it.
+#
+# The targets are named explicitly rather than the previous `toEndpoints: [{}]`
+# on :8428. That wildcard was writing a cluster-wide allowance to reach anything
+# on the VictoriaMetrics port; there is exactly one such thing and it is below.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: allow-otel-agent-egress
-  namespace: monitoring
+  namespace: monitoring-agents
 spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: otel-agent
   egress:
+    # Logs and traces, forwarded to the gateway for enrichment.
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: otel-collector-gateway
@@ -17,11 +26,24 @@ spec:
         - ports:
             - port: "4317"
               protocol: TCP
+    # Hubble flow metrics, remote-written straight to vmsingle by the agent's
+    # prometheusremotewrite exporter -- it does not route these via the gateway.
     - toEndpoints:
-        - {}
+        - matchLabels:
+            app.kubernetes.io/name: vmsingle
+            io.kubernetes.pod.namespace: monitoring
       toPorts:
         - ports:
             - port: "8428"
+              protocol: TCP
+    # ...which it first has to scrape off each cilium-agent.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: cilium
+      toPorts:
+        - ports:
+            - port: "9965"
               protocol: TCP
 ---
 # Hub-and-spoke migration (2026-08-17): covers otel-collector-gateway's ingress (from
