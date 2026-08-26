@@ -93,27 +93,45 @@ spec:
   cordon: true
   upgrade:
     image: ghcr.io/siderolabs/talosctl:v1.13.9
-    command:
-      - /bin/sh
-      - -c
-      - |
-        # The Factory installer, NOT ghcr.io/siderolabs/installer.
-        #
-        # This node runs an Image Factory build carrying siderolabs/iscsi-tools
-        # and siderolabs/util-linux-tools, both required by Longhorn V1. Talos is
-        # immutable and extensions exist only inside the installer image, so
-        # upgrading through the stock installer silently drops both and Longhorn
-        # loses iSCSI attach on the next boot. The plan used to name the stock
-        # image; it never ran, which is the only reason that was never discovered
-        # the hard way.
-        #
-        # The schematic ID must match talos-machineconfigs/schematic.yaml and the
-        # installer pin in controlplane.yaml. Regenerate it whenever the
-        # extension list changes:
-        #   curl -X POST --data-binary @schematic.yaml https://factory.talos.dev/schematics
-        talosctl upgrade \
-          --talosconfig /var/run/secrets/talos/talosconfig \
-          --nodes "${SYSTEM_UPGRADE_NODE_IP}" \
-          --image "factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:${SYSTEM_UPGRADE_PLAN_LATEST_VERSION}" \
-          --preserve=true \
-          --wait=true
+    # No `command:`. The image's entrypoint is /talosctl and it contains no
+    # shell -- confirmed from the image config on ghcr.io: Entrypoint
+    # ["/talosctl"], Cmd null. The previous `command: [/bin/sh, -c, ...]` could
+    # never have run:
+    #
+    #   exec: "/bin/sh": stat /bin/sh: no such file or directory
+    #
+    # That went unnoticed because concurrency: 0 meant no Job was ever created
+    # to fail. Two independent faults, the first hiding the second.
+    envs:
+      # talosctl needs the node's Talos API address, and SUC does not provide
+      # one. It injects SYSTEM_UPGRADE_NODE_NAME, POD_NAME, POD_UID, PLAN_NAME,
+      # PLAN_LATEST_HASH and PLAN_LATEST_VERSION -- there is no
+      # SYSTEM_UPGRADE_NODE_IP, which is what the old command interpolated. It
+      # would have expanded to an empty string even with a shell present.
+      #
+      # status.hostIP is the node this Job was scheduled onto, so each node
+      # upgrades itself rather than whatever the talosconfig happens to name.
+      # That matters the moment there is more than one node.
+      - name: NODE_IP
+        valueFrom:
+          fieldRef:
+            fieldPath: status.hostIP
+    args:
+      # Global flags precede the subcommand; $(VAR) is expanded by Kubernetes
+      # from the container's own env, which is why NODE_IP above is required.
+      - --talosconfig=/var/run/secrets/talos/talosconfig
+      - --nodes=$(NODE_IP)
+      - upgrade
+      # The Factory installer, NOT ghcr.io/siderolabs/installer.
+      #
+      # This node runs an Image Factory build carrying siderolabs/iscsi-tools
+      # and siderolabs/util-linux-tools, both required by Longhorn V1. Talos is
+      # immutable and extensions exist only inside the installer image, so
+      # upgrading through the stock installer silently drops both and Longhorn
+      # loses iSCSI attach on the next boot.
+      #
+      # The schematic ID must match talos-machineconfigs/schematic.yaml and the
+      # installer pin in controlplane.yaml.
+      - --image=factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
+      - --preserve=true
+      - --wait=true
