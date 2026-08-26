@@ -59,3 +59,9 @@ ansible/.ansible_retry
 # never by quoting its contents.
 docs/security-review.md
 docs/security-review-*.md
+# Same rule, different name. The 2026-08-25 review was filed as
+# docs/cluster-review-<date>.md, which matched neither pattern above and so sat
+# untracked rather than ignored -- one `git add -A` away from being published to
+# a public repo. Match on the shape of the name, not one chosen spelling of it.
+docs/cluster-review*.md
+docs/*-review-????-??-??.md
