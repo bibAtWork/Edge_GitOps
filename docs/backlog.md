@@ -166,6 +166,56 @@ re-enabling is a one-line change.
 
 ---
 
+## system-upgrade-controller has never created a single Job
+
+Found 2026-08-26 while triggering an on-demand Talos upgrade. The node was on
+v1.13.6 against a v1.13.9 pin, a node was labelled for the windowless on-demand Plan, and
+nothing happened.
+
+`kubectl get events -n cattle-system` filtered to `involvedObject.kind=Job` returns **zero
+events, ever** -- for any of the three Plans, across the cluster's whole life. The automated
+node upgrade has never once run.
+
+What makes this hard to see is that every signal says it is fine:
+
+```
+Validated=True        PlanIsValid
+LatestResolved=True   Version
+Complete=True         Complete
+```
+
+and SUC logs nothing about any Plan at all -- not a rejection, not a warning. It acquires
+its leader lease, starts the Node/Job/Plan controllers, and goes silent. The only visible
+symptom is a version pin that never takes effect, which reads as "the window has not come
+round yet".
+
+Ruled out so far:
+
+- **Namespace** -- Plans are in `cattle-system` with the controller (fixed in #335)
+- **Node selector** -- `kubectl get nodes -l talos.homelab/upgrade-now` returns 1
+- **Window** -- the on-demand Plan has none
+- **Taints** -- the node has none, and the Plan tolerates everything anyway
+- **Node completion label** -- the node carries no `plan.upgrade.cattle.io/*` label
+- **serviceAccountName** -- was genuinely missing from all three Plans and is now set;
+  adding it did not change the behaviour
+- **Stale watches** -- SUC was restarted, re-listed the node, and stayed silent
+
+Still unexplained. Worth checking next: whether SUC v0.20.1 needs `--kubeconfig`/RBAC it does
+not have for the Plan CRD specifically, whether its `Complete` condition is sticky and
+suppresses re-evaluation, and whether the drain/cordon prerequisites it evaluates silently
+exclude a single-node control plane.
+
+Until it is understood, upgrades must be driven by hand:
+
+```
+talosctl upgrade --nodes <ip>   --image factory.talos.dev/installer/<schematic>:<version> --preserve=true --wait=true
+```
+
+The wider lesson is the one this repo keeps relearning: a component reporting healthy is not
+the same as a component doing its job. This one reported `Complete` for 45 days.
+
+---
+
 ## Backup restore drill has never been performed
 
 **Status (2026-08-19): open. The "0" of 3-2-1-1-0.**
