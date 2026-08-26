@@ -1548,6 +1548,116 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
+              # ── Talos advisories ────────────────────────────────────────
+              # Fed by the talos-cve-watch CronJob, which compares the version
+              # actually running on each node -- read from kube_node_info's
+              # os_image label, not from the pin in git -- against SideroLabs'
+              # published advisories.
+              #
+              # 26h windows because the job runs daily. An instant query
+              # returns nothing for a metric pushed once a day: verified live
+              # on 2026-08-26, where the same series was empty instantly and
+              # present under last_over_time.
+              - uid: talos-advisory-affecting
+                title: TalosAdvisoryAffectingRunningVersion
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 93600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'sum(last_over_time(talos_advisory_affecting{severity=~"critical|high"}[26h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # OK rather than Alerting on NoData: a broken check is already
+                # covered by TalosCveCheckFailing below, and having both fire
+                # for one cause makes the pair less informative, not more.
+                noDataState: OK
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    A Talos security advisory affects the running version
+                  description: >-
+                    SideroLabs has published a critical or high advisory whose affected range covers the Talos version currently running on a node. Identify it with the talos_advisory_detail series, which carries the GHSA id, severity and affected version as labels, and read the advisory at https://github.com/siderolabs/talos/security/advisories. Upgrading is the fix, and it does not have to wait for the Sunday window -- label the node talos.homelab/upgrade-now to run the on-demand Plan, provided the version pinned in the repo is actually a fixed one.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: talos-cve-check-failing
+                title: TalosCveCheckFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 93600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_advisory_check_failed[26h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting on NoData, deliberately. If the job stops running
+                # altogether the series ages out of the 26h window and this
+                # goes off -- which is the point. A vulnerability check that
+                # silently stopped checking is indistinguishable from a clean
+                # result, and that is a failure this cluster has seen before.
+                noDataState: Alerting
+                execErrState: Error
+                for: 2h
+                annotations:
+                  summary: >-
+                    The Talos advisory check is failing or has stopped running
+                  description: >-
+                    talos-cve-watch either reported a failure or has not pushed a result in over a day, so the cluster currently has no working answer to whether its Talos version is affected by a published advisory. Read the last run with `kubectl logs -n monitoring -l app.kubernetes.io/name=talos-cve-watch --tail=50`. The common causes are an exhausted GitHub anonymous rate limit, which the job detects and reports rather than treating as an empty advisory list, and kube_node_info missing its os_image label.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:

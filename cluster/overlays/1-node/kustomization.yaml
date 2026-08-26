@@ -9,6 +9,7 @@ resources:
   - ../../base/infrastructure/02-victoriametrics-stack
   - ../../base/infrastructure/03-otel-collector
   - ../../base/infrastructure/35-node-exporter
+  - ../../base/infrastructure/36-talos-cve-watch
   - ../../base/infrastructure/04-grafana
   - ../../base/infrastructure/05-cilium
   # cert-manager: operator only — ClusterIssuer/Certificate in config layer (need cert-manager CRDs)
