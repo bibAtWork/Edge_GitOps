@@ -1,0 +1,123 @@
+name: Talos image
+
+# Proves that the Talos installer image a PR points at actually exists, and that
+# the schematic ID pinned in the repo still matches schematic.yaml.
+#
+# ── Why this exists ──────────────────────────────────────────────────────────
+# The Image Factory builds an image per (schematic, version) pair, and system
+# extensions are published per Talos version. So a version bump can reference an
+# image that has not been built:
+#
+#   v1.13.9  ->  iscsi-tools + util-linux-tools present
+#   v1.14.0  ->  "version 1.14.0 is not available"
+#
+# Renovate will happily bump the tag either way. Without this check the failure
+# surfaces at upgrade time instead: the SUC Job pulls a 404, the upgrade never
+# runs, and the node is left cordoned in the middle of a plan. That is a bad
+# place to discover a typo.
+#
+# ── The second check ─────────────────────────────────────────────────────────
+# The schematic ID is a content hash of the extension list, not a version-linked
+# value -- the same ID serves v1.12.0 through v1.13.9. It therefore does NOT
+# need regenerating when the Talos version moves, contrary to what the comments
+# here used to say. It DOES need regenerating whenever schematic.yaml changes,
+# and nothing enforced that: an extension added to schematic.yaml while the old
+# ID stayed pinned everywhere would build and deploy the old extension set,
+# silently, with the file saying otherwise.
+#
+# Re-POSTing schematic.yaml is the whole check. The Factory is a pure function
+# of the content, so if the returned ID differs from what the repo pins, the
+# repo is stale.
+
+on:
+  pull_request:
+    branches: [ops/talos_linux]
+    paths:
+      - 'cluster/overlays/*/talos-machineconfigs/**'
+      - 'cluster/base/infrastructure/15-system-upgrade-controller/**'
+      - '.github/workflows/talos-image-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify schematic ID matches schematic.yaml
+        run: |
+          set -euo pipefail
+          fail=0
+          for sch in cluster/overlays/*/talos-machineconfigs/schematic.yaml; do
+            [ -e "$sch" ] || continue
+            echo "::group::$sch"
+            expected=$(curl -sf -X POST --data-binary "@$sch" \
+              https://factory.talos.dev/schematics \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+            echo "Factory returns: $expected"
+
+            # Every schematic ID pinned anywhere in the repo must equal it. The
+            # ID appears in five places -- talos-image.env, controlplane.yaml,
+            # and the installer URL inside all three SUC plans -- and they are
+            # edited by hand, so they drift independently.
+            found=$(grep -rhoE '[0-9a-f]{64}' \
+              cluster/overlays/*/talos-machineconfigs/ \
+              cluster/base/infrastructure/15-system-upgrade-controller/ \
+              | sort -u)
+            for id in $found; do
+              if [ "$id" = "$expected" ]; then
+                echo "  ok      $id"
+              else
+                echo "::error::Stale schematic ID $id pinned in the repo; schematic.yaml now hashes to $expected. Regenerate it everywhere: curl -X POST --data-binary @$sch https://factory.talos.dev/schematics"
+                fail=1
+              fi
+            done
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      - name: Verify every referenced installer image exists
+        run: |
+          set -euo pipefail
+          # Collect every (schematic, version) pair the repo would actually pull.
+          # The SUC plans build the tag from spec.version at runtime via
+          # SYSTEM_UPGRADE_PLAN_LATEST_VERSION, so the version is read from
+          # spec.version rather than from the image string there.
+          {
+            grep -rhoE 'factory\.talos\.dev/installer/[0-9a-f]{64}:v[0-9]+\.[0-9]+\.[0-9]+' \
+              cluster/ | sed 's|.*/installer/||'
+
+            for env in cluster/overlays/*/talos-machineconfigs/talos-image.env; do
+              [ -e "$env" ] || continue
+              v=$(grep -oP '^TALOS_VERSION=\K.*' "$env")
+              s=$(grep -oP '^SCHEMATIC_ID=\K.*' "$env")
+              [ -n "$v" ] && [ -n "$s" ] && echo "$s:$v"
+            done
+
+            plans=cluster/base/infrastructure/15-system-upgrade-controller/config/plans
+            sid=$(grep -rhoE '[0-9a-f]{64}' "$plans" | sort -u | head -1)
+            if [ -n "$sid" ]; then
+              grep -rhoP '^\s+version:\s*\Kv[0-9]+\.[0-9]+\.[0-9]+' "$plans" \
+                | sort -u | while read -r v; do echo "$sid:$v"; done
+            fi
+          } | sort -u > /tmp/pairs.txt
+
+          echo "Image references to verify:"; sed 's/^/  /' /tmp/pairs.txt
+
+          fail=0
+          while read -r pair; do
+            [ -n "$pair" ] || continue
+            sid=${pair%%:*}; ver=${pair##*:}
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H 'Accept: application/vnd.oci.image.index.v1+json' \
+              "https://factory.talos.dev/v2/installer/$sid/manifests/$ver")
+            if [ "$code" = "200" ]; then
+              echo "  ok    $ver  (${sid:0:12}...)"
+            else
+              echo "::error::factory.talos.dev has no installer for $ver with schematic ${sid:0:12}... (HTTP $code). Either the version is not released yet, or a system extension in the schematic has not been published for it. The upgrade Job would pull a 404 and leave the node cordoned."
+              fail=1
+            fi
+          done < /tmp/pairs.txt
+          exit $fail
