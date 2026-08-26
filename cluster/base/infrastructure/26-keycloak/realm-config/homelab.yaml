@@ -38,7 +38,7 @@ enabled: true
 #
 # Configure SMTP and both should be turned on. Until then registration is
 # unverified, which means an address nobody owns can hold an account.
-registrationAllowed: true
+registrationAllowed: false
 registrationEmailAsUsername: false
 loginWithEmailAllowed: true
 verifyEmail: false
@@ -46,6 +46,60 @@ resetPasswordAllowed: false
 
 defaultGroups:
   - /self-service
+
+# ── Federated registration ───────────────────────────────────────────────────
+# Signing up happens through Google, not through a local Register form.
+#
+# This is what makes registrationAllowed: false above tolerable rather than a
+# regression. Local registration was open and unverifiable -- the realm has no
+# smtpServer, so Keycloak could not send a confirmation mail, and anyone finding
+# the login page could create an account against an address they did not own.
+# Federating hands verification to a party that already did it, and removes the
+# need for outbound mail from this cluster entirely.
+#
+# There is no OAuth provider that avoids registering a client first; that is
+# inherent to OAuth, not a Google quirk. The client id below is public by
+# design. The secret is not, and arrives via var substitution from a SOPS-backed
+# environment variable on the config-cli Job.
+#
+# trustEmail is true because Google verifies addresses before it will assert
+# them. Leaving it false makes Keycloak demand its own verification -- by email
+# -- which is the exact dependency this design exists to remove.
+identityProviders:
+  - alias: google
+    displayName: Google
+    providerId: google
+    enabled: true
+    trustEmail: true
+    storeToken: false
+    addReadTokenRoleOnCreate: false
+    linkOnly: false
+    firstBrokerLoginFlowAlias: first broker login
+    config:
+      clientId: $(env:GOOGLE_CLIENT_ID)
+      clientSecret: $(env:GOOGLE_CLIENT_SECRET)
+      defaultScope: openid email profile
+      syncMode: IMPORT
+      useJwksUrl: "true"
+
+# Every account arriving through Google is put in /self-service, explicitly.
+#
+# defaultGroups above would probably cover it -- Keycloak applies default groups
+# when the broker creates the local user -- but "probably" is not a basis for a
+# privilege boundary. This mapper states it outright, so the group assignment
+# does not depend on which code path created the account.
+#
+# syncMode INHERIT follows the provider's IMPORT above: group membership is set
+# when the account is first created and not rewritten on later logins, so an
+# admin who later promotes someone to a real tier does not have that undone by
+# their next sign-in.
+identityProviderMappers:
+  - name: self-service-group
+    identityProviderAlias: google
+    identityProviderMapper: oidc-hardcoded-group-idp-mapper
+    config:
+      group: /self-service
+      syncMode: INHERIT
 
 # ── Groups ───────────────────────────────────────────────────────────────────
 # The three ADR-002 tiers with their level-1 job functions, exactly as
