@@ -3,6 +3,28 @@ name: Talos image
 # Proves that the Talos installer image a PR points at actually exists, and that
 # the schematic ID pinned in the repo still matches schematic.yaml.
 #
+# ── Deliberately NOT a required status check ─────────────────────────────────
+# The "Protect ops/talos_linux" ruleset requires six checks before a merge.
+# This one is not among them, and that is a decision rather than an oversight.
+#
+# The two steps below make live calls to factory.talos.dev. Requiring this
+# check would put that third party on the critical path of every merge to this
+# repo: a Factory outage, or a slow response, would block PRs that have nothing
+# to do with Talos. The value of the check is real but narrow -- it applies only
+# when a PR touches Talos pins -- and that is not worth coupling the whole
+# repository's ability to merge to somebody else's uptime.
+#
+# The `paths:` filter below is the other half of the same decision. It keeps
+# this off unrelated PRs, and it is also what makes the check unrequirable:
+# GitHub does not treat a required check whose workflow never triggered as
+# skipped -- the PR waits on a status that never arrives. Removing the filter
+# to make it requirable would reintroduce exactly the coupling above.
+#
+# So: it runs on the PRs where it matters, it goes red when it finds something,
+# and a human decides. If that ever feels too weak, the fix is to make the two
+# Factory calls tolerant of failure -- distinguishing "the image is missing"
+# from "the Factory did not answer" -- not to require it as it stands.
+#
 # ── Why this exists ──────────────────────────────────────────────────────────
 # The Image Factory builds an image per (schematic, version) pair, and system
 # extensions are published per Talos version. So a version bump can reference an
