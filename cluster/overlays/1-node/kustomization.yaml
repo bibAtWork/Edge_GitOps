@@ -32,7 +32,6 @@ resources:
   - ../../base/infrastructure/19-kyverno
   - ../../base/infrastructure/20-kubescape
   - ../../base/infrastructure/21-flux-notifications
-  - ../../base/infrastructure/22-schenkmatch
   - ../../base/infrastructure/26-keycloak
   - ../../base/infrastructure/24-opa
   - ../../base/infrastructure/27-kubeopencode

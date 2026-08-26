@@ -23,7 +23,6 @@ spec:
                   - gateway-system
                   - immich
                   - paperless
-                  - schenkmatch
                   - keycloak
                   - kubeopencode-system
       tls:

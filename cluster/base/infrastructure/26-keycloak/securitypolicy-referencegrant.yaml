@@ -1,5 +1,5 @@
 # Allows SecurityPolicy.oidc (kube-system/hubble-oidc, kubeopencode-system/
-# kubeopencode-oidc, schenkmatch/schenkmatch-oidc) to reference the keycloak
+# kubeopencode-oidc) to reference the keycloak
 # Service here as their provider.backendRef. Required for any cross-namespace
 # backendRef per the Gateway API spec — same requirement
 # 24-opa/referencegrant.yaml satisfies for OPA's own cross-namespace
@@ -17,9 +17,6 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: kubeopencode-system
-    - group: gateway.envoyproxy.io
-      kind: SecurityPolicy
-      namespace: schenkmatch
   to:
     - group: ""
       kind: Service

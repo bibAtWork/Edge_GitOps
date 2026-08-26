@@ -19,9 +19,6 @@ spec:
       namespace: paperless
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      namespace: schenkmatch
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
       namespace: zot
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
@@ -50,9 +47,6 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: kubeopencode-system
-    - group: gateway.envoyproxy.io
-      kind: SecurityPolicy
-      namespace: schenkmatch
   to:
     - group: ""
       kind: Service

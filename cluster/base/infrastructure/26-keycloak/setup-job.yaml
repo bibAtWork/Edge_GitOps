@@ -194,25 +194,6 @@ data:
         "webOrigins": ["https://kubeopencode.homelab.data-harness.org"],
     }, KUBEOPENCODE_CLIENT_SECRET)
 
-    # schenkmatch: same "no native OIDC, gated entirely at the edge" shape as
-    # hubble/kubeopencode above, but not added to OPA's admin_only_apps --
-    # see 22-schenkmatch/config/oidc-securitypolicy.yaml.
-    ensure_client({
-        "clientId": "schenkmatch",
-        "enabled": True,
-        "name": "schenkmatch",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {},
-        "redirectUris": ["https://schenkmatch.homelab.data-harness.org/oauth2/callback"],
-        "webOrigins": ["https://schenkmatch.homelab.data-harness.org"],
-    }, SCHENKMATCH_CLIENT_SECRET)
-
     # zot: native OIDC (operator/config-secret.yaml), not edge-gated -- its
     # own callback path, confirmed against zot's documented integration
     # examples (dex/authentik/authelia all use the same path).
@@ -675,11 +656,6 @@ spec:
                 secretKeyRef:
                   name: keycloak-kubeopencode-oidc
                   key: kubeopencode-client-secret
-            - name: SCHENKMATCH_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-schenkmatch-oidc
-                  key: schenkmatch-client-secret
             - name: ZOT_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
