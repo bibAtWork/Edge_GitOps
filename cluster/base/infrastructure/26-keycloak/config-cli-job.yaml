@@ -172,6 +172,40 @@ spec:
                 # Substituted into identityProviders.google.config in
                 # realm-config/homelab.yaml via $(env:...). Kept out of the
                 # realm file so the client secret is never in plaintext there.
+                # Client secrets for the clients declared in homelab.yaml,
+                # substituted via $(env:...) exactly as the Google IdP secret
+                # is. Same Secrets the setup Job reads, so the two agree while
+                # ownership moves across.
+                - name: GRAFANA_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-secrets
+                      key: grafana-client-secret
+                - name: PAPERLESS_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-paperless-oidc
+                      key: paperless-client-secret
+                - name: HUBBLE_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-hubble-oidc
+                      key: hubble-client-secret
+                - name: KUBEOPENCODE_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-kubeopencode-oidc
+                      key: kubeopencode-client-secret
+                - name: ZOT_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-zot-oidc
+                      key: zot-client-secret
+                - name: IMMICH_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-immich-oidc
+                      key: immich-client-secret
                 - name: GOOGLE_CLIENT_ID
                   valueFrom:
                     secretKeyRef:
