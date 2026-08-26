@@ -33,6 +33,11 @@ spec:
         operator: In
         values:
           - monitoring
+          # otel-agent moved here when the host-privileged collectors were split
+          # out of monitoring. Both namespaces are listed rather than dropping
+          # the namespace constraint, so the app-name match alone can never
+          # grant cluster-wide egress to a pod that borrowed the label.
+          - monitoring-agents
       - key: app.kubernetes.io/name
         operator: In
         values:

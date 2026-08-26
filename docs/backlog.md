@@ -81,29 +81,26 @@ Every app behind the Gateway now has real per-user auth (Keycloak OIDC, either n
 
 ---
 
-## Envoy Gateway: rate limiting, edge tracing, and observability — fixed, pending review
+## Closed: Envoy Gateway capabilities, and README architecture claims
 
-Carried over from ADR-001's "not yet realized" list (`docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md`), closed by [#153](../../pull/153):
+Both were carried here as "fixed, pending review" and both are merged and live. Kept as a
+one-paragraph record rather than deleted, because the ADR they came from now describes
+these as what the decision enabled, and someone reading that will want to know when.
 
-- **Rate limiting**: `BackendTrafficPolicy` with Local (token-bucket, no external Redis/Valkey dependency) rate limiting, 300 req/min per distinct source IP, attached to the Gateway.
-- **Edge tracing**: `EnvoyProxy.spec.telemetry.tracing` now points at the OTel collector gateway already running in `monitoring`, whose traces pipeline was already wired to VictoriaTraces — the backend existed, Envoy just never sent anything to it.
-- **Observability**: `VMServiceScrape`/`VMPodScrape` for both Envoy Gateway workloads (control plane + data plane), plus two official envoy-mixin-project Grafana dashboards.
+**Envoy Gateway rate limiting, edge tracing and fleet observability** (#153). Verified
+live 2026-08-25: `BackendTrafficPolicy/homelab-gateway-rate-limit` present,
+`EnvoyProxy.telemetry.tracing` configured against the OTel gateway, a VMServiceScrape for
+the control plane and two envoy-mixin dashboards loaded. ADR-001's "not yet realized"
+section was rewritten to match.
 
----
+**README architecture claims** (#152). The Stack table's SeaweedFS-CSI and CSI-snapshot
+claims were wrong and are corrected. The README was refreshed again on 2026-08-25 for a
+larger set of drifts -- component count, missing components, the etcd job that no longer
+exists, and SSE-KMS vs SSE-S3.
 
-## Stale claims in `README.md`'s architecture summary — fixed, pending review
-
-Found 2026-08-16 while explaining the storage architecture, closed by [#152](../../pull/152).
-The Stack table's *"Storage: SeaweedFS (S3-compatible, CSI driver)"* and the Backup Strategy
-table's CSI VolumeSnapshot claim were both wrong — no CSI driver or VolumeSnapshotClass exists
-on this cluster; all 17 app PVCs use `local-path-provisioner`; Velero backs up PVCs via its
-node-agent DaemonSet (Kopia file-system backup), not CSI snapshots. Both tables corrected.
-
-The unused `pvs` bucket (a vestige of the same abandoned CSI-for-PVCs plan) is confirmed empty
-and removed from `bucket-init-job.yaml`'s creation loop, so it won't be recreated — but the
-already-existing empty bucket itself is still sitting in SeaweedFS. Live deletion was blocked
-by this session's auto-mode classifier as a destructive action needing explicit confirmation;
-see #152 for the one-line command to remove it by hand if wanted.
+One loose end survives from #152: the empty `pvs` bucket is out of the bucket-init loop but
+still exists in SeaweedFS, because live deletion was blocked as a destructive action. It is
+0 objects and costs nothing; remove it by hand if the tidiness is worth a command.
 
 ---
 
@@ -234,24 +231,29 @@ a second and third node are actually planned.
 
 ---
 
-## M8 follow-up: split node-exporter out of `monitoring`
+## Closed: M8, host-privileged collectors split out of `monitoring`
 
-Partially addressed 2026-08-25 (see the PSS commit giving every namespace an explicit
-level). What remains is the substantive half.
+Done 2026-08-26. `monitoring` now enforces PSS `baseline` and audits at `restricted`;
+the two workloads that need the host run in `monitoring-agents`, which is privileged and
+holds nothing else.
 
-`monitoring` is PSS `privileged` for one reason: `node-exporter` needs host access. But
-Grafana, VictoriaMetrics, VictoriaLogs, VictoriaTraces and the OTel collector all run in
-the same namespace and none of them do — so a compromise in any of them starts with
-permission to mount host paths and use host namespaces.
+The entry that stood here was wrong on its central claim -- that `monitoring` was
+privileged "for one reason: node-exporter needs host access". The OTel agent hostPath-mounts
+`/var/log/pods` and `/var/log/kubernetes/audit`, and hostPath alone is a baseline violation.
+Moving node-exporter on its own would have left the namespace exactly where it was. Anything
+that reads a namespace's PSS level as a proxy for one workload is worth re-deriving from the
+pod specs before acting on it.
 
-The fix is to run `node-exporter` in its own privileged namespace and drop `monitoring` to
-`restricted` or `baseline`. It is a chart restructure: `prometheus-node-exporter` ships as
-a subchart of `victoria-metrics-k8s-stack`, so it means disabling it there and deploying it
-separately, then confirming the scrape config still finds it. Real breakage risk, hence
-its own change rather than a tail-end commit.
+`restricted` is still out of reach, and that is the honest remainder. The VictoriaMetrics
+operator generates pod specs from its own CRs and sets none of `runAsNonRoot`,
+`seccompProfile`, `capabilities.drop` or `allowPrivilegeEscalation`, so six of the seven
+remaining workloads would be refused admission. Closing that means overriding
+`securityContext` per CR -- a separate change, with its own way of failing.
 
-`audit: baseline` is now set on `monitoring`, so the audit log will show exactly which
-workloads there would fail a stricter bar. Worth reading that before doing the split.
+The split also surfaced an unrelated live bug, fixed in the same PR: `restrict-vmsingle-ingress`
+had been denying the OTel agent's Hubble remote-write to vmsingle since the hub-and-spoke
+migration. No Hubble flow metric had ever reached VictoriaMetrics, and nothing alerted,
+because a metric that never arrives has no series for a rule to fire on.
 
 ---
 

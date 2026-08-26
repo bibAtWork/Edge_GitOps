@@ -184,3 +184,16 @@ metadata:
 spec:
   interval: 12h
   url: https://kubernetes-sigs.github.io/metrics-server/
+---
+# Upstream home of prometheus-node-exporter. Previously reached only indirectly,
+# as a subchart of victoria-metrics-k8s-stack; that dependency is disabled and the
+# chart is deployed on its own into monitoring-agents, so the repository has to be
+# declared here.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://prometheus-community.github.io/helm-charts

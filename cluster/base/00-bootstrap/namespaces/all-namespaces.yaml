@@ -14,11 +14,39 @@ kind: Namespace
 metadata:
   name: monitoring
   labels:
-    # prometheus-node-exporter requires hostPID, hostNetwork, and hostPath volumes.
-    # These are blocked by baseline and restricted PSS. Monitoring is a trusted
-    # system-level namespace; privileged enforcement is appropriate.
+    # Grafana, VictoriaMetrics/Logs/Traces, vmagent, vmalert and the OTel gateway.
+    # None of them touch the host: the two workloads that did -- node-exporter and
+    # the OTel agent -- now run in monitoring-agents.
+    #
+    # Not restricted, and not by oversight. The VictoriaMetrics operator generates
+    # its own pod specs from VMSingle/VMAgent/VMAlert CRs and sets no
+    # runAsNonRoot, seccompProfile, capabilities.drop or allowPrivilegeEscalation
+    # on them, so restricted would refuse to admit six of the seven workloads here.
+    # Raising that bar means overriding securityContext per CR, which is a separate
+    # change with its own failure mode.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring-agents
+  labels:
+    # The two node-level collectors, and nothing else. Both genuinely need the
+    # host, which is exactly why they are not in monitoring any more:
+    #
+    #   node-exporter  hostNetwork, hostPID, hostPath /proc /sys /
+    #   otel-agent     hostPath /var/log/pods, /var/log/kubernetes/audit
+    #
+    # hostPath alone is a baseline violation, so both pin whatever namespace they
+    # sit in to privileged. Keeping them here is what lets monitoring -- which
+    # holds the dashboards, the query endpoints and the stored data -- run at
+    # baseline instead.
+    #
+    # Nothing else belongs in this namespace. Anything added here inherits host
+    # access it almost certainly does not need.
     pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/audit: privileged
 ---
 apiVersion: v1
 kind: Namespace

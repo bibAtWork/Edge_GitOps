@@ -1,14 +1,23 @@
 ---
+# otel-agent lives in monitoring-agents now, so this policy follows it there --
+# a CiliumNetworkPolicy only selects endpoints in its own namespace, and left in
+# `monitoring` it would have silently stopped matching anything, taking the
+# agent's egress with it.
+#
+# The targets are named explicitly rather than the previous `toEndpoints: [{}]`
+# on :8428. That wildcard was writing a cluster-wide allowance to reach anything
+# on the VictoriaMetrics port; there is exactly one such thing and it is below.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: allow-otel-agent-egress
-  namespace: monitoring
+  namespace: monitoring-agents
 spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: otel-agent
   egress:
+    # Logs and traces, forwarded to the gateway for enrichment.
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: otel-collector-gateway
@@ -17,11 +26,24 @@ spec:
         - ports:
             - port: "4317"
               protocol: TCP
+    # Hubble flow metrics, remote-written straight to vmsingle by the agent's
+    # prometheusremotewrite exporter -- it does not route these via the gateway.
     - toEndpoints:
-        - {}
+        - matchLabels:
+            app.kubernetes.io/name: vmsingle
+            io.kubernetes.pod.namespace: monitoring
       toPorts:
         - ports:
             - port: "8428"
+              protocol: TCP
+    # ...which it first has to scrape off each cilium-agent.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: cilium
+      toPorts:
+        - ports:
+            - port: "9965"
               protocol: TCP
 ---
 # Hub-and-spoke migration (2026-08-17): covers otel-collector-gateway's ingress (from
@@ -47,9 +69,23 @@ spec:
 # immich/paperless/schenkmatch. Now covered by the clusterwide allow-gateway-ingress.
 ---
 # Restrict vmsingle (VictoriaMetrics query/write API on :8428) to authorized consumers.
-# Deny-list: kube-state-metrics, node-exporter, and otel-agent push data to vmagent/
-# otel-gateway respectively; they have no legitimate reason to call vmsingle directly.
-# The cluster-wide allow-cluster-internal ingress still allows all other monitoring pods.
+#
+# Deny-list: kube-state-metrics and node-exporter are scrape targets. They never
+# initiate anything, so a connection from either to vmsingle means something is
+# wrong, and denying it outright says so.
+#
+# otel-agent was on that deny-list too, and should not have been. Its
+# prometheusremotewrite exporter sends the Hubble flow metrics it scrapes off
+# each cilium-agent directly to vmsingle:8428 -- the "it pushes to the gateway
+# instead" premise held for logs and traces but never for that one pipeline.
+#
+# The deny was live and biting: `hubble_flows_processed_total` returned an empty
+# series list, and the agent logged "Exporting failed. Dropping data ...
+# context deadline exceeded" with 350-500 datapoints dropped every ten seconds,
+# continuously. Cilium drops silently, so the exporter saw a timeout rather than
+# a refusal, which is why this read as slowness rather than as policy for as
+# long as it did. Nothing alerted, because a metric that never arrives has no
+# series to write a rule against.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -66,9 +102,6 @@ spec:
     - fromEndpoints:
         - matchLabels:
             app.kubernetes.io/name: kube-state-metrics
-    - fromEndpoints:
-        - matchLabels:
-            app.kubernetes.io/name: otel-agent
   ingress:
     - fromEndpoints:
         - matchLabels:
@@ -81,6 +114,9 @@ spec:
             app.kubernetes.io/name: victoria-metrics-operator
         - matchLabels:
             app.kubernetes.io/name: otel-collector-gateway
+        - matchLabels:
+            app.kubernetes.io/name: otel-agent
+            io.kubernetes.pod.namespace: monitoring-agents
       toPorts:
         - ports:
             - port: "8428"

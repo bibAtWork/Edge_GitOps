@@ -1,0 +1,92 @@
+# node-exporter, deployed on its own rather than as a subchart of
+# victoria-metrics-k8s-stack.
+#
+# ── Why it moved ─────────────────────────────────────────────────────────────
+# It needs hostNetwork, hostPID and hostPath mounts of /proc, /sys and / -- that
+# is the whole job, it reads kernel counters off the node. Any namespace holding
+# it is therefore pinned to PSS privileged.
+#
+# It used to sit in `monitoring`, alongside Grafana, VictoriaMetrics,
+# VictoriaLogs, VictoriaTraces, vmagent, vmalert and the OTel gateway -- none of
+# which touch the host. Every one of them inherited permission to mount host
+# paths and enter host namespaces because of this DaemonSet. Grafana is
+# internet-reachable and runs arbitrary user-authored queries; that is a poor
+# thing to hand host access to for free.
+#
+# The chart version and image are the ones the subchart was already resolving to
+# (prometheus-node-exporter-4.55.1, node-exporter v1.11.1), so this is a move,
+# not an upgrade. Renovate tracks it from here on.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: node-exporter
+  namespace: monitoring-agents
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: prometheus-node-exporter
+      version: 4.55.1
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # Without this the resources are named node-exporter-prometheus-node-exporter.
+    # The name is load-bearing in one place -- the VMServiceScrape selector in
+    # servicescrape.yaml -- but a readable DaemonSet name is worth having anyway.
+    fullnameOverride: node-exporter
+
+    # hostNetwork is what keeps the `instance` label stable across this move.
+    # vmagent labels a scraped target by the endpoint address it dialled; with
+    # hostNetwork the pod IP is the node IP, so instance stays <node-ip>:9100
+    # exactly as before. Turning it off would silently rewrite the instance label
+    # on every node metric to a pod IP that changes on each restart, orphaning
+    # the history already in VictoriaMetrics.
+    hostNetwork: true
+    hostPID: true
+
+    # The chart's own ServiceMonitor/PodMonitor support targets the Prometheus
+    # operator's CRDs, which are not installed here -- VictoriaMetrics uses its
+    # own. Left off; servicescrape.yaml provides the VictoriaMetrics equivalent.
+    prometheus:
+      monitor:
+        enabled: false
+
+    # This namespace is PSS privileged, so nothing here is enforced -- it is set
+    # so the pod asks for no more than it needs regardless of what the namespace
+    # would tolerate.
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        # No LimitRange in this namespace, so an omitted limit means unlimited
+        # rather than the 256Mi default that bites elsewhere in this repo.
+        memory: 128Mi
+
+    tolerations:
+      # Control-plane nodes need node metrics as much as workers do, and on a
+      # single-node cluster the control plane is the only node there is.
+      - operator: Exists
