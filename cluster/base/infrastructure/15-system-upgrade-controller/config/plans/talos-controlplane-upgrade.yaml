@@ -25,6 +25,18 @@ spec:
   # without anyone regenerating that schematic.
   version: v1.13.9
   exclusive: true
+  # Without this, SUC applies the Plan to at most ZERO nodes.
+  #
+  # The CRD defines no default for concurrency, so an unset field is 0, and
+  # "the maximum number of concurrent nodes to apply this update on" is
+  # therefore none. The Plan then reports Complete=True because there is
+  # genuinely nothing left to do, creates no Job, and logs nothing -- which is
+  # exactly the state all three Plans sat in for this cluster's entire life
+  # while the node stayed on an old Talos release.
+  #
+  # Upstream's own examples all set it. Nothing about a missing field surfaces
+  # as an error: the Plan validates, resolves its version, and reports success.
+  concurrency: 1
   # Required by system-upgrade-controller to run the upgrade pod, and absent
   # from every Plan here until now. Upstream's own examples all set it.
   #
