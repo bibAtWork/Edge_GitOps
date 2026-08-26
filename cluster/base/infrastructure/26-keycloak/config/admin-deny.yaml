@@ -1,0 +1,61 @@
+# Keycloak's admin console and admin REST API, removed from the public internet.
+#
+# Both live under /admin. Before this, the HTTPRoute matched PathPrefix "/" and
+# published everything on the hostname, so the master-realm admin console was
+# reachable from anywhere -- guarded by one password, on the realm that can
+# administer every other realm.
+#
+# Nothing legitimate loses access. keycloak-config-cli and setup-job both talk to
+# keycloak.keycloak.svc directly and never traverse the Gateway, so the admin API
+# they depend on is unaffected. Reach the console yourself with:
+#
+#   kubectl port-forward -n keycloak svc/keycloak 8080:80
+#   # then http://localhost:8080/admin
+#
+# ── Why deny rather than allow-from-LAN ──────────────────────────────────────
+# The obvious alternative is authorization with clientCIDRs permitting the LAN
+# and the tailnet. It would not work here: the Gateway Service runs with
+# externalTrafficPolicy: Cluster, so client source addresses are SNATed to a node
+# address before Envoy sees them and every request would appear to come from the
+# same place. A CIDR allowlist would either admit everyone or nobody, and which
+# of those it did would not be obvious from reading it.
+#
+# A separate HTTPRoute rather than a rule on the existing one, because
+# SecurityPolicy attaches to a route. Gateway API resolves the longer path prefix
+# first, so /admin matches here and everything else continues to fall through to
+# the catch-all route next door.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak-admin
+  namespace: keycloak
+spec:
+  parentRefs:
+    - name: homelab-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - keycloak.homelab.data-harness.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /admin
+      backendRefs:
+        - name: keycloak
+          port: 80
+---
+# defaultAction: Deny with no allow rules -- every request to the route above is
+# refused at the edge and never reaches Keycloak.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: keycloak-admin-deny
+  namespace: keycloak
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: keycloak-admin
+  authorization:
+    defaultAction: Deny

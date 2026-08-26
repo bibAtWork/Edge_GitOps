@@ -1,0 +1,25 @@
+# The master realm, declared only far enough to fix one thing.
+#
+# master had bruteForceProtected: false while homelab had it true. That is the
+# wrong way round: master is the realm whose accounts can administer every other
+# realm, so it is the one where an unlimited password-guessing budget matters
+# most. Nothing had noticed because the setting is per-realm and only homelab was
+# ever configured deliberately.
+#
+# Deliberately minimal. Only the brute-force fields are declared, so
+# keycloak-config-cli touches nothing else in a realm that holds the admin
+# account -- a mistake here costs administrative access to the whole server.
+# Everything unspecified is left exactly as Keycloak has it.
+#
+# failureFactor stays at Keycloak's default of 30 rather than something tighter.
+# This realm has a single human account and no self-registration, so the failure
+# mode to avoid is locking that account out, not tolerating a few extra guesses.
+# permanentLockout is false for the same reason: a temporary lockout slows an
+# attacker without handing them a way to lock the operator out permanently.
+realm: master
+enabled: true
+bruteForceProtected: true
+permanentLockout: false
+failureFactor: 30
+waitIncrementSeconds: 60
+maxFailureWaitSeconds: 900

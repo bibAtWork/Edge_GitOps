@@ -49,5 +49,6 @@ configMapGenerator:
     namespace: keycloak
     files:
       - realm-config/homelab.yaml
+      - realm-config/master.yaml
     options:
       disableNameSuffixHash: true
