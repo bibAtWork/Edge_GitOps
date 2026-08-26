@@ -202,10 +202,26 @@ clients:
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
     authorizationServicesEnabled: false
+    # Each edge-gated host listed explicitly. A wildcard was tried first and
+    # does not work: Keycloak matches `*` only as a trailing wildcard in the
+    # PATH, not in the host. `https://*.homelab.data-harness.org/oauth2/callback`
+    # was accepted by the admin API without complaint and then rejected every
+    # authorization request with "Invalid parameter: redirect_uri".
+    #
+    # grafana's `https://grafana.homelab.data-harness.org/*` looks like a
+    # counter-example but is not -- that is a path wildcard on a fixed host,
+    # which is the supported form.
+    #
+    # So adding an edge-gated app costs one line here. That is still the point
+    # of this client: one line in a list that config-cli reconciles hourly,
+    # rather than a new client, a new secret, a new env var and a rename of an
+    # immutable Job.
     redirectUris:
-      - https://*.homelab.data-harness.org/oauth2/callback
+      - https://hubble.homelab.data-harness.org/oauth2/callback
+      - https://kubeopencode.homelab.data-harness.org/oauth2/callback
     webOrigins:
-      - https://*.homelab.data-harness.org
+      - https://hubble.homelab.data-harness.org
+      - https://kubeopencode.homelab.data-harness.org
     secret: $(env:EDGE_CLIENT_SECRET)
   - clientId: hubble
     name: Hubble UI
