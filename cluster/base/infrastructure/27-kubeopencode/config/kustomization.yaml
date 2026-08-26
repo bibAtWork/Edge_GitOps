@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - edge-client-secret.yaml
   - httproute.yaml
   # agent.yaml is deliberately PARKED (2026-08-18) -- the file is kept so this
   # is a one-line change to re-enable, but it is not applied.

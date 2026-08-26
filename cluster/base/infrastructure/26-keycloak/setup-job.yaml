@@ -27,12 +27,6 @@ data:
 
     KEYCLOAK_ADMIN = os.environ["KEYCLOAK_ADMIN"]
     KEYCLOAK_ADMIN_PASSWORD = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
-    GRAFANA_CLIENT_SECRET = os.environ["GRAFANA_CLIENT_SECRET"]
-    PAPERLESS_CLIENT_SECRET = os.environ["PAPERLESS_CLIENT_SECRET"]
-    HUBBLE_CLIENT_SECRET = os.environ["HUBBLE_CLIENT_SECRET"]
-    KUBEOPENCODE_CLIENT_SECRET = os.environ["KUBEOPENCODE_CLIENT_SECRET"]
-    ZOT_CLIENT_SECRET = os.environ["ZOT_CLIENT_SECRET"]
-    IMMICH_CLIENT_SECRET = os.environ["IMMICH_CLIENT_SECRET"]
     ADMIN_USER_EMAIL = os.environ.get("ADMIN_USER_EMAIL", "admin@homelab.internal")
     ADMIN_USER_PASSWORD = os.environ["ADMIN_USER_PASSWORD"]
 
@@ -85,197 +79,33 @@ data:
     tok = get_token()
     print("✓ Authenticated to Keycloak")
 
-    def ensure_client(client_def, secret):
-        # Realm import only runs once (--import-realm skips an existing
-        # realm), so clients added to homelab.json after the first deploy
-        # never get created on their own — and even for clients that DID
-        # come from the import, the secret is stored as the literal
-        # placeholder string, not the real value. Handle both here.
-        client_id_str = client_def["clientId"]
+    def client_uuid(client_id_str):
+        # Lookup only. Clients are declared in realm-config/homelab.yaml and
+        # reconciled hourly by keycloak-config-cli; this Job no longer creates
+        # or updates them, it just needs their UUIDs to attach client scopes.
+        #
+        # Moving creation out is what stops an added app from requiring a
+        # change to this Job. Job.spec.template is immutable, so any edit here
+        # needs the Job renamed or the whole flux-system Kustomization fails on
+        # the immutable field -- which took reconciliation down twice on
+        # 2026-08-26. A client declared in YAML costs none of that.
         status, clients = api("GET", f"/admin/realms/{REALM}/clients?clientId={client_id_str}", token=tok)
-        if not clients:
-            status, _ = api("POST", f"/admin/realms/{REALM}/clients", data=client_def, token=tok)
-            assert status == 201, f"{client_id_str} client creation failed: {status}"
-            print(f"✓ {client_id_str} client created")
-            status, clients = api("GET", f"/admin/realms/{REALM}/clients?clientId={client_id_str}", token=tok)
-        uuid = clients[0]["id"]
-        # fetch full representation so PUT doesn't drop fields
-        status, full_client = api("GET", f"/admin/realms/{REALM}/clients/{uuid}", token=tok)
-        full_client["secret"] = secret
-        # merge client_def's attributes on top of Keycloak's own (preserves
-        # internal bookkeeping keys); a pkce requirement is explicitly
-        # cleared (empty string, not just omitted -- Keycloak's client PUT
-        # merges the attributes map rather than replacing it, so removing
-        # the key entirely from the payload doesn't unset it server-side)
-        # rather than merged, since client_def omitting the key means
-        # "don't require PKCE", not "leave whatever's there"
-        full_client.setdefault("attributes", {}).update(client_def.get("attributes", {}))
-        if "pkce.code.challenge.method" not in client_def.get("attributes", {}):
-            full_client["attributes"]["pkce.code.challenge.method"] = ""
-        status, _ = api("PUT", f"/admin/realms/{REALM}/clients/{uuid}", data=full_client, token=tok)
-        assert status == 204, f"{client_id_str} client update failed: {status}"
-        print(f"✓ {client_id_str} client secret updated")
-        return uuid
+        assert clients, (
+            f"{client_id_str} client not found. It is declared in "
+            f"realm-config/homelab.yaml -- check the keycloak-config-cli "
+            f"CronJob ran and succeeded."
+        )
+        return clients[0]["id"]
 
-    grafana_uuid = ensure_client({
-        "clientId": "grafana",
-        "enabled": True,
-        "name": "Grafana",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {"pkce.code.challenge.method": "S256"},
-        "redirectUris": ["https://grafana.homelab.data-harness.org/*"],
-        "webOrigins": ["https://grafana.homelab.data-harness.org"],
-    }, GRAFANA_CLIENT_SECRET)
+    grafana_uuid = client_uuid("grafana")
+    paperless_uuid = client_uuid("paperless")
+    hubble_uuid = client_uuid("hubble")
+    kubeopencode_uuid = client_uuid("kubeopencode")
+    zot_uuid = client_uuid("zot")
+    immich_uuid = client_uuid("immich")
+    kubernetes_uuid = client_uuid("kubernetes")
+    print("✓ Resolved client UUIDs (clients themselves come from keycloak-config-cli)")
 
-    paperless_uuid = ensure_client({
-        # No PKCE requirement: django-allauth's openid_connect provider
-        # doesn't send a code_challenge, unlike Grafana which explicitly
-        # enables PKCE (use_pkce: true). Not a security gap here since
-        # paperless is a confidential client with its own secret — PKCE is
-        # primarily for public clients that can't hold one securely.
-        "clientId": "paperless",
-        "enabled": True,
-        "name": "Paperless-ngx",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {},
-        "redirectUris": ["https://paperless.homelab.data-harness.org/accounts/oidc/keycloak/login/callback/"],
-        "webOrigins": ["https://paperless.homelab.data-harness.org"],
-    }, PAPERLESS_CLIENT_SECRET)
-
-    # Hubble UI and KubeOpenCode have no native OIDC of their own. Envoy
-    # Gateway's SecurityPolicy.oidc performs the browser login on their behalf
-    # at the edge and forwards the access token upstream, where OPA's
-    # admin_only_apps rule authorizes it. Both are confidential clients, so
-    # PKCE is not the primary protection (same reasoning as paperless above).
-    # redirectUris must match the /oauth2/callback path Envoy Gateway uses by
-    # default — it is not configurable per app without setting redirectURL.
-    hubble_uuid = ensure_client({
-        "clientId": "hubble",
-        "enabled": True,
-        "name": "Hubble UI",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {},
-        "redirectUris": ["https://hubble.homelab.data-harness.org/oauth2/callback"],
-        "webOrigins": ["https://hubble.homelab.data-harness.org"],
-    }, HUBBLE_CLIENT_SECRET)
-
-    kubeopencode_uuid = ensure_client({
-        "clientId": "kubeopencode",
-        "enabled": True,
-        "name": "KubeOpenCode",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {},
-        "redirectUris": ["https://kubeopencode.homelab.data-harness.org/oauth2/callback"],
-        "webOrigins": ["https://kubeopencode.homelab.data-harness.org"],
-    }, KUBEOPENCODE_CLIENT_SECRET)
-
-    # zot: native OIDC (operator/config-secret.yaml), not edge-gated -- its
-    # own callback path, confirmed against zot's documented integration
-    # examples (dex/authentik/authelia all use the same path).
-    zot_uuid = ensure_client({
-        "clientId": "zot",
-        "enabled": True,
-        "name": "zot",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {},
-        "redirectUris": ["https://zot.homelab.data-harness.org/zot/auth/callback/oidc"],
-        "webOrigins": ["https://zot.homelab.data-harness.org"],
-    }, ZOT_CLIENT_SECRET)
-
-    # immich: native OIDC via IMMICH_CONFIG_FILE (see helmrelease.yaml),
-    # not the runtime admin API -- Immich's role model is binary
-    # (admin/user), and the role claim only applies at account creation,
-    # not resynced on login (confirmed against immich's own source,
-    # server/src/config.ts's oauth.roleClaim and
-    # server/src/utils/config.ts's buildConfig). Redirect URIs confirmed
-    # against a real third-party OIDC integration guide for this app
-    # (authentik's), not assumed -- /user-settings is where an
-    # already-logged-in user re-links OAuth, /auth/login is the actual
-    # sign-in flow.
-    immich_uuid = ensure_client({
-        "clientId": "immich",
-        "enabled": True,
-        "name": "Immich",
-        "protocol": "openid-connect",
-        "publicClient": False,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {},
-        "redirectUris": [
-            "https://immich.homelab.data-harness.org/auth/login",
-            "https://immich.homelab.data-harness.org/user-settings",
-        ],
-        "webOrigins": ["https://immich.homelab.data-harness.org"],
-    }, IMMICH_CLIENT_SECRET)
-
-    # kubernetes: the last of ADR-002's four surfaces -- kubectl access via
-    # kube-apiserver's own OIDC support (cluster/overlays/1-node/
-    # talos-machineconfigs/controlplane.yaml), not an app behind the
-    # Gateway. Public + PKCE, matching Grafana's pattern above: a CLI tool
-    # can't hold a confidential-client secret securely, and there's no
-    # server-side callback to receive one at. Empty string, not a real
-    # secret -- Keycloak doesn't check it for a public client.
-    # Redirect URIs match kubelogin's (int128/kubelogin, the standard
-    # kubectl OIDC plugin) documented default local callback ports; widen
-    # this list if a different port/tool is actually used.
-    kubernetes_uuid = ensure_client({
-        "clientId": "kubernetes",
-        "enabled": True,
-        "name": "Kubernetes",
-        "protocol": "openid-connect",
-        "publicClient": True,
-        "standardFlowEnabled": True,
-        "implicitFlowEnabled": False,
-        "directAccessGrantsEnabled": False,
-        "serviceAccountsEnabled": False,
-        "authorizationServicesEnabled": False,
-        "attributes": {"pkce.code.challenge.method": "S256"},
-        "redirectUris": [
-            "http://localhost:8000",
-            "http://localhost:8000/callback",
-            "http://localhost:18000",
-        ],
-    }, "")
-
-    # --- Ensure a realm-level "groups" client scope exists (idempotent) ---
-    # Client scopes are realm-wide reusable objects. Keycloak rejects any
-    # authorization request naming a scope that isn't defined at the realm
-    # level (e.g. Grafana requesting scope=...+groups fails with invalid_scope
-    # until this exists and is linked to the client). Every OIDC client that
-    # wants group membership in its token reuses this same scope.
     def ensure_client_scope(name, mapper):
         status, scopes = api("GET", f"/admin/realms/{REALM}/client-scopes", token=tok)
         existing = next((s for s in scopes if s["name"] == name), None)
@@ -605,12 +435,12 @@ metadata:
   # this Kustomization runs with prune: true, renaming on every bump lets Flux
   # safely garbage-collect the old-named Job instead of trying to patch it in
   # place, so this failure mode can't recur.
-  name: keycloak-setup-18
+  name: keycloak-setup-19
   namespace: keycloak
   annotations:
     # Bump the numeric suffix on metadata.name above (not just here) to
     # re-run the job after merging config changes.
-    run-id: "18"
+    run-id: "19"
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 86400
@@ -635,36 +465,6 @@ spec:
                 secretKeyRef:
                   name: keycloak-secrets
                   key: admin-password
-            - name: GRAFANA_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-secrets
-                  key: grafana-client-secret
-            - name: PAPERLESS_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-paperless-oidc
-                  key: paperless-client-secret
-            - name: HUBBLE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-hubble-oidc
-                  key: hubble-client-secret
-            - name: KUBEOPENCODE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-kubeopencode-oidc
-                  key: kubeopencode-client-secret
-            - name: ZOT_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-zot-oidc
-                  key: zot-client-secret
-            - name: IMMICH_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-immich-oidc
-                  key: immich-client-secret
             - name: ADMIN_USER_EMAIL
               value: admin@homelab.internal
             - name: ADMIN_USER_PASSWORD
