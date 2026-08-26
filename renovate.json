@@ -43,7 +43,7 @@
     },
     {
       "customType": "regex",
-      "description": "Talos installer pin in talos-image.env. Source of truth for manual node upgrades; the SUC plan below covers the automated path and the two must not drift. A bump here REQUIRES regenerating SCHEMATIC_ID from schematic.yaml via the Image Factory, which Renovate cannot do -- hence the talos group is never auto-merged.",
+      "description": "Talos installer pin in talos-image.env. Source of truth for manual node upgrades; the SUC plan below covers the automated path and the two must not drift. A bump here does NOT require regenerating SCHEMATIC_ID: the schematic ID is a content hash of the extension list and is independent of the Talos version -- the same ID serves v1.12.0 through v1.13.9. Only editing schematic.yaml changes it. The talos group is still never auto-merged, for the real reasons: the upgrade reboots nodes, and the Image Factory builds per (schematic, version) pair, so a brand-new release may have no image for these extensions yet. The Talos image workflow checks both.",
       "managerFilePatterns": ["/cluster/overlays/.+/talos-machineconfigs/talos-image\\.env$/"],
       "matchStrings": ["TALOS_VERSION=(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",
