@@ -223,6 +223,39 @@ clients:
       - https://hubble.homelab.data-harness.org
       - https://kubeopencode.homelab.data-harness.org
     secret: $(env:EDGE_CLIENT_SECRET)
+    # Scope lists ARE declared for this client, unlike the others, and both are
+    # listed exhaustively on purpose.
+    #
+    # The rule elsewhere in this file is to omit them, because a partial list
+    # silently strips Keycloak's builtins and takes the email and profile
+    # claims with them. That rule protects clients whose scopes were assigned
+    # by setup-job.yaml. This client is not one of them: setup-job links
+    # `groups` to grafana, paperless, hubble, kubeopencode and zot by name, and
+    # homelab-edge is not in that list -- so nothing assigns it, and the
+    # SecurityPolicies request scope=openid email groups. Keycloak rejects a
+    # scope the client does not hold, which failed the Hubble login with
+    # "oauth flow failed" after the redirect_uri check had already passed.
+    #
+    # `groups` is not cosmetic here. It carries the group-membership claim that
+    # OPA reads for the admin-only gate on Hubble and KubeOpenCode; without it
+    # a successful login would still be an unauthorised one.
+    #
+    # The builtin sets below are copied from the live hubble client, which is
+    # the shape a working edge client has.
+    defaultClientScopes:
+      - web-origins
+      - acr
+      - profile
+      - roles
+      - basic
+      - email
+    optionalClientScopes:
+      - address
+      - phone
+      - organization
+      - offline_access
+      - groups
+      - microprofile-jwt
   - clientId: hubble
     name: Hubble UI
     enabled: true
