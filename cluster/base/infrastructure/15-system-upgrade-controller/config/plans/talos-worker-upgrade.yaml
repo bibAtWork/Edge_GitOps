@@ -23,6 +23,17 @@ spec:
   # and has already caused flakiness elsewhere in this repo.
   version: v1.13.9
   exclusive: true
+  # Required by system-upgrade-controller to run the upgrade pod, and absent
+  # from every Plan here until now. Upstream's own examples all set it.
+  #
+  # Adding it did NOT by itself make SUC act, so it is a necessary fix rather
+  # than the whole story. The open problem is recorded in docs/backlog.md:
+  # zero Job events have ever been recorded in cattle-system, for any of the
+  # three Plans, across the cluster's entire life -- while every status field
+  # reads Validated=True, LatestResolved=True, Complete=True. A Plan can be
+  # completely valid and still never do anything, which is why the node sat on
+  # v1.13.6 against a v1.13.9 pin with nothing indicating a problem.
+  serviceAccountName: system-upgrade-controller
   # Two hours after the control-plane window, so workers only start once the
   # control plane is back. `exclusive: true` on both plans keeps SUC to one
   # upgrade at a time regardless, but the offset means a worker never waits on a
