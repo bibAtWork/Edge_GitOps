@@ -131,7 +131,7 @@ spec:
                 - name: KEYCLOAK_AVAILABILITYCHECK_TIMEOUT
                   value: 120s
                 - name: IMPORT_FILES_LOCATIONS
-                  value: /config/homelab.yaml
+                  value: /config/homelab.yaml,/config/master.yaml
                 # Without this the whole job is decorative.
                 #
                 # import.cache.enabled defaults to true, and it makes
