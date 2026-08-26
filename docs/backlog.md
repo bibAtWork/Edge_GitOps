@@ -166,6 +166,51 @@ re-enabling is a one-line change.
 
 ---
 
+## Open threads as of 2026-08-26
+
+A working note, not a design decision. Delete entries as they close.
+
+**S3 Inventory is fixed but unproven.** `terraform apply` ran successfully on 2026-08-26,
+flipping both inventory configurations from Parquet to CSV -- which is the format
+`34-backup/reconciler-script.yaml` actually parses. AWS regenerates inventory manifests on
+its own schedule, up to 24h, so the reconciler will keep failing to parse until the first
+CSV manifest lands. Confirm with:
+
+```
+kubectl create job -n longhorn-system inv-check --from=cronjob/backup-reconciler
+kubectl logs -n longhorn-system job/inv-check -f
+```
+
+If it still reports a parse failure after 24h, the manifest has not rotated yet -- check the
+`fileFormat` field in the newest `manifest.json` under the vault bucket before assuming the
+apply did not take.
+
+**The node is still on v1.13.6 against a v1.13.9 pin,** and carries a
+`talos.homelab/upgrade-now` label that does nothing, because SUC never creates Jobs (see the
+entry below). Remove the label when the upgrade is done by hand:
+
+```
+kubectl label node <node> talos.homelab/upgrade-now-
+```
+
+**Controllers can lose their watches silently when the apiserver restarts.** SUC was found
+silent for three hours after the apiserver restarted on 2026-08-26 for the
+`--disabled-metrics` change; it recovered only when restarted. Nothing alerted, because a
+controller with dead watches looks healthy in every way a probe can see. After any apiserver
+restart, `kubectl get events -A --sort-by=.lastTimestamp | tail -40` is a cheap smell test.
+
+**Untested SSO paths.** The move to declarative Keycloak clients was verified for config
+drift and for the Hubble, KubeOpenCode and zot logins. Grafana, Paperless, Immich and the
+`kubernetes` client (kubectl OIDC) have not been signed into since. Grafana is the one to
+check first: `role_attribute_strict: true` with no Viewer fallback means a broken `groups`
+claim locks everyone out rather than degrading gracefully.
+
+**apiserver memory needs re-reading.** It was 2983Mi, dropped to 1999Mi immediately after
+the restart, and had climbed back to 2731Mi within the hour as caches rebuilt. Do not credit
+the metrics change with a specific saving until it has been stable for a day.
+
+---
+
 ## system-upgrade-controller has never created a single Job
 
 Found 2026-08-26 while triggering an on-demand Talos upgrade. The node was on
