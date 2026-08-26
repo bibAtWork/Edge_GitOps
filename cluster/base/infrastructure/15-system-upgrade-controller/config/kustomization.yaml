@@ -3,3 +3,5 @@ kind: Kustomization
 resources:
   - plans/talos-controlplane-upgrade.yaml
   - plans/talos-worker-upgrade.yaml
+  # Inert until a node is labelled talos.homelab/upgrade-now. See the file.
+  - plans/talos-on-demand-upgrade.yaml
