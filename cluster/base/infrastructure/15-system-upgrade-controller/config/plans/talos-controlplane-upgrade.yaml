@@ -26,19 +26,41 @@ spec:
   version: v1.13.9
   exclusive: true
   # A Talos upgrade reboots the node. On the 1-node profile that is a full
-  # cluster outage for the duration, so it happens on a schedule rather than
+  # cluster outage for the duration, so it happens inside a window rather than
   # whenever a version pin changes.
   #
-  # Sunday 20:00-22:00 is chosen to miss every backup job: staging 01:00,
-  # snapshot 02:00, the database dumps 02:40-02:50, the weekly tier Sunday
-  # 03:00, monthly 04:00, relay 05:00, probe 06:00, restore-test 07:00,
-  # reconciler 09:00, and the volume policy hourly at :25. Rebooting mid-backup
-  # would leave a partial artefact that the restore-test then has to catch.
+  # Daily, not weekly. The window is an opportunity, not a schedule: SUC only
+  # acts when a node's running version differs from the `version` pin above, so
+  # a daily window means a merged version bump is picked up the next night
+  # instead of waiting up to seven days. On every other night it is a no-op.
+  #
+  # timeZone is UTC deliberately. Every CronJob in this cluster schedules in UTC
+  # (none sets spec.timeZone), and the previous Europe/Berlin window drifted an
+  # hour against all of them twice a year at the DST boundaries -- so a window
+  # picked to sit between two backup jobs quietly stopped doing that for half
+  # the year.
+  #
+  # 02:00-04:00 was requested. It is worth being honest that it does not avoid
+  # the backup jobs the way the old Sunday-evening window did:
+  #
+  #   02:00  longhorn snapshot            <- collides at the window boundary
+  #   02:17  seaweedfs filer dump         (hourly at :17)
+  #   02:25  volume backup policy         (hourly at :25)
+  #   02:40  immich postgres dump
+  #   02:45  paperless sqlite dump
+  #   02:50  keycloak postgres dump
+  #   03:00  weekly backup tier (Sundays)
+  #
+  # A daily window cannot avoid all of these -- three of them run hourly, so no
+  # daily two-hour slot is ever clear. The exposure is bounded by how rarely
+  # this actually fires: only on the night after a Talos version bump merges. If
+  # a reboot does land mid-dump, the artefact is partial and backup-restore-test
+  # at 07:00 is what catches it.
   window:
-    days: ["su"]
-    startTime: "20:00"
-    endTime: "22:00"
-    timeZone: Europe/Berlin
+    days: ["su", "mo", "tu", "we", "th", "fr", "sa"]
+    startTime: "02:00"
+    endTime: "04:00"
+    timeZone: UTC
   nodeSelector:
     matchLabels:
       node-role.kubernetes.io/control-plane: ""
