@@ -8,23 +8,37 @@
 # KUBERNETES_VERSION as its own field, Renovate watches it as its own grouped
 # PR, and this Plan applies it as its own upgrade.
 #
-# ── Why this targets exactly one node ────────────────────────────────────────
-# Unlike a Talos OS upgrade, `upgrade-k8s` is not a per-node operation: pointed
-# at any one control-plane node's Talos API, it orchestrates the rolling
-# upgrade of every control-plane and worker component in the cluster itself --
-# staged, health-checked, one node at a time -- via the Talos API, not via
-# Kubernetes scheduling. Selecting every control-plane node the way the OS
-# Plans do would run the same cluster-wide upgrade multiple times
-# concurrently, which is redundant at best and a race at worst.
+# ── Why this matches every control-plane node, not one dedicated node ───────
+# `upgrade-k8s` is not a per-node operation: pointed at any one control-plane
+# node's Talos API, it orchestrates the rolling upgrade of every control-plane
+# and worker component in the cluster itself -- staged, health-checked, one
+# node at a time -- via the Talos API, not via Kubernetes scheduling. An
+# earlier version of this Plan tried to get "run exactly once" out of that by
+# matching a dedicated `talos.homelab/k8s-upgrade-runner` label placed by hand
+# on a single node. That is exactly the shape of failure this repo already
+# hit once with `concurrency` (bug#376): a static precondition nothing
+# reconciles, with no error anywhere if it silently stops holding -- if that
+# one labelled node is ever drained, replaced, or simply down when the window
+# opens, the Plan matches zero nodes, reports Complete=True because there is
+# genuinely nothing to do, and the Kubernetes version quietly stops moving
+# with no signal that anything is wrong.
 #
-# So this Plan's nodeSelector matches a dedicated label placed on exactly ONE
-# control-plane node, a one-time bootstrap step:
+# So this instead matches every control-plane node, same selector as the OS
+# control-plane Plan. `concurrency: 1` + `exclusive: true` still serialise SUC
+# to one Job at a time for this Plan, so on a 3-node control plane it runs
+# `upgrade-k8s` up to three times in sequence rather than once -- each run
+# after the first is expected to be a fast no-op, since upgrade-k8s diffs the
+# running component versions against the target and only touches what
+# differs. That reasoning is documented Talos behaviour, not something
+# verified against a live multi-control-plane cluster here (this repo runs
+# single-node today, where it only ever matches one node regardless). Worth
+# confirming empirically the day this cluster actually runs 3-node.
 #
-#   kubectl label node <control-plane-node> talos.homelab/k8s-upgrade-runner=""
-#
-# `concurrency: 1` and `exclusive: true` are still set, matching the other
-# Plans, but the real exactly-once guarantee is the label existing on a single
-# node -- SUC has no notion of "run this on any one matching node and stop".
+# cordon is deliberately NOT set, unlike the OS Plans: upgrade-k8s does not
+# reboot the node the Job pod happens to land on -- the reboot-worthy
+# disruption (if any) happens to the cluster's control-plane components via
+# the Talos API, not to this node's own workloads, so there is nothing here
+# that needs evacuating first.
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
@@ -49,7 +63,7 @@ spec:
     timeZone: UTC
   nodeSelector:
     matchLabels:
-      talos.homelab/k8s-upgrade-runner: ""
+      node-role.kubernetes.io/control-plane: ""
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
@@ -57,7 +71,6 @@ spec:
   secrets:
     - name: talos-credentials
       path: /var/run/secrets/talos
-  cordon: true
   upgrade:
     # Tag overwritten at build time from ../versions.env's TALOS_VERSION -- the
     # talosctl tool version, not the Kubernetes target (spec.version above).
