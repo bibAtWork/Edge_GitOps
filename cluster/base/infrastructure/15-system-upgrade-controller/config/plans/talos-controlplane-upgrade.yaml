@@ -58,14 +58,17 @@ spec:
   # cluster outage for the duration, so it happens inside a window rather than
   # whenever a version pin changes.
   #
-  # Sunday evening, because it is the only cadence that misses every backup job.
-  # The daily schedules cluster in the small hours -- staging 01:00, snapshot
+  # Sunday midday, because it is a cadence that misses every backup job. The
+  # daily schedules cluster in the small hours -- staging 01:00, snapshot
   # 02:00, the three database dumps 02:40-02:50, the weekly tier Sunday 03:00,
   # monthly 04:00, relay 05:00, probe 06:00, restore-test 07:00, reconciler
   # 09:00 -- plus three hourly jobs at :17, :25 and :40. Nothing at all runs
-  # between 09:00 and 01:00 except those hourly three, so a late window is the
-  # only one with room in it. Rebooting mid-backup leaves a partial artefact
-  # that restore-test then has to catch.
+  # between 09:00 and 01:00 except those hourly three, so anywhere in that gap
+  # works; 12:00 is chosen within it rather than the evening end, so the whole
+  # Sunday maintenance sequence (control-plane, worker, then the Kubernetes
+  # upgrade -- see plans/talos-kubernetes-upgrade.yaml) finishes by mid
+  # afternoon instead of running up against midnight. Rebooting mid-backup
+  # leaves a partial artefact that restore-test then has to catch.
   #
   # The cost of weekly is latency: a merged version bump waits until the next
   # Sunday before it is eligible. That is the accepted trade -- an unattended
@@ -81,8 +84,8 @@ spec:
   # keep it.
   window:
     days: ["su"]
-    startTime: "20:00"
-    endTime: "22:00"
+    startTime: "12:00"
+    endTime: "14:00"
     timeZone: UTC
   nodeSelector:
     matchLabels:

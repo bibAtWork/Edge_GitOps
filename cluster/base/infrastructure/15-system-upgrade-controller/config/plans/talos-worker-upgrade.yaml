@@ -50,17 +50,19 @@ spec:
   # completely valid and still never do anything, which is why the node sat on
   # v1.13.6 against a v1.13.9 pin with nothing indicating a problem.
   serviceAccountName: system-upgrade-controller
-  # Two hours after the control-plane window, so workers only start once the
-  # control plane is back. `exclusive: true` on both plans keeps SUC to one
-  # upgrade at a time regardless, but the offset means a worker never waits on a
-  # control plane that is still rebooting.
+  # Starts exactly when the control-plane window closes, so workers only
+  # start once the control plane is back. `exclusive: true` on both plans
+  # keeps SUC to one upgrade at a time regardless, but the offset means a
+  # worker never waits on a control plane that is still rebooting.
   #
   # Sunday and UTC, tracking the control-plane plan -- see the longer note there
-  # for why this is weekly rather than daily, and why the timezone is UTC.
+  # for why this is weekly rather than daily, why the timezone is UTC, and why
+  # midday rather than evening. The Kubernetes-upgrade Plan runs after this
+  # window closes in turn -- see plans/talos-kubernetes-upgrade.yaml.
   window:
     days: ["su"]
-    startTime: "22:00"
-    endTime: "23:59"
+    startTime: "14:00"
+    endTime: "16:00"
     timeZone: UTC
   nodeSelector:
     matchExpressions:

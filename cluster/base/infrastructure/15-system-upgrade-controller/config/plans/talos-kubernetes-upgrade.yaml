@@ -53,29 +53,33 @@ spec:
   exclusive: true
   concurrency: 1
   serviceAccountName: system-upgrade-controller
-  # Sunday, immediately BEFORE the control-plane OS window (20:00), not after
-  # both OS windows as an earlier version of this comment claimed.
+  # Sunday, starting exactly when the worker OS window closes -- last in the
+  # sequence: control-plane (12:00-14:00), worker (14:00-16:00), then this.
   #
-  # Round 3 code review found that claim was wrong on the actual numbers:
-  # control-plane runs 20:00-22:00, worker 22:00-23:59, and this Plan was at
-  # 23:00-23:59 -- fully NESTED inside the worker window, not after it. Both
-  # Plans are exclusive:true, so a worker OS upgrade still in flight at 23:00
-  # holds SUC's one exclusive slot for the rest of its window, and this Plan
-  # gets no turn at all that week -- silently, since an exclusive Plan that
-  # never runs is not an error condition. There is no room to move this
-  # later: 23:59 is the last minute of the day a same-day window can end.
+  # This Plan and the OS windows have moved twice. Originally control-plane
+  # and worker ran 20:00-23:59 with this Plan at 23:00-23:59 -- which round 3
+  # code review found was fully NESTED inside the worker window (22:00-23:59),
+  # not after it: both Plans are exclusive:true, so a worker OS upgrade still
+  # in flight at 23:00 held SUC's one exclusive slot for the rest of the
+  # window, and this Plan silently got no turn that week -- an exclusive Plan
+  # that never runs is not an error condition. With no room to move later
+  # (23:59 was the last minute of the day), it was moved BEFORE the OS
+  # windows instead, on the reasoning that Talos-OS-vs-Kubernetes ordering is
+  # not load-bearing (the two are decoupled by design) and running the
+  # non-disruptive change (upgrade-k8s does not reboot anything) ahead of the
+  # reboot-heavy OS cycle is a defensible default.
   #
-  # Moved earlier instead, ending exactly when control-plane's window opens.
-  # Ordering k8s before the Talos OS bump is fine either way -- the two are
-  # decoupled by design -- and running the faster, non-disruptive change
-  # first (upgrade-k8s does not reboot anything) before the reboot-heavy OS
-  # cycle starts is if anything the more sensible order. 19:00-20:00 sits in
-  # the same 09:00-01:00 gap the OS windows already rely on being clear of
-  # backup jobs (see the control-plane Plan for the full daily schedule).
+  # Moved again, to run after both OS windows as originally intended: the
+  # whole Sunday sequence shifted from evening to midday (see the
+  # control-plane Plan's note on why noon still clears every backup job),
+  # which freed enough room in the day that this no longer needs to compete
+  # with the OS windows for the same few hours before midnight. "After" also
+  # reads more naturally than "before" -- hardware layer first, then the
+  # software layer on top of it -- now that fitting it there costs nothing.
   window:
     days: ["su"]
-    startTime: "19:00"
-    endTime: "20:00"
+    startTime: "16:00"
+    endTime: "17:00"
     timeZone: UTC
   nodeSelector:
     matchLabels:
