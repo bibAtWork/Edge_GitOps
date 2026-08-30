@@ -11,7 +11,7 @@ metadata:
   name: talos-worker
   namespace: cattle-system
 spec:
-  # Pinned to match the control-plane plan, talos-image.env and the installer in
+  # Pinned to match the control-plane plan, versions.env and the installer in
   # controlplane.yaml.
   #
   # This was `channel: .../releases/latest`, which is wrong here in two ways. It
@@ -21,6 +21,10 @@ spec:
   # channel move can land on an image whose extensions were never rebuilt. It
   # also resolved through the unauthenticated GitHub API, which is rate-limited
   # and has already caused flakiness elsewhere in this repo.
+  #
+  # This value, and the talosctl image tags below, are overwritten at build
+  # time by the `replacements` block in ../kustomization.yaml, sourced from
+  # ../versions.env's TALOS_VERSION -- edit that file, not this field.
   version: v1.13.9
   exclusive: true
   # Without this, SUC applies the Plan to at most ZERO nodes.
@@ -69,6 +73,7 @@ spec:
   # Same two faults as the upgrade container below: this image has no /bin/sh,
   # and SYSTEM_UPGRADE_NODE_IP is not a variable SUC sets.
   prepare:
+    # Tag overwritten at build time from ../versions.env's TALOS_VERSION.
     image: ghcr.io/siderolabs/talosctl:v1.13.9
     envs:
       - name: NODE_IP
@@ -80,6 +85,7 @@ spec:
       - --nodes=$(NODE_IP)
       - version
   upgrade:
+    # Tag overwritten at build time from ../versions.env's TALOS_VERSION.
     image: ghcr.io/siderolabs/talosctl:v1.13.9
     # No `command:`. The image's entrypoint is /talosctl and it contains no
     # shell -- confirmed from the image config on ghcr.io: Entrypoint
@@ -104,6 +110,13 @@ spec:
         valueFrom:
           fieldRef:
             fieldPath: status.hostIP
+      # Sourced live from the talos-versions ConfigMap -- see the control-plane
+      # plan for why this is a configMapKeyRef rather than a replacements target.
+      - name: SCHEMATIC_ID
+        valueFrom:
+          configMapKeyRef:
+            name: talos-versions
+            key: SCHEMATIC_ID
     args:
       # Global flags precede the subcommand; $(VAR) is expanded by Kubernetes
       # from the container's own env, which is why NODE_IP above is required.
@@ -118,8 +131,8 @@ spec:
       # upgrading through the stock installer silently drops both and Longhorn
       # loses iSCSI attach on the next boot.
       #
-      # The schematic ID must match talos-machineconfigs/schematic.yaml and the
-      # installer pin in controlplane.yaml.
-      - --image=factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
+      # SCHEMATIC_ID must match talos-machineconfigs/schematic.yaml and the
+      # installer pin in controlplane.yaml -- the CI workflow verifies this.
+      - --image=factory.talos.dev/installer/$(SCHEMATIC_ID):$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
       - --preserve=true
       - --wait=true

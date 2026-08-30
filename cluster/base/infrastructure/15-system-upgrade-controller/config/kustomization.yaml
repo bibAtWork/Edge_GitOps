@@ -5,3 +5,76 @@ resources:
   - plans/talos-worker-upgrade.yaml
   # Inert until a node is labelled talos.homelab/upgrade-now. See the file.
   - plans/talos-on-demand-upgrade.yaml
+
+# Single source of truth for every Talos version pin the Plans above use.
+# Generates the talos-versions ConfigMap and, via `replacements` below,
+# projects the same values into every Plan -- so versions.env is the only
+# file a routine version bump touches in this directory. See versions.env for
+# the one pin this cannot reach.
+configMapGenerator:
+  - name: talos-versions
+    # Must match the Plans' own namespace: configMapKeyRef is namespace-scoped
+    # to the pod reading it, and the upgrade Jobs SUC creates run in
+    # cattle-system (see the control-plane Plan for why).
+    namespace: cattle-system
+    envs:
+      - versions.env
+    # No hash suffix: the Plans' SCHEMATIC_ID envs reference this ConfigMap by
+    # the literal name "talos-versions" via configMapKeyRef, a plain CRD field
+    # Kustomize's built-in name-reference transformer does not know to rewrite
+    # (it only rewrites references inside recognised core/PodSpec-shaped
+    # fields, and upgrade.cattle.io/v1 Plan is neither). A stable name is what
+    # keeps that reference correct; nothing here needs restart-on-change
+    # semantics since a version bump already changes spec.version, which is
+    # what actually triggers the upgrade.
+    options:
+      disableNameSuffixHash: true
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: talos-versions
+      fieldPath: data.TALOS_VERSION
+    targets:
+      - select:
+          kind: Plan
+          name: talos-controlplane
+        fieldPaths:
+          - spec.version
+      - select:
+          kind: Plan
+          name: talos-worker
+        fieldPaths:
+          - spec.version
+      - select:
+          kind: Plan
+          name: talos-on-demand
+        fieldPaths:
+          - spec.version
+      # Image tags: replace only the portion after the last ":" so the
+      # registry/repo prefix is untouched.
+      - select:
+          kind: Plan
+          name: talos-controlplane
+        fieldPaths:
+          - spec.upgrade.image
+        options:
+          delimiter: ":"
+          index: 1
+      - select:
+          kind: Plan
+          name: talos-worker
+        fieldPaths:
+          - spec.prepare.image
+          - spec.upgrade.image
+        options:
+          delimiter: ":"
+          index: 1
+      - select:
+          kind: Plan
+          name: talos-on-demand
+        fieldPaths:
+          - spec.upgrade.image
+        options:
+          delimiter: ":"
+          index: 1
