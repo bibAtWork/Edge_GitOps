@@ -251,6 +251,18 @@ jobs:
           # instead: a PR that skips a minor fails CI and needs a human to
           # land the intermediate minor(s) first, the same way a downgrade
           # needs the confirmed-downgrade label rather than applying freely.
+          #
+          # Known limitation (round 5 code review): this compares git to
+          # git -- the PR's pin against its base branch's -- not against
+          # what the cluster is actually running. upgrade-k8s itself
+          # validates IsSupported() against the real running version, which
+          # this cannot see. If bumps land in git faster than they get
+          # applied (a missed window, a failed Job), the pin can drift two
+          # or more minors ahead of the cluster while every individual PR
+          # still passes this check one minor at a time. Noted rather than
+          # built into more CI: talos_fleet_k8s_version_drift (fleet-health,
+          # 9343199) is what actually catches that case, by comparing the
+          # running version against the pin directly.
           VF=cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
           base_ref="origin/${{ github.event.pull_request.base.ref }}"
 
