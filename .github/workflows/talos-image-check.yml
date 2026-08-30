@@ -197,12 +197,31 @@ jobs:
       - name: Verify the Kubernetes version pin is a real release
         run: |
           set -euo pipefail
-          # kubernetes/kubernetes tags every release vX.Y.Z. A single ref
-          # lookup (not the releases list) sits comfortably inside GitHub's
-          # unauthenticated rate limit even if this runs on every PR.
+          # kubernetes/kubernetes tags every release vX.Y.Z. Two guards,
+          # because either one alone lets a pre-release through -- found in
+          # code review on PR #386 (round 2):
+          #
+          # 1. The pin must be a plain vX.Y.Z. A -rc/-alpha/-beta pin resolves
+          #    to a real tag and would otherwise pass the lookup below.
+          # 2. The EXACT-match ref endpoint (/git/ref/, singular). The plural
+          #    /git/refs/ has no GET route at all in GitHub's current REST API
+          #    spec (only PATCH/DELETE) -- the historical GET form some code
+          #    still relies on is /git/matching-refs/, which is explicitly a
+          #    PREFIX match: "If the :ref doesn't exist in the repository, but
+          #    existing refs start with :ref, they will be returned as an
+          #    array" (confirmed directly against github/rest-api-description's
+          #    published OpenAPI spec). Querying that form for v1.36.3 would
+          #    answer positively off a v1.36.3-rc.0 tag alone -- passing the
+          #    check on a version that was never actually released. /git/ref/
+          #    (git/get-ref in the same spec) is documented 200/404/409 with
+          #    no prefix behavior.
           v=$(grep -oP '^KUBERNETES_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
+          if ! printf '%s' "$v" | grep -qP '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::KUBERNETES_VERSION is '$v', which is not a plain vX.Y.Z release tag. Pre-release tags (-rc.N, -alpha.N, -beta.N) are not permitted as an upgrade target."
+            exit 1
+          fi
           code=$(curl -s -o /dev/null -w '%{http_code}' \
-            "https://api.github.com/repos/kubernetes/kubernetes/git/refs/tags/$v")
+            "https://api.github.com/repos/kubernetes/kubernetes/git/ref/tags/$v")
           if [ "$code" = "200" ]; then
             echo "  ok    kubernetes/kubernetes@$v exists"
           else
