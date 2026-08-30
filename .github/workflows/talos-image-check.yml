@@ -335,6 +335,14 @@ jobs:
             'select(.kind=="Plan" and .metadata.name=="talos-kubernetes") | .spec.upgrade.image | sub(".*:", "")' "$TALOS_VERSION"
           check "talos-fleet-health DESIRED_TALOS_VERSION" \
             'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name=="check") | .env[] | select(.name=="DESIRED_TALOS_VERSION") | .value' "$TALOS_VERSION"
+          # Round 4 code review found this was the one replacements target
+          # (of 11) with no corresponding check -- DESIRED_KUBERNETES_VERSION
+          # is wired in config/kustomization.yaml but nothing here asserted
+          # it actually resolves, so a broken select there would have shipped
+          # the stale placeholder with TalosFleetK8sVersionDrift silently
+          # blind, the exact class of bug this step exists to catch.
+          check "talos-fleet-health DESIRED_KUBERNETES_VERSION" \
+            'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name=="check") | .env[] | select(.name=="DESIRED_KUBERNETES_VERSION") | .value' "$KUBERNETES_VERSION"
 
           exit $fail
 
