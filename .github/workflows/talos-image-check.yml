@@ -346,6 +346,117 @@ jobs:
 
           exit $fail
 
+      - name: Verify the fleet-health schedule does not collide with an upgrade window
+        run: |
+          set -euo pipefail
+          # Code review on PR #386 (round 4), blocking: 4f5f64b moved the OS
+          # upgrade windows to midday without checking whether
+          # talos-fleet-health's schedule still avoided them -- 12:35 UTC
+          # landed inside the control-plane window (12:00-14:00), which would
+          # have paged TalosFleetUnreadyNodes as critical on every routine
+          # Sunday upgrade. That relationship (schedule clear of every
+          # windowed Plan's window) was documented as an assumption in a
+          # comment, not enforced anywhere, so nothing caught the window move
+          # breaking it. This makes it a checked invariant instead: build for
+          # real, then expand the CronJob's cron schedule and each Plan's
+          # window for Sunday, and fail if any fire time falls inside any
+          # window.
+          #
+          # This is deliberately independent of TalosFleetVersionSkew/
+          # K8sVersionSkew/UnreadyNodes now carrying `for: 8h` headroom
+          # (04-grafana/helmrelease.yaml) that tolerates a single mid-window
+          # sample regardless -- that makes a collision non-fatal to the
+          # alerting, this stops the collision from existing in the first
+          # place. Defense in depth, not redundant: the review's own
+          # reasoning was that re-picking a schedule alone "leaves the same
+          # trap armed for the next person", and `for:` headroom alone still
+          # means a genuine problem is detected up to 8h later than it could
+          # be. Both together is the actual fix.
+          RENDERED=$(mktemp)
+          kustomize build cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
+
+          export CRON=$(yq 'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.schedule' "$RENDERED")
+          echo "fleet-health schedule: $CRON"
+
+          export WINDOWS=""
+          for plan in talos-controlplane talos-worker talos-kubernetes; do
+            days=$(yq "select(.kind==\"Plan\" and .metadata.name==\"$plan\") | .spec.window.days | join(\",\")" "$RENDERED")
+            start=$(yq "select(.kind==\"Plan\" and .metadata.name==\"$plan\") | .spec.window.startTime" "$RENDERED")
+            end=$(yq "select(.kind==\"Plan\" and .metadata.name==\"$plan\") | .spec.window.endTime" "$RENDERED")
+            echo "  $plan window: days=$days $start-$end"
+            WINDOWS="$WINDOWS$plan|$days|$start|$end"$'\n'
+          done
+          export WINDOWS
+
+          # Piped via stdin and textwrap.dedent'd, rather than a plain
+          # heredoc feeding python3 directly: this step's `run:` block is
+          # YAML-indented, a plain `<<PYEOF` heredoc keeps that indentation
+          # as literal content, and Python rejects an indented top-level
+          # statement with IndentationError -- caught by actually running
+          # this, not by inspection, on a first version of this step that
+          # embedded the script directly. CRON/WINDOWS travel via the
+          # environment rather than string-interpolated into the script
+          # source, for the same reason guard-downgrade's PR_LABELS does:
+          # keeps the script's own quoting independent of whatever the
+          # values happen to contain. The heredoc delimiter is quoted
+          # ('PYEOF') so bash performs no expansion inside it at all -- the
+          # script can use $, backticks and quotes freely.
+          python3 -c "
+          import sys, textwrap
+          exec(textwrap.dedent(sys.stdin.read()))
+          " <<'PYEOF'
+          import os, sys
+
+          cron = os.environ['CRON']
+          windows_raw = os.environ['WINDOWS']
+
+          def expand_field(field, lo, hi):
+              values = set()
+              for part in field.split(','):
+                  if part == '*':
+                      values.update(range(lo, hi + 1))
+                  elif '/' in part:
+                      base, step = part.split('/')
+                      step = int(step)
+                      start = lo if base == '*' else int(base)
+                      values.update(range(start, hi + 1, step))
+                  elif '-' in part:
+                      a, b = part.split('-')
+                      values.update(range(int(a), int(b) + 1))
+                  else:
+                      values.add(int(part))
+              return sorted(values)
+
+          def cron_fire_minutes_for_sunday(cron):
+              minute_f, hour_f, dom_f, month_f, dow_f = cron.split()
+              dow_values = set(expand_field(dow_f, 0, 7)) if dow_f != '*' else set(range(0, 8))
+              dow_values = {0 if d == 7 else d for d in dow_values}
+              if 0 not in dow_values:  # 0 == Sunday
+                  return []
+              minutes = expand_field(minute_f, 0, 59)
+              hours = expand_field(hour_f, 0, 23)
+              return sorted(h * 60 + m for h in hours for m in minutes)
+
+          def to_minutes(hhmm):
+              h, m = hhmm.split(':')
+              return int(h) * 60 + int(m)
+
+          fires = cron_fire_minutes_for_sunday(cron)
+          fail = False
+          for line in windows_raw.strip().splitlines():
+              name, days, start, end = line.split('|')
+              if 'su' not in days.lower().split(','):
+                  continue
+              s, e = to_minutes(start), to_minutes(end)
+              for f in fires:
+                  if s <= f <= e:
+                      print(f"::error::talos-fleet-health fires at {f // 60:02d}:{f % 60:02d} UTC on Sunday, inside {name}'s window ({start}-{end}). A check that samples mid-window can report a legitimately cordoned/rebooting node as unready -- move the schedule clear of every windowed Plan's window.")
+                      fail = True
+          if not fail:
+              print("ok    schedule clear of every windowed Plan's window")
+          sys.exit(1 if fail else 0)
+          PYEOF
+
   guard-downgrade:
     runs-on: ubuntu-latest
     permissions:
