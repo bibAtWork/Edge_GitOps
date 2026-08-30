@@ -5,8 +5,10 @@ resources:
   - plans/talos-worker-upgrade.yaml
   # Inert until a node is labelled talos.homelab/upgrade-now. See the file.
   - plans/talos-on-demand-upgrade.yaml
-  # Fires once against a single labelled node; talosctl upgrade-k8s
-  # orchestrates the whole cluster's Kubernetes rollout itself. See the file.
+  # Matches every control-plane node, same selector as the OS control-plane
+  # Plan -- talosctl upgrade-k8s orchestrates the whole cluster's Kubernetes
+  # rollout itself regardless of which node triggers it, and concurrency:1 +
+  # exclusive:true serialise repeated invocations. See the file.
   - plans/talos-kubernetes-upgrade.yaml
   - fleet-health-script-configmap.yaml
   - fleet-health-cronjob.yaml
