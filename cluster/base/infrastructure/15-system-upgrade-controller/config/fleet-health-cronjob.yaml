@@ -1,20 +1,21 @@
-# Daily check that every node reports the SAME Talos version, that the
-# fleet's version matches ../versions.env, and that every node is Ready.
+# Every 6 hours, checks that every node reports the SAME Talos version, that
+# the fleet's version matches ../versions.env, and that every node is Ready.
 #
 # Same no-RBAC, no-ServiceAccount design as 36-talos-cve-watch, for the same
 # reason -- see fleet-health-script-configmap.yaml for why this lives here
 # instead of alongside it as its own top-level infra component.
 #
-# 06:35 UTC: fifteen minutes after talos-cve-watch (06:20), so the two never
-# contend for vmsingle at the same instant, and still clear of the backup
-# jobs occupying 01:00-09:00 on the hour and :17/:25/:40 hourly.
+# Minute :35 on a 6-hour cadence (00:35, 06:35, 12:35, 18:35 UTC) so it never
+# lands on the backup jobs' hourly :17/:25/:40 marks, and the 06:35 occurrence
+# still sits fifteen minutes after talos-cve-watch (06:20) so the two never
+# contend for vmsingle at the same instant.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: talos-fleet-health
   namespace: monitoring
 spec:
-  schedule: "35 6 * * *"
+  schedule: "35 */6 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
