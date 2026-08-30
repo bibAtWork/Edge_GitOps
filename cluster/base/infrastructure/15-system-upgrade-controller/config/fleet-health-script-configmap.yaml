@@ -141,6 +141,26 @@ data:
             raise RuntimeError(
                 f"kube_node_status_condition has no Ready sample for: {missing_ready}"
             )
+        # The reverse direction of the same check. A node kube_node_status_
+        # condition knows about but that has no PARSEABLE version in
+        # kube_node_info -- os_image not matching the "Talos (vX.Y.Z)"
+        # pattern, or an empty kubelet_version -- was silently dropped from
+        # talos_versions/kubernetes_versions by running_versions()'s `if m:`
+        # / `if kv:` guards, and from there from skew_drift() and the
+        # unready_nodes computation below, both of which only ever iterate
+        # the version dicts. The fleet could report "uniform, on the
+        # declared version, all Ready" while one node contributed nothing to
+        # any of those checks at all. Found on round 6 code review.
+        missing_talos_version = [n for n in node_ready if n not in talos_versions]
+        if missing_talos_version:
+            raise RuntimeError(
+                f"kube_node_info has no parseable Talos version for: {missing_talos_version}"
+            )
+        missing_k8s_version = [n for n in node_ready if n not in kubernetes_versions]
+        if missing_k8s_version:
+            raise RuntimeError(
+                f"kube_node_info has no parseable Kubernetes version for: {missing_k8s_version}"
+            )
 
         talos_skew, talos_drift = skew_drift(talos_versions, DESIRED_TALOS_VERSION, "talos")
         k8s_skew, k8s_drift = skew_drift(
