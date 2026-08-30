@@ -126,15 +126,27 @@ data:
             raise RuntimeError("kube_node_info returned no kubelet_version label")
         node_ready = ready_status()
         # A node kube_node_info knows about but kube_node_status_condition does
-        # not (or vice versa) is itself a fault, not something to skip past --
-        # a missing Ready sample is treated as "not ready" below rather than
-        # silently excluded from the count.
+        # not is itself a fault, not something to paper over as "not ready".
+        #
+        # Round 4 code review found the previous version of this comment
+        # described the wrong fix: defaulting a missing sample to "not ready"
+        # means kube_node_status_condition returning NOTHING AT ALL --
+        # kube-state-metrics down, the metric renamed -- reports every single
+        # node as unready, a fabricated fleet-wide-outage page from a check
+        # that actually just couldn't get data. That failure belongs on
+        # check_failed (TalosFleetHealthCheckFailing already exists to alert
+        # on exactly this), not synthesized as TalosFleetUnreadyNodes.
+        missing_ready = [n for n in talos_versions if n not in node_ready]
+        if missing_ready:
+            raise RuntimeError(
+                f"kube_node_status_condition has no Ready sample for: {missing_ready}"
+            )
 
         talos_skew, talos_drift = skew_drift(talos_versions, DESIRED_TALOS_VERSION, "talos")
         k8s_skew, k8s_drift = skew_drift(
             kubernetes_versions, DESIRED_KUBERNETES_VERSION, "kubernetes"
         )
-        unready_nodes = [n for n in talos_versions if not node_ready.get(n, False)]
+        unready_nodes = [n for n in talos_versions if not node_ready[n]]
 
         if unready_nodes:
             print(f"NOT READY: {unready_nodes}")
