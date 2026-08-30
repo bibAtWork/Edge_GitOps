@@ -53,13 +53,29 @@ spec:
   exclusive: true
   concurrency: 1
   serviceAccountName: system-upgrade-controller
-  # Sunday, after both OS Plans' windows, so a Kubernetes bump never lands
-  # mid-OS-upgrade. Independent of them otherwise -- this Plan's own window
-  # means a Kubernetes-only bump does not wait on an unrelated Talos OS PR.
+  # Sunday, immediately BEFORE the control-plane OS window (20:00), not after
+  # both OS windows as an earlier version of this comment claimed.
+  #
+  # Round 3 code review found that claim was wrong on the actual numbers:
+  # control-plane runs 20:00-22:00, worker 22:00-23:59, and this Plan was at
+  # 23:00-23:59 -- fully NESTED inside the worker window, not after it. Both
+  # Plans are exclusive:true, so a worker OS upgrade still in flight at 23:00
+  # holds SUC's one exclusive slot for the rest of its window, and this Plan
+  # gets no turn at all that week -- silently, since an exclusive Plan that
+  # never runs is not an error condition. There is no room to move this
+  # later: 23:59 is the last minute of the day a same-day window can end.
+  #
+  # Moved earlier instead, ending exactly when control-plane's window opens.
+  # Ordering k8s before the Talos OS bump is fine either way -- the two are
+  # decoupled by design -- and running the faster, non-disruptive change
+  # first (upgrade-k8s does not reboot anything) before the reboot-heavy OS
+  # cycle starts is if anything the more sensible order. 19:00-20:00 sits in
+  # the same 09:00-01:00 gap the OS windows already rely on being clear of
+  # backup jobs (see the control-plane Plan for the full daily schedule).
   window:
     days: ["su"]
-    startTime: "23:00"
-    endTime: "23:59"
+    startTime: "19:00"
+    endTime: "20:00"
     timeZone: UTC
   nodeSelector:
     matchLabels:
