@@ -5,6 +5,9 @@ resources:
   - plans/talos-worker-upgrade.yaml
   # Inert until a node is labelled talos.homelab/upgrade-now. See the file.
   - plans/talos-on-demand-upgrade.yaml
+  # Fires once against a single labelled node; talosctl upgrade-k8s
+  # orchestrates the whole cluster's Kubernetes rollout itself. See the file.
+  - plans/talos-kubernetes-upgrade.yaml
 
 # Single source of truth for every Talos version pin the Plans above use.
 # Generates the talos-versions ConfigMap and, via `replacements` below,
@@ -78,3 +81,24 @@ replacements:
         options:
           delimiter: ":"
           index: 1
+      # The Kubernetes-upgrade Plan's own image is the talosctl TOOL, which
+      # still tracks TALOS_VERSION -- its spec.version is the Kubernetes
+      # target, sourced from KUBERNETES_VERSION below.
+      - select:
+          kind: Plan
+          name: talos-kubernetes
+        fieldPaths:
+          - spec.upgrade.image
+        options:
+          delimiter: ":"
+          index: 1
+  - source:
+      kind: ConfigMap
+      name: talos-versions
+      fieldPath: data.KUBERNETES_VERSION
+    targets:
+      - select:
+          kind: Plan
+          name: talos-kubernetes
+        fieldPaths:
+          - spec.version

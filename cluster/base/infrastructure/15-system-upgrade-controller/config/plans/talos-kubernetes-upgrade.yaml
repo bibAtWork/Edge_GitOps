@@ -1,0 +1,79 @@
+# Automated Kubernetes version upgrade, independent of the Talos OS upgrade.
+#
+# ── Why this is a separate Plan, not folded into the OS upgrade ─────────────
+# Talos bundles a default Kubernetes version per release, but `talosctl
+# upgrade-k8s` lets that move on its own schedule. Coupling the two silently
+# would mean nobody can bump Kubernetes without also rebooting every node for
+# a Talos OS change, or vice versa -- so ../versions.env tracks
+# KUBERNETES_VERSION as its own field, Renovate watches it as its own grouped
+# PR, and this Plan applies it as its own upgrade.
+#
+# ── Why this targets exactly one node ────────────────────────────────────────
+# Unlike a Talos OS upgrade, `upgrade-k8s` is not a per-node operation: pointed
+# at any one control-plane node's Talos API, it orchestrates the rolling
+# upgrade of every control-plane and worker component in the cluster itself --
+# staged, health-checked, one node at a time -- via the Talos API, not via
+# Kubernetes scheduling. Selecting every control-plane node the way the OS
+# Plans do would run the same cluster-wide upgrade multiple times
+# concurrently, which is redundant at best and a race at worst.
+#
+# So this Plan's nodeSelector matches a dedicated label placed on exactly ONE
+# control-plane node, a one-time bootstrap step:
+#
+#   kubectl label node <control-plane-node> talos.homelab/k8s-upgrade-runner=""
+#
+# `concurrency: 1` and `exclusive: true` are still set, matching the other
+# Plans, but the real exactly-once guarantee is the label existing on a single
+# node -- SUC has no notion of "run this on any one matching node and stop".
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: talos-kubernetes
+  namespace: cattle-system
+spec:
+  # Overwritten at build time from ../versions.env's KUBERNETES_VERSION -- edit
+  # that file, not this field. Note this is the Kubernetes version, not the
+  # Talos version; the talosctl tool image below still tracks TALOS_VERSION,
+  # since talosctl is what runs the upgrade regardless of what it upgrades.
+  version: v1.32.3
+  exclusive: true
+  concurrency: 1
+  serviceAccountName: system-upgrade-controller
+  # Sunday, after both OS Plans' windows, so a Kubernetes bump never lands
+  # mid-OS-upgrade. Independent of them otherwise -- this Plan's own window
+  # means a Kubernetes-only bump does not wait on an unrelated Talos OS PR.
+  window:
+    days: ["su"]
+    startTime: "23:00"
+    endTime: "23:59"
+    timeZone: UTC
+  nodeSelector:
+    matchLabels:
+      talos.homelab/k8s-upgrade-runner: ""
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  secrets:
+    - name: talos-credentials
+      path: /var/run/secrets/talos
+  cordon: true
+  upgrade:
+    # Tag overwritten at build time from ../versions.env's TALOS_VERSION -- the
+    # talosctl tool version, not the Kubernetes target (spec.version above).
+    image: ghcr.io/siderolabs/talosctl:v1.13.9
+    # No `command:` -- same reasoning as the OS Plans: this image's entrypoint
+    # is /talosctl and it has no shell.
+    envs:
+      - name: NODE_IP
+        valueFrom:
+          fieldRef:
+            fieldPath: status.hostIP
+    args:
+      - --talosconfig=/var/run/secrets/talos/talosconfig
+      - --nodes=$(NODE_IP)
+      - upgrade-k8s
+      # SYSTEM_UPGRADE_PLAN_LATEST_VERSION resolves from spec.version above,
+      # i.e. KUBERNETES_VERSION -- upgrade-k8s takes the Kubernetes version
+      # directly, with no installer image or schematic involved at all.
+      - --to=$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
