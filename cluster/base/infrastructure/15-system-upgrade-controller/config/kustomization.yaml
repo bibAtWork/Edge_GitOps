@@ -8,6 +8,8 @@ resources:
   # Fires once against a single labelled node; talosctl upgrade-k8s
   # orchestrates the whole cluster's Kubernetes rollout itself. See the file.
   - plans/talos-kubernetes-upgrade.yaml
+  - fleet-health-script-configmap.yaml
+  - fleet-health-cronjob.yaml
 
 # Single source of truth for every Talos version pin the Plans above use.
 # Generates the talos-versions ConfigMap and, via `replacements` below,
@@ -92,6 +94,11 @@ replacements:
         options:
           delimiter: ":"
           index: 1
+      - select:
+          kind: CronJob
+          name: talos-fleet-health
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=check].env.[name=DESIRED_TALOS_VERSION].value
   - source:
       kind: ConfigMap
       name: talos-versions

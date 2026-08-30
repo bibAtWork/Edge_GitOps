@@ -1,0 +1,76 @@
+# Daily check that every node reports the SAME Talos version, that the
+# fleet's version matches ../versions.env, and that every node is Ready.
+#
+# Same no-RBAC, no-ServiceAccount design as 36-talos-cve-watch, for the same
+# reason -- see fleet-health-script-configmap.yaml for why this lives here
+# instead of alongside it as its own top-level infra component.
+#
+# 06:35 UTC: fifteen minutes after talos-cve-watch (06:20), so the two never
+# contend for vmsingle at the same instant, and still clear of the backup
+# jobs occupying 01:00-09:00 on the hour and :17/:25/:40 hourly.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: talos-fleet-health
+  namespace: monitoring
+spec:
+  schedule: "35 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: talos-fleet-health
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: check
+              image: python:3.14.7-slim
+              command: ["python3", "/script/check.py"]
+              env:
+                - name: VM_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                # Overwritten at build time from ../versions.env's
+                # TALOS_VERSION by the `replacements` block in
+                # ../kustomization.yaml. The placeholder is a real version so
+                # `kustomize build` still produces something sane if
+                # replacements were ever removed.
+                - name: DESIRED_TALOS_VERSION
+                  value: v1.13.9
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 192Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: talos-fleet-health-script
+            - name: tmp
+              emptyDir: {}

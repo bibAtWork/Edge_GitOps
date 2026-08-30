@@ -1,0 +1,143 @@
+# Placed alongside the Plans and versions.env, not under its own top-level
+# infra component the way 36-talos-cve-watch is, because it needs a build-time
+# value (DESIRED_TALOS_VERSION in cronjob.yaml) from the talos-versions
+# ConfigMap generated in this same kustomization tree. `replacements` only
+# resolves within one kustomize build, and 1-node's operator layer (where
+# 36-talos-cve-watch lives) and this config layer are two separate Flux
+# Kustomizations applied in sequence -- so the source and the target of that
+# replacement have to live in the same directory.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: talos-fleet-health-script
+  namespace: monitoring
+data:
+  check.py: |
+    # Compares every node's ACTUAL running Talos version against every other
+    # node's (skew) and against the version this repo declares (drift), and
+    # checks each node's Ready condition. Reports all three as metrics.
+    #
+    # ── Why this is separate from talos-cve-watch ────────────────────────────
+    # talos-cve-watch answers "is the running version affected by a known
+    # advisory". This answers a different pair of questions that mattered
+    # enough to get asked explicitly: are all nodes even on the SAME version
+    # (a partial rollout stuck halfway, or a node that silently never
+    # upgraded), and does the fleet match what git says it should be running.
+    # Both read kube_node_info the same way and need no Kubernetes API access
+    # to do it, for the same reason the CVE watcher doesn't: the pin in git is
+    # what the cluster is supposed to run, the node is what it does run, and
+    # those two have already drifted here once for 44 days without anything
+    # noticing.
+    import json
+    import os
+    import re
+    import time
+    import urllib.parse
+    import urllib.request
+
+    VM = os.environ["VM_URL"]
+    VM_IMPORT = os.environ["VM_IMPORT_URL"]
+    # Baked in at build time from versions.env via the `replacements` block in
+    # ../kustomization.yaml -- see the ConfigMap generator there.
+    DESIRED_VERSION = os.environ["DESIRED_TALOS_VERSION"]
+
+
+    def get(url, timeout=30):
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.read().decode()
+
+
+    def running_versions():
+        """Talos versions live on kube_node_info as os_image='Talos (v1.13.6)'."""
+        q = urllib.parse.urlencode({"match[]": "kube_node_info"})
+        body = get(f"{VM}/api/v1/series?{q}")
+        out = {}
+        for s in json.loads(body).get("data", []):
+            m = re.search(r"Talos \(?(v[\d.]+)\)?", s.get("os_image", ""))
+            if m:
+                out.setdefault(s.get("node", "?"), m.group(1))
+        return out
+
+
+    def ready_status():
+        """kube_node_status_condition{condition="Ready",status="true"} == 1 per node."""
+        q = urllib.parse.urlencode(
+            {"query": 'kube_node_status_condition{condition="Ready",status="true"}'}
+        )
+        body = get(f"{VM}/api/v1/query?{q}")
+        out = {}
+        for r in json.loads(body).get("data", {}).get("result", []):
+            node = r.get("metric", {}).get("node", "?")
+            value = r.get("value", [None, "0"])[1]
+            out[node] = value == "1"
+        return out
+
+
+    def push(lines):
+        data = ("\n".join(lines) + "\n").encode()
+        req = urllib.request.Request(VM_IMPORT, data=data, method="POST")
+        with urllib.request.urlopen(req, timeout=20) as r:
+            r.read()
+
+
+    failed = 0
+    detail = ""
+    node_versions = {}
+    node_ready = {}
+
+    try:
+        node_versions = running_versions()
+        if not node_versions:
+            raise RuntimeError("kube_node_info returned no Talos os_image label")
+        node_ready = ready_status()
+        # A node kube_node_info knows about but kube_node_status_condition does
+        # not (or vice versa) is itself a fault, not something to skip past --
+        # a missing Ready sample is treated as "not ready" below rather than
+        # silently excluded from the count.
+
+        distinct = set(node_versions.values())
+        skew = 0 if len(distinct) <= 1 else 1
+        drift_nodes = [n for n, v in node_versions.items() if v != DESIRED_VERSION]
+        drift = 1 if drift_nodes else 0
+        unready_nodes = [n for n in node_versions if not node_ready.get(n, False)]
+
+        print(f"desired={DESIRED_VERSION} running={node_versions}")
+        if skew:
+            print(f"  SKEW: nodes disagree on version: {sorted(distinct)}")
+        if drift:
+            print(f"  DRIFT: not on {DESIRED_VERSION}: {drift_nodes}")
+        if unready_nodes:
+            print(f"  NOT READY: {unready_nodes}")
+        if not (skew or drift or unready_nodes):
+            print("  fleet is uniform, on the declared version, and all nodes Ready")
+
+    except Exception as exc:  # noqa: BLE001 -- any failure must be reported, not swallowed
+        failed = 1
+        detail = str(exc)
+        print(f"CHECK FAILED: {detail}")
+
+    lines = [
+        f"talos_fleet_health_check_last_run_timestamp {int(time.time())}",
+        f"talos_fleet_health_check_failed {failed}",
+    ]
+
+    # Emitted even when the fleet is clean, same reasoning as talos-cve-watch:
+    # a gauge that only appears when something is wrong cannot be alerted on
+    # with a simple comparison, and reads as NoData rather than as "healthy".
+    if not failed:
+        lines.append(f"talos_fleet_version_skew {skew}")
+        lines.append(f"talos_fleet_version_drift {drift}")
+        lines.append(f"talos_fleet_unready_nodes {len(unready_nodes)}")
+        for node, version in node_versions.items():
+            ready = 1 if node_ready.get(node, False) else 0
+            lines.append(
+                f'talos_fleet_node_info{{node="{node}",version="{version}"}} {ready}'
+            )
+
+    try:
+        push(lines)
+        print(f"pushed {len(lines)} metrics")
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARN: metric push failed: {exc}")
+
+    raise SystemExit(failed)
