@@ -51,7 +51,7 @@
     },
     {
       "customType": "regex",
-      "description": "Kubernetes control-plane/kubelet version in versions.env, upgraded independently of TALOS_VERSION via talosctl upgrade-k8s (plans/talos-kubernetes-upgrade.yaml). Grouped separately from talos and never auto-merged: the upgrade touches every node's control-plane components. The Talos image workflow confirms this is a real Kubernetes release; talosctl upgrade-k8s itself validates Talos/Kubernetes compatibility at upgrade time and refuses an unsupported pairing.",
+      "description": "Kubernetes control-plane/kubelet version in versions.env, upgraded independently of TALOS_VERSION via talosctl upgrade-k8s (plans/talos-kubernetes-upgrade.yaml). Grouped separately from talos and never auto-merged: the upgrade touches every node's control-plane components. This manager always proposes the newest kubernetes/kubernetes release it finds, with no notion of stepping one minor at a time -- Renovate has no setting for that on a raw regex-matched pin. talosctl upgrade-k8s only supports an N -> N or N -> N+1 minor step, so a PR from this manager that skips a minor is expected to fail the Talos image workflow's dedicated check, not something that check is a defensive fallback against.",
       "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/versions\\.env$/"],
       "matchStrings": ["KUBERNETES_VERSION=(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",
@@ -67,6 +67,14 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "The built-in kubernetes manager line-matches every `image:` field in any /cluster/.+\\.yaml$ file regardless of `kind:`, so without this it independently proposes bumps to the talosctl image tags inside the SUC Plan files (talos-controlplane/worker/on-demand/kubernetes-upgrade.yaml). Those are Kustomize `replacements` placeholders now (config/kustomization.yaml), not pins -- a bump from this manager would edit a value that gets overwritten at build time anyway, in an ungrouped PR unrelated to the versions.env-driven update.",
+      "matchManagers": ["kubernetes"],
+      "matchFileNames": [
+        "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/*.yaml"
+      ],
+      "enabled": false
+    },
     {
       "description": "Group all Talos ecosystem updates into one PR. talosctl is no longer tracked separately -- its image tag is now the same Kustomize-replacements field as TALOS_VERSION (see config/kustomization.yaml), so it cannot drift from it the way it used to and needs no manager of its own.",
       "matchPackageNames": ["siderolabs/talos"],
