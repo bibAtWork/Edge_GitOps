@@ -82,6 +82,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
+      - name: Install kustomize
+        run: |
+          VERSION=v5.8.1
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kustomize
+          echo "kustomize $(kustomize version)"
+
       - name: Verify Talos version pin agrees with the machine config
         run: |
           set -euo pipefail
@@ -268,6 +276,67 @@ jobs:
             exit 1
           fi
           echo "  ok    $old -> $new (delta: $delta minor)"
+
+      - name: Verify the Kustomize replacements actually resolved
+        run: |
+          set -euo pipefail
+          # Code review on PR #386 (round 2), verified empirically here:
+          # a `replacements` target whose `select` matches nothing fails
+          # silently. `kustomize build` exits 0 and the field just keeps
+          # whatever literal was written in the source Plan file -- which
+          # commonly happens to be the version that was correct when the
+          # placeholder was last hand-edited, so a stale-but-plausible-looking
+          # value ships with no error anywhere. Renaming a Plan (a typo in
+          # `metadata.name`, or in a `replacements[].targets[].select.name`)
+          # is enough to trigger it. The per-field CI cross-check this PR
+          # removed (the nine-way pin comparison) was incidentally the only
+          # thing that would have caught this class of drift; this replaces
+          # that coverage for the new single-source design.
+          #
+          # So: build for real, then assert -- by kind and name, not by
+          # grepping the whole file -- that every field `replacements` is
+          # supposed to drive actually equals versions.env's value.
+          RENDERED=$(mktemp)
+          kustomize build cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
+
+          TALOS_VERSION=$(grep -oP '^TALOS_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
+          KUBERNETES_VERSION=$(grep -oP '^KUBERNETES_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
+
+          fail=0
+          check() {
+            local desc="$1" filter="$2" expected="$3"
+            local actual
+            actual=$(yq "$filter" "$RENDERED" 2>&1) || actual="<yq error: $actual>"
+            if [ "$actual" = "$expected" ]; then
+              echo "  ok    $desc = $expected"
+            else
+              echo "::error::$desc is '$actual', expected '$expected' (from versions.env). A Kustomize \`replacements\` target that matches nothing fails silently rather than erroring -- this usually means the resource was renamed and the replacement's \`select\` no longer finds it."
+              fail=1
+            fi
+          }
+
+          check "talos-controlplane spec.version" \
+            'select(.kind=="Plan" and .metadata.name=="talos-controlplane") | .spec.version' "$TALOS_VERSION"
+          check "talos-controlplane spec.upgrade.image tag" \
+            'select(.kind=="Plan" and .metadata.name=="talos-controlplane") | .spec.upgrade.image | sub(".*:", "")' "$TALOS_VERSION"
+          check "talos-worker spec.version" \
+            'select(.kind=="Plan" and .metadata.name=="talos-worker") | .spec.version' "$TALOS_VERSION"
+          check "talos-worker spec.prepare.image tag" \
+            'select(.kind=="Plan" and .metadata.name=="talos-worker") | .spec.prepare.image | sub(".*:", "")' "$TALOS_VERSION"
+          check "talos-worker spec.upgrade.image tag" \
+            'select(.kind=="Plan" and .metadata.name=="talos-worker") | .spec.upgrade.image | sub(".*:", "")' "$TALOS_VERSION"
+          check "talos-on-demand spec.version" \
+            'select(.kind=="Plan" and .metadata.name=="talos-on-demand") | .spec.version' "$TALOS_VERSION"
+          check "talos-on-demand spec.upgrade.image tag" \
+            'select(.kind=="Plan" and .metadata.name=="talos-on-demand") | .spec.upgrade.image | sub(".*:", "")' "$TALOS_VERSION"
+          check "talos-kubernetes spec.version" \
+            'select(.kind=="Plan" and .metadata.name=="talos-kubernetes") | .spec.version' "$KUBERNETES_VERSION"
+          check "talos-kubernetes spec.upgrade.image tag" \
+            'select(.kind=="Plan" and .metadata.name=="talos-kubernetes") | .spec.upgrade.image | sub(".*:", "")' "$TALOS_VERSION"
+          check "talos-fleet-health DESIRED_TALOS_VERSION" \
+            'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name=="check") | .env[] | select(.name=="DESIRED_TALOS_VERSION") | .value' "$TALOS_VERSION"
+
+          exit $fail
 
   guard-downgrade:
     runs-on: ubuntu-latest
