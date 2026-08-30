@@ -1732,11 +1732,11 @@ spec:
                 data:
                   - refId: A
                     relativeTimeRange:
-                      from: 28800
+                      from: 691200
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'last_over_time(talos_fleet_version_drift[8h])'
+                      expr: 'min_over_time(talos_fleet_version_drift[8d])'
                       instant: true
                       range: false
                       refId: A
@@ -1769,13 +1769,29 @@ spec:
                 # window -- a Tuesday merge means up to ~6 days where this
                 # condition is true and describes nothing more than normal
                 # operation. Gating on the actual window was considered and
-                # rejected as more complex than warranted; `for: 8d` instead
-                # spans one full week (the longest possible merge-to-window
-                # gap, plus the window itself, plus a day of buffer), so this
-                # only fires once an upgrade has had a full cycle to happen
-                # and still hasn't. Severity dropped to warning to match: a
-                # week-old drift is worth a look, not a page.
-                for: 8d
+                # rejected as more complex than warranted; a grace period
+                # spanning one full week (the longest possible merge-to-window
+                # gap, plus the window itself, plus a day of buffer) instead,
+                # so this only fires once an upgrade has had a full cycle to
+                # happen and still hasn't. Severity dropped to warning to
+                # match: a week-old drift is worth a look, not a page.
+                #
+                # Round 3 review found the grace period couldn't actually be
+                # `for: 8d`: Grafana's persistence.enabled: false (this file,
+                # above) means alert-instance pending state lives in an
+                # ephemeral SQLite DB, wiped on every pod restart -- and a
+                # HelmRelease reconcile, a node reboot, or one of the very
+                # Talos upgrades this alert watches for would all reset an
+                # 8-day wall-clock pending timer to zero, making the rule
+                # effectively inert. Moved the grace period into the query
+                # instead: min_over_time over 8 days of STORED samples in
+                # vmsingle (retention comfortably exceeds 8 days), true
+                # regardless of how many times Grafana itself has restarted
+                # in that span, with `for: 0m` since the 8 days now live in
+                # the expression rather than in pending-state duration.
+                # min_over_time ignores absent samples, so a missed
+                # talos-fleet-health run doesn't reset it either.
+                for: 0m
                 annotations:
                   summary: >-
                     A Talos node has not matched the version pinned in git for a week
