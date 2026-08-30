@@ -1658,6 +1658,216 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # ── Talos fleet health ──────────────────────────────────────
+              # Fed by the talos-fleet-health CronJob (every 6h), which
+              # compares each node's actual running Talos version against
+              # every other node's and against versions.env, and checks each
+              # node's Ready condition. Without these rules the metrics exist
+              # but nothing pages on them, which is the exact gap this whole
+              # mechanism was built to close.
+              #
+              # 8h windows: the job runs every 6h, +2h slack, same ratio as
+              # the daily/26h talos-advisory pair above. `for: 0m`, same
+              # reasoning as BackupScopeDrift -- a detected mismatch is real,
+              # not a blip, and the pushed value stays the "last" one for the
+              # full 6h until the next run supersedes it either way.
+              #
+              # Not tuned to tolerate a mid-rollout transient: the fixed
+              # :35-past-every-6th-hour schedule (00:35/06:35/12:35/18:35 UTC)
+              # never lands inside the Sunday 20:00-23:59 OS upgrade windows
+              # by construction, so on the 1-node profile this never fires
+              # during a routine upgrade. Unverified against an actual
+              # multi-node rolling upgrade, since this cluster runs 1-node
+              # today -- worth confirming the day 3-node is real, and adding
+              # `for:` headroom then if a rollout ever does overlap a check.
+              - uid: talos-fleet-version-skew
+                title: TalosFleetVersionSkew
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_version_skew[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Talos nodes disagree with each other on OS version
+                  description: >-
+                    talos-fleet-health found more than one distinct Talos version across nodes via kube_node_info. Identify the split with the talos_fleet_node_info series, which carries each node's version as a label. Either a rolling upgrade is genuinely in progress outside its expected window, or a node's upgrade stalled partway. Check `kubectl get jobs -n cattle-system` and the Plan status with `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: talos-fleet-version-drift
+                title: TalosFleetVersionDrift
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_version_drift[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A Talos node does not match the version pinned in git
+                  description: >-
+                    talos-fleet-health found at least one node NOT running TALOS_VERSION from versions.env. This is the exact failure mode this cluster already had once for 44 days (docs/backlog.md) with nothing detecting it -- an automated upgrade that silently never ran, or never completed. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: talos-fleet-unready-nodes
+                title: TalosFleetUnreadyNodes
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_unready_nodes[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A node is not Ready per talos-fleet-health
+                  description: >-
+                    talos-fleet-health found at least one node not reporting kube_node_status_condition{condition="Ready",status="true"}. Identify it with the talos_fleet_node_info series (its value is 0 for an unready node) and check `kubectl get nodes` and `kubectl describe node <name>` directly -- this alert is a lagging indicator (checked every 6h), not a substitute for a live node-health dashboard.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: talos-fleet-health-check-failing
+                title: TalosFleetHealthCheckFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_health_check_failed[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting on NoData, same reasoning as TalosCveCheckFailing:
+                # a fleet-health check that silently stopped running is
+                # indistinguishable from a clean result unless something
+                # notices the silence itself.
+                noDataState: Alerting
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    The Talos fleet-health check is failing or has stopped running
+                  description: >-
+                    talos-fleet-health either reported a failure or has not pushed a result in over 8h, so the cluster currently has no working answer to whether all nodes agree on version and are Ready. Read the last run with `kubectl logs -n monitoring -l app.kubernetes.io/name=talos-fleet-health --tail=50`. Common causes: kube_node_info missing its os_image label, or kube_node_status_condition not present (kube-state-metrics down).
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
