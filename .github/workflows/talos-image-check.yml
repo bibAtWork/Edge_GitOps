@@ -266,6 +266,19 @@ jobs:
           VF=cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
           base_ref="origin/${{ github.event.pull_request.base.ref }}"
 
+          # Round 6 code review, blocking: the `|| true` on `git show` below
+          # conflates two different situations -- KUBERNETES_VERSION not yet
+          # existing on the base ref (this PR's own case: versions.env is new)
+          # versus base_ref not resolving at all (a fetch-depth issue, a typo
+          # propagated from the event payload, a base branch renamed/deleted
+          # mid-PR). Both currently print the same "nothing to compare
+          # against" and exit 0 -- the same fail-open shape as the `|| true`-
+          # guarded grep and the hardcoded Plan-name loop fixed earlier in
+          # this PR. Failing loudly on the first case and treating only the
+          # second as a legitimate no-op restores that distinction.
+          git rev-parse --verify --quiet "$base_ref" >/dev/null \
+            || { echo "::error::base ref '$base_ref' does not resolve; the minor-skip guard cannot compare anything."; exit 1; }
+
           old=$(git show "$base_ref:$VF" 2>/dev/null | grep -oP '^KUBERNETES_VERSION=\Kv[0-9]+\.[0-9]+' || true)
           new=$(grep -oP '^KUBERNETES_VERSION=\Kv[0-9]+\.[0-9]+' "$VF")
 
@@ -587,6 +600,15 @@ jobs:
           # imply, and gets flagged here rather than applying silently.
           VF=cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
           base_ref="origin/${{ github.event.pull_request.base.ref }}"
+
+          # Round 6 code review, blocking: same fail-open shape as the
+          # minor-skip guard (talos-image-check.yml's other base_ref user) --
+          # `is_downgrade`'s `|| true` on `git show` cannot tell "key absent
+          # on base_ref" (this PR's own case) apart from "base_ref does not
+          # resolve at all", and both currently read as "no decrease". Fail
+          # loudly on the second before either key comparison runs.
+          git rev-parse --verify --quiet "$base_ref" >/dev/null \
+            || { echo "::error::base ref '$base_ref' does not resolve; the downgrade guard cannot compare anything."; exit 1; }
 
           ver() { grep -oP "^$1=\K.*" "$2" 2>/dev/null || echo ""; }
           semver() { echo "$1" | grep -oP '[0-9]+' | paste -sd. -; }
