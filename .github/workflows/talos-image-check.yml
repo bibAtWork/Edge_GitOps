@@ -372,89 +372,181 @@ jobs:
           # trap armed for the next person", and `for:` headroom alone still
           # means a genuine problem is detected up to 8h later than it could
           # be. Both together is the actual fix.
+          # Round 5 code review found the first version of this step (round
+          # 4) could pass without checking anything, two ways:
+          #
+          #   1. The Plan list was hardcoded (talos-controlplane/worker/
+          #      kubernetes). Rename a Plan and yq matches nothing for it;
+          #      an empty `days` makes ''.split(',') == [''], so 'su' not in
+          #      [''] is true, the loop skips it, and the step still prints
+          #      "ok" having compared nothing for that Plan. Same failure
+          #      shape as the `|| true`-guarded grep fixed earlier in this
+          #      PR ("All pins agree" while verifying nothing).
+          #   2. The check only reasoned about Sunday and the literal token
+          #      'su'. A window moved to a different day, or spelled out
+          #      ("sunday"), was silently never checked at all -- exactly
+          #      the kind of future window move this guard exists to catch.
+          #
+          # Fixed by deriving the Plan list from the rendered output instead
+          # of a hardcoded name list (a rename can no longer shrink what
+          # gets compared), and by making the Python fail-closed everywhere:
+          # every branch that cannot compare something exits non-zero rather
+          # than falling through to "ok". `checked` (below) is what makes
+          # finding 1 impossible to reintroduce -- the step cannot print
+          # "ok" unless it actually compared at least one Plan-day.
           RENDERED=$(mktemp)
           kustomize build cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
 
-          export CRON=$(yq 'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.schedule' "$RENDERED")
+          export CRON=$(yq -r 'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.schedule' "$RENDERED")
           echo "fleet-health schedule: $CRON"
 
-          export WINDOWS=""
-          for plan in talos-controlplane talos-worker talos-kubernetes; do
-            days=$(yq "select(.kind==\"Plan\" and .metadata.name==\"$plan\") | .spec.window.days | join(\",\")" "$RENDERED")
-            start=$(yq "select(.kind==\"Plan\" and .metadata.name==\"$plan\") | .spec.window.startTime" "$RENDERED")
-            end=$(yq "select(.kind==\"Plan\" and .metadata.name==\"$plan\") | .spec.window.endTime" "$RENDERED")
-            echo "  $plan window: days=$days $start-$end"
-            WINDOWS="$WINDOWS$plan|$days|$start|$end"$'\n'
-          done
-          export WINDOWS
+          export WINDOWS=$(yq -r 'select(.kind=="Plan" and .spec.window != null)
+            | [.metadata.name, (.spec.window.days | join(",")), .spec.window.startTime, .spec.window.endTime]
+            | join("|")' "$RENDERED")
+          echo "windowed Plans:"
+          echo "$WINDOWS"
 
           # Piped via stdin and textwrap.dedent'd, rather than a plain
           # heredoc feeding python3 directly: this step's `run:` block is
           # YAML-indented, a plain `<<PYEOF` heredoc keeps that indentation
           # as literal content, and Python rejects an indented top-level
           # statement with IndentationError -- caught by actually running
-          # this, not by inspection, on a first version of this step that
-          # embedded the script directly. CRON/WINDOWS travel via the
-          # environment rather than string-interpolated into the script
-          # source, for the same reason guard-downgrade's PR_LABELS does:
-          # keeps the script's own quoting independent of whatever the
-          # values happen to contain. The heredoc delimiter is quoted
-          # ('PYEOF') so bash performs no expansion inside it at all -- the
-          # script can use $, backticks and quotes freely.
+          # this, not by inspection, on the round-4 version of this step.
+          # CRON/WINDOWS travel via the environment rather than
+          # string-interpolated into the script source, for the same reason
+          # guard-downgrade's PR_LABELS does: keeps the script's own quoting
+          # independent of whatever the values happen to contain. The
+          # heredoc delimiter is quoted ('PYEOF') so bash performs no
+          # expansion inside it at all -- the script can use $, backticks
+          # and quotes freely.
           python3 -c "
           import sys, textwrap
           exec(textwrap.dedent(sys.stdin.read()))
           " <<'PYEOF'
           import os, sys
 
-          cron = os.environ['CRON']
-          windows_raw = os.environ['WINDOWS']
+          DAY_TOKENS = {
+              'su': 0, 'sun': 0, 'sunday': 0,
+              'mo': 1, 'mon': 1, 'monday': 1,
+              'tu': 2, 'tue': 2, 'tues': 2, 'tuesday': 2,
+              'we': 3, 'wed': 3, 'weds': 3, 'wednesday': 3,
+              'th': 4, 'thu': 4, 'thur': 4, 'thurs': 4, 'thursday': 4,
+              'fr': 5, 'fri': 5, 'friday': 5,
+              'sa': 6, 'sat': 6, 'saturday': 6,
+          }
+          DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-          def expand_field(field, lo, hi):
+          def die(msg):
+              print(f"::error::{msg}")
+              sys.exit(1)
+
+          def expand_field(field, lo, hi, names=None):
               values = set()
               for part in field.split(','):
-                  if part == '*':
-                      values.update(range(lo, hi + 1))
-                  elif '/' in part:
-                      base, step = part.split('/')
-                      step = int(step)
-                      start = lo if base == '*' else int(base)
-                      values.update(range(start, hi + 1, step))
-                  elif '-' in part:
-                      a, b = part.split('-')
-                      values.update(range(int(a), int(b) + 1))
-                  else:
-                      values.add(int(part))
-              return sorted(values)
+                  part = part.strip()
+                  if names:
+                      part = part.lower()
+                      # Longest token first: a naive pass would turn 'sun'
+                      # into '0n' via 'su' before ever trying 'sun' itself.
+                      for tok in sorted(names, key=len, reverse=True):
+                          part = part.replace(tok, str(names[tok]))
+                  try:
+                      if part == '*':
+                          values.update(range(lo, hi + 1))
+                      elif '/' in part:
+                          base, step = part.split('/')
+                          step = int(step)
+                          if '-' in base:
+                              a, b = base.split('-')
+                              start, stop = int(a), int(b)
+                          else:
+                              start, stop = (lo if base == '*' else int(base)), hi
+                          values.update(range(start, stop + 1, step))
+                      elif '-' in part:
+                          a, b = part.split('-')
+                          values.update(range(int(a), int(b) + 1))
+                      else:
+                          values.add(int(part))
+                  except ValueError:
+                      die(f"cron field '{field}' contains a part this guard cannot parse ('{part}'). "
+                          f"Rather than skip the check, this fails: extend the guard or simplify the schedule.")
+              out = [v for v in sorted(values) if lo <= v <= hi]
+              if not out:
+                  die(f"cron field '{field}' expanded to nothing in range {lo}-{hi}.")
+              return out
 
-          def cron_fire_minutes_for_sunday(cron):
-              minute_f, hour_f, dom_f, month_f, dow_f = cron.split()
-              dow_values = set(expand_field(dow_f, 0, 7)) if dow_f != '*' else set(range(0, 8))
-              dow_values = {0 if d == 7 else d for d in dow_values}
-              if 0 not in dow_values:  # 0 == Sunday
-                  return []
+          def cron_fires(cron):
+              """-> {weekday: [minute-of-day, ...]}, cron convention 0=Sunday."""
+              parts = cron.split()
+              if len(parts) != 5:
+                  die(f"fleet-health schedule '{cron}' is not a 5-field cron expression.")
+              minute_f, hour_f, dom_f, _month_f, dow_f = parts
+              if dom_f != '*':
+                  die(f"fleet-health schedule '{cron}' restricts day-of-month; this guard only reasons "
+                      f"about day-of-week. Failing rather than passing vacuously.")
+              dows = {0 if d == 7 else d for d in expand_field(dow_f, 0, 7, names=DAY_TOKENS)}
               minutes = expand_field(minute_f, 0, 59)
               hours = expand_field(hour_f, 0, 23)
-              return sorted(h * 60 + m for h in hours for m in minutes)
+              fires = sorted(h * 60 + m for h in hours for m in minutes)
+              return {d: fires for d in dows}
 
-          def to_minutes(hhmm):
-              h, m = hhmm.split(':')
-              return int(h) * 60 + int(m)
+          def to_minutes(hhmm, what):
+              try:
+                  h, m = hhmm.split(':')
+                  return int(h) * 60 + int(m)
+              except ValueError:
+                  die(f"{what} is '{hhmm}', not HH:MM.")
 
-          fires = cron_fire_minutes_for_sunday(cron)
+          cron = os.environ['CRON'].strip()
+          windows_raw = os.environ['WINDOWS'].strip()
+
+          if not cron:
+              die("could not read talos-fleet-health's schedule from the rendered output. The CronJob may "
+                  "have been renamed -- this guard must not pass without comparing anything.")
+          if not windows_raw:
+              die("found no Plan with a spec.window in the rendered output. Either every windowed Plan was "
+                  "renamed/removed, or the yq selector is wrong -- this guard must not pass without "
+                  "comparing anything.")
+
+          fires_by_day = cron_fires(cron)
           fail = False
-          for line in windows_raw.strip().splitlines():
-              name, days, start, end = line.split('|')
-              if 'su' not in days.lower().split(','):
+          checked = 0
+
+          for line in windows_raw.splitlines():
+              line = line.strip()
+              if not line:
                   continue
-              s, e = to_minutes(start), to_minutes(end)
-              for f in fires:
-                  if s <= f <= e:
-                      print(f"::error::talos-fleet-health fires at {f // 60:02d}:{f % 60:02d} UTC on Sunday, inside {name}'s window ({start}-{end}). A check that samples mid-window can report a legitimately cordoned/rebooting node as unready -- move the schedule clear of every windowed Plan's window.")
-                      fail = True
-          if not fail:
-              print("ok    schedule clear of every windowed Plan's window")
-          sys.exit(1 if fail else 0)
+              try:
+                  name, days, start, end = line.split('|')
+              except ValueError:
+                  die(f"malformed window record '{line}'.")
+              if not days or not start or not end:
+                  die(f"Plan '{name}' has a spec.window with missing days/startTime/endTime "
+                      f"(days='{days}' start='{start}' end='{end}').")
+              s, e = to_minutes(start, f"{name} startTime"), to_minutes(end, f"{name} endTime")
+              if e < s:
+                  die(f"Plan '{name}' window {start}-{end} wraps past midnight; this guard does not model "
+                      f"that. Failing rather than passing vacuously.")
+              for tok in days.lower().split(','):
+                  tok = tok.strip()
+                  if tok not in DAY_TOKENS:
+                      die(f"Plan '{name}' declares window day '{tok}', which this guard does not recognise. "
+                          f"Failing rather than silently skipping the check.")
+                  d = DAY_TOKENS[tok]
+                  checked += 1
+                  for f in fires_by_day.get(d, []):
+                      if s <= f <= e:
+                          print(f"::error::talos-fleet-health fires at {f // 60:02d}:{f % 60:02d} UTC on "
+                                f"{DAY_NAMES[d]}, inside {name}'s window ({start}-{end}). A check that "
+                                f"samples mid-window can report a legitimately cordoned/rebooting node as "
+                                f"unready -- move the schedule clear of every windowed Plan's window.")
+                          fail = True
+
+          if checked == 0:
+              die("no Plan window/day pair was actually compared.")
+          if fail:
+              sys.exit(1)
+          print(f"ok    schedule clear of all {checked} windowed Plan-day(s)")
           PYEOF
 
   guard-downgrade:
