@@ -1666,20 +1666,50 @@ spec:
               # but nothing pages on them, which is the exact gap this whole
               # mechanism was built to close.
               #
-              # 8h windows: the job runs every 6h, +2h slack, same ratio as
-              # the daily/26h talos-advisory pair above. `for: 0m`, same
-              # reasoning as BackupScopeDrift -- a detected mismatch is real,
-              # not a blip, and the pushed value stays the "last" one for the
-              # full 6h until the next run supersedes it either way.
+              # 8h query windows: the job runs every 6h, +2h slack, same ratio
+              # as the daily/26h talos-advisory pair above.
               #
-              # Not tuned to tolerate a mid-rollout transient: the fixed
-              # :35-past-every-6th-hour schedule (00:35/06:35/12:35/18:35 UTC)
-              # never lands inside the Sunday 20:00-23:59 OS upgrade windows
-              # by construction, so on the 1-node profile this never fires
-              # during a routine upgrade. Unverified against an actual
-              # multi-node rolling upgrade, since this cluster runs 1-node
-              # today -- worth confirming the day 3-node is real, and adding
-              # `for:` headroom then if a rollout ever does overlap a check.
+              # `for: 8h` on this rule and the two below (K8s skew, unready
+              # nodes) -- NOT `for: 0m` as an earlier version of this comment
+              # had it. That version relied on the fleet-health CronJob's
+              # schedule never landing inside a Sunday upgrade window "by
+              # construction", which held only as long as nobody moved either
+              # side without checking the other: round 4 code review found
+              # the OS windows had moved to midday (12:00-17:00) while the
+              # schedule was untouched, and 12:35 UTC now sits inside the
+              # control-plane window -- exactly the silent collision that
+              # comment warned was possible once 3-node made a rollout long
+              # enough to overlap a check, except it took a window move on
+              # the 1-node profile to trigger it, not a multi-node rollout.
+              #
+              # Two changes instead of one, matching the review's own
+              # framing of a fix that survives the NEXT window move, not
+              # just this one:
+              #
+              #   (a) the schedule itself moved to 05:35/11:35/17:35/23:35
+              #       UTC, clear of the current 12:00-17:00 span (see
+              #       fleet-health-cronjob.yaml) -- and the Talos image CI
+              #       workflow now asserts this schedule/window relationship
+              #       as an invariant, the same way it already asserts
+              #       `replacements` resolve, so the next window (or
+              #       schedule) move that reintroduces a collision fails at
+              #       PR time instead of at the next Sunday 12:35.
+              #   (b) `for: 8h` here regardless -- sized to the longest
+              #       window (2h) plus one full check interval (6h), so even
+              #       if (a) is ever wrong, a single mid-window sample is not
+              #       enough to page: the metric stays "last" for up to 6h
+              #       until the next (post-window) run supersedes it, which
+              #       clears the condition well before 8h of continuous
+              #       pending time can accumulate. A genuine, persistent
+              #       problem still fires, just up to ~8h later than
+              #       instantly -- the review's own tradeoff, judged
+              #       acceptable here against a guaranteed weekly false page.
+              #       This is a wall-clock `for:` duration, not a
+              #       min_over_time query -- it does not have
+              #       TalosFleetVersionDrift's ephemeral-state problem, since
+              #       8 hours of Grafana uptime is a low bar compared to 8
+              #       days, and the cost of getting it wrong here is delayed
+              #       detection, not a permanently inert rule.
               - uid: talos-fleet-version-skew
                 title: TalosFleetVersionSkew
                 condition: B
@@ -1717,7 +1747,7 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 0m
+                for: 8h
                 annotations:
                   summary: >-
                     Talos nodes disagree with each other on OS version
@@ -1857,7 +1887,9 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 0m
+                # for: 8h, same headroom and same reasoning as
+                # TalosFleetVersionSkew above -- see that rule's comment.
+                for: 8h
                 annotations:
                   summary: >-
                     Talos nodes disagree with each other on Kubernetes version
@@ -1962,7 +1994,12 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 0m
+                # for: 8h, same headroom and same reasoning as
+                # TalosFleetVersionSkew above -- see that rule's comment. This
+                # is the rule round 4 review specifically named: a node
+                # legitimately cordoned/rebooting mid-upgrade would otherwise
+                # page as a critical outage every routine Sunday.
+                for: 8h
                 annotations:
                   summary: >-
                     A node is not Ready per talos-fleet-health
