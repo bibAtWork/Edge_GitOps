@@ -1736,7 +1736,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'min_over_time(talos_fleet_version_drift[8d])'
+                      expr: 'min_over_time(talos_fleet_version_drift[8d]) and (count_over_time(talos_fleet_version_drift[8d]) >= 28)'
                       instant: true
                       range: false
                       refId: A
@@ -1765,16 +1765,17 @@ spec:
                 execErrState: Error
                 # Grace period, not a window-aware gate: code review on PR
                 # #386 (round 2) found that versions.env applies at merge,
-                # while the automated upgrade waits for the Sunday 20:00-22:00
-                # window -- a Tuesday merge means up to ~6 days where this
-                # condition is true and describes nothing more than normal
-                # operation. Gating on the actual window was considered and
-                # rejected as more complex than warranted; a grace period
-                # spanning one full week (the longest possible merge-to-window
-                # gap, plus the window itself, plus a day of buffer) instead,
-                # so this only fires once an upgrade has had a full cycle to
-                # happen and still hasn't. Severity dropped to warning to
-                # match: a week-old drift is worth a look, not a page.
+                # while the automated upgrade waits for the Sunday window --
+                # a merge shortly after that window means up to ~7 days where
+                # this condition is true and describes nothing more than
+                # normal operation. Gating on the actual window was
+                # considered and rejected as more complex than warranted; a
+                # grace period spanning one full week (the longest possible
+                # merge-to-window gap, plus the window itself, plus a day of
+                # buffer) instead, so this only fires once an upgrade has had
+                # a full cycle to happen and still hasn't. Severity dropped
+                # to warning to match: a week-old drift is worth a look, not
+                # a page.
                 #
                 # Round 3 review found the grace period couldn't actually be
                 # `for: 8d`: Grafana's persistence.enabled: false (this file,
@@ -1789,8 +1790,20 @@ spec:
                 # regardless of how many times Grafana itself has restarted
                 # in that span, with `for: 0m` since the 8 days now live in
                 # the expression rather than in pending-state duration.
-                # min_over_time ignores absent samples, so a missed
-                # talos-fleet-health run doesn't reset it either.
+                #
+                # Round 4 review found that first version of the query still
+                # didn't implement a grace period: min_over_time aggregates
+                # only the samples that EXIST in the window, so a brand-new
+                # series with a single drifted sample (the check runs once
+                # and immediately sees drift) returns 1 and fires the same
+                # instant, not after 8 days. "Ignores absent samples" cuts
+                # both ways -- it also means the window doesn't need to be
+                # full before the rule can fire. The count_over_time(...) >=
+                # 28 clause is the actual grace period: the check runs every
+                # 6h (4/day), so a fully-populated 8-day window holds 32
+                # samples; 28 requires ~7 of those 8 days to have reported in
+                # before the rule can fire at all, tolerating a few missed
+                # runs without requiring every single one.
                 for: 0m
                 annotations:
                   summary: >-
@@ -1862,13 +1875,21 @@ spec:
                     # start -- see TalosFleetVersionDrift's own comment for
                     # why: Grafana's alert-instance pending state is
                     # ephemeral (persistence.enabled: false), so a wall-clock
-                    # `for:` duration this long cannot survive a pod restart.
+                    # `for:` duration this long cannot survive a pod restart,
+                    # and why min_over_time alone is not a grace period --
+                    # the count_over_time(...) >= 28 clause is the part that
+                    # actually is one. This is the series round 4 review
+                    # named as the likeliest to be caught by that gap: it is
+                    # brand new, and KUBERNETES_VERSION is a first-time
+                    # inference of what the cluster actually runs, so it is
+                    # the more likely of the two to be genuinely drifted on
+                    # its very first sample.
                     relativeTimeRange:
                       from: 691200
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'min_over_time(talos_fleet_k8s_version_drift[8d])'
+                      expr: 'min_over_time(talos_fleet_k8s_version_drift[8d]) and (count_over_time(talos_fleet_k8s_version_drift[8d]) >= 28)'
                       instant: true
                       range: false
                       refId: A
