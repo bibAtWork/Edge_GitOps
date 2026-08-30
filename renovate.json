@@ -51,7 +51,7 @@
     },
     {
       "customType": "regex",
-      "description": "Kubernetes control-plane/kubelet version in versions.env, upgraded independently of TALOS_VERSION via talosctl upgrade-k8s (plans/talos-kubernetes-upgrade.yaml). Grouped separately from talos and never auto-merged for the same reasons: the upgrade touches every node's control-plane components, and the Talos image workflow checks it is within Talos's supported skew for TALOS_VERSION.",
+      "description": "Kubernetes control-plane/kubelet version in versions.env, upgraded independently of TALOS_VERSION via talosctl upgrade-k8s (plans/talos-kubernetes-upgrade.yaml). Grouped separately from talos and never auto-merged: the upgrade touches every node's control-plane components. The Talos image workflow confirms this is a real Kubernetes release; talosctl upgrade-k8s itself validates Talos/Kubernetes compatibility at upgrade time and refuses an unsupported pairing.",
       "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/versions\\.env$/"],
       "matchStrings": ["KUBERNETES_VERSION=(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",

@@ -1,17 +1,21 @@
 name: Talos image
 
-# Proves that the Talos installer image a PR points at actually exists, and that
-# the schematic ID pinned in the repo still matches schematic.yaml.
+# Proves that the Talos installer image a PR points at actually exists, that
+# the schematic ID pinned in the repo still matches schematic.yaml, that a
+# Kubernetes version bump names a real release, and that a version DECREASE
+# (a revert, or a hand-edited downgrade) gets the same review scrutiny a
+# forward bump does rather than applying unconditionally.
 #
 # ── Deliberately NOT a required status check ─────────────────────────────────
 # The "Protect ops/talos_linux" ruleset requires six checks before a merge.
 # This one is not among them, and that is a decision rather than an oversight.
 #
-# The two steps below make live calls to factory.talos.dev. Requiring this
-# check would put that third party on the critical path of every merge to this
-# repo: a Factory outage, or a slow response, would block PRs that have nothing
-# to do with Talos. The value of the check is real but narrow -- it applies only
-# when a PR touches Talos pins -- and that is not worth coupling the whole
+# The image/schematic/kubernetes-release steps below make live calls to
+# factory.talos.dev and api.github.com. Requiring this check would put those
+# third parties on the critical path of every merge to this repo: an outage,
+# or a slow response, would block PRs that have nothing to do with Talos. The
+# value of the check is real but narrow -- it applies only when a PR touches
+# Talos/Kubernetes pins -- and that is not worth coupling the whole
 # repository's ability to merge to somebody else's uptime.
 #
 # The `paths:` filter below is the other half of the same decision. It keeps
@@ -21,11 +25,11 @@ name: Talos image
 # to make it requirable would reintroduce exactly the coupling above.
 #
 # So: it runs on the PRs where it matters, it goes red when it finds something,
-# and a human decides. If that ever feels too weak, the fix is to make the two
-# Factory calls tolerant of failure -- distinguishing "the image is missing"
-# from "the Factory did not answer" -- not to require it as it stands.
+# and a human decides. If that ever feels too weak, the fix is to make the
+# live-call steps tolerant of failure -- distinguishing "the image is missing"
+# from "the Factory/GitHub did not answer" -- not to require it as it stands.
 #
-# ── Why this exists ──────────────────────────────────────────────────────────
+# ── Why the image-existence check exists ─────────────────────────────────────
 # The Image Factory builds an image per (schematic, version) pair, and system
 # extensions are published per Talos version. So a version bump can reference an
 # image that has not been built:
@@ -38,18 +42,21 @@ name: Talos image
 # runs, and the node is left cordoned in the middle of a plan. That is a bad
 # place to discover a typo.
 #
-# ── The second check ─────────────────────────────────────────────────────────
+# ── Why the schematic check exists ───────────────────────────────────────────
 # The schematic ID is a content hash of the extension list, not a version-linked
 # value -- the same ID serves v1.12.0 through v1.13.9. It therefore does NOT
-# need regenerating when the Talos version moves, contrary to what the comments
-# here used to say. It DOES need regenerating whenever schematic.yaml changes,
-# and nothing enforced that: an extension added to schematic.yaml while the old
-# ID stayed pinned everywhere would build and deploy the old extension set,
-# silently, with the file saying otherwise.
+# need regenerating when the Talos version moves. It DOES need regenerating
+# whenever schematic.yaml changes: an extension added to schematic.yaml while
+# the old ID stayed pinned would build and deploy the old extension set,
+# silently, with the file saying otherwise. Re-POSTing schematic.yaml is the
+# whole check -- the Factory is a pure function of the content, so if the
+# returned ID differs from what the repo pins, the repo is stale.
 #
-# Re-POSTing schematic.yaml is the whole check. The Factory is a pure function
-# of the content, so if the returned ID differs from what the repo pins, the
-# repo is stale.
+# ── Why there is no Talos/Kubernetes compatibility check ─────────────────────
+# There is no stable, scriptable API for "is Kubernetes vX supported by Talos
+# vY" beyond the two version-existence checks below. `talosctl upgrade-k8s`
+# validates that pairing itself at upgrade time and refuses an unsupported
+# one -- that is the actual safety net for compatibility, not this workflow.
 
 on:
   pull_request:
@@ -67,29 +74,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Verify every Talos version pin agrees
+      - name: Verify Talos version pin agrees with the machine config
         run: |
           set -euo pipefail
-          # The version is pinned in nine places across five files. Renovate's
-          # grouped PR edits all nine atomically; a hand-edit does not, and a
-          # miss produces a Plan that installs a different version than the
-          # machine config declares -- the class of bug that left this cluster
-          # running v1.13.6 while every pin claimed otherwise.
+          # Down from nine independently-edited places to two: versions.env is
+          # now the single source of truth, and Kustomize `replacements`
+          # (config/kustomization.yaml) projects it into every SUC Plan at
+          # build time -- so the Plans' own literals are placeholders, not
+          # pins, and checking them here would produce a false positive on
+          # every ordinary version bump that doesn't also hand-edit them.
           #
-          # Matched structurally, on the specific keys, never by grepping for a
-          # version pattern. talos-image.env's own comments mention v1.12.0 and
-          # v1.13.9 in prose, and a blanket grep would report those as pins.
-          plans=cluster/base/infrastructure/15-system-upgrade-controller/config/plans
-
+          # The one pin Kustomize cannot reach is the machine config's
+          # install.image, applied by hand via talosctl outside Flux entirely
+          # -- that still has to agree by hand, which is what this checks.
+          #
+          # Matched structurally, on the specific keys, never by grepping for
+          # a version pattern. versions.env's own comments mention several
+          # versions in prose, and a blanket grep would report those as pins.
           {
             grep -hoP '^TALOS_VERSION=\Kv[0-9]+\.[0-9]+\.[0-9]+' \
-              cluster/overlays/*/talos-machineconfigs/talos-image.env || true
+              cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
             grep -rhoP 'image:\s*factory\.talos\.dev/installer/[0-9a-f]{64}:\Kv[0-9]+\.[0-9]+\.[0-9]+' \
               cluster/overlays/*/talos-machineconfigs/ || true
-            grep -rhoP '^\s+version:\s*\Kv[0-9]+\.[0-9]+\.[0-9]+' "$plans" || true
-            grep -rhoP 'image:\s*ghcr\.io/siderolabs/talosctl:\Kv[0-9]+\.[0-9]+\.[0-9]+' \
-              "$plans" || true
           } > /tmp/versions.txt
 
           echo "Pins found: $(wc -l < /tmp/versions.txt)"
@@ -97,10 +106,10 @@ jobs:
 
           distinct=$(sort -u /tmp/versions.txt | wc -l)
           if [ "$distinct" -ne 1 ]; then
-            echo "::error::Talos version pins disagree ($distinct distinct values). All nine references -- TALOS_VERSION, the Factory installer tag, spec.version in each SUC Plan, and every talosctl image -- must name the same version. A mismatch means the automated upgrade installs something other than what the machine config declares."
+            echo "::error::Talos version pins disagree ($distinct distinct values). versions.env's TALOS_VERSION and every machine config's install.image must name the same version. A mismatch means a rebuilt node installs something other than the automated upgrade targets."
             exit 1
           fi
-          echo "All pins agree on $(cat /tmp/versions.txt | head -1)"
+          echo "All pins agree on $(head -1 /tmp/versions.txt)"
 
       - name: Verify schematic ID matches schematic.yaml
         run: |
@@ -114,13 +123,14 @@ jobs:
               | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
             echo "Factory returns: $expected"
 
-            # Every schematic ID pinned anywhere in the repo must equal it. The
-            # ID appears in five places -- talos-image.env, controlplane.yaml,
-            # and the installer URL inside all three SUC plans -- and they are
-            # edited by hand, so they drift independently.
+            # Every schematic ID pinned anywhere in the repo must equal it.
+            # versions.env and each machine config's install.image are edited
+            # by hand and drift independently -- the Plans no longer carry a
+            # literal ID at all, they read it live from the talos-versions
+            # ConfigMap, so there is nothing of theirs left to check here.
             found=$(grep -rhoE '[0-9a-f]{64}' \
               cluster/overlays/*/talos-machineconfigs/ \
-              cluster/base/infrastructure/15-system-upgrade-controller/ \
+              cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env \
               | sort -u)
             for id in $found; do
               if [ "$id" = "$expected" ]; then
@@ -137,27 +147,18 @@ jobs:
       - name: Verify every referenced installer image exists
         run: |
           set -euo pipefail
-          # Collect every (schematic, version) pair the repo would actually pull.
-          # The SUC plans build the tag from spec.version at runtime via
-          # SYSTEM_UPGRADE_PLAN_LATEST_VERSION, so the version is read from
-          # spec.version rather than from the image string there.
+          # Collect every (schematic, version) pair the repo would actually
+          # pull. The SUC Plans build the tag from spec.version at runtime via
+          # SYSTEM_UPGRADE_PLAN_LATEST_VERSION and SCHEMATIC_ID from the
+          # talos-versions ConfigMap -- both trace back to versions.env, which
+          # is checked directly below rather than re-derived from the Plans.
           {
             grep -rhoE 'factory\.talos\.dev/installer/[0-9a-f]{64}:v[0-9]+\.[0-9]+\.[0-9]+' \
               cluster/ | sed 's|.*/installer/||'
 
-            for env in cluster/overlays/*/talos-machineconfigs/talos-image.env; do
-              [ -e "$env" ] || continue
-              v=$(grep -oP '^TALOS_VERSION=\K.*' "$env")
-              s=$(grep -oP '^SCHEMATIC_ID=\K.*' "$env")
-              [ -n "$v" ] && [ -n "$s" ] && echo "$s:$v"
-            done
-
-            plans=cluster/base/infrastructure/15-system-upgrade-controller/config/plans
-            sid=$(grep -rhoE '[0-9a-f]{64}' "$plans" | sort -u | head -1)
-            if [ -n "$sid" ]; then
-              grep -rhoP '^\s+version:\s*\Kv[0-9]+\.[0-9]+\.[0-9]+' "$plans" \
-                | sort -u | while read -r v; do echo "$sid:$v"; done
-            fi
+            v=$(grep -oP '^TALOS_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
+            s=$(grep -oP '^SCHEMATIC_ID=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
+            [ -n "$v" ] && [ -n "$s" ] && echo "$s:$v"
           } | sort -u > /tmp/pairs.txt
 
           echo "Image references to verify:"; sed 's/^/  /' /tmp/pairs.txt
@@ -177,3 +178,81 @@ jobs:
             fi
           done < /tmp/pairs.txt
           exit $fail
+
+      - name: Verify the Kubernetes version pin is a real release
+        run: |
+          set -euo pipefail
+          # kubernetes/kubernetes tags every release vX.Y.Z. A single ref
+          # lookup (not the releases list) sits comfortably inside GitHub's
+          # unauthenticated rate limit even if this runs on every PR.
+          v=$(grep -oP '^KUBERNETES_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://api.github.com/repos/kubernetes/kubernetes/git/refs/tags/$v")
+          if [ "$code" = "200" ]; then
+            echo "  ok    kubernetes/kubernetes@$v exists"
+          else
+            echo "::error::kubernetes/kubernetes has no tag $v (HTTP $code). KUBERNETES_VERSION in versions.env does not name a real release -- talosctl upgrade-k8s would fail against it."
+            exit 1
+          fi
+
+  guard-downgrade:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require confirmed-downgrade label on a version decrease
+        env:
+          # pull_request.labels is part of the trigger payload -- no API call,
+          # no extra permission beyond the default read this job already has.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          # git-revert-triggered rollback (see versions.env) means reverting a
+          # version bump takes the exact same reviewed path forward bumps do.
+          # But Talos does not uniformly support downgrading across arbitrary
+          # version pairs, and a Kubernetes apiserver can refuse to serve
+          # objects a newer version already wrote in a newer schema -- so a
+          # decrease is not unconditionally safe the way a revert's mechanics
+          # imply, and gets flagged here rather than applying silently.
+          VF=cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
+          base_ref="origin/${{ github.event.pull_request.base.ref }}"
+
+          ver() { grep -oP "^$1=\K.*" "$2" 2>/dev/null || echo ""; }
+          semver() { echo "$1" | grep -oP '[0-9]+' | paste -sd. -; }
+
+          is_downgrade() {
+            local key=$1
+            local old new
+            old=$(ver "$key" <(git show "$base_ref:$VF" 2>/dev/null || true))
+            new=$(ver "$key" "$VF")
+            [ -n "$old" ] && [ -n "$new" ] || return 1
+            [ "$old" = "$new" ] && return 1
+            # Compare numerically via sort -V; a "decrease" is new < old.
+            [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -1)" = "$old" ]
+          }
+
+          downgraded=""
+          for key in TALOS_VERSION KUBERNETES_VERSION; do
+            if is_downgrade "$key"; then
+              downgraded="$downgraded $key"
+            fi
+          done
+
+          if [ -z "$downgraded" ]; then
+            echo "No version decrease in this PR."
+            exit 0
+          fi
+
+          echo "Version decrease detected in:$downgraded"
+          if echo "$PR_LABELS" | grep -q '"confirmed-downgrade"'; then
+            echo "confirmed-downgrade label present -- proceeding."
+            exit 0
+          fi
+
+          echo "::error::This PR decreases$downgraded in versions.env. Talos and Kubernetes do not uniformly support downgrading across arbitrary version pairs, so this needs the same explicit review a forward bump gets. Add the 'confirmed-downgrade' label once that review has happened."
+          exit 1
