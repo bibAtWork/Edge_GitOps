@@ -61,6 +61,11 @@ name: Talos image
 on:
   pull_request:
     branches: [ops/talos_linux]
+    # Default types are [opened, synchronize, reopened] -- without labeled/
+    # unlabeled here, adding confirmed-downgrade (the guard-downgrade job's
+    # own documented escape hatch) never re-triggers the workflow, so the
+    # check can never turn green by the mechanism it tells you to use.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - 'cluster/overlays/*/talos-machineconfigs/**'
       - 'cluster/base/infrastructure/15-system-upgrade-controller/**'
@@ -94,13 +99,23 @@ jobs:
           # Matched structurally, on the specific keys, never by grepping for
           # a version pattern. versions.env's own comments mention several
           # versions in prose, and a blanket grep would report those as pins.
-          {
-            grep -hoP '^TALOS_VERSION=\Kv[0-9]+\.[0-9]+\.[0-9]+' \
-              cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
-            grep -rhoP 'image:\s*factory\.talos\.dev/installer/[0-9a-f]{64}:\Kv[0-9]+\.[0-9]+\.[0-9]+' \
-              cluster/overlays/*/talos-machineconfigs/ || true
-          } > /tmp/versions.txt
+          env_version=$(grep -hoP '^TALOS_VERSION=\Kv[0-9]+\.[0-9]+\.[0-9]+' \
+            cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
 
+          mc_versions=$(grep -rhoP 'image:\s*factory\.talos\.dev/installer/[0-9a-f]{64}:\Kv[0-9]+\.[0-9]+\.[0-9]+' \
+            cluster/overlays/*/talos-machineconfigs/ || true)
+
+          # `|| true` above means a moved/typo'd machine-config path silently
+          # produces zero lines rather than a shell failure -- and comparing
+          # only versions.env against nothing would trivially "agree" while
+          # verifying nothing about the one pin this check exists to catch.
+          # So the machine-config side is asserted non-empty before comparing.
+          if [ -z "$mc_versions" ]; then
+            echo "::error::No machine config install.image matched cluster/overlays/*/talos-machineconfigs/. Either the glob is stale or every overlay is missing its installer pin -- this check cannot verify anything without at least one match."
+            exit 1
+          fi
+
+          printf '%s\n%s\n' "$env_version" "$mc_versions" > /tmp/versions.txt
           echo "Pins found: $(wc -l < /tmp/versions.txt)"
           sort /tmp/versions.txt | uniq -c | sed 's/^/  /'
 
