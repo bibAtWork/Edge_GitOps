@@ -210,6 +210,46 @@ jobs:
             exit 1
           fi
 
+      - name: Verify the Kubernetes version pin advances at most one minor
+        run: |
+          set -euo pipefail
+          # talosctl upgrade-k8s only supports an N -> N or N -> N+1 minor
+          # step (upgrade.Path.IsSupported() upstream); a bigger jump fails
+          # after SUC has already cordoned the node. Renovate's regex manager
+          # on this literal pin has no notion of "propose one minor at a
+          # time" -- it always proposes the newest kubernetes/kubernetes
+          # release it sees, which is frequently more than one minor ahead.
+          # There is no Renovate-side setting that constrains a raw-string
+          # regex manager to a fixed step size, so this is enforced here
+          # instead: a PR that skips a minor fails CI and needs a human to
+          # land the intermediate minor(s) first, the same way a downgrade
+          # needs the confirmed-downgrade label rather than applying freely.
+          VF=cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
+          base_ref="origin/${{ github.event.pull_request.base.ref }}"
+
+          old=$(git show "$base_ref:$VF" 2>/dev/null | grep -oP '^KUBERNETES_VERSION=\Kv[0-9]+\.[0-9]+' || true)
+          new=$(grep -oP '^KUBERNETES_VERSION=\Kv[0-9]+\.[0-9]+' "$VF")
+
+          if [ -z "$old" ]; then
+            echo "No prior KUBERNETES_VERSION on ${{ github.event.pull_request.base.ref }} -- nothing to compare against."
+            exit 0
+          fi
+
+          old_major=${old%%.*}; old_minor=${old#*.}
+          new_major=${new%%.*}; new_minor=${new#*.}
+
+          if [ "$old_major" != "$new_major" ]; then
+            echo "::error::KUBERNETES_VERSION changes major version ($old -> $new). This check only reasons about minor-version steps; a major bump needs manual confirmation that talosctl upgrade-k8s supports it at all."
+            exit 1
+          fi
+
+          delta=$(( new_minor - old_minor ))
+          if [ "$delta" -gt 1 ]; then
+            echo "::error::KUBERNETES_VERSION jumps $delta minors ($old -> $new). talosctl upgrade-k8s only supports an N -> N or N -> N+1 step; land $old_major.$(( old_minor + 1 )) first, then the next minor, and so on."
+            exit 1
+          fi
+          echo "  ok    $old -> $new (delta: $delta minor)"
+
   guard-downgrade:
     runs-on: ubuntu-latest
     permissions:
