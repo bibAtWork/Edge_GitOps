@@ -53,9 +53,9 @@ spec:
   exclusive: true
   concurrency: 1
   serviceAccountName: system-upgrade-controller
-  # Sunday, starting 30 minutes after the worker OS window closes -- last in
-  # the sequence: control-plane (12:00-14:00), worker (14:00-16:00), a
-  # 30-minute buffer, then this (16:30-17:00).
+  # Sunday, starting the instant the worker OS window closes -- last in the
+  # sequence: control-plane (12:00-14:00), worker (14:00-16:00), then this
+  # (16:00-17:00).
   #
   # This Plan and the OS windows have moved three times. Originally
   # control-plane and worker ran 20:00-23:59 with this Plan at 23:00-23:59 --
@@ -77,18 +77,24 @@ spec:
   # which freed enough room in the day that this no longer needs to compete
   # with the OS windows for the same few hours before midnight.
   #
-  # Moved a third time, to add the 30-minute buffer before it: round 5 code
-  # review found that starting this Plan's window the INSTANT the worker
-  # window closed, with no gap, left it exposed to a milder version of the
-  # same "exclusive Plan silently never runs" bug -- a worker Job still
-  # running past 16:00 (an overrun, not the guaranteed nesting the round 3
-  # bug had) would hold SUC's exclusive slot into this window, and with no
-  # slack an overrun could consume the whole hour. The buffer gives a worker
-  # overrun room to actually finish before this window opens, without
-  # touching either OS window's own duration.
+  # Moved a third time -- briefly -- to add a 30-minute buffer before it,
+  # on a round 5 finding that a worker Job overrunning past 16:00 could hold
+  # SUC's one exclusive slot into this window and delay it. Round 6 traced
+  # `exclusive: true` to its actual implementation
+  # (pkg/upgrade/job/job.go in rancher/system-upgrade-controller): it compiles
+  # to a pod anti-affinity term with `TopologyKey: kubernetes.io/hostname`,
+  # which blocks two exclusive Jobs' pods from landing on the SAME node --
+  # not a cluster-wide mutex or "slot" that one Plan's overrun can hold
+  # against another's. A worker Job already running is unaffected by this
+  # window closing (SUC does not kill in-flight Jobs when a window ends),
+  # and this Plan's own Job would only ever contend with a worker Job still
+  # occupying the exact node it lands on, which clears itself the moment
+  # that pod finishes -- there is no scenario here where the buffer
+  # prevented a real failure. Reverted back to starting immediately when the
+  # worker window closes.
   window:
     days: ["su"]
-    startTime: "16:30"
+    startTime: "16:00"
     endTime: "17:00"
     timeZone: UTC
   nodeSelector:
