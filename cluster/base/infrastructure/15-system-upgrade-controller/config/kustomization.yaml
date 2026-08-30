@@ -111,3 +111,8 @@ replacements:
           name: talos-kubernetes
         fieldPaths:
           - spec.version
+      - select:
+          kind: CronJob
+          name: talos-fleet-health
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=check].env.[name=DESIRED_KUBERNETES_VERSION].value

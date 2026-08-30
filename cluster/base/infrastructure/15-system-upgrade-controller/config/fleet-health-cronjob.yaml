@@ -51,6 +51,11 @@ spec:
                 # replacements were ever removed.
                 - name: DESIRED_TALOS_VERSION
                   value: v1.13.9
+                # Overwritten at build time from ../versions.env's
+                # KUBERNETES_VERSION, same mechanism as DESIRED_TALOS_VERSION
+                # above.
+                - name: DESIRED_KUBERNETES_VERSION
+                  value: v1.36.3
               resources:
                 requests:
                   cpu: 50m

@@ -1800,6 +1800,110 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # ── Kubernetes version, same shape as Talos above ────────────
+              # Added on code review (PR #386, round 3): the Talos-only fleet
+              # check would have missed a Kubernetes upgrade that silently
+              # never ran the exact same way this repo's history already
+              # missed a Talos one for 44 days -- reproduced on the axis this
+              # PR itself introduces, if left unmonitored. Same metrics
+              # source (kube_node_info's kubelet_version), same script run.
+              - uid: talos-fleet-k8s-version-skew
+                title: TalosFleetK8sVersionSkew
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_k8s_version_skew[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Talos nodes disagree with each other on Kubernetes version
+                  description: >-
+                    talos-fleet-health found more than one distinct kubelet_version across nodes via kube_node_info. Identify the split with the talos_fleet_node_info series, which carries each node's kubernetes_version as a label. Either the talos-kubernetes upgrade is genuinely in progress outside its expected window, or it stalled partway through the cluster-wide rollout upgrade-k8s performs internally. Check `kubectl get jobs -n cattle-system` and `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: talos-fleet-k8s-version-drift
+                title: TalosFleetK8sVersionDrift
+                condition: B
+                data:
+                  - refId: A
+                    # Grace period lives in the query, not in `for:`, from the
+                    # start -- see TalosFleetVersionDrift's own comment for
+                    # why: Grafana's alert-instance pending state is
+                    # ephemeral (persistence.enabled: false), so a wall-clock
+                    # `for:` duration this long cannot survive a pod restart.
+                    relativeTimeRange:
+                      from: 691200
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min_over_time(talos_fleet_k8s_version_drift[8d])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A Talos node has not matched the Kubernetes version pinned in git for a week
+                  description: >-
+                    talos-fleet-health found at least one node NOT running KUBERNETES_VERSION from versions.env, continuously for 8 days -- long enough that a routine wait for the Sunday upgrade window no longer explains it. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
               - uid: talos-fleet-unready-nodes
                 title: TalosFleetUnreadyNodes
                 condition: B

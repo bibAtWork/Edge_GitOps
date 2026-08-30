@@ -13,9 +13,18 @@ metadata:
   namespace: monitoring
 data:
   check.py: |
-    # Compares every node's ACTUAL running Talos version against every other
-    # node's (skew) and against the version this repo declares (drift), and
-    # checks each node's Ready condition. Reports all three as metrics.
+    # Compares every node's ACTUAL running Talos version AND Kubernetes
+    # (kubelet) version against every other node's (skew) and against what
+    # this repo declares (drift), and checks each node's Ready condition.
+    # Reports all of it as metrics.
+    #
+    # Kubernetes-version skew/drift added on code review (PR #386, round 3):
+    # the Talos-only version of this check would have missed a Kubernetes
+    # upgrade that silently never ran the exact same way this repo's history
+    # already missed a Talos one for 44 days -- reproduced on the new axis
+    # this PR itself introduces, if left uncovered. Both come off the same
+    # kube_node_info series already being fetched for the Talos comparison,
+    # so this is not a second scrape.
     #
     # ── Why this is separate from talos-cve-watch ────────────────────────────
     # talos-cve-watch answers "is the running version affected by a known
@@ -37,9 +46,10 @@ data:
 
     VM = os.environ["VM_URL"]
     VM_IMPORT = os.environ["VM_IMPORT_URL"]
-    # Baked in at build time from versions.env via the `replacements` block in
-    # ../kustomization.yaml -- see the ConfigMap generator there.
-    DESIRED_VERSION = os.environ["DESIRED_TALOS_VERSION"]
+    # Both baked in at build time from versions.env via the `replacements`
+    # block in ../kustomization.yaml -- see the ConfigMap generator there.
+    DESIRED_TALOS_VERSION = os.environ["DESIRED_TALOS_VERSION"]
+    DESIRED_KUBERNETES_VERSION = os.environ["DESIRED_KUBERNETES_VERSION"]
 
 
     def get(url, timeout=30):
@@ -48,15 +58,25 @@ data:
 
 
     def running_versions():
-        """Talos versions live on kube_node_info as os_image='Talos (v1.13.6)'."""
+        """Talos AND Kubernetes versions, both off kube_node_info.
+
+        Talos lives in os_image='Talos (v1.13.6)' and needs extracting.
+        kubelet_version is already a bare 'v1.32.3'-shaped string -- kube-
+        state-metrics reports it directly from the Kubernetes API, no
+        parsing required, unlike os_image's free-text Talos-specific format.
+        """
         q = urllib.parse.urlencode({"match[]": "kube_node_info"})
         body = get(f"{VM}/api/v1/series?{q}")
-        out = {}
+        talos, kubernetes = {}, {}
         for s in json.loads(body).get("data", []):
+            node = s.get("node", "?")
             m = re.search(r"Talos \(?(v[\d.]+)\)?", s.get("os_image", ""))
             if m:
-                out.setdefault(s.get("node", "?"), m.group(1))
-        return out
+                talos.setdefault(node, m.group(1))
+            kv = s.get("kubelet_version", "")
+            if kv:
+                kubernetes.setdefault(node, kv)
+        return talos, kubernetes
 
 
     def ready_status():
@@ -80,36 +100,46 @@ data:
             r.read()
 
 
+    def skew_drift(versions, desired, label):
+        distinct = set(versions.values())
+        skew = 0 if len(distinct) <= 1 else 1
+        drift_nodes = [n for n, v in versions.items() if v != desired]
+        drift = 1 if drift_nodes else 0
+        print(f"{label}: desired={desired} running={versions}")
+        if skew:
+            print(f"  SKEW: nodes disagree on version: {sorted(distinct)}")
+        if drift:
+            print(f"  DRIFT: not on {desired}: {drift_nodes}")
+        return skew, drift
+
     failed = 0
     detail = ""
-    node_versions = {}
+    talos_versions = {}
+    kubernetes_versions = {}
     node_ready = {}
 
     try:
-        node_versions = running_versions()
-        if not node_versions:
+        talos_versions, kubernetes_versions = running_versions()
+        if not talos_versions:
             raise RuntimeError("kube_node_info returned no Talos os_image label")
+        if not kubernetes_versions:
+            raise RuntimeError("kube_node_info returned no kubelet_version label")
         node_ready = ready_status()
         # A node kube_node_info knows about but kube_node_status_condition does
         # not (or vice versa) is itself a fault, not something to skip past --
         # a missing Ready sample is treated as "not ready" below rather than
         # silently excluded from the count.
 
-        distinct = set(node_versions.values())
-        skew = 0 if len(distinct) <= 1 else 1
-        drift_nodes = [n for n, v in node_versions.items() if v != DESIRED_VERSION]
-        drift = 1 if drift_nodes else 0
-        unready_nodes = [n for n in node_versions if not node_ready.get(n, False)]
+        talos_skew, talos_drift = skew_drift(talos_versions, DESIRED_TALOS_VERSION, "talos")
+        k8s_skew, k8s_drift = skew_drift(
+            kubernetes_versions, DESIRED_KUBERNETES_VERSION, "kubernetes"
+        )
+        unready_nodes = [n for n in talos_versions if not node_ready.get(n, False)]
 
-        print(f"desired={DESIRED_VERSION} running={node_versions}")
-        if skew:
-            print(f"  SKEW: nodes disagree on version: {sorted(distinct)}")
-        if drift:
-            print(f"  DRIFT: not on {DESIRED_VERSION}: {drift_nodes}")
         if unready_nodes:
-            print(f"  NOT READY: {unready_nodes}")
-        if not (skew or drift or unready_nodes):
-            print("  fleet is uniform, on the declared version, and all nodes Ready")
+            print(f"NOT READY: {unready_nodes}")
+        if not (talos_skew or talos_drift or k8s_skew or k8s_drift or unready_nodes):
+            print("fleet is uniform, on the declared versions, and all nodes Ready")
 
     except Exception as exc:  # noqa: BLE001 -- any failure must be reported, not swallowed
         failed = 1
@@ -125,13 +155,17 @@ data:
     # a gauge that only appears when something is wrong cannot be alerted on
     # with a simple comparison, and reads as NoData rather than as "healthy".
     if not failed:
-        lines.append(f"talos_fleet_version_skew {skew}")
-        lines.append(f"talos_fleet_version_drift {drift}")
+        lines.append(f"talos_fleet_version_skew {talos_skew}")
+        lines.append(f"talos_fleet_version_drift {talos_drift}")
+        lines.append(f"talos_fleet_k8s_version_skew {k8s_skew}")
+        lines.append(f"talos_fleet_k8s_version_drift {k8s_drift}")
         lines.append(f"talos_fleet_unready_nodes {len(unready_nodes)}")
-        for node, version in node_versions.items():
+        for node, version in talos_versions.items():
             ready = 1 if node_ready.get(node, False) else 0
+            kube_version = kubernetes_versions.get(node, "")
             lines.append(
-                f'talos_fleet_node_info{{node="{node}",version="{version}"}} {ready}'
+                f'talos_fleet_node_info{{node="{node}",version="{version}",'
+                f'kubernetes_version="{kube_version}"}} {ready}'
             )
 
     try:
