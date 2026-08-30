@@ -1763,14 +1763,26 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 0m
+                # Grace period, not a window-aware gate: code review on PR
+                # #386 (round 2) found that versions.env applies at merge,
+                # while the automated upgrade waits for the Sunday 20:00-22:00
+                # window -- a Tuesday merge means up to ~6 days where this
+                # condition is true and describes nothing more than normal
+                # operation. Gating on the actual window was considered and
+                # rejected as more complex than warranted; `for: 8d` instead
+                # spans one full week (the longest possible merge-to-window
+                # gap, plus the window itself, plus a day of buffer), so this
+                # only fires once an upgrade has had a full cycle to happen
+                # and still hasn't. Severity dropped to warning to match: a
+                # week-old drift is worth a look, not a page.
+                for: 8d
                 annotations:
                   summary: >-
-                    A Talos node does not match the version pinned in git
+                    A Talos node has not matched the version pinned in git for a week
                   description: >-
-                    talos-fleet-health found at least one node NOT running TALOS_VERSION from versions.env. This is the exact failure mode this cluster already had once for 44 days (docs/backlog.md) with nothing detecting it -- an automated upgrade that silently never ran, or never completed. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                    talos-fleet-health found at least one node NOT running TALOS_VERSION from versions.env, continuously for 8 days -- long enough that a routine wait for the Sunday upgrade window no longer explains it. This is the exact failure mode this cluster already had once for 44 days (docs/backlog.md) with nothing detecting it -- an automated upgrade that silently never ran, or never completed. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
                 labels:
-                  severity: critical
+                  severity: warning
                 isPaused: false
               - uid: talos-fleet-unready-nodes
                 title: TalosFleetUnreadyNodes
