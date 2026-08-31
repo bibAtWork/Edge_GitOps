@@ -54,14 +54,69 @@ data:
     # same Longhorn provisioning budget the real volumes need. Observed on the
     # first live run, which left rt-e4b652ebd5 behind. Sweeping at the start is
     # more reliable than trying to make every exit path clean up after itself.
+    SWEPT=""
     for STALE in $(kubectl get volumes.longhorn.io -n longhorn-system -o name 2>/dev/null | grep "/rt-" || true); do
       N="${STALE##*/}"
+      SWEPT="$SWEPT $N"
       log "sweeping stale scratch $N"
       kubectl delete pod -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
       kubectl delete pvc -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
       kubectl delete pv "$N" --wait=false >/dev/null 2>&1 || true
       kubectl delete volumes.longhorn.io -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
     done
+
+    # Wait for the sweep to actually complete before recreating anything.
+    #
+    # The deletes above are deliberately --wait=false so a stuck Longhorn volume
+    # cannot block the whole run. That makes them asynchronous, and the scratch
+    # names are deterministic -- rt-<md5 of the backup volume> -- so the loop
+    # below recreates the SAME names the sweep is still tearing down.
+    #
+    # Losing that race is silent. `kubectl create` fails with AlreadyExists,
+    # every create here sends stderr to /dev/null, and the run continues against
+    # whichever half-deleted objects survived: the verify pod binds a PVC that
+    # is Terminating and stays Pending until the 450s poll gives up, reporting
+    # `e2fsck rc=none` -- a restore failure for a backup that is perfectly fine.
+    #
+    # This is the intermittent failure seen on 2026-08-31, on the same
+    # rt-e4b652ebd5 the comment above records from the first live run. It only
+    # bites after a run that left scratch behind, which is why it looks random
+    # and why it clusters after failures -- the worst possible time to start
+    # reporting phantom restore failures.
+    #
+    # 300s is generous: a detached Longhorn volume goes in seconds, and the
+    # budget only matters when something is genuinely stuck, in which case
+    # saying so and carrying on is better than blocking the whole run.
+    #
+    # Waits on the EXACT names that were swept, never on a `grep "/rt-"` across
+    # every pod. That shortcut looks equivalent and is not: this job's own pod
+    # can match it. Caught while testing this fix -- a manual run named
+    # rt-racefix-NNNN sat in the wait loop watching for itself to disappear
+    # until the budget expired. The scheduled Jobs are named
+    # backup-restore-test-<n> so they would not have collided, which is exactly
+    # what makes it the kind of thing that survives review and fires later.
+    LEFT=0
+    if [ -n "$SWEPT" ]; then
+      s=0
+      while [ "$s" -lt 60 ]; do
+        LEFT=0
+        for N in $SWEPT; do
+          kubectl get volumes.longhorn.io -n longhorn-system "$N" >/dev/null 2>&1 && LEFT=$(( LEFT + 1 ))
+          kubectl get pvc -n longhorn-system "$N" >/dev/null 2>&1 && LEFT=$(( LEFT + 1 ))
+          kubectl get pod -n longhorn-system "$N" >/dev/null 2>&1 && LEFT=$(( LEFT + 1 ))
+          kubectl get pv "$N" >/dev/null 2>&1 && LEFT=$(( LEFT + 1 ))
+        done
+        [ "$LEFT" -eq 0 ] && break
+        s=$(( s + 1 ))
+        sleep 5
+      done
+    fi
+    if [ "$LEFT" -ne 0 ]; then
+      # Not fatal on its own -- the creates below now report their own failures --
+      # but worth saying out loud, because a sweep that cannot finish means
+      # Longhorn is still holding something.
+      log "WARN: $LEFT scratch object(s) still present after 300s; name collisions are likely"
+    fi
     
     DEADLINE=$(( NOW + LONGHORN_BUDGET_SECONDS ))
 
@@ -107,7 +162,7 @@ data:
         "  numberOfReplicas: 1" \
         "  size: \"$SIZE\"" \
         "  frontend: blockdev" \
-        | kubectl create -f - >/dev/null 2>&1
+        | kubectl create -f - >/dev/null 2>&1 || fail "$BV: could not create the restore volume (name collision with scratch still terminating, or the API rejected it)"
 
       # Wait for the restore to finish. restoreRequired flipping false is the
       # signal every block was fetched and checksummed, which is the part that
@@ -165,9 +220,9 @@ data:
         "  resources:" \
         "    requests:" \
         "      storage: $SIZE" \
-        | kubectl create -f - >/dev/null 2>&1
+        | kubectl create -f - >/dev/null 2>&1 || fail "$BV: could not create the PV/PVC pair (name collision with scratch still terminating, or the API rejected it)"
 
-      sed -e "s|RTNAME|$RT|g" /scripts/verify-pod.yaml.tmpl | kubectl create -f - >/dev/null 2>&1
+      sed -e "s|RTNAME|$RT|g" /scripts/verify-pod.yaml.tmpl | kubectl create -f - >/dev/null 2>&1 || fail "$BV: could not create the verify pod (name collision with scratch still terminating, or the API rejected it)"
 
       j=0
       while [ "$j" -lt 90 ]; do
