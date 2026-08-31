@@ -1100,7 +1100,23 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'last_over_time(seaweedfs_staging_unreadable_objects[26h])'
+                      # Today's count against yesterday's, not a bare `> 0`.
+                      #
+                      # Staging counts every object it could not read, and 53 of
+                      # those are permanently lost from the 2026-08-26 incident:
+                      # their chunks are gone here and they were never relayed,
+                      # so no action recovers them and no future run reduces the
+                      # count. A `> 0` rule therefore fires from the next staging
+                      # run onward and never clears -- a critical alert that is
+                      # always on, which is the fastest way to teach everyone to
+                      # ignore the one that matters.
+                      #
+                      # Comparing against the previous day cancels the baseline
+                      # out and leaves only NEW unreadable objects firing, which
+                      # is the actionable signal. SeaweedFSBackupUnreadable
+                      # covers the recoverable subset from the other side, using
+                      # backup-verify's own metric.
+                      expr: 'last_over_time(seaweedfs_staging_unreadable_objects[26h]) - last_over_time(seaweedfs_staging_unreadable_objects[26h] offset 24h)'
                       instant: true
                       range: false
                       refId: A
@@ -2335,6 +2351,212 @@ spec:
                     Longhorn cannot place new replicas
                   description: >-
                     A Longhorn node or disk cannot accept new replicas. Less severe than the disk being not-ready -- already-attached volumes keep working -- but a volume that detaches cannot come back, and any rebuild or new PVC will hang. Often the same underlying cause as LonghornDiskNotReady and expected to fire alongside it; on its own it usually means allowScheduling was turned off or the disk is out of space.
+                labels:
+                  severity: warning
+                isPaused: false
+              # backup-verify reads every SeaweedFS backup object and compares it
+              # to the vault. These four rules are the only thing that surfaces
+              # its result -- without them the job is a check nobody sees.
+              #
+              # Every query is wrapped in last_over_time(). These are PUSHED once
+              # a day, not scraped, so an instant query returns nothing for
+              # 23 of every 24 hours and the rules would sit permanently in
+              # NoData. Confirmed on this cluster: the same metrics read ABSENT
+              # instantly and correct through a 6h window, 42 minutes after the
+              # run that wrote them.
+              - uid: seaweedfs-backup-unreadable
+                title: SeaweedFSBackupUnreadable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 93600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(seaweedfs_verify_objects_unreadable[26h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0s
+                annotations:
+                  summary: >-
+                    A backup object cannot be read locally and IS recoverable from the vault
+                  description: >-
+                    backup-verify found objects that list at the correct size, answer HEAD, and fail on GET -- SeaweedFS has lost their chunks while the filer kept their metadata. These specific objects still exist in the offsite vault, so they are recoverable and the recovery is a single deliberate step. Run `kubectl create job -n longhorn-system repair-manual --from=cronjob/backup-repair`, then read its output before assuming it worked. Do not leave this firing: an object counted here is a backup you do not actually have, and the count only grows.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: seaweedfs-backup-mismatch
+                title: SeaweedFSBackupMismatch
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 93600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(seaweedfs_verify_objects_mismatch[26h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0s
+                annotations:
+                  summary: >-
+                    A local backup and its offsite copy have diverged
+                  description: >-
+                    An object reads correctly on both sides but their MD5s differ, so one of the two copies is not what was written. This is more serious than it looks: nothing else in the pipeline would notice, because both copies are individually healthy. The comparison cannot say which side is wrong -- check whether the local object still matches what produced it (a database dump should still restore) before deciding which copy to trust. Never resolve it by running backup-repair blindly: that overwrites local with remote and would destroy the good copy if the remote is the corrupted one.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: seaweedfs-lost-objects-increased
+                title: SeaweedFSLostObjectsIncreased
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 180000
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      # Today's count against yesterday's, rather than a fixed
+                      # threshold. 53 objects are permanently lost from the
+                      # 2026-08-26 incident and no run will ever recover them, so
+                      # a `> 0` rule would fire forever and be muted within a
+                      # week. Comparing against the previous day makes the rule
+                      # self-maintaining: the known baseline cancels out and only
+                      # NEW permanent loss fires.
+                      expr: 'last_over_time(seaweedfs_verify_objects_lost[26h]) - last_over_time(seaweedfs_verify_objects_lost[26h] offset 24h)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0s
+                annotations:
+                  summary: >-
+                    Backup objects were lost with no offsite copy to recover from
+                  description: >-
+                    The count of permanently unrecoverable objects went up since yesterday. These are objects whose local chunks are gone AND which were never relayed, so nothing can bring them back -- the data is simply lost. That places the fault in the window between an object being written and the relay copying it out, which is the gap that destroyed the 26 August database dumps. Investigate what wrote the objects and whether the relay ran; if this recurs, the relay cadence is too slow for how fast that data changes.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: seaweedfs-verify-stale
+                title: SeaweedFSVerifyStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 93600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(seaweedfs_verify_objects_checked[26h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting, not OK. The whole point of this rule is the case
+                # where the job stopped running: it pushes nothing, the series
+                # goes stale, and the query returns no data. Treating that as OK
+                # would mean the three rules above go quiet exactly when their
+                # input disappears -- silence that reads identically to success.
+                noDataState: Alerting
+                execErrState: Alerting
+                for: 30m
+                annotations:
+                  summary: >-
+                    backup-verify has not reported in over a day -- the other backup checks are blind
+                  description: >-
+                    No result from backup-verify in 26 hours. While this is firing, SeaweedFSBackupUnreadable and SeaweedFSBackupMismatch prove nothing: they read a metric that is no longer being written, so their silence means the check stopped rather than that the backups are healthy. Check the CronJob in longhorn-system and read the last Job's logs. If the pod is already gone, the logs are still in VictoriaLogs -- query kubernetes_pod_name, since the Job controller deletes pods on BackoffLimitExceeded and takes the logs with them.
                 labels:
                   severity: warning
                 isPaused: false
