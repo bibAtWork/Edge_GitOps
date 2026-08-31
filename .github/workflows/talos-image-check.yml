@@ -302,6 +302,47 @@ jobs:
           fi
           echo "  ok    $old -> $new (delta: $delta minor)"
 
+      - name: Verify the kubelet node IP is pinned to a subnet
+        run: |
+          set -euo pipefail
+          # Guards the fault that took the cluster down on 2026-08-26.
+          #
+          # Without machine.kubelet.nodeIP.validSubnets the kubelet picks a node
+          # IP from whatever interfaces exist at start, which on a host running
+          # a Tailscale subnet router is not deterministic. hostNetwork pods
+          # inherit it as POD_IP, and kube-apiserver publishes it via
+          # --advertise-address=$(POD_IP) into the `kubernetes` Endpoints. Pick
+          # the Tailscale address, lose that interface -- as a cordon does, by
+          # stopping the subnet router pod -- and every pod's route to the API
+          # server dies with it. CoreDNS stops syncing, and with DNS gone almost
+          # every controller fails its startup probe.
+          #
+          # Matched on the key path, not by grepping for a subnet: a comment
+          # mentioning 192.168.178.0/24 in prose must not satisfy this. The
+          # awk walks machine: -> kubelet: -> nodeIP: -> validSubnets: by
+          # indentation and requires a CIDR beneath it.
+          fail=0
+          for mc in cluster/overlays/*/talos-machineconfigs/controlplane.yaml; do
+            [ -e "$mc" ] || continue
+            found=$(awk '
+              /^machine:/            { in_m=1; next }
+              /^[a-z]/               { in_m=0; in_k=0; in_n=0 }
+              in_m && /^  kubelet:/  { in_k=1; next }
+              in_k && /^  [a-z]/     { in_k=0; in_n=0 }
+              in_k && /^    nodeIP:/ { in_n=1; next }
+              in_n && /^    [a-z]/   { in_n=0 }
+              in_n && /^      validSubnets:/ { want=1; next }
+              want && /^        - [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+/ { print; want=0 }
+            ' "$mc")
+            if [ -n "$found" ]; then
+              echo "  ok    $mc pins node IP to$found"
+            else
+              echo "::error::$mc does not set machine.kubelet.nodeIP.validSubnets to a CIDR. The kubelet will choose a node IP from whatever interfaces exist at start; kube-apiserver advertises that address, and if it belongs to an interface that can disappear (tailscale0), losing it breaks every pod's route to the API server."
+              fail=1
+            fi
+          done
+          exit $fail
+
       - name: Verify the Kustomize replacements actually resolved
         run: |
           set -euo pipefail

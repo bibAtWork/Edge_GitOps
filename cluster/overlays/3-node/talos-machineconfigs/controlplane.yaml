@@ -11,6 +11,25 @@ machine:
       allowedKubernetesNamespaces:
         - talos-backup
 
+  # Pin the node IP to the LAN subnet -- same reason as the 1-node overlay, and
+  # the same subnet etcd.advertisedSubnets already uses below.
+  #
+  # The kubelet otherwise picks a node IP from whatever interfaces exist at
+  # start. hostNetwork pods inherit it as POD_IP, and kube-apiserver publishes
+  # that address via --advertise-address=$(POD_IP) into the `kubernetes`
+  # Endpoints. If it picks an address belonging to an interface that can go
+  # away -- a Tailscale subnet router's tailscale0, for instance -- then losing
+  # that interface breaks every pod's route to the API server. That took the
+  # 1-node cluster down on 2026-08-26.
+  #
+  # It matters more here, not less: with three nodes each one picks
+  # independently, so the failure can affect one node's workloads while the
+  # others look fine.
+  kubelet:
+    nodeIP:
+      validSubnets:
+        - 192.168.178.0/24
+
 cluster:
   # Workers handle workloads on 3-node; control-plane taint stays active
   allowSchedulingOnControlPlanes: false
