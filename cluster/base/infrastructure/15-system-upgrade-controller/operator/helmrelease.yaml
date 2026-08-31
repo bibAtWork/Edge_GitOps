@@ -8,7 +8,30 @@ spec:
   chart:
     spec:
       chart: system-upgrade-controller
-      version: 110.0.0
+      # Reads as a downgrade from 110.0.0 and is not one: 110.0.0 has been
+      # WITHDRAWN from https://rancher.github.io/charts. The index carries 17
+      # versions and the newest is 109.0.2. Do not "restore" the higher number.
+      #
+      # 110.0.0 was published once -- Helm history shows it applied as .v3 --
+      # and pulled afterwards. Flux kept the cached artifact, so the controller
+      # kept running and nothing looked wrong, while the HelmChart sat Stalled:
+      #
+      #   no 'system-upgrade-controller' chart with version matching '110.0.0'
+      #
+      # A stalled chart cannot re-render, so every change to this HelmRelease
+      # was silently inert -- values, postRenderers, all of it applied to the
+      # object and never reached the cluster. Found while adding a job-deadline
+      # patch that rendered correctly, applied cleanly, and changed nothing.
+      #
+      # It also meant this component could not be reinstalled from its own
+      # source: had that cache been evicted, the controller responsible for
+      # upgrading the cluster would have been unrecoverable from git.
+      #
+      # The cost is real and accepted: 109.0.2 ships appVersion v0.19.1 against
+      # the v0.20.1 currently running, so the controller itself moves back one
+      # minor. A component that cannot be rebuilt from its declared source is
+      # not under GitOps control at all, which is the worse of the two.
+      version: 109.0.2
       sourceRef:
         kind: HelmRepository
         name: rancher
