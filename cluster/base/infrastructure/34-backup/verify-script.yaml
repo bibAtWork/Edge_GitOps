@@ -1,0 +1,126 @@
+# Verifies every SeaweedFS backup object locally, and checks that the offsite
+# copy still matches. Read-only: it never writes to either side and never pulls
+# bytes back from the vault.
+#
+# Mounted read-only and executed by verify-cronjob.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-verify-script
+  namespace: longhorn-system
+data:
+  verify.sh: |
+    #!/bin/sh
+    # Three questions, answered in one pass over the local bytes:
+    #
+    #   1. does every object still READ?          (functional verification)
+    #   2. does the vault still hold it?          (offsite coverage)
+    #   3. do the two agree byte-for-byte?        (silent divergence)
+    #
+    # Deliberately does NOT repair. Pulling bytes back from the vault is a
+    # recovery action: it costs egress, it writes to the live store, and doing
+    # it automatically hides the thing worth knowing -- that objects are going
+    # bad. Repair lives in backup-repair, which is suspended and run by hand.
+    set -eu
+
+    RC_LIMITS="--retries 1 --low-level-retries 1 --timeout 15s --contimeout 5s"
+
+    CHECKED=0; UNREADABLE=0; MISSING_REMOTE=0; MISMATCH=0; NO_HASH=0; LOST=0
+
+    log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+
+    for B in db-backups velero-backups filer-metadata; do
+      log "=== $B"
+
+      # What the filer CLAIMS exists. Metadata only -- this is the half that
+      # survives a chunk loss, so on its own it proves nothing.
+      rclone hashsum md5 "s3:$B" $RC_LIMITS > "/tmp/$B.stored" 2>/dev/null || {
+        log "  cannot list $B -- skipping"; continue; }
+
+      # What actually READS. --download is the entire point: without it rclone
+      # returns the stored ETag, which is exactly the metadata that outlives the
+      # bytes, and every dead object would report a perfect hash. With it, the
+      # object must be fetched and hashed, so an object that cannot be read
+      # simply produces no line.
+      rclone hashsum md5 "s3:$B" --download $RC_LIMITS > "/tmp/$B.computed" 2>/dev/null || true
+
+      # The vault side stays metadata-only: a listing, no object bodies, so this
+      # costs LIST requests and no egress. Comparing a locally COMPUTED hash
+      # against a remotely STORED one is what makes that safe -- the local side
+      # is proven by reading, the remote side only has to be identified.
+      rclone hashsum md5 "aws:${AWS_BUCKET}/seaweedfs/$B" $RC_LIMITS > "/tmp/$B.remote" 2>/dev/null || true
+
+      # rclone hashsum emits "<32 hex>  <path>". Paths are taken from column 35
+      # onward rather than by splitting on whitespace, so a key containing
+      # spaces is still handled correctly.
+      awk '
+        function h(s) { return substr(s, 1, 32) }
+        function p(s) { return substr(s, 35) }
+        FILENAME ~ /\.stored$/   { S[p($0)] = h($0); next }
+        FILENAME ~ /\.computed$/ { C[p($0)] = h($0); next }
+        FILENAME ~ /\.remote$/   { R[p($0)] = h($0); next }
+        END {
+          for (k in S) {
+            n++
+            if (!(k in C)) {
+              # Unreadable splits in two, and the difference is whether anyone
+              # can do anything about it.
+              #
+              # With a vault copy it is RECOVERABLE: run backup-repair and the
+              # object comes back. That is a real fault and fails the run.
+              #
+              # Without one it is LOST: the bytes are gone here and were never
+              # relayed, so no run will ever fix it and failing on it would
+              # leave this job permanently red -- which is how a check stops
+              # being read. 53 such objects exist from the 2026-08-26 incident,
+              # every one written and destroyed inside a single relay cycle.
+              # Counted, printed, published as its own metric, not a failure.
+              if (k in R) { print "  UNREADABLE     " k; unreadable++ }
+              else        { print "  LOST           " k; lost++ }
+              continue
+            }
+            if (!(k in R)) { print "  NO OFFSITE     " k; missing++;    continue }
+            # An S3 ETag is only an MD5 for single-part uploads; a multipart
+            # object reports "<hash>-<parts>" and rclone returns nothing for it.
+            # Counted separately rather than called a mismatch, because an
+            # absent hash is not evidence of divergence.
+            if (R[k] == "") { print "  NO HASH        " k; nohash++; continue }
+            if (C[k] != R[k]) { print "  MISMATCH       " k " local=" C[k] " remote=" R[k]; mismatch++ }
+          }
+          printf "COUNTS %d %d %d %d %d %d\n", n, unreadable, missing, mismatch, nohash, lost
+        }
+      ' "/tmp/$B.stored" "/tmp/$B.computed" "/tmp/$B.remote" > "/tmp/$B.report"
+
+      grep -v '^COUNTS ' "/tmp/$B.report" || true
+      set -- $(grep '^COUNTS ' "/tmp/$B.report" | cut -d' ' -f2-)
+      log "  checked=$1 unreadable=$2 no_offsite=$3 mismatch=$4 no_hash=$5 lost=$6"
+      CHECKED=$((CHECKED + $1)); UNREADABLE=$((UNREADABLE + $2))
+      MISSING_REMOTE=$((MISSING_REMOTE + $3)); MISMATCH=$((MISMATCH + $4))
+      NO_HASH=$((NO_HASH + $5)); LOST=$((LOST + $6))
+    done
+
+    log "checked=$CHECKED unreadable=$UNREADABLE no_offsite=$MISSING_REMOTE mismatch=$MISMATCH no_hash=$NO_HASH lost=$LOST"
+
+    TS=0
+    [ "$UNREADABLE" -eq 0 ] && [ "$MISMATCH" -eq 0 ] && TS="$(date -u +%s)"
+    {
+      echo "seaweedfs_verify_last_clean_timestamp $TS"
+      echo "seaweedfs_verify_objects_checked $CHECKED"
+      echo "seaweedfs_verify_objects_unreadable $UNREADABLE"
+      echo "seaweedfs_verify_objects_no_offsite $MISSING_REMOTE"
+      echo "seaweedfs_verify_objects_mismatch $MISMATCH"
+      echo "seaweedfs_verify_objects_no_hash $NO_HASH"
+      echo "seaweedfs_verify_objects_lost $LOST"
+    } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+
+    # Unreadable or diverged is a real fault and fails the run. NO OFFSITE does
+    # not: an object written since the last relay legitimately has no vault copy
+    # yet, so failing on it would make the job red every morning between the
+    # dumps and the relay. It is published as its own metric and alerted on
+    # separately, where a threshold can distinguish "written an hour ago" from
+    # "never relayed and now gone".
+    if [ "$UNREADABLE" -ne 0 ] || [ "$MISMATCH" -ne 0 ]; then
+      log "VERIFY_FAILED"
+      exit 1
+    fi
+    log "VERIFY_OK"

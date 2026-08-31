@@ -73,6 +73,21 @@ data:
   # on the monthly tier, which is the worse trade.
   relay_cron: "0 5 * * *"
   restore_test_cron: "0 7 * * *"
+
+  # 08:00, after the relay has pushed the day's objects out. The full chain:
+  #   03:00 staging      snapshots the live buckets
+  #   05:00 relay        pushes that snapshot to the vault
+  #   07:00 restore-test restores Longhorn volumes, samples SeaweedFS vs staging
+  #   08:00 verify       reads every object locally, checks the vault matches
+  #
+  # Running before the relay would report the day's fresh dumps as having no
+  # offsite copy every single morning, which is true but not interesting.
+  verify_cron: "0 8 * * *"
+
+  # backup-repair ships SUSPENDED and is triggered by hand -- see the comment in
+  # repair-cronjob.yaml. This value only exists because the CronJob needs a
+  # syntactically valid schedule; nothing fires on it.
+  repair_cron: "0 9 * * 0"
   reconcile_cron: "0 9 * * *"
   remote_probe_cron: "0 6 1 * *"
 
