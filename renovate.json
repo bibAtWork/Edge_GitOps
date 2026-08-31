@@ -76,6 +76,11 @@
       "enabled": false
     },
     {
+      "description": "Block system-upgrade-controller chart 110.0.0 -- it is WITHDRAWN. It was published once, applied here as Helm release .v3, and pulled from https://rancher.github.io/charts afterwards. The index now carries 17 versions, newest 109.0.2. Flux cannot resolve it: the HelmChart sits Stalled on 'no chart with version matching 110.0.0 found', and a stalled chart cannot re-render, so every change to that HelmRelease applies cleanly to the object and silently never reaches the cluster (see #396). Renovate keeps offering it because it tracks the GitHub repo, where the tag still exists, rather than the chart index -- so the version it proposes is one that cannot be installed. Excluded as a semver range with a hole rather than a ceiling, so a genuine 110.0.1 is still offered if Rancher republishes -- pinning below 110 would silently freeze this chart at 109 forever.",
+      "matchPackageNames": ["system-upgrade-controller"],
+        "allowedVersions": "<110.0.0 || >110.0.0"
+    },
+    {
       "description": "Group all Talos ecosystem updates into one PR. talosctl is no longer tracked separately -- its image tag is now the same Kustomize-replacements field as TALOS_VERSION (see config/kustomization.yaml), so it cannot drift from it the way it used to and needs no manager of its own.",
       "matchPackageNames": ["siderolabs/talos"],
       "groupName": "talos",
