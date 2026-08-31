@@ -1,0 +1,112 @@
+# Runs before the Sunday upgrade windows and decides whether they may proceed.
+#
+# Order of the whole chain, which is the point:
+#   03:00 Sun  Longhorn weekly backup
+#   11:00 Sun  THIS -- proves the backups are recent AND readable, then labels
+#              the nodes talos.homelab/upgrade-ready=true
+#   12:00 Sun  talos-controlplane   (requires the label)
+#   14:00 Sun  talos-worker         (requires the label)
+#   16:00 Sun  talos-kubernetes     (requires the label)
+#
+# An hour before the first window is deliberate: the gate itself runs
+# backup-verify, which takes ~3.5 minutes over ~650 objects, and a gate that
+# overran into the window it guards would let the upgrade start unguarded.
+#
+# It fails CLOSED. If the gate cannot establish that the backups are good, the
+# label is removed and no Plan acts. A missed upgrade window costs a week; an
+# upgrade with no working backup can cost the cluster -- and this one reboots a
+# single node with no HA to absorb it.
+#
+# Why the label rather than spec.prepare: SUC Plans can mount secrets but not
+# ConfigMaps, so a prepare step would have to inline this script into the Plan's
+# args. This repo already refuses that for the restore-test, on the grounds that
+# every backslash is a chance for the escaping to be silently wrong. nodeSelector
+# is what SUC provides for exactly this, and it keeps the script reviewable.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: upgrade-backup-gate
+  namespace: longhorn-system
+spec:
+  schedule: "0 11 * * 0"
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry. A refusal is a decision, not a transient error: retrying would
+      # re-run backup-verify against the same objects for the same answer, and
+      # the second refusal is no more informative than the first.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            # Needed for the alpine mirrors (kubectl install) and the metrics
+            # push. Without it the pod inherits longhorn-restrict, which permits
+            # neither.
+            backup.homelab/egress: "true"
+        spec:
+          restartPolicy: Never
+          serviceAccountName: upgrade-backup-gate
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: gate
+              # kubectl baked in, rather than alpine + `apk add kubectl` the way
+              # the restore-test does it. Two reasons, both learned here:
+              #
+              # apk needs root. The first version of this job ran as uid 1000
+              # and died on "Unable to lock database: Permission denied" -- and
+              # because the error text was copied from the restore-test, it
+              # blamed the alpine mirrors and sent the diagnosis at the network
+              # for twenty minutes. The restore-test gets away with it only
+              # because it runs runAsUser: 0.
+              #
+              # This image needs neither. It runs as uid 1000, carries kubectl
+              # v1.36 matching the cluster, and ships wget for the metric push,
+              # so the gate keeps runAsNonRoot AND stops depending on a package
+              # mirror being reachable at the moment an upgrade is being
+              # decided. SUC already pulls this image for its own Jobs, so it is
+              # present on the node.
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              command: ["/bin/sh", "/scripts/gate.sh"]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus # nosonar
+                # A Longhorn backup older than this refuses the upgrade. 26h,
+                # against a weekly backup that runs at 03:00 and a gate that runs
+                # at 11:00 the same morning: the newest backup should be ~8h old
+                # here, so 26h catches a weekly that did not run without tripping
+                # on the normal week-long gap between backups.
+                - name: MAX_BACKUP_AGE_HOURS
+                  value: "26"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                # 10 namespaces cap limit-less containers at 256Mi via a
+                # LimitRange, which is not enough for apk plus kubectl.
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: scripts
+              configMap:
+                name: upgrade-backup-gate-script
+            - name: tmp
+              emptyDir: {}

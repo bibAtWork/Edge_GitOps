@@ -97,9 +97,26 @@ spec:
     startTime: "16:00"
     endTime: "17:00"
     timeZone: UTC
+  # Requires the pre-upgrade backup gate.
+  #
+  # upgrade-backup-gate (11:00 Sunday, longhorn-system) proves the Longhorn
+  # backups are recent AND that every SeaweedFS backup object actually reads,
+  # then sets this label. It removes it whenever it cannot establish both, so
+  # an absent label means "not proven this week", never "not checked".
+  #
+  # Fails closed by construction: no label, no matching node, no upgrade. That
+  # is the intended behaviour on a single-node cluster that reboots to apply
+  # this -- a missed window costs a week, an upgrade with no working backup can
+  # cost the cluster. "There is a backup" was true for four days here while 584
+  # backup objects were unreadable, which is why the gate reads them rather
+  # than counting them.
+  #
+  # The manual override is talos-on-demand, which is label-triggered and
+  # deliberately NOT gated -- see that file.
   nodeSelector:
     matchLabels:
       node-role.kubernetes.io/control-plane: ""
+      talos.homelab/upgrade-ready: "true"
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists

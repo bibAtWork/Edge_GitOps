@@ -1,0 +1,141 @@
+# The pre-upgrade backup gate. Held in a ConfigMap rather than inlined into a
+# Plan, which is also why it is a CronJob and not spec.prepare -- SUC Plans can
+# mount secrets but not ConfigMaps.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: upgrade-backup-gate-script
+  namespace: longhorn-system
+data:
+  gate.sh: |
+    #!/bin/sh
+    # Decides whether this node may be upgraded, by proving the backups are both
+    # RECENT and READABLE, and records the answer as a node label that the SUC
+    # Plans require via nodeSelector.
+    #
+    # An upgrade reboots a single-node cluster. The thing that makes that
+    # acceptable is being able to go back, and "there is a backup" is not the
+    # same claim as "the backup restores" -- this cluster spent four days with
+    # 584 unreadable backup objects while every job reported success. So the
+    # gate does not check that backups exist; it checks that they read.
+    #
+    # Fails CLOSED. If anything here cannot be established, the label is removed
+    # and no Plan acts. A missed upgrade window is recoverable; an upgrade with
+    # no working backup is not.
+    set -u
+
+    LABEL="talos.homelab/upgrade-ready"
+    MAX_BACKUP_AGE_HOURS="${MAX_BACKUP_AGE_HOURS:-26}"
+    FAILURES=""
+
+    log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
+    fail() { FAILURES="${FAILURES}${1}; "; log "REFUSE: $1"; }
+
+    # ---------------------------------------------------------------
+    # 1. Longhorn volume backups are recent.
+    # ---------------------------------------------------------------
+    # Read from backupvolume status, the only place the last successful backup
+    # time is recorded. A volume with no backup at all is not a failure here --
+    # volumes in the `ephemeral` recurring-job group are excluded from backups
+    # on purpose, and treating them as missing would make the gate refuse
+    # forever over caches nobody wants backed up.
+    NOW="$(date -u +%s)"
+    CUTOFF=$(( NOW - MAX_BACKUP_AGE_HOURS * 3600 ))
+    STALE=0
+    CHECKED=0
+
+    kubectl get backupvolumes.longhorn.io -n longhorn-system \
+      -o custom-columns=VOL:.spec.volumeName,AT:.status.lastBackupAt --no-headers 2>/dev/null > /tmp/bvs || true
+
+    while read -r VOL AT; do
+      [ -z "${VOL:-}" ] && continue
+      [ -z "${AT:-}" ] || [ "$AT" = "<none>" ] && continue
+      CHECKED=$((CHECKED + 1))
+      # busybox date cannot parse RFC3339 with -d, so compare lexically against
+      # a formatted cutoff instead. Both are UTC and zero-padded, so string
+      # order is time order.
+      CUT_STR="$(date -u -d "@$CUTOFF" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
+      if [ -n "$CUT_STR" ] && [ "$AT" \< "$CUT_STR" ]; then
+        fail "$VOL last backed up $AT, older than ${MAX_BACKUP_AGE_HOURS}h"
+        STALE=$((STALE + 1))
+      fi
+    done < /tmp/bvs
+    log "longhorn backups checked=$CHECKED stale=$STALE"
+
+    # ---------------------------------------------------------------
+    # 2. The backups actually read, right now.
+    # ---------------------------------------------------------------
+    # Runs backup-verify rather than trusting its last scheduled result. The
+    # point of the gate is the state at THIS moment: a verify that passed eight
+    # hours ago says nothing about a chunk lost since.
+    JOB="upgrade-gate-verify-$(date -u +%Y%m%d%H%M)"
+    log "running $JOB"
+    if kubectl create job -n longhorn-system "$JOB" --from=cronjob/backup-verify >/dev/null 2>&1; then
+      i=0
+      STATE=""
+      while [ "$i" -lt 90 ]; do
+        if kubectl get job -n longhorn-system "$JOB" -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q 1; then
+          STATE=ok; break
+        fi
+        if kubectl get job -n longhorn-system "$JOB" -o jsonpath='{.status.failed}' 2>/dev/null | grep -q '[1-9]'; then
+          STATE=failed; break
+        fi
+        i=$((i + 1)); sleep 10
+      done
+      case "$STATE" in
+        ok)     log "backup-verify passed" ;;
+        failed) fail "backup-verify reported unreadable or mismatched objects" ;;
+        *)      fail "backup-verify did not finish within 15m" ;;
+      esac
+      # The Job controller deletes the pod on BackoffLimitExceeded and takes the
+      # logs with it, so capture them before cleaning up.
+      kubectl logs -n longhorn-system "job/$JOB" --tail=25 2>/dev/null | sed 's/^/    /' || true
+      kubectl delete job -n longhorn-system "$JOB" --wait=false >/dev/null 2>&1 || true
+    else
+      fail "could not create the backup-verify job"
+    fi
+
+    # ---------------------------------------------------------------
+    # 3. Record the verdict.
+    # ---------------------------------------------------------------
+    # Every node, not just the one this pod landed on. The verdict is about the
+    # cluster's backups, which are cluster-wide, so it applies to every node
+    # equally. Labelling only the local node would work by accident on one node
+    # and silently leave the other two unupgradeable on three -- the kind of
+    # difference that does not appear until the overlay changes.
+    NODES="$(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||')"
+    if [ -z "$NODES" ]; then
+      fail "could not list nodes to record the verdict"
+    fi
+
+    if [ -z "$FAILURES" ]; then
+      for N in $NODES; do
+        kubectl label node "$N" "$LABEL=true" --overwrite >/dev/null 2>&1 \
+          && log "GATE PASSED -- $N labelled $LABEL=true" \
+          || { log "GATE PASSED but labelling $N failed"; FAILURES="label write failed on $N; "; }
+      done
+    fi
+
+    # Not an else. If labelling failed above, the verdict is now a refusal and
+    # every label must come off -- otherwise a partial pass leaves some nodes
+    # authorised on a run that did not actually succeed.
+    if [ -n "$FAILURES" ]; then
+      for N in $NODES; do
+        # Removing beats leaving it stale: a label from last week would
+        # authorise an upgrade on this week's unexamined state.
+        kubectl label node "$N" "${LABEL}-" >/dev/null 2>&1 || true
+      done
+      log "GATE REFUSED -- $LABEL removed from all nodes"
+      log "reasons: $FAILURES"
+    fi
+
+    PASS=0
+    [ -z "$FAILURES" ] && PASS=1
+    {
+      echo "upgrade_gate_pass $PASS"
+      echo "upgrade_gate_last_run_timestamp $(date -u +%s)"
+      echo "upgrade_gate_stale_backup_volumes $STALE"
+    } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+
+    [ -z "$FAILURES" ] || exit 1
+    log "GATE_OK"

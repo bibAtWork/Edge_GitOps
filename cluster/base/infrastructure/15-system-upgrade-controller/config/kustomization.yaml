@@ -1,6 +1,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # The pre-upgrade backup gate. Listed before the plans because the plans
+  # now depend on the label it sets.
+  - upgrade-gate-rbac.yaml
+  - upgrade-gate-script.yaml
+  - upgrade-gate-cronjob.yaml
   - plans/talos-controlplane-upgrade.yaml
   - plans/talos-worker-upgrade.yaml
   # Inert until a node is labelled talos.homelab/upgrade-now. See the file.
