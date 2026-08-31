@@ -2272,7 +2272,24 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'count(longhorn_disk_status{condition="ready"} == 0)'
+                      # `== bool 0` rather than `== 0`, and sum rather than
+                      # count. The difference decides whether this rule works.
+                      #
+                      # `count(X == 0)` FILTERS: when every disk is healthy it
+                      # matches no series and returns an empty result, which
+                      # Grafana reports as NoData. Paired with
+                      # noDataState: Alerting that fires the alert precisely
+                      # when the disk is fine -- observed live on 2026-08-31,
+                      # with longhorn_disk_status{condition="ready"} = 1 and
+                      # this alert firing.
+                      #
+                      # `== bool 0` MAPS instead: each series becomes 1 or 0, so
+                      # sum() is the number of unhealthy disks and is 0 rather
+                      # than empty when all are fine. NoData then means only one
+                      # thing -- the metric is absent entirely -- which is a real
+                      # fault and correctly alerts, because a disk nobody can see
+                      # is not a disk known to be good.
+                      expr: 'sum(longhorn_disk_status{condition="ready"} == bool 0)'
                       instant: true
                       range: false
                       refId: A
@@ -2318,7 +2335,24 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'count(longhorn_disk_status{condition="schedulable"} == 0)'
+                      # `== bool 0` rather than `== 0`, and sum rather than
+                      # count. The difference decides whether this rule works.
+                      #
+                      # `count(X == 0)` FILTERS: when every disk is healthy it
+                      # matches no series and returns an empty result, which
+                      # Grafana reports as NoData. Paired with
+                      # noDataState: Alerting that fires the alert precisely
+                      # when the disk is fine -- observed live on 2026-08-31,
+                      # with longhorn_disk_status{condition="ready"} = 1 and
+                      # this alert firing.
+                      #
+                      # `== bool 0` MAPS instead: each series becomes 1 or 0, so
+                      # sum() is the number of unschedulable disks and is 0 rather
+                      # than empty when all are fine. NoData then means only one
+                      # thing -- the metric is absent entirely -- which is a real
+                      # fault and correctly alerts, because a disk nobody can see
+                      # is not a disk known to be good.
+                      expr: 'sum(longhorn_disk_status{condition="schedulable"} == bool 0)'
                       instant: true
                       range: false
                       refId: A
@@ -2343,7 +2377,11 @@ spec:
                         type: __expr__
                         uid: '-100'
                       expression: A
-                noDataState: OK
+                # Alerting, not OK. With the bool form above, an empty
+                # result no longer means "all healthy" -- it means the
+                # metric is gone, and a scheduling state nobody can read
+                # is not a scheduling state known to be good.
+                noDataState: Alerting
                 execErrState: Error
                 for: 30m
                 annotations:
