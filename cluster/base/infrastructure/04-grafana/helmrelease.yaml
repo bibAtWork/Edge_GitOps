@@ -159,6 +159,179 @@ spec:
       rules.yaml:
         apiVersion: 1
         groups:
+          # Detects the blind spot rather than engineering around it.
+          #
+          # The monitoring stores sit on Longhorn, which is also what they
+          # monitor. On 2026-08-26 a Longhorn fault faulted vmsingle's volume
+          # and took out the detection for its own cause: the disk published
+          # longhorn_disk_status{condition="ready"} = 0 for four days and no
+          # rule could evaluate, because every rule needs the datasource that
+          # was down. Moving the stores off Longhorn breaks that loop but
+          # costs snapshots and, past one node, the ability to reschedule
+          # with the data. These rules keep Longhorn and close the loop the
+          # other way.
+          #
+          # VictoriaMetricsUnavailable is the one that matters, and it is
+          # deliberately built so that it CANNOT depend on what it watches.
+          # Grafana evaluates it, runs with persistence.enabled: false, holds
+          # no PVC, and so has no Longhorn dependency. The query is vector(1)
+          # -- constant, no stored data required -- so it succeeds whenever
+          # VictoriaMetrics answers at all and errors when it does not.
+          # execErrState: Alerting turns that error into a page. A rule that
+          # queried real data would report NoData for an empty-but-healthy
+          # database and could not tell "nothing scraped" from "nothing
+          # answering".
+          #
+          # The other two go through VictoriaMetrics on purpose. A rule
+          # against the VictoriaLogs datasource does not work in this cluster
+          # -- that datasource has never produced a working alert here -- and
+          # there is no Grafana datasource for VictoriaTraces at all. Reading
+          # their up series out of VictoriaMetrics is sound because the case
+          # where VictoriaMetrics itself is down is already covered above;
+          # the rules compose rather than overlap.
+          - orgId: 1
+            name: Monitoring Availability
+            folder: Monitoring
+            interval: 1m
+            rules:
+              - uid: victoriametrics-unavailable
+                title: VictoriaMetricsUnavailable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'vector(1)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Alerting
+                for: 5m
+                annotations:
+                  summary: >-
+                    VictoriaMetrics is not answering -- every other alert in this cluster is currently blind
+                description: >-
+                  Grafana cannot query VictoriaMetrics. Treat every other alert as unreliable while this is firing: they all evaluate against this datasource, so their silence means nothing. This rule is the exception, because it queries vector(1) -- a constant needing no stored data -- so it fires on the datasource being unreachable rather than on the data being absent. Most likely causes are the vmsingle pod not running, or its Longhorn PVC failing to attach. Check the vmsingle pod first, then its PVC, then the Longhorn disk condition. If the disk is the cause, longhorn_disk_status cannot be read while this is firing -- read it from nodes.longhorn.io in the API instead.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: victorialogs-unavailable
+                title: VictoriaLogsUnavailable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(up{job="vlsingle-vmstack-victoria-metrics-k8s-stack"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Alerting
+                for: 10m
+                annotations:
+                  summary: >-
+                    VictoriaLogs is not answering -- log queries and log-based panels are blind
+                description: >-
+                  The vlsingle scrape target is down or its series has gone stale. Collectors keep shipping logs but they have nowhere to land, so the gap is not recoverable after the fact. noDataState is Alerting deliberately: if the pod is deleted outright the up series disappears rather than going to 0, and a rule that only tested for 0 would go quiet exactly when the component is most gone. Check the vlsingle pod and its Longhorn PVC.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: victoriatraces-unavailable
+                title: VictoriaTracesUnavailable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(up{job="vtsingle-vmstack-victoria-metrics-k8s-stack"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Alerting
+                for: 10m
+                annotations:
+                  summary: >-
+                    VictoriaTraces is not answering
+                description: >-
+                  The vtsingle scrape target is down or its series has gone stale. Traces are the least critical of the three stores -- nothing alerts on them and no Grafana datasource is wired to it -- so this is a warning rather than a page. It is included because a store nothing watches is a store that stays broken.
+                labels:
+                  severity: warning
+                isPaused: false
           - orgId: 1
             name: Trivy CVE Alerts
             folder: Security
