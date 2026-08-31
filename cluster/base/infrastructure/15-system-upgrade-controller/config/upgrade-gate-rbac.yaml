@@ -1,0 +1,89 @@
+# Permissions for the pre-upgrade backup gate.
+#
+# The gate is a CronJob rather than a Plan's spec.prepare step, and that choice
+# is forced: SUC Plans can mount secrets but not ConfigMaps, so a prepare script
+# would have to be inlined into the Plan's args. This repo already refuses that
+# for the restore-test -- "every backslash in it is one more chance for the
+# escaping to be silently wrong in a way no validator catches" -- and a gate
+# whose failure mode is a quoting bug is worse than no gate.
+#
+# Running it as a CronJob that sets a node label, with the Plans requiring that
+# label via nodeSelector, uses SUC exactly as designed and keeps the script in a
+# ConfigMap where it can be reviewed.
+#
+# Least privilege, genuinely: this account can create Jobs in longhorn-system
+# and patch node labels, and nothing else. It is NOT the
+# system-upgrade-controller account, which is bound to cluster-admin -- the gate
+# would have inherited all of it by running inside the upgrade Job.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: upgrade-backup-gate
+  namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: upgrade-backup-gate
+  namespace: longhorn-system
+rules:
+  # Creates a Job from the backup-verify CronJob and waits on it. `get` on
+  # cronjobs is what --from needs to read the template.
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # Reading the verify pod's log is how the gate reports WHY it refused, rather
+  # than only that it did.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Longhorn records the last successful backup time only on the backupvolume
+  # status, so freshness cannot be established without reading these.
+  - apiGroups: ["longhorn.io"]
+    resources: ["backupvolumes", "backups"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: upgrade-backup-gate
+  namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: upgrade-backup-gate
+subjects:
+  - kind: ServiceAccount
+    name: upgrade-backup-gate
+    namespace: longhorn-system
+---
+# Nodes are cluster-scoped, so labelling one needs a ClusterRole. Scoped to
+# nodes only, and to the verbs required to read and label them -- notably NOT
+# delete, and nothing outside the core API.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: upgrade-backup-gate-node-labeller
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: upgrade-backup-gate-node-labeller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: upgrade-backup-gate-node-labeller
+subjects:
+  - kind: ServiceAccount
+    name: upgrade-backup-gate
+    namespace: longhorn-system

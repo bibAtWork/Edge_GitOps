@@ -37,6 +37,27 @@
 # merges, instead of waiting for Sunday. That is simultaneously the point of
 # the label and the risk of forgetting it. It is inert while no node carries
 # it, which is the state this repo ships in.
+# ── It bypasses the backup gate, on purpose ──────────────────────────────────
+# The three scheduled Plans require talos.homelab/upgrade-ready, which
+# upgrade-backup-gate sets at 11:00 on Sunday only after proving the backups are
+# recent and actually readable. This Plan does not require it.
+#
+# That is deliberate rather than an oversight. This is the path you take when
+# an advisory lands and Sunday is too far away, and it is exactly the situation
+# where the gate might also be refusing -- if the backups are broken AND a
+# critical fix is out, someone has to be able to weigh those against each other.
+# A gate that cannot be overridden stops being a safety mechanism and becomes
+# the thing standing between you and a patched kernel.
+#
+# The override is the label itself: applying it is a person deciding, with the
+# gate's verdict available to them. Check it before you do:
+#
+#   kubectl get nodes -L talos.homelab/upgrade-ready
+#   kubectl logs -n longhorn-system -l job-name=<last upgrade-backup-gate job>
+#
+# If the gate is refusing and you label anyway, you are choosing to upgrade
+# without a proven backup. Sometimes that is right. Know that it is the choice
+# being made.
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
