@@ -40,9 +40,37 @@ data:
   backup_monthly_retain: "6"
 
   # SeaweedFS live-bucket staging (distinct from the Longhorn backup target).
-  seaweed_staging_cron: "0 1 * * *"
+  #
+  # 03:00, NOT 01:00, and the ordering against the database dumps is the whole
+  # point. The dumps run at 02:40 (immich), 02:45 (paperless) and 02:50
+  # (keycloak); the relay copies these buckets from the STAGED snapshot rather
+  # than live, so a dump only reaches the vault via a staging pass that ran
+  # after it.
+  #
+  # Staging at 01:00 ran BEFORE every one of them. A dump written at 02:40 was
+  # therefore not staged until 01:00 the following day and not relayed until
+  # 05:00 the following day -- roughly 26 hours of existing only on the same
+  # SeaweedFS that the vault exists to insure against.
+  #
+  # That window is not theoretical. immich-20260826T024002Z.sql.gz was written
+  # at 02:40 on 2026-08-26, destroyed by the incident hours later, and had
+  # never been relayed: the repair pass found it unreadable locally with no
+  # offsite copy to restore from. It is the one object from that incident that
+  # is permanently gone, and it was lost to this ordering rather than to the
+  # incident itself.
+  #
+  # 03:00 is ten minutes after the last dump, which cuts the exposure for the
+  # most valuable artefacts in the cluster from ~26h to ~2h20m.
+  seaweed_staging_cron: "0 3 * * *"
   seaweed_staging_retain: "14"
 
+  # Left at 05:00 deliberately. It is late enough to follow the 03:00 staging
+  # pass with two hours of margin, and it still precedes nothing that needs it
+  # earlier -- while moving it earlier would push it in front of the 04:00
+  # monthly Longhorn backup on the 1st, which the relay copies directly from
+  # the live backupstore rather than from staging. Pulling the relay forward to
+  # shave the remaining ~2h off the dumps would cost a full month of exposure
+  # on the monthly tier, which is the worse trade.
   relay_cron: "0 5 * * *"
   restore_test_cron: "0 7 * * *"
   reconcile_cron: "0 9 * * *"
