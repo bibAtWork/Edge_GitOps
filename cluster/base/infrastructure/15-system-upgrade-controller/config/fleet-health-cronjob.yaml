@@ -1,0 +1,101 @@
+# Every 6 hours, checks that every node reports the SAME Talos version, that
+# the fleet's version matches ../versions.env, and that every node is Ready.
+#
+# Same no-RBAC, no-ServiceAccount design as 36-talos-cve-watch, for the same
+# reason -- see fleet-health-script-configmap.yaml for why this lives here
+# instead of alongside it as its own top-level infra component.
+#
+# Minute :35 on a 6-hour cadence so it never lands on the backup jobs'
+# hourly :17/:25/:40 marks. Hours are 05/11/17/23, not the 00/06/12/18 the
+# minute alone would suggest -- shifted five hours to clear the Sunday
+# upgrade windows (12:00-17:00: control-plane, worker, then Kubernetes; see
+# plans/talos-controlplane-upgrade.yaml) entirely, with the nearest fire
+# (11:35) 25 minutes before the first window opens and the next (17:35) 35
+# minutes after the last one closes.
+#
+# Round 4 code review found the previous 00/06/12/18 alignment had silently
+# stopped clearing the windows once 4f5f64b moved them from evening to
+# midday -- 12:35 landed inside the control-plane window, and nothing caught
+# it because that relationship was documented as an assumption, not checked
+# anywhere. It is now: the Talos image CI workflow asserts this schedule
+# doesn't land inside any Plan's window, the same way it already asserts
+# Kustomize `replacements` resolve -- so the next window or schedule move
+# that breaks this fails at PR time. The Grafana rules this check feeds also
+# no longer depend on the schedule dodging the windows at all (`for: 8h`
+# headroom on TalosFleetVersionSkew/K8sVersionSkew/UnreadyNodes tolerates a
+# single mid-window sample regardless), so this comment is belt-and-braces,
+# not the only thing standing between a routine upgrade and a false page.
+#
+# 05:35 also sits well clear of talos-cve-watch's 06:20 run, so the two
+# still never contend for vmsingle at the same instant.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: talos-fleet-health
+  namespace: monitoring
+spec:
+  schedule: "35 5,11,17,23 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: talos-fleet-health
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: check
+              image: python:3.14.7-slim
+              command: ["python3", "/script/check.py"]
+              env:
+                - name: VM_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                # Overwritten at build time from ../versions.env's
+                # TALOS_VERSION by the `replacements` block in
+                # ../kustomization.yaml. The placeholder is a real version so
+                # `kustomize build` still produces something sane if
+                # replacements were ever removed.
+                - name: DESIRED_TALOS_VERSION
+                  value: v1.13.9
+                # Overwritten at build time from ../versions.env's
+                # KUBERNETES_VERSION, same mechanism as DESIRED_TALOS_VERSION
+                # above.
+                - name: DESIRED_KUBERNETES_VERSION
+                  value: v1.36.3
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 192Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: talos-fleet-health-script
+            - name: tmp
+              emptyDir: {}

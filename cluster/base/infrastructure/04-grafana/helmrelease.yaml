@@ -1658,6 +1658,513 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # ── Talos fleet health ──────────────────────────────────────
+              # Fed by the talos-fleet-health CronJob (every 6h), which
+              # compares each node's actual running Talos version against
+              # every other node's and against versions.env, and checks each
+              # node's Ready condition. Without these rules the metrics exist
+              # but nothing pages on them, which is the exact gap this whole
+              # mechanism was built to close.
+              #
+              # 8h query windows: the job runs every 6h, +2h slack, same ratio
+              # as the daily/26h talos-advisory pair above.
+              #
+              # `for: 8h` on this rule and the two below (K8s skew, unready
+              # nodes) -- NOT `for: 0m` as an earlier version of this comment
+              # had it. That version relied on the fleet-health CronJob's
+              # schedule never landing inside a Sunday upgrade window "by
+              # construction", which held only as long as nobody moved either
+              # side without checking the other: round 4 code review found
+              # the OS windows had moved to midday (12:00-17:00) while the
+              # schedule was untouched, and 12:35 UTC now sits inside the
+              # control-plane window -- exactly the silent collision that
+              # comment warned was possible once 3-node made a rollout long
+              # enough to overlap a check, except it took a window move on
+              # the 1-node profile to trigger it, not a multi-node rollout.
+              #
+              # Two changes instead of one, matching the review's own
+              # framing of a fix that survives the NEXT window move, not
+              # just this one:
+              #
+              #   (a) the schedule itself moved to 05:35/11:35/17:35/23:35
+              #       UTC, clear of the current 12:00-17:00 span (see
+              #       fleet-health-cronjob.yaml) -- and the Talos image CI
+              #       workflow now asserts this schedule/window relationship
+              #       as an invariant, the same way it already asserts
+              #       `replacements` resolve, so the next window (or
+              #       schedule) move that reintroduces a collision fails at
+              #       PR time instead of at the next Sunday 12:35.
+              #   (b) `for: 8h` here regardless -- sized to the longest
+              #       window (2h) plus one full check interval (6h), so even
+              #       if (a) is ever wrong, a single mid-window sample is not
+              #       enough to page: the metric stays "last" for up to 6h
+              #       until the next (post-window) run supersedes it, which
+              #       clears the condition well before 8h of continuous
+              #       pending time can accumulate. A genuine, persistent
+              #       problem still fires, just up to ~8h later than
+              #       instantly -- the review's own tradeoff, judged
+              #       acceptable here against a guaranteed weekly false page.
+              #       This is a wall-clock `for:` duration, not a
+              #       min_over_time query -- it does not have
+              #       TalosFleetVersionDrift's ephemeral-state problem, since
+              #       8 hours of Grafana uptime is a low bar compared to 8
+              #       days, and the cost of getting it wrong here is delayed
+              #       detection, not a permanently inert rule.
+              - uid: talos-fleet-version-skew
+                title: TalosFleetVersionSkew
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_version_skew[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 8h
+                annotations:
+                  summary: >-
+                    Talos nodes disagree with each other on OS version
+                  description: >-
+                    talos-fleet-health found more than one distinct Talos version across nodes via kube_node_info. Identify the split with the talos_fleet_node_info series, which carries each node's version as a label. Either a rolling upgrade is genuinely in progress outside its expected window, or a node's upgrade stalled partway. Check `kubectl get jobs -n cattle-system` and the Plan status with `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: talos-fleet-version-drift
+                title: TalosFleetVersionDrift
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 691200
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min_over_time(talos_fleet_version_drift[8d]) and (count_over_time(talos_fleet_version_drift[8d]) >= 28)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                # Grace period, not a window-aware gate: code review on PR
+                # #386 (round 2) found that versions.env applies at merge,
+                # while the automated upgrade waits for the Sunday window --
+                # a merge shortly after that window means up to ~7 days where
+                # this condition is true and describes nothing more than
+                # normal operation. Gating on the actual window was
+                # considered and rejected as more complex than warranted; a
+                # grace period spanning one full week (the longest possible
+                # merge-to-window gap, plus the window itself, plus a day of
+                # buffer) instead, so this only fires once an upgrade has had
+                # a full cycle to happen and still hasn't. Severity dropped
+                # to warning to match: a week-old drift is worth a look, not
+                # a page.
+                #
+                # Round 3 review found the grace period couldn't actually be
+                # `for: 8d`: Grafana's persistence.enabled: false (this file,
+                # above) means alert-instance pending state lives in an
+                # ephemeral SQLite DB, wiped on every pod restart -- and a
+                # HelmRelease reconcile, a node reboot, or one of the very
+                # Talos upgrades this alert watches for would all reset an
+                # 8-day wall-clock pending timer to zero, making the rule
+                # effectively inert. Moved the grace period into the query
+                # instead: min_over_time over 8 days of STORED samples in
+                # vmsingle (retention comfortably exceeds 8 days), true
+                # regardless of how many times Grafana itself has restarted
+                # in that span, with `for: 0m` since the 8 days now live in
+                # the expression rather than in pending-state duration.
+                #
+                # Round 4 review found that first version of the query still
+                # didn't implement a grace period: min_over_time aggregates
+                # only the samples that EXIST in the window, so a brand-new
+                # series with a single drifted sample (the check runs once
+                # and immediately sees drift) returns 1 and fires the same
+                # instant, not after 8 days. "Ignores absent samples" cuts
+                # both ways -- it also means the window doesn't need to be
+                # full before the rule can fire. The count_over_time(...) >=
+                # 28 clause is the actual grace period: the check runs every
+                # 6h (4/day), so a fully-populated 8-day window holds 32
+                # samples; 28 requires ~7 of those 8 days to have reported in
+                # before the rule can fire at all, tolerating a few missed
+                # runs without requiring every single one.
+                for: 0m
+                annotations:
+                  summary: >-
+                    A Talos node has not matched the version pinned in git for a week
+                  description: >-
+                    talos-fleet-health found at least one node NOT running TALOS_VERSION from versions.env, continuously for 8 days -- long enough that a routine wait for the Sunday upgrade window no longer explains it. This is the exact failure mode this cluster already had once for 44 days (docs/backlog.md) with nothing detecting it -- an automated upgrade that silently never ran, or never completed. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
+              # ── Kubernetes version, same shape as Talos above ────────────
+              # Added on code review (PR #386, round 3): the Talos-only fleet
+              # check would have missed a Kubernetes upgrade that silently
+              # never ran the exact same way this repo's history already
+              # missed a Talos one for 44 days -- reproduced on the axis this
+              # PR itself introduces, if left unmonitored. Same metrics
+              # source (kube_node_info's kubelet_version), same script run.
+              - uid: talos-fleet-k8s-version-skew
+                title: TalosFleetK8sVersionSkew
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_k8s_version_skew[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                # for: 8h, same headroom and same reasoning as
+                # TalosFleetVersionSkew above -- see that rule's comment.
+                for: 8h
+                annotations:
+                  summary: >-
+                    Talos nodes disagree with each other on Kubernetes version
+                  description: >-
+                    talos-fleet-health found more than one distinct kubelet_version across nodes via kube_node_info. Identify the split with the talos_fleet_node_info series, which carries each node's kubernetes_version as a label. Either the talos-kubernetes upgrade is genuinely in progress outside its expected window, or it stalled partway through the cluster-wide rollout upgrade-k8s performs internally. Check `kubectl get jobs -n cattle-system` and `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: talos-fleet-k8s-version-drift
+                title: TalosFleetK8sVersionDrift
+                condition: B
+                data:
+                  - refId: A
+                    # Grace period lives in the query, not in `for:`, from the
+                    # start -- see TalosFleetVersionDrift's own comment for
+                    # why: Grafana's alert-instance pending state is
+                    # ephemeral (persistence.enabled: false), so a wall-clock
+                    # `for:` duration this long cannot survive a pod restart,
+                    # and why min_over_time alone is not a grace period --
+                    # the count_over_time(...) >= 28 clause is the part that
+                    # actually is one. This is the series round 4 review
+                    # named as the likeliest to be caught by that gap: it is
+                    # brand new, and KUBERNETES_VERSION is a first-time
+                    # inference of what the cluster actually runs, so it is
+                    # the more likely of the two to be genuinely drifted on
+                    # its very first sample.
+                    relativeTimeRange:
+                      from: 691200
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min_over_time(talos_fleet_k8s_version_drift[8d]) and (count_over_time(talos_fleet_k8s_version_drift[8d]) >= 28)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A Talos node has not matched the Kubernetes version pinned in git for a week
+                  description: >-
+                    talos-fleet-health found at least one node NOT running KUBERNETES_VERSION from versions.env, continuously for 8 days -- long enough that a routine wait for the Sunday upgrade window no longer explains it. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: talos-fleet-unready-nodes
+                title: TalosFleetUnreadyNodes
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_unready_nodes[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                # for: 8h, same headroom and same reasoning as
+                # TalosFleetVersionSkew above -- see that rule's comment. This
+                # is the rule round 4 review specifically named: a node
+                # legitimately cordoned/rebooting mid-upgrade would otherwise
+                # page as a critical outage every routine Sunday.
+                for: 8h
+                annotations:
+                  summary: >-
+                    A node is not Ready per talos-fleet-health
+                  description: >-
+                    talos-fleet-health found at least one node not reporting kube_node_status_condition{condition="Ready",status="true"}. Identify it with the talos_fleet_node_info series (its value is 0 for an unready node) and check `kubectl get nodes` and `kubectl describe node <name>` directly -- this alert is a lagging indicator (checked every 6h), not a substitute for a live node-health dashboard.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: talos-fleet-health-check-failing
+                title: TalosFleetHealthCheckFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 28800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(talos_fleet_health_check_failed[8h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting on NoData, same reasoning as TalosCveCheckFailing:
+                # a fleet-health check that silently stopped running is
+                # indistinguishable from a clean result unless something
+                # notices the silence itself.
+                noDataState: Alerting
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    The Talos fleet-health check is failing or has stopped running
+                  description: >-
+                    talos-fleet-health either reported a failure or has not pushed a result in over 8h, so the cluster currently has no working answer to whether all nodes agree on version and are Ready. Read the last run with `kubectl logs -n monitoring -l app.kubernetes.io/name=talos-fleet-health --tail=50`. Common causes: kube_node_info missing its os_image label, or kube_node_status_condition not present (kube-state-metrics down).
+                labels:
+                  severity: warning
+                isPaused: false
+              # ── Longhorn storage availability ───────────────────────────
+              # Added after 2026-08-30. Longhorn had been publishing
+              # longhorn_disk_status{condition="ready"} = 0, with
+              # condition_reason="DiskFilesystemChanged", for four days on a
+              # scraped endpoint -- while fifteen of sixteen volumes sat
+              # faulted and every stateful workload was down. Nothing
+              # alerted, because the only Longhorn metric any rule referenced
+              # was longhorn_volume_last_backup_at: a backup-freshness
+              # signal, which says nothing about whether the disk holding the
+              # data is usable.
+              #
+              # A disk that is not ready is not a degradation, it is total
+              # loss of storage on that node -- no volume can attach, so
+              # every stateful pod stops. On a single-node cluster that is
+              # the whole cluster.
+              - uid: longhorn-disk-not-ready
+                title: LonghornDiskNotReady
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'count(longhorn_disk_status{condition="ready"} == 0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    A Longhorn disk is not ready -- no volume can attach
+                  description: >-
+                    Longhorn has marked a disk not ready, so no volume backed by it can attach and every stateful pod using one will stay Pending or CrashLooping. Read the reason from the condition_reason label on longhorn_disk_status. DiskFilesystemChanged means the diskUUID Longhorn recorded no longer matches the longhorn-disk.cfg on the filesystem -- which happens when the disk is replaced, reformatted, or re-initialised underneath it, and Longhorn then refuses it rather than risk writing replicas onto the wrong storage. Compare the diskUUID in nodes.longhorn.io status.diskStatus against the on-disk longhorn-disk.cfg. If the filesystem genuinely is the original, restoring the recorded UUID into that file re-adopts the disk with its replicas intact; if it genuinely is a new disk, the replicas are gone and the volumes must be restored from backup.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: longhorn-not-schedulable
+                title: LonghornNodeNotSchedulable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'count(longhorn_disk_status{condition="schedulable"} == 0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    Longhorn cannot place new replicas
+                  description: >-
+                    A Longhorn node or disk cannot accept new replicas. Less severe than the disk being not-ready -- already-attached volumes keep working -- but a volume that detaches cannot come back, and any rebuild or new PVC will hang. Often the same underlying cause as LonghornDiskNotReady and expected to fire alongside it; on its own it usually means allowScheduling was turned off or the disk is out of space.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:

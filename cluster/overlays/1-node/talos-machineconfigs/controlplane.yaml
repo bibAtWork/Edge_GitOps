@@ -26,9 +26,13 @@ machine:
     # immutable, so extensions are part of the image and cannot be added at
     # runtime.
     #
-    # Keep this in step with talos-image.env, which pins the schematic ID and the
-    # Talos version this tag must match. Changing schematic.yaml means a new
-    # schematic ID and a new value here.
+    # Keep this in step with versions.env
+    # (cluster/base/infrastructure/15-system-upgrade-controller/config/), which
+    # pins the schematic ID and the Talos version this tag must match -- the
+    # Talos image CI workflow checks that they agree. This is the one pin
+    # Kustomize's replacements cannot reach, since machine config is applied
+    # by hand via talosctl, outside Kustomize/Flux entirely. Changing
+    # schematic.yaml means a new schematic ID and a new value here.
     image: factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:v1.13.9
   features:
     kubernetesTalosAPIAccess:
@@ -37,6 +41,37 @@ machine:
         - os:etcd:backup
       allowedKubernetesNamespaces:
         - talos-backup
+
+  # Pin the node IP to the LAN subnet.
+  #
+  # Without this the kubelet picks a node IP from whatever interfaces exist when
+  # it starts, and on this host that is not deterministic: the Tailscale subnet
+  # router adds a tailscale0 interface (100.64.0.0/10) after boot, so the node
+  # IP is the LAN address on one boot and the Tailscale address on the next.
+  #
+  # That is not cosmetic. hostNetwork pods take POD_IP from the node IP, and the
+  # kube-apiserver static pod is started with --advertise-address=$(POD_IP), so
+  # the address it publishes into the `kubernetes` Endpoints is whichever one
+  # the kubelet happened to choose. If it chose the Tailscale address and that
+  # interface later goes away, the Endpoints object points at an IP that no
+  # longer exists on the host.
+  #
+  # That happened on 2026-08-26 and took the cluster down for roughly half an
+  # hour. A Talos upgrade cordoned this node -- the only node -- which stopped
+  # the Tailscale subnet router pod and removed tailscale0. Every pod's route to
+  # the API server died with it: CoreDNS could not sync ("Plugins not ready:
+  # kubernetes") and, with DNS gone, essentially every controller failed its
+  # startup probe. The subnet router could not restart to repair the interface,
+  # because it needed the API server to mount its own service-account token.
+  #
+  # 192.168.178.0/24 is the same subnet etcd.advertisedSubnets already pins for
+  # the same reason. The Tailscale address stays in the API server's cert SANs,
+  # so reaching the cluster over the tailnet is unaffected -- this only decides
+  # which address the node calls its own.
+  kubelet:
+    nodeIP:
+      validSubnets:
+        - 192.168.178.0/24
 
 cluster:
   # Required on single-node: no worker nodes, so control-plane must run all workloads

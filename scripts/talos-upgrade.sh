@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #
-# Talos OS upgrade (design §5, "Loop A"). Flux cannot manage node OS images, so
-# this lives outside it.
+# Talos OS upgrade. Flux cannot manage node OS images, so this lives outside it.
 #
-#   TALOS_VERSION / SCHEMATIC_ID come from talos-image.env
+#   TALOS_VERSION / SCHEMATIC_ID come from the same versions.env that drives
+#   the automated system-upgrade-controller Plans -- see that file for what
+#   each field means. Reading it here means a manual run and the automated
+#   path can never point at different versions.
 #   NODE_IPS is a space-separated list; SINGLE_NODE=true skips the drain
 #
 # Usage:
@@ -12,7 +14,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${ENV_FILE:-${HERE}/../cluster/overlays/1-node/talos-machineconfigs/talos-image.env}"
+ENV_FILE="${ENV_FILE:-${HERE}/../cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-1800}"
 SINGLE_NODE="${SINGLE_NODE:-false}"
 

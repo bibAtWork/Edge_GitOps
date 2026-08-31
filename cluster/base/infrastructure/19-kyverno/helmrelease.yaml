@@ -27,6 +27,27 @@ spec:
   values:
     admissionController:
       replicas: 1
+      # Must be able to run on a cordoned node.
+      #
+      # A Deployment does not tolerate node.kubernetes.io/unschedulable; a
+      # DaemonSet does, automatically. That difference took this cluster down
+      # for nine hours on 2026-08-30.
+      #
+      # A system-upgrade-controller Job cordons the node before upgrading it.
+      # The Job failed and left the cordon in place. This pod could then not be
+      # scheduled, and because its webhook is failurePolicy: Fail, every pod
+      # creation in the cluster was rejected -- including the one that would
+      # have replaced this pod. Nothing could recover without a manual
+      # uncordon.
+      #
+      # On a single-node cluster a cordon is not a safety mechanism, it is an
+      # outage: there is nowhere to drain to, so the only thing it achieves is
+      # preventing the node from running what it needs to run. Anything the
+      # node itself depends on has to survive one.
+      tolerations:
+        - key: node.kubernetes.io/unschedulable
+          operator: Exists
+          effect: NoSchedule
       resources:
         requests:
           cpu: 100m

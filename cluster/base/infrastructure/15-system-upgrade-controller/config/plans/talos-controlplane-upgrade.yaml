@@ -23,6 +23,12 @@ spec:
   # Pinned, never a channel. Upgrading Talos requires a Factory image whose
   # schematic matches the extensions below, and a channel would move the version
   # without anyone regenerating that schematic.
+  #
+  # This value, and the talosctl image tag below, are overwritten at build time
+  # by the `replacements` block in ../kustomization.yaml, sourced from
+  # ../versions.env's TALOS_VERSION. The literal here is a placeholder kept
+  # valid so `kustomize build` still produces a sane Plan if replacements were
+  # ever removed -- edit versions.env, not this field.
   version: v1.13.9
   exclusive: true
   # Without this, SUC applies the Plan to at most ZERO nodes.
@@ -52,14 +58,17 @@ spec:
   # cluster outage for the duration, so it happens inside a window rather than
   # whenever a version pin changes.
   #
-  # Sunday evening, because it is the only cadence that misses every backup job.
-  # The daily schedules cluster in the small hours -- staging 01:00, snapshot
+  # Sunday midday, because it is a cadence that misses every backup job. The
+  # daily schedules cluster in the small hours -- staging 01:00, snapshot
   # 02:00, the three database dumps 02:40-02:50, the weekly tier Sunday 03:00,
   # monthly 04:00, relay 05:00, probe 06:00, restore-test 07:00, reconciler
   # 09:00 -- plus three hourly jobs at :17, :25 and :40. Nothing at all runs
-  # between 09:00 and 01:00 except those hourly three, so a late window is the
-  # only one with room in it. Rebooting mid-backup leaves a partial artefact
-  # that restore-test then has to catch.
+  # between 09:00 and 01:00 except those hourly three, so anywhere in that gap
+  # works; 12:00 is chosen within it rather than the evening end, so the whole
+  # Sunday maintenance sequence (control-plane, worker, then the Kubernetes
+  # upgrade -- see plans/talos-kubernetes-upgrade.yaml) finishes by mid
+  # afternoon instead of running up against midnight. Rebooting mid-backup
+  # leaves a partial artefact that restore-test then has to catch.
   #
   # The cost of weekly is latency: a merged version bump waits until the next
   # Sunday before it is eligible. That is the accepted trade -- an unattended
@@ -75,8 +84,8 @@ spec:
   # keep it.
   window:
     days: ["su"]
-    startTime: "20:00"
-    endTime: "22:00"
+    startTime: "12:00"
+    endTime: "14:00"
     timeZone: UTC
   nodeSelector:
     matchLabels:
@@ -92,6 +101,10 @@ spec:
       path: /var/run/secrets/talos
   cordon: true
   upgrade:
+    # Tag overwritten at build time from ../versions.env's TALOS_VERSION -- see
+    # the note on spec.version above. talosctl and the target OS version have
+    # no independent Renovate manager anymore; they are the same field now, so
+    # they cannot drift the way they used to.
     image: ghcr.io/siderolabs/talosctl:v1.13.9
     # No `command:`. The image's entrypoint is /talosctl and it contains no
     # shell -- confirmed from the image config on ghcr.io: Entrypoint
@@ -116,6 +129,15 @@ spec:
         valueFrom:
           fieldRef:
             fieldPath: status.hostIP
+      # Sourced live from the talos-versions ConfigMap (../versions.env), not a
+      # `replacements`-patched literal like the fields above -- envs support
+      # configMapKeyRef directly, so there is no need to touch this file at all
+      # when only the schematic changes independently of a version bump.
+      - name: SCHEMATIC_ID
+        valueFrom:
+          configMapKeyRef:
+            name: talos-versions
+            key: SCHEMATIC_ID
     args:
       # Global flags precede the subcommand; $(VAR) is expanded by Kubernetes
       # from the container's own env, which is why NODE_IP above is required.
@@ -130,8 +152,8 @@ spec:
       # upgrading through the stock installer silently drops both and Longhorn
       # loses iSCSI attach on the next boot.
       #
-      # The schematic ID must match talos-machineconfigs/schematic.yaml and the
-      # installer pin in controlplane.yaml.
-      - --image=factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
+      # SCHEMATIC_ID must match talos-machineconfigs/schematic.yaml and the
+      # installer pin in controlplane.yaml -- the CI workflow verifies this.
+      - --image=factory.talos.dev/installer/$(SCHEMATIC_ID):$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
       - --preserve=true
       - --wait=true

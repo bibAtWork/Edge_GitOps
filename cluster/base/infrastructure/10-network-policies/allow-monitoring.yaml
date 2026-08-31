@@ -117,6 +117,26 @@ spec:
         - matchLabels:
             app.kubernetes.io/name: otel-agent
             io.kubernetes.pod.namespace: monitoring-agents
+        # talos-cve-watch and talos-fleet-health (both CronJobs, monitoring
+        # namespace): both read and/or push metrics here. Added explicitly on
+        # code review for PR #386 (round 2) even though Cilium's policy
+        # combination is additive across CiliumNetworkPolicies selecting the
+        # same endpoint -- allow-intra-namespace-ingress below already grants
+        # any monitoring-namespace pod ingress to vmsingle, and neither job is
+        # in the ingressDeny list above, so this was very likely already
+        # reachable via that fallback (confirmed against Cilium's documented
+        # "if there is an intersection between two or more rules... traffic
+        # matching the union is allowed" semantics, not verified against a
+        # live cluster). Listed here anyway because that fallback existing
+        # doesn't mean relying on it was ever the intent -- this file's own
+        # comment two policies up says vmsingle "doesn't need this fallback"
+        # because it has its own precise, explicit caller list, and until now
+        # that list wasn't actually precise: talos-cve-watch has been calling
+        # vmsingle since before this PR without appearing here at all.
+        - matchLabels:
+            app.kubernetes.io/name: talos-cve-watch
+        - matchLabels:
+            app.kubernetes.io/name: talos-fleet-health
       toPorts:
         - ports:
             - port: "8428"
