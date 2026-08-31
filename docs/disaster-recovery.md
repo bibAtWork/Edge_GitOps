@@ -305,6 +305,48 @@ EOF
 
 ---
 
+## Scenario D — Longhorn disk `NotReady` after a node rebuild
+
+Longhorn identifies a disk by a UUID it writes into a marker file on the disk itself, not by
+its path. The `Node` CR records the UUID it expects; the disk carries its own copy in
+`longhorn-disk.cfg`. If the two disagree — or the marker file is lost, which a node reset or
+a re-created mount will do — Longhorn treats the path as an unknown disk rather than the one
+it has replicas on. The disk goes `Ready: False`, every volume becomes unschedulable, and
+each PVC fails to attach with no indication that the cause is a missing identifier.
+
+Current values for the 1-node cluster:
+
+| Field | Value |
+|---|---|
+| Disk name | `default-disk-1030300000000` |
+| Path | `/var/mnt/longhorn0` |
+| Disk UUID | `6fc50190-bb50-4273-8e65-0763b1cfc77e` |
+
+Read the expected UUID back from the cluster rather than this table when the cluster is up —
+the table is for when it is not:
+
+```bash
+kubectl get nodes.longhorn.io -n longhorn-system -o json \
+  | jq -r '.items[].status.diskStatus | to_entries[] | "\(.key) \(.value.diskUUID)"'
+```
+
+Repair by writing the expected UUID back into the marker file on the node, then letting
+Longhorn re-evaluate:
+
+```bash
+# on the node, via a privileged pod or talosctl
+echo '{"diskUUID":"6fc50190-bb50-4273-8e65-0763b1cfc77e"}' > /var/mnt/longhorn0/longhorn-disk.cfg
+```
+
+The disk returns to `Ready: True` / `Schedulable: True` without restarting anything. Confirm
+both conditions before assuming volumes will attach — `Ready` alone is not sufficient.
+
+> Do **not** resolve this by adding a new disk or removing the old one from the `Node` CR.
+> Longhorn would schedule new, empty replicas and the existing replica data on that path
+> becomes unreferenced.
+
+---
+
 ## Post-Recovery Verification Checklist
 
 After any recovery scenario, verify the following:
