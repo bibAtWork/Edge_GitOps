@@ -54,9 +54,34 @@ data:
     # same Longhorn provisioning budget the real volumes need. Observed on the
     # first live run, which left rt-e4b652ebd5 behind. Sweeping at the start is
     # more reliable than trying to make every exit path clean up after itself.
+    # Enumerate scratch across ALL FOUR kinds, not just Longhorn volumes.
+    #
+    # The names are deterministic and the four objects are created together, but
+    # they do not necessarily DIE together: deleting the Longhorn volume alone
+    # leaves the PV, PVC and pod behind, and a sweep that lists only volumes
+    # then finds nothing to sweep, waits for nothing, and walks straight into a
+    # name collision on the create.
+    #
+    # Seen on 2026-08-31, caused by a hand-deletion of exactly that one object.
+    # The run reported "could not create the PV/PVC pair" and then reported the
+    # volume OK anyway, because it went on to read a verify pod left by the
+    # PREVIOUS run -- a stale pass presented as a fresh one, which is worse than
+    # the failure it replaced.
+    # The pattern is ANCHORED to rt- plus exactly ten hex characters, which is
+    # what RT is built from ("rt-" + the first 10 chars of an md5). A bare
+    # grep "/rt-" looks equivalent and is not: it also matches this job's own
+    # pods whenever the Job is named rt-something, and the sweep then deletes
+    # the pod it is running in. Done twice on 2026-08-31 -- once in the wait
+    # loop, fixed, and then reintroduced here when the sweep was broadened from
+    # volumes to all four kinds. The scheduled Jobs are called
+    # backup-restore-test-<n> and never collide, which is exactly what lets this
+    # survive review and only fire for whoever runs it by hand.
     SWEPT=""
-    for STALE in $(kubectl get volumes.longhorn.io -n longhorn-system -o name 2>/dev/null | grep "/rt-" || true); do
+    for STALE in $( { kubectl get volumes.longhorn.io,pvc,pod -n longhorn-system -o name 2>/dev/null;
+                      kubectl get pv -o name 2>/dev/null; } | grep -E "/rt-[0-9a-f]{10}$" || true); do
       N="${STALE##*/}"
+      # The same name arrives once per kind; sweep it once.
+      case " $SWEPT " in *" $N "*) continue;; esac
       SWEPT="$SWEPT $N"
       log "sweeping stale scratch $N"
       kubectl delete pod -n longhorn-system "$N" --wait=false >/dev/null 2>&1 || true
@@ -220,9 +245,9 @@ data:
         "  resources:" \
         "    requests:" \
         "      storage: $SIZE" \
-        | kubectl create -f - >/dev/null 2>&1 || fail "$BV: could not create the PV/PVC pair (name collision with scratch still terminating, or the API rejected it)"
+        | kubectl create -f - >/dev/null 2>&1 || { fail "$BV: could not create the PV/PVC pair (name collision with scratch still terminating, or the API rejected it)"; kubectl delete volumes.longhorn.io -n longhorn-system "$RT" --wait=false >/dev/null 2>&1; continue; }
 
-      sed -e "s|RTNAME|$RT|g" /scripts/verify-pod.yaml.tmpl | kubectl create -f - >/dev/null 2>&1 || fail "$BV: could not create the verify pod (name collision with scratch still terminating, or the API rejected it)"
+      sed -e "s|RTNAME|$RT|g" /scripts/verify-pod.yaml.tmpl | kubectl create -f - >/dev/null 2>&1 || { fail "$BV: could not create the verify pod (name collision with scratch still terminating, or the API rejected it)"; kubectl delete pvc -n longhorn-system "$RT" --wait=false >/dev/null 2>&1; kubectl delete pv "$RT" --wait=false >/dev/null 2>&1; kubectl delete volumes.longhorn.io -n longhorn-system "$RT" --wait=false >/dev/null 2>&1; continue; }
 
       j=0
       while [ "$j" -lt 90 ]; do
