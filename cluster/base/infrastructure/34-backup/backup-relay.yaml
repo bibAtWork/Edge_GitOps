@@ -62,12 +62,34 @@ spec:
                   START="$(date -u +%s)"
                   FAILED=0
 
+                  # Bounds every rclone call that touches SeaweedFS.
+                  #
+                  # An object whose chunks are gone does NOT fail fast: the filer
+                  # answers from metadata, then the read stalls forever waiting for
+                  # data that no longer exists. Unbounded, one such object holds the
+                  # whole relay open. Observed on this cluster after the 2026-08-26
+                  # incident -- two consecutive runs of a job that normally finishes
+                  # in 17s-2m were killed at 19h and 9h having relayed nothing, so
+                  # nothing reached the offsite vault for two days while the CronJob
+                  # simply looked "still running".
+                  #
+                  # seaweedfs-staging.yaml already carries exactly these flags for
+                  # exactly this reason. The relay was left without them, which is
+                  # why staging kept completing in minutes while the relay hung.
+                  #
+                  # --timeout is rclone's IDLE timeout, not a total cap, so a large
+                  # object that is genuinely transferring is unaffected; only a
+                  # stalled read is cut. Retries are pinned to 1 because chunk loss
+                  # is permanent -- retrying a dead object just multiplies the wait.
+                  RC_LIMITS="--retries 1 --low-level-retries 1 --timeout 60s --contimeout 20s"
+
                   # Longhorn backupstore -> longhorn/
                   # The source is the LOCAL SeaweedFS backup target, never
                   # Longhorn itself. Longhorn never learns that AWS exists.
                   echo "=== relaying longhorn backupstore"
                   rclone copy s3:longhorn-backups "aws:${AWS_BUCKET}/longhorn" \
                     --transfers 4 --checkers 8 --stats-one-line --use-server-modtime \
+                    $RC_LIMITS \
                     || FAILED=$((FAILED + 1))
 
                   # SeaweedFS staging -> seaweedfs/
@@ -80,6 +102,7 @@ spec:
                     echo "=== relaying staging snapshot"
                     rclone copy "$LATEST" "aws:${AWS_BUCKET}/seaweedfs" \
                       --transfers 4 --checkers 8 --stats-one-line \
+                      $RC_LIMITS \
                       || FAILED=$((FAILED + 1))
                   else
                     echo "ERROR: no staged snapshot to relay" >&2
@@ -100,6 +123,7 @@ spec:
                   # 106 entries for 34 real objects. S3 has no directories, so each of those
                   # is a row the reconciler could never match against an Inventory entry.
                   rclone lsf s3:longhorn-backups --recursive --files-only --format "ps" --separator "	" \
+                    $RC_LIMITS \
                     | awk -F'\t' '{print "longhorn/" $1 "\t" $2}' >> "$NEW" || true
                   if [ -n "$LATEST" ]; then
                     # find -printf is a GNU extension and this image ships busybox find, which
