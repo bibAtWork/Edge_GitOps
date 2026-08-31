@@ -12,6 +12,10 @@ resources:
   - restore-test-rbac.yaml
   - restore-test-script.yaml
   - restore-test-cronjob.yaml
+  - verify-script.yaml
+  - verify-cronjob.yaml
+  - repair-script.yaml
+  - repair-cronjob.yaml
   - reconciler-script.yaml
   - reconciler-cronjob.yaml
   - remote-probe-script.yaml
@@ -61,6 +65,14 @@ replacements:
   - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.restore_test_cron}
     targets:
       - select: {kind: CronJob, name: backup-restore-test}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.verify_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-verify}
+        fieldPaths: [spec.schedule]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.repair_cron}
+    targets:
+      - select: {kind: CronJob, name: backup-repair}
         fieldPaths: [spec.schedule]
   - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.reconcile_cron}
     targets:

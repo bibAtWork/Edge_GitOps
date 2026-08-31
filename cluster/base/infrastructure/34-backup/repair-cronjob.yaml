@@ -1,0 +1,138 @@
+# Restores SeaweedFS objects that have lost their chunks, from the offsite vault.
+#
+# This is the recovery counterpart to the relay: the relay pushes copies out,
+# this pulls them back for objects whose local bytes are gone. Both talk to the
+# same two remotes with the same credentials, which is why this mirrors the
+# relay's environment exactly rather than inventing its own.
+#
+# Runs AFTER the relay (05:00) so it never restores from a vault copy that is
+# about to be superseded, and after staging (03:00) so the day's dumps have
+# already been captured before anything is rewritten underneath them.
+#
+# Why this exists at all: on 2026-08-26 SeaweedFS lost the chunks behind 499
+# objects across db-backups, velero-backups and filer-metadata while keeping
+# every object's metadata. They listed at the correct size, answered HEAD, and
+# failed on GET. Nothing detected it, because everything that checked them
+# inspected metadata. 469 were restorable from the vault; the 30 that were not
+# had been written and destroyed inside a single relay cycle.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-repair
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config by kustomization.yaml. Only ever fires
+  # when a human unsuspends it or creates a Job from it, so the value is a
+  # placeholder for the machinery rather than a cadence anyone relies on.
+  schedule: "PLACEHOLDER"
+  # SUSPENDED ON PURPOSE. This job pulls object bodies back from the vault and
+  # writes them into the live store. That is failure recovery, not maintenance:
+  # it costs egress, it mutates the thing being protected, and on a schedule it
+  # would quietly paper over objects going bad -- the rate of corruption is the
+  # signal worth having, and a job that silently fixes it destroys that signal.
+  #
+  # Detection is backup-verify's job and runs daily. When it reports unreadable
+  # objects, run this by hand:
+  #
+  #   kubectl create job -n longhorn-system repair-manual --from=cronjob/backup-repair
+  #
+  # and read the result before deciding anything. Leave it suspended afterwards.
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry. A run that fails has found objects it could not repair, and
+      # repeating the same reads against the same dead chunks cannot change
+      # that -- it only burns the window and multiplies the log.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            # Selected by backup-jobs-egress in networkpolicy.yaml. Without this
+            # the pod inherits only longhorn-restrict, which permits no internet
+            # and no metrics endpoint.
+            backup.homelab/egress: "true"
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: repair
+              image: docker.io/rclone/rclone:1.75.0
+              command: ["/bin/sh", "/scripts/repair.sh"]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus # nosonar
+                - name: RCLONE_CONFIG_S3_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_S3_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+                - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+                  value: "true"
+                - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: RCLONE_CONFIG_AWS_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_AWS_PROVIDER
+                  value: AWS
+                - name: RCLONE_CONFIG_AWS_REGION
+                  value: eu-central-1
+                - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_BUCKET
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                # 10 namespaces carry a LimitRange that caps limit-less
+                # containers at 256Mi, which OOM-kills rclone mid-transfer.
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-repair-script
+            - name: tmp
+              emptyDir: {}

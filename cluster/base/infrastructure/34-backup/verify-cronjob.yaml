@@ -1,0 +1,127 @@
+# Verifies every SeaweedFS backup object locally and confirms the offsite copy
+# still matches it. READ-ONLY on both sides.
+#
+# This is the scheduled half of the pair. It answers three questions in one pass
+# over the local bytes -- does every object still read, does the vault still
+# hold it, and do the two agree -- and it repairs nothing.
+#
+# Pulling bytes back from the vault is a recovery action, not routine
+# maintenance: it costs egress, it writes to the live store, and doing it on a
+# schedule hides the signal that matters, which is that objects are going bad at
+# all. That path lives in backup-repair, which ships suspended and is triggered
+# by hand.
+#
+# Cost is deliberately asymmetric. The local side is read in full, because
+# reading is the only thing that distinguishes a live object from one whose
+# chunks are gone -- the filer keeps the metadata either way. The remote side is
+# a listing only: comparing a locally COMPUTED hash against a remotely STORED
+# one is sound, because the local half is proven by reading and the remote half
+# only has to be identified. So a clean run transfers no object bodies out of
+# AWS at all.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-verify
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config by kustomization.yaml.
+  schedule: "PLACEHOLDER"
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry. A run that fails has found objects it could not repair, and
+      # repeating the same reads against the same dead chunks cannot change
+      # that -- it only burns the window and multiplies the log.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            # Selected by backup-jobs-egress in networkpolicy.yaml. Without this
+            # the pod inherits only longhorn-restrict, which permits no internet
+            # and no metrics endpoint.
+            backup.homelab/egress: "true"
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: verify
+              image: docker.io/rclone/rclone:1.75.0
+              command: ["/bin/sh", "/scripts/verify.sh"]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus # nosonar
+                - name: RCLONE_CONFIG_S3_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_S3_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+                - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+                  value: "true"
+                - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: RCLONE_CONFIG_AWS_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_AWS_PROVIDER
+                  value: AWS
+                - name: RCLONE_CONFIG_AWS_REGION
+                  value: eu-central-1
+                - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-relay-aws-credential
+                      key: AWS_BUCKET
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                # 10 namespaces carry a LimitRange that caps limit-less
+                # containers at 256Mi, which OOM-kills rclone mid-transfer.
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-verify-script
+            - name: tmp
+              emptyDir: {}

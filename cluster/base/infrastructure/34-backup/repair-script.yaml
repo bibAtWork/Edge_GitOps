@@ -1,0 +1,119 @@
+# Repairs SeaweedFS objects whose bytes are gone but whose metadata survived,
+# by restoring them from the offsite vault. Held in a ConfigMap rather than
+# inline in the CronJob, for the same reasons as restore-test-script.yaml.
+#
+# Mounted read-only and executed by repair-cronjob.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-repair-script
+  namespace: longhorn-system
+data:
+  repair.sh: |
+    #!/bin/sh
+    # SeaweedFS can lose an object's chunks while the filer keeps its metadata.
+    # The object then lists at the correct size, answers HEAD, and fails on GET.
+    # This restores those objects from the vault the relay already maintains.
+    #
+    # TARGETED, never a blanket re-copy. Every object is read first and only the
+    # ones that actually fail are replaced. A blanket
+    # `rclone copy --ignore-times` would rewrite healthy objects too, and would
+    # roll back anything legitimately newer here than in the vault.
+    set -eu
+
+    # Bounds every call. A dead object does NOT fail fast: the filer answers
+    # from metadata and the read then stalls waiting for chunks that no longer
+    # exist. Unbounded, one such object holds the job open for hours -- the
+    # relay was killed at 19h and 9h for exactly this before it was given the
+    # same flags. --timeout is rclone's IDLE timeout, not a total cap, so a
+    # large object that is genuinely transferring is unaffected. Retries are
+    # pinned to 1 because chunk loss is permanent.
+    RC_LIMITS="--retries 1 --low-level-retries 1 --timeout 15s --contimeout 5s"
+
+    CHECKED=0; BAD=0; FIXED=0; NO_SOURCE=0; STILL_BAD=0
+
+    log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+
+    # Does this key exist in the vault?
+    #
+    # Tests the OUTPUT, never the exit code. `rclone lsf` and `rclone lsjson`
+    # both exit 0 for a path that does not exist -- verified against this vault:
+    # a missing key and a present key both returned exit 0, and only the present
+    # one printed a line. An exit-code check therefore reports every key as
+    # present, sends every unrepairable object down the repair path, and
+    # misfiles the result as a repair failure instead of as missing data.
+    #
+    # That is not hypothetical: the first version of this script counted 30
+    # permanently-lost objects as STILL_BAD, which reads as "the repair
+    # mechanism is broken" rather than "these are gone", and would have failed
+    # the job every run forever.
+    has_offsite() {
+      [ -n "$(rclone lsf "aws:${AWS_BUCKET}/seaweedfs/$1/$2" $RC_LIMITS 2>/dev/null)" ]
+    }
+
+    for B in db-backups velero-backups filer-metadata; do
+      log "=== $B"
+      if ! rclone lsf "s3:$B" --recursive --files-only $RC_LIMITS > "/tmp/$B.keys" 2>/dev/null; then
+        log "  cannot list $B -- skipping"
+        continue
+      fi
+      log "  objects: $(wc -l < "/tmp/$B.keys")"
+
+      while IFS= read -r K; do
+        [ -n "$K" ] || continue
+        CHECKED=$((CHECKED + 1))
+        # The read is the test. HEAD and list only touch filer metadata, which
+        # is exactly the half that survives a chunk loss.
+        if rclone cat "s3:$B/$K" $RC_LIMITS >/dev/null 2>&1; then
+          continue
+        fi
+        BAD=$((BAD + 1))
+        log "  BAD        $K"
+
+        if ! has_offsite "$B" "$K"; then
+          # Gone for good: unreadable here and never relayed. Expected for
+          # anything created and destroyed inside one relay cycle. Counted and
+          # reported, but it does NOT fail the run -- no future run can fix it,
+          # and a permanently red job trains everyone to ignore it. It gets its
+          # own metric so it can be alerted on deliberately.
+          log "  NO SOURCE  $K"
+          NO_SOURCE=$((NO_SOURCE + 1))
+          continue
+        fi
+
+        if rclone copyto "aws:${AWS_BUCKET}/seaweedfs/$B/$K" "s3:$B/$K" --ignore-times $RC_LIMITS >/dev/null 2>&1 \
+           && rclone cat "s3:$B/$K" $RC_LIMITS >/dev/null 2>&1; then
+          # --ignore-times is REQUIRED. The dead object reports the correct size
+          # and a plausible modtime, so rclone's default size+modtime comparison
+          # skips it, transfers nothing and exits 0.
+          #
+          # Verified by reading it back, never by the copy's exit code -- the
+          # whole failure being repaired is an object that reports success and
+          # does not read.
+          log "  FIXED      $K"
+          FIXED=$((FIXED + 1))
+        else
+          log "  STILL BAD  $K"
+          STILL_BAD=$((STILL_BAD + 1))
+        fi
+      done < "/tmp/$B.keys"
+    done
+
+    log "checked=$CHECKED unreadable=$BAD repaired=$FIXED no_source=$NO_SOURCE still_bad=$STILL_BAD"
+
+    TS=0
+    [ "$STILL_BAD" -eq 0 ] && TS="$(date -u +%s)"
+    {
+      echo "seaweedfs_repair_last_success_timestamp $TS"
+      echo "seaweedfs_repair_objects_checked $CHECKED"
+      echo "seaweedfs_repair_objects_unreadable $BAD"
+      echo "seaweedfs_repair_objects_repaired $FIXED"
+      echo "seaweedfs_repair_objects_no_source $NO_SOURCE"
+      echo "seaweedfs_repair_objects_still_bad $STILL_BAD"
+    } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+
+    # Only STILL_BAD fails the run: the object had a vault copy, was rewritten
+    # from it, and still does not read -- which means the repair path itself is
+    # broken and a human needs to look. NO_SOURCE is data that is simply gone.
+    [ "$STILL_BAD" -eq 0 ] || exit 1
+    log "REPAIR_OK"
