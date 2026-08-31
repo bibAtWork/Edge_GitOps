@@ -2560,6 +2560,112 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # The upgrade gate authorises Sunday's upgrades by labelling the
+              # nodes, and the label is a STANDING permission -- it persists
+              # until something removes it. The gate clears it at the start of
+              # every run so a crash mid-check cannot leave last week's
+              # authorisation in place, but that only helps if the gate RUNS.
+              # A gate that stops firing entirely leaves the last successful
+              # label sitting there, and the Plans would upgrade on evidence
+              # nobody re-examined. These two rules are what makes that visible.
+              - uid: upgrade-gate-stale
+                title: UpgradeGateStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 864000
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '(time() - last_over_time(upgrade_gate_last_run_timestamp[9d])) / 86400'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [8]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting on absence, deliberately. A gate that has never
+                # pushed and a gate that stopped pushing are the same hazard,
+                # and treating "no data" as healthy would mean this rule goes
+                # quiet in precisely the case it exists for.
+                noDataState: Alerting
+                execErrState: Alerting
+                for: 1h
+                annotations:
+                  summary: >-
+                    The pre-upgrade backup gate has not run in over 8 days
+                  description: >-
+                    upgrade-backup-gate runs at 11:00 on Sundays and decides whether that day's Talos and Kubernetes upgrades may proceed, by proving the backups are recent and readable. It has not reported in over 8 days, so it has missed at least one window. That matters beyond the missed upgrade: the talos.homelab/upgrade-ready label is a standing permission, so if a previous run left it set, the Plans will act on an authorisation nothing has re-checked since. Verify with `kubectl get nodes -L talos.homelab/upgrade-ready` and remove the label by hand if it is present while this is firing.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: upgrade-gate-refusing
+                title: UpgradeGateRefusing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 864000
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'last_over_time(upgrade_gate_pass[9d])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # OK on no-data: absence is UpgradeGateStale's job, and having
+                # both fire on it would double-page for one fault.
+                noDataState: OK
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    Upgrades are blocked -- the backup gate refused
+                  description: >-
+                    The gate ran and declined to authorise upgrades, so no Talos or Kubernetes Plan will act until it passes. This is the mechanism working, not failing: it means the backups could not be shown to be both recent and readable, and upgrading a single-node cluster without a proven way back is the thing it exists to prevent. It is a warning rather than a page because nothing is broken right now -- but left unattended the cluster silently stops receiving upgrades, including security ones. Read the last gate Job's log for the reasons; the usual causes are a Longhorn backup that did not run, or backup-verify finding unreadable objects. The manual override is talos-on-demand, which is deliberately ungated.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:

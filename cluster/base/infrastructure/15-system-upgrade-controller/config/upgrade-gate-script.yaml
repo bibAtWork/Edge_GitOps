@@ -31,6 +31,24 @@ data:
     log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
     fail() { FAILURES="${FAILURES}${1}; "; log "REFUSE: $1"; }
 
+    # Revoke first, re-earn second.
+    #
+    # The label is a STANDING authorisation: once set it persists until something
+    # removes it, and the checks below take minutes during which this process can
+    # be OOM-killed, evicted, or hit an API error. Setting on success and
+    # removing on refusal covers both verdicts but not the third outcome --
+    # reaching no verdict at all -- and in that case last week's label would sit
+    # there authorising an upgrade nothing examined this week.
+    #
+    # Clearing up front makes the absence of a verdict indistinguishable from a
+    # refusal, which is the correct default for a mechanism whose entire purpose
+    # is failing closed. The gate runs at 11:00 and the first window opens at
+    # 12:00, so the hour of "unauthorised" in between costs nothing.
+    for N in $(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||'); do
+      kubectl label node "$N" "${LABEL}-" >/dev/null 2>&1 || true
+    done
+    log "cleared $LABEL from all nodes -- it must be re-earned by this run"
+
     # ---------------------------------------------------------------
     # 1. Longhorn volume backups are recent.
     # ---------------------------------------------------------------
