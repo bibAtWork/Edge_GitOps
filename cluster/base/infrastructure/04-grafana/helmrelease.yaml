@@ -2058,6 +2058,113 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # ── Longhorn storage availability ───────────────────────────
+              # Added after 2026-08-30. Longhorn had been publishing
+              # longhorn_disk_status{condition="ready"} = 0, with
+              # condition_reason="DiskFilesystemChanged", for four days on a
+              # scraped endpoint -- while fifteen of sixteen volumes sat
+              # faulted and every stateful workload was down. Nothing
+              # alerted, because the only Longhorn metric any rule referenced
+              # was longhorn_volume_last_backup_at: a backup-freshness
+              # signal, which says nothing about whether the disk holding the
+              # data is usable.
+              #
+              # A disk that is not ready is not a degradation, it is total
+              # loss of storage on that node -- no volume can attach, so
+              # every stateful pod stops. On a single-node cluster that is
+              # the whole cluster.
+              - uid: longhorn-disk-not-ready
+                title: LonghornDiskNotReady
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'count(longhorn_disk_status{condition="ready"} == 0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    A Longhorn disk is not ready -- no volume can attach
+                  description: >-
+                    Longhorn has marked a disk not ready, so no volume backed by it can attach and every stateful pod using one will stay Pending or CrashLooping. Read the reason from the condition_reason label on longhorn_disk_status. DiskFilesystemChanged means the diskUUID Longhorn recorded no longer matches the longhorn-disk.cfg on the filesystem -- which happens when the disk is replaced, reformatted, or re-initialised underneath it, and Longhorn then refuses it rather than risk writing replicas onto the wrong storage. Compare the diskUUID in nodes.longhorn.io status.diskStatus against the on-disk longhorn-disk.cfg. If the filesystem genuinely is the original, restoring the recorded UUID into that file re-adopts the disk with its replicas intact; if it genuinely is a new disk, the replicas are gone and the volumes must be restored from backup.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: longhorn-not-schedulable
+                title: LonghornNodeNotSchedulable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'count(longhorn_disk_status{condition="schedulable"} == 0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    Longhorn cannot place new replicas
+                  description: >-
+                    A Longhorn node or disk cannot accept new replicas. Less severe than the disk being not-ready -- already-attached volumes keep working -- but a volume that detaches cannot come back, and any rebuild or new PVC will hang. Often the same underlying cause as LonghornDiskNotReady and expected to fire alongside it; on its own it usually means allowScheduling was turned off or the disk is out of space.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
