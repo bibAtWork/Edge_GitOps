@@ -70,31 +70,40 @@ spec:
           #
           # vlsingle's 20Gi is still correctly sized: 107MB/day against its
           # unchanged 90-day retention is ~10GB.
-          # local-path, deliberately, NOT longhorn -- this is the one stack
-          # that must not depend on the storage it is meant to watch.
+          # Longhorn, with the failure domain accepted and made detectable
+          # rather than avoided.
           #
-          # These were moved onto Longhorn on 2026-08-24. On 2026-08-26 a
-          # Longhorn disk was rejected with DiskFilesystemChanged and every
-          # volume on it went faulted, vmsingle's, vlsingle's and vtsingle's
-          # among them. The alerts that exist to report a Longhorn failure
-          # evaluate in Grafana against VictoriaMetrics -- so the outage took
-          # out its own detection. The disk published
-          # longhorn_disk_status{condition="ready"} = 0 continuously for four
-          # days and nothing could see it; the fault was eventually found by
-          # hand.
+          # The circularity is real. On 2026-08-26 a Longhorn disk was rejected
+          # with DiskFilesystemChanged and every volume on it faulted --
+          # vmsingle's, vlsingle's and vtsingle's among them. The alerts that
+          # exist to report a Longhorn failure evaluate in Grafana against
+          # VictoriaMetrics, so the outage took out its own detection. The disk
+          # published longhorn_disk_status{condition="ready"} = 0 continuously
+          # for four days with nothing able to see it, and the fault was
+          # eventually found by hand.
           #
-          # A monitoring stack whose storage shares a failure domain with the
-          # thing it monitors cannot report on that thing. local-path is the
-          # node's own filesystem, so a Longhorn fault leaves it running and
-          # the alerts fire.
+          # These briefly ran on local-path, which does break the shared
+          # failure domain. It also gives up everything Longhorn is here for:
+          # no snapshots, and -- the part that matters beyond one node -- a
+          # host directory pins each store to whichever node it first landed
+          # on, so a node loss takes the data with it instead of rescheduling.
           #
-          # What this gives up is exactly what Longhorn was chosen for: no
-          # volume backups, no snapshots, and the data is gone if the node is
-          # rebuilt. That is the right trade here and only here -- metrics,
-          # logs and traces are derived data on 3-month, 90-day and short
-          # retentions, so losing them costs history, not state. Anything
-          # holding something that cannot be recomputed stays on Longhorn.
-          storageClassName: local-path
+          # The alternative taken instead: keep Longhorn, and make the blind
+          # spot page. VictoriaMetricsUnavailable and VictoriaLogsUnavailable
+          # (04-grafana/helmrelease.yaml) are evaluated by Grafana itself, which
+          # runs with persistence.enabled: false and therefore holds no PVC and
+          # no Longhorn dependency at all. When a store cannot be reached the
+          # rule's own query fails and execErrState: Alerting routes it to
+          # Telegram. The condition that was silent for four days is now the
+          # one thing that cannot be silent, because detecting it no longer
+          # requires the datasource that is down.
+          #
+          # Backups stay off deliberately: all three are listed in
+          # 34-backup/volume-backup-policy.yaml's ephemeral-pvcs, so they carry
+          # the ephemeral recurring-job group and are excluded from the backup
+          # schedule. Metrics, logs and traces are derived data on 3-month,
+          # 90-day and short retentions -- losing them costs history, not state.
+          storageClassName: longhorn
           resources:
             requests:
               storage: 25Gi
@@ -110,9 +119,10 @@ spec:
           limits:
             memory: "1Gi"
         storage:
-          # local-path for the same reason as vmsingle above: the monitoring
-          # stack must not share a failure domain with the storage it watches.
-          storageClassName: local-path
+          # Longhorn for the same reason as vmsingle above: the shared failure
+          # domain is accepted and made detectable by a Grafana-evaluated
+          # availability alert, rather than avoided by moving off Longhorn.
+          storageClassName: longhorn
           resources:
             requests:
               storage: 20Gi
@@ -128,9 +138,10 @@ spec:
           limits:
             memory: "512Mi"
         storage:
-          # local-path for the same reason as vmsingle above: the monitoring
-          # stack must not share a failure domain with the storage it watches.
-          storageClassName: local-path
+          # Longhorn for the same reason as vmsingle above: the shared failure
+          # domain is accepted and made detectable by a Grafana-evaluated
+          # availability alert, rather than avoided by moving off Longhorn.
+          storageClassName: longhorn
           resources:
             requests:
               storage: 5Gi
