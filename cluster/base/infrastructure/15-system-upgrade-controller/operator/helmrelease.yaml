@@ -51,3 +51,44 @@ spec:
     global:
       cattle:
         systemDefaultRegistry: ""
+  # The chart writes its controller settings into a ConfigMap consumed via
+  # envFrom, and exposes no values for them, so they are patched post-render --
+  # the same approach 05-cilium and 07-velero use for chart fields with no
+  # values path.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: ConfigMap
+              name: system-upgrade-controller-config
+            patch: |
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: system-upgrade-controller-config
+              data:
+                # 900s (the chart default) is not enough once a Plan does more
+                # than call talosctl.
+                #
+                # The deadline covers the WHOLE Job, prepare included. A Plan
+                # that verifies backups before upgrading spends most of its
+                # budget before the upgrade starts: the restore-test needs
+                # ~3 min for this cluster's four real volumes, a Longhorn
+                # backup round is ~40s, and `talosctl upgrade --wait=true`
+                # holds through a reboot for 10-15 min. That is ~25 min of
+                # real work against a 15-minute deadline.
+                #
+                # 2700s is that estimate plus ~80%. Erring long is the correct
+                # direction: overshooting means a stuck upgrade holds a
+                # cordoned node for longer, while undershooting means the Job
+                # is killed MID-UPGRADE -- on a single-node cluster, during a
+                # reboot, which is how a node is left unbootable.
+                SYSTEM_UPGRADE_JOB_ACTIVE_DEADLINE_SECONDS: "2700"
+                # Was 900. A Job that ran overnight was deleted fifteen minutes
+                # after finishing, taking its pod and logs with it -- so the
+                # only record of why an unattended upgrade failed was gone by
+                # morning. This cluster has already lost the logs of two failed
+                # runs that way. 24h keeps a failed overnight upgrade
+                # inspectable at breakfast; successful Jobs are equally cheap
+                # to keep at this volume (one Plan fires per week at most).
+                SYSTEM_UPGRADE_JOB_TTL_SECONDS_AFTER_FINISH: "86400"
