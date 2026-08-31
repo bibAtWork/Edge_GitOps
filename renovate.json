@@ -79,13 +79,15 @@
       "description": "Group all Talos ecosystem updates into one PR. talosctl is no longer tracked separately -- its image tag is now the same Kustomize-replacements field as TALOS_VERSION (see config/kustomization.yaml), so it cannot drift from it the way it used to and needs no manager of its own.",
       "matchPackageNames": ["siderolabs/talos"],
       "groupName": "talos",
-      "automerge": false
+      "automerge": false,
+      "addLabels": ["manual-review"]
     },
     {
       "description": "Kubernetes control-plane version -- tracked and upgraded independently of Talos, never auto-merged (control-plane component upgrade).",
       "matchPackageNames": ["kubernetes/kubernetes"],
       "groupName": "kubernetes",
-      "automerge": false
+      "automerge": false,
+      "addLabels": ["manual-review"]
     },
     {
       "description": "Label major updates — CI workflow uses this to skip Trivy auto-merge",
