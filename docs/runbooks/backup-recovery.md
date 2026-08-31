@@ -275,6 +275,7 @@ success while being wrong:
 | Velero backups completing | No PVC data at all — fs-backup skips hostPath | Restore attempt |
 | Alert group configured | Filtered on a label that does not exist; matched nothing for weeks | Reading the raw metric's label set |
 | Longhorn healthy | Not scraped at all; zero metrics collected | `up{namespace="longhorn-system"}` empty |
+| Longhorn `Backup` CRs `Completed`, target `available` | Every block in the backupstore unreadable; nothing restorable | Fetching one block (§8) |
 
 The common thread: **every one of these passed the check that was supposed to catch it.**
 When verifying a backup, prefer the test that consumes the artefact — read the bytes, restore
@@ -293,3 +294,62 @@ for k in $(aws --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 \
     && echo "OK   $k" || echo "FAIL $k"
 done
 ```
+
+---
+
+## 8. Repairing a phantom backupstore from the offsite vault
+
+Section 7 covers individual objects. On 2026-08-31 the same failure was found to affect the
+**entire Longhorn backupstore**: every block in `s3://longhorn-backups` listed at its correct
+size and failed to download. Longhorn itself reported no problem — `BackupTarget` showed
+`available: true`, and all six `Backup` CRs showed `state: Completed` with correct byte
+counts, because Longhorn also trusts the metadata half. Every Longhorn backup in the cluster
+was unrestorable while the CRs, the UI and the recurring jobs all said otherwise.
+
+Detect it by fetching a block rather than listing one:
+
+```bash
+B=$(aws $E s3 ls s3://longhorn-backups/ --recursive | grep '\.blk' | head -1 | awk '{print $NF}')
+aws $E s3 ls "s3://longhorn-backups/$B"          # reports a size
+aws $E s3 cp "s3://longhorn-backups/$B" /tmp/b   # this is the test that matters
+```
+
+### Repair
+
+The offsite relay's mirror is the recovery source. Run the relay's own copy in reverse, from
+a Job built on the `backup-relay` CronJob's pod spec so both remotes are already configured:
+
+```bash
+rclone copy "aws:${AWS_BUCKET}/longhorn" s3:longhorn-backups \
+  --transfers 4 --checkers 8 --ignore-times
+```
+
+**`--ignore-times` is mandatory.** The dead objects carry the correct size and a plausible
+modtime, so rclone's default size+modtime comparison skips every one of them, transfers
+nothing, and exits 0. This is the same trap as verifying a backup by its listing — the
+comparison inspects metadata that survived, not the bytes that did not.
+
+Afterwards, confirm the *same block* that previously failed now downloads and matches its
+listed size.
+
+### Restoring a volume without touching the app's PVCs
+
+Longhorn's CSI restore path needs the snapshot CRDs, which are not installed here. Restore
+into a temporary volume and copy the data across instead — this leaves the application's own
+PVCs (plain manifests under `cluster/base/infrastructure/`) untouched, so Flux never fights
+the recovery and no reclaim policy can delete live data:
+
+1. Create a `Volume` in `longhorn-system` with `spec.fromBackup` set to the backup's
+   `status.url` (`s3://longhorn-backups@us-east-1/?backup=<name>&volume=<pv>`), mirroring the
+   original's `size`, `numberOfReplicas`, `dataEngine` and `frontend`.
+2. Wait for `status.restoreRequired: false`.
+3. Bind it with a `PersistentVolume` (`storageClassName: ""`, `volumeHandle` = the volume
+   name, `claimRef` pointing at a temporary PVC) plus that PVC.
+4. Scale the application to zero, then run one pod mounting the restored volume read-only and
+   the live volume read-write, and `cp -a`. **Guard the copy on the source being non-empty** —
+   a restore that silently produced nothing would otherwise wipe the destination.
+5. Scale the application back up, then delete the temporary PVC, PV and `Volume`.
+
+Verify with the application's own consistency check rather than a file count where one
+exists; paperless-ngx logs `Sanity checker detected no issues`, which confirms every database
+record resolves to a real file on disk.
