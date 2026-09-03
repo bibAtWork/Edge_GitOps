@@ -396,3 +396,92 @@ the pattern and the permissions are established.
 **Worth pairing with**: `rotate-secrets.py` currently has to be told which file and key to
 act on. Having it read the same tracked file would let the issue body carry the exact
 command to run, which is the difference between a reminder and a runbook.
+
+---
+
+## Deferred: report Trivy CVEs as a delta, not a standing total
+
+#420 cut the CVE alerting from 1,325 firing instances to 70 by counting per image
+instead of per CVE. 70 is workable; it is still not a to-do list, because most of
+those images carry a steady-state CVE count that will never reach zero. The
+actionable signal is **a new Critical appearing**, not the standing total.
+
+The query shape is the same one already used by `SeaweedFSLostObjectsIncreased`
+and `SeaweedFSUnreadableBackupObjects` -- compare today against yesterday so a
+known baseline cancels out:
+
+```promql
+count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="Critical"})
+-
+count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="Critical"} offset 24h)
+> 0
+```
+
+**Blocked on continuous history, not on effort.** Measured 2026-09-03:
+`offset 24h` returned empty, because the cluster was shut down from roughly
+13:00 on 09-02 until 07:13 on 09-03 and VictoriaMetrics has an ~18h ingestion
+gap. An offset landing inside a gap makes every image look new, which would
+reproduce the 1,325-instance storm by a different route.
+
+Two things to settle before implementing:
+
+- **A gap must suppress the rule, not trip it.** Requires the baseline series to
+  exist, e.g. `... unless absent(count by (...) (M offset 24h))`, so a missing
+  yesterday means "cannot tell" rather than "everything is new". Getting this
+  backwards is worse than not having the rule.
+- **A new image legitimately has no yesterday.** It should probably alert on its
+  absolute count once, then fall into the delta rule -- otherwise a freshly
+  deployed vulnerable image is invisible until its second day.
+
+Do this after the store has a clean 48h behind it, and verify the query against
+a real gap before trusting it.
+
+---
+
+## Disaster-recovery scenarios: what is actually mechanised
+
+Assessed 2026-09-03 against the live cluster, ahead of the first Sunday on which
+the upgrade Plans can fire.
+
+| scenario | mechanised | proven |
+|---|---|---|
+| 1. local backup + verification | yes | yes |
+| 2. recover from local backup | runbook only | yes, by hand |
+| 3. recover from remote backup | runbook only | yes, by hand |
+| 4. update Talos | yes | **never executed** |
+| 5. roll back Talos | **no mechanism** | no |
+| 6. update Kubernetes | yes | **never executed** |
+
+**(2) and (3) are deliberately manual and should stay that way.** `backup-repair`
+ships suspended for the reason in its own file: restoring on a schedule hides the
+rate at which objects go bad. What is missing is not automation but a rehearsal --
+both procedures have been executed once, under incident pressure, rather than
+practised.
+
+**(5) has nothing at all.** `guard-downgrade` is a CI gate that demands a
+`confirmed-downgrade` label on a PR lowering a version; it does not roll anything
+back. Talos itself provides `talosctl rollback` -- "rollback a node to the
+previous installation", using the other boot partition -- and nothing in this
+repo references it, documents it, or tests it. It is also single-shot: it reverts
+to the *previous* install, so it works once after an upgrade and not at all after
+two. On a single-node cluster with no HA that is the only fast way back from a
+bad Talos upgrade, and it has never been tried here.
+
+Lowering the pin and letting SUC run is NOT a rollback path. It would issue
+`talosctl upgrade` to an older version, which is a different operation with
+different guarantees than reverting a boot entry.
+
+**What Sunday will actually do**, given the pins:
+
+- 03:00 weekly Longhorn backup -- has NEVER succeeded unattended. The 08-30 run
+  completed in 71s and produced nothing, because the backupstore was full of
+  unreadable objects; the backups that exist came from a manual trigger.
+- 11:00 gate -- passes only if that backup ran. The newest backup is presently
+  2026-08-31T19:19, well past the 26h threshold, so on today's state the gate
+  would refuse and nothing would upgrade.
+- 12:00 talos-controlplane -- **no-op**: the node already runs the pinned v1.13.9.
+- 14:00 talos-worker -- no worker nodes.
+- 16:00 talos-kubernetes -- **the only real change**: v1.36.2 -> v1.36.3.
+
+So the entire Sunday sequence reduces to one Kubernetes patch upgrade, gated on a
+backup job that has never worked on its own. That is the thing to rehearse.
