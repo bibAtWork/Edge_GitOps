@@ -25,7 +25,7 @@ data:
 
     RC_LIMITS="--retries 1 --low-level-retries 1 --timeout 15s --contimeout 5s"
 
-    CHECKED=0; UNREADABLE=0; MISSING_REMOTE=0; MISMATCH=0; NO_HASH=0; LOST=0
+    CHECKED=0; UNREADABLE=0; MISSING_REMOTE=0; MISMATCH=0; NO_HASH=0; LOST=0; PENDING=0
 
     log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
@@ -50,6 +50,18 @@ data:
       # is proven by reading, the remote side only has to be identified.
       rclone hashsum md5 "aws:${AWS_BUCKET}/seaweedfs/$B" $RC_LIMITS > "/tmp/$B.remote" 2>/dev/null || true
 
+      # Modification times, both sides. Needed because not every object here is
+      # write-once: Velero's Kopia repositories rewrite kopia.maintenance (and
+      # friends) as maintenance runs, so a local copy that differs from the
+      # relayed one is the NORMAL state between a rewrite and the next relay.
+      #
+      # Without this the check fails every day on healthy data -- confirmed
+      # 2026-09-03, mismatch=10, every one a kopia.maintenance, one per
+      # Velero-backed namespace. A check that fails on normal operation stops
+      # being read, which is the failure this whole job exists to avoid.
+      rclone lsf "s3:$B" --recursive --files-only --format "tp" --separator "|" $RC_LIMITS > "/tmp/$B.lmt" 2>/dev/null || true
+      rclone lsf "aws:${AWS_BUCKET}/seaweedfs/$B" --recursive --files-only --format "tp" --separator "|" $RC_LIMITS > "/tmp/$B.rmt" 2>/dev/null || true
+
       # rclone hashsum emits "<32 hex>  <path>". Paths are taken from column 35
       # onward rather than by splitting on whitespace, so a key containing
       # spaces is still handled correctly.
@@ -59,6 +71,10 @@ data:
         FILENAME ~ /\.stored$/   { S[p($0)] = h($0); next }
         FILENAME ~ /\.computed$/ { C[p($0)] = h($0); next }
         FILENAME ~ /\.remote$/   { R[p($0)] = h($0); next }
+        # "<modtime>|<path>" from rclone lsf --format tp. index() on the first
+        # separator rather than split(), so a path containing "|" still parses.
+        FILENAME ~ /\.lmt$/      { i=index($0,"|"); LT[substr($0,i+1)]=substr($0,1,i-1); next }
+        FILENAME ~ /\.rmt$/      { i=index($0,"|"); RT[substr($0,i+1)]=substr($0,1,i-1); next }
         END {
           for (k in S) {
             n++
@@ -85,21 +101,38 @@ data:
             # Counted separately rather than called a mismatch, because an
             # absent hash is not evidence of divergence.
             if (R[k] == "") { print "  NO HASH        " k; nohash++; continue }
-            if (C[k] != R[k]) { print "  MISMATCH       " k " local=" C[k] " remote=" R[k]; mismatch++ }
+            if (C[k] != R[k]) {
+              # Differing hashes only mean corruption if the two copies are meant
+              # to be the same version. The relay is copy-only and runs once a
+              # day, so an object rewritten since the last relay legitimately
+              # differs -- that is the relay being behind, not the data wrong.
+              #
+              # Local NEWER than remote  -> pending relay; expected, not a failure.
+              # Local older or equal     -> the versions should match and do not,
+              #                             which is what this check is for.
+              #
+              # Compared lexically: rclone emits a fixed "YYYY-MM-DD HH:MM:SS" in
+              # UTC on both sides, so string order is time order.
+              if ((k in LT) && (k in RT) && (LT[k] > RT[k])) {
+                print "  PENDING RELAY  " k; pending++
+              } else {
+                print "  MISMATCH       " k " local=" C[k] " remote=" R[k]; mismatch++
+              }
+            }
           }
-          printf "COUNTS %d %d %d %d %d %d\n", n, unreadable, missing, mismatch, nohash, lost
+          printf "COUNTS %d %d %d %d %d %d %d\n", n, unreadable, missing, mismatch, nohash, lost, pending
         }
-      ' "/tmp/$B.stored" "/tmp/$B.computed" "/tmp/$B.remote" > "/tmp/$B.report"
+      ' "/tmp/$B.stored" "/tmp/$B.computed" "/tmp/$B.remote" "/tmp/$B.lmt" "/tmp/$B.rmt" > "/tmp/$B.report"
 
       grep -v '^COUNTS ' "/tmp/$B.report" || true
       set -- $(grep '^COUNTS ' "/tmp/$B.report" | cut -d' ' -f2-)
-      log "  checked=$1 unreadable=$2 no_offsite=$3 mismatch=$4 no_hash=$5 lost=$6"
+      log "  checked=$1 unreadable=$2 no_offsite=$3 mismatch=$4 no_hash=$5 lost=$6 pending=$7"
       CHECKED=$((CHECKED + $1)); UNREADABLE=$((UNREADABLE + $2))
       MISSING_REMOTE=$((MISSING_REMOTE + $3)); MISMATCH=$((MISMATCH + $4))
-      NO_HASH=$((NO_HASH + $5)); LOST=$((LOST + $6))
+      NO_HASH=$((NO_HASH + $5)); LOST=$((LOST + $6)); PENDING=$((PENDING + $7))
     done
 
-    log "checked=$CHECKED unreadable=$UNREADABLE no_offsite=$MISSING_REMOTE mismatch=$MISMATCH no_hash=$NO_HASH lost=$LOST"
+    log "checked=$CHECKED unreadable=$UNREADABLE no_offsite=$MISSING_REMOTE mismatch=$MISMATCH no_hash=$NO_HASH lost=$LOST pending=$PENDING"
 
     TS=0
     [ "$UNREADABLE" -eq 0 ] && [ "$MISMATCH" -eq 0 ] && TS="$(date -u +%s)"
@@ -111,6 +144,7 @@ data:
       echo "seaweedfs_verify_objects_mismatch $MISMATCH"
       echo "seaweedfs_verify_objects_no_hash $NO_HASH"
       echo "seaweedfs_verify_objects_lost $LOST"
+      echo "seaweedfs_verify_objects_pending_relay $PENDING"
     } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
 
     # Unreadable or diverged is a real fault and fails the run. NO OFFSITE does
