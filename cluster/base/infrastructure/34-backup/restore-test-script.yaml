@@ -26,20 +26,30 @@ data:
     STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     LH_TESTED=0
     LH_SKIPPED=0
-    SW_TESTED=0
-    SW_FAILED=0
-    SW_CHANGED=0
     FAILURES=""
 
     log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
     fail() { FAILURES="${FAILURES}${1}; "; log "FAIL: $1"; }
 
-    log "installing tools"
-    apk add --no-cache aws-cli e2fsprogs sqlite gzip kubectl >/dev/null 2>&1 || {
-      echo "FATAL: tool install failed (egress to the alpine mirrors?)" >&2
+    # No package installation. The image carries kubectl, which is now the only
+    # tool this pod needs -- dropping the SeaweedFS half took aws-cli, gzip and
+    # sqlite with it.
+    #
+    # That is not tidiness. `apk add` writes new executables into a running
+    # container and executes them, which is exactly what Falco's "Executing
+    # binary not part of base image" rule exists to catch, at Critical. This job
+    # runs daily, so it produced a Critical every day -- steadily teaching
+    # everyone to ignore the one channel that would report an actual container
+    # compromise. An alert that fires on normal operation is not a detection,
+    # and the right fix is to stop doing the suspicious thing rather than to
+    # tell Falco to look away.
+    #
+    # It also drops a dependency on the alpine mirrors being reachable at the
+    # moment a backup is being verified.
+    command -v kubectl >/dev/null 2>&1 || {
+      echo "FATAL: kubectl is missing from the image" >&2
       exit 1
     }
-    mkdir -p /staging/.restore-test
 
     # ------------------------------------------------------------------
     # Longhorn: volume-level, every volume, never sampled.
@@ -288,127 +298,24 @@ data:
       kubectl delete volumes.longhorn.io -n longhorn-system "$RT" --wait=false >/dev/null 2>&1
     done < /tmp/bvs
 
-    # ------------------------------------------------------------------
-    # SeaweedFS: file-level, sampled.
-    #
-    # n = ln(1-confidence)/ln(1-fraction). For 99% confidence of catching 1%
-    # uniformly-distributed corruption that is ~458, independent of dataset
-    # size. The seed is fresh from /dev/urandom every run, never fixed, so
-    # coverage accumulates across runs into a rolling scrub instead of
-    # re-testing the same objects forever.
-    #
-    # Stated plainly because it matters: this assumes corruption is uniformly
-    # distributed. Clustered damage -- one truncated prefix, one encrypted
-    # directory -- is detected far less reliably than 99% suggests.
-    # ------------------------------------------------------------------
-    LATEST="$(ls -1d /staging/20*/ 2>/dev/null | sort | tail -1)"
-    if [ -z "$LATEST" ]; then
-      fail "seaweedfs: no staged snapshot to compare against"
-    else
-      log "sampling against $(basename "$LATEST")"
-      SEED="$(head -c 4 /dev/urandom | od -An -tu4 | tr -d ' ')"
-      : > /tmp/all_keys
-      # Only objects predating the staged snapshot are eligible. The filer dumps
-      # hourly, so anything written after staging ran is legitimately absent from
-      # the staged copy rather than damaged. The first live run reported five such
-      # objects as failures, which would have kept this job permanently red and
-      # taught everyone to ignore it.
-      CUTOFF="$(date -u -r "$LATEST" +%Y-%m-%dT%H:%M:%S)"
-      log "snapshot cutoff: $CUTOFF (newer objects are not sampled)"
-      # Must match the bucket list in seaweedfs-staging.yaml. This samples the
-      # live bucket and compares against the staged copy, so a bucket that is
-      # not staged has no counterpart to compare against -- every object in it
-      # would be reported as missing. zot-registry was dropped from staging
-      # because container images are recoverable from their source registries;
-      # it is dropped here for the same reason, one step later.
-      for b in velero-backups db-backups filer-metadata; do
-        aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 --bucket "$b" \
-          --query 'Contents[].[Key,LastModified]' --output text 2>/dev/null \
-          | awk -F"\t" -v c="$CUTOFF" -v b="$b" 'NF==2 && substr($2,1,19) < c { print b "/" $1 }' >> /tmp/all_keys
-      done
-      sed -i '/^$/d' /tmp/all_keys
-
-      TOTAL="$(wc -l < /tmp/all_keys)"
-      log "population=$TOTAL sample_target=$SAMPLE_SIZE seed=$SEED"
-
-      awk -v seed="$SEED" 'BEGIN{srand(seed)} {print rand()"|"$0}' /tmp/all_keys \
-        | sort -t'|' -k1,1 \
-        | cut -d'|' -f2- \
-        | head -n "$SAMPLE_SIZE" > /tmp/sample
-
-      while read -r KEY; do
-        [ -z "$KEY" ] && continue
-        BUCKET="${KEY%%/*}"
-        OBJ="${KEY#*/}"
-        STAGED="${LATEST}${BUCKET}/${OBJ}"
-
-        if [ ! -f "$STAGED" ]; then
-          # Expected for objects already known unreadable: staging cannot copy
-          # what SeaweedFS will not serve. Counted, never silently skipped.
-          fail "$KEY: absent from the staged copy"
-          SW_FAILED=$(( SW_FAILED + 1 ))
-          continue
-        fi
-
-        LIVE_MD5="$(aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://$BUCKET/$OBJ" - 2>/dev/null | md5sum | cut -d' ' -f1)"
-        STAGED_MD5="$(md5sum < "$STAGED" | cut -d' ' -f1)"
-
-        if [ "$LIVE_MD5" != "$STAGED_MD5" ]; then
-          # A mismatch is only corruption if the object has not changed since the
-          # snapshot was taken. Some objects are mutable: Kopia rewrites its
-          # bookkeeping files (kopia.maintenance, indexes) in place, so a
-          # point-in-time staged copy legitimately differs from live and would
-          # fail this check forever.
-          #
-          # Re-read LastModified now rather than trusting the listing. The listing
-          # is taken once at the start of a run that takes half an hour, so an
-          # object modified during the run passes the cutoff filter and then fails
-          # the hash. A fresh HEAD at comparison time is the authoritative answer.
-          MOD_NOW="$(aws --endpoint-url "$S3_ENDPOINT" s3api head-object --bucket "$BUCKET" --key "$OBJ" --query LastModified --output text 2>/dev/null | cut -c1-19)"
-          if [ -n "$MOD_NOW" ] && [ "$MOD_NOW" ">" "$CUTOFF" ]; then
-            log "changed since snapshot, not corruption: $KEY"
-            SW_CHANGED=$(( SW_CHANGED + 1 ))
-            continue
-          fi
-          fail "$KEY: staged copy differs from live"
-          SW_FAILED=$(( SW_FAILED + 1 ))
-          continue
-        fi
-
-        # Format validity, on the sample only. A matching hash proves the copy
-        # is faithful; it does not prove the original was ever valid.
-        BAD=""
-        case "$OBJ" in
-          *.gz)
-            if gzip -t "$STAGED" 2>/dev/null; then
-              case "$OBJ" in
-                *.sqlite3.gz)
-                  gzip -dc "$STAGED" > /tmp/s.db 2>/dev/null
-                  R="$(sqlite3 /tmp/s.db 'PRAGMA integrity_check' 2>&1 | head -1)"
-                  rm -f /tmp/s.db
-                  [ "$R" = "ok" ] || BAD="sqlite integrity_check said '$R'"
-                  ;;
-                *.sql.gz)
-                  gzip -dc "$STAGED" 2>/dev/null | head -c 4096 | grep -q "PostgreSQL database dump" \
-                    || BAD="no PostgreSQL dump header"
-                  ;;
-              esac
-            else
-              BAD="gzip stream is corrupt"
-            fi
-            ;;
-        esac
-
-        if [ -n "$BAD" ]; then
-          fail "$KEY: $BAD"
-          SW_FAILED=$(( SW_FAILED + 1 ))
-          continue
-        fi
-
-        SW_TESTED=$(( SW_TESTED + 1 ))
-        echo "$KEY" >> /staging/.restore-test/tested.log
-      done < /tmp/sample
-    fi
+      # ------------------------------------------------------------------
+      # SeaweedFS object checking lives in backup-verify, not here.
+      #
+      # This job used to sample ~458 objects and compare each against the
+      # staged snapshot. backup-verify now reads EVERY object daily and
+      # checksums it against the offsite vault, which is strictly stronger:
+      # full coverage instead of a sample, and compared against the copy that
+      # would actually be restored from rather than against another local one.
+      #
+      # Removing it also removed this job's need for aws-cli, gzip and sqlite,
+      # which is what let the whole thing stop installing packages at runtime.
+      # See the image note at the top of restore-test-cronjob.yaml.
+      #
+      # The sampling maths is not lost, only unnecessary: n = ln(1-confidence)
+      # / ln(1-fraction) gave ~458 for 99% confidence of catching 1% uniformly
+      # distributed corruption. It assumed uniform distribution, which
+      # clustered damage violates -- reading everything has no such assumption.
+      # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
     # Result. Task 11 gates on this: a stalled or failing restore-test must stop
@@ -416,7 +323,7 @@ data:
     # readable by another job.
     # ------------------------------------------------------------------
     if [ -n "$FAILURES" ]; then RESULT=fail; else RESULT=pass; fi
-    log "result=$RESULT longhorn_tested=$LH_TESTED longhorn_skipped=$LH_SKIPPED seaweedfs_tested=$SW_TESTED seaweedfs_failed=$SW_FAILED seaweedfs_changed=$SW_CHANGED"
+    log "result=$RESULT longhorn_tested=$LH_TESTED longhorn_skipped=$LH_SKIPPED"
 
     kubectl create configmap backup-restore-test-result -n longhorn-system \
       --from-literal=result="$RESULT" \
@@ -424,7 +331,6 @@ data:
       --from-literal=epoch="$NOW" \
       --from-literal=longhorn_tested="$LH_TESTED" \
       --from-literal=longhorn_skipped="$LH_SKIPPED" \
-      --from-literal=seaweedfs_tested="$SW_TESTED" \
       --from-literal=failures="${FAILURES:-none}" \
       --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
 
@@ -433,9 +339,6 @@ data:
       if [ "$RESULT" = pass ]; then echo "backup_restore_test_pass 1"; else echo "backup_restore_test_pass 0"; fi
       echo "backup_restore_test_longhorn_volumes_tested $LH_TESTED"
       echo "backup_restore_test_longhorn_volumes_skipped $LH_SKIPPED"
-      echo "backup_restore_test_seaweedfs_objects_tested $SW_TESTED"
-      echo "backup_restore_test_seaweedfs_objects_failed $SW_FAILED"
-      echo "backup_restore_test_seaweedfs_objects_changed $SW_CHANGED"
     } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
 
     [ "$RESULT" = pass ] || exit 1
@@ -455,13 +358,36 @@ data:
       restartPolicy: Never
       containers:
         - name: check
-          image: docker.io/library/alpine:3.24
+          # longhorn-engine, not alpine + `apk add e2fsprogs sqlite`.
+          #
+          # instance-manager, NOT longhorn-engine. Both are already on the node,
+          # both have e2fsck and mount -- and only instance-manager has python3
+          # with a working sqlite3 module.
+          #
+          # longhorn-engine was tried first and failed on exactly that. It ships
+          # python3, so `command -v python3` said yes, but the base is SLE 15 and
+          # SUSE packages the stdlib sqlite3 module separately, so `import
+          # sqlite3` died with a command-not-found suggestion. The check reported
+          # `sqlite integrity_check said 'to install it.'` -- the tail of a
+          # package-manager hint, parsed as a database verdict. "python3 exists"
+          # and "python3 can do what I need" are different claims; probing for
+          # the binary answered the wrong one.
+          #
+          # Verified on the running node: e2fsck, mount, umount, find, python3,
+          # and sqlite3 module 3.53.2.
+          #
+          # The point is that nothing is installed at runtime. `apk add` writes
+          # new executables into a running container and executes them, which
+          # trips Falco's "Executing binary not part of base image" at Critical
+          # -- once per volume, every day. Silencing that rule would have meant
+          # giving up the detection that would report a genuinely compromised
+          # container; the workload was the thing worth changing.
+          image: docker.io/longhornio/longhorn-instance-manager:v1.12.1
           securityContext:
             privileged: true
           command: ["/bin/sh", "-c"]
           args:
             - |
-              apk add --no-cache e2fsprogs sqlite >/dev/null 2>&1
               e2fsck -n -f /dev/rtdev
               echo "e2fsck_rc=$?"
               mkdir -p /mnt/v
@@ -481,7 +407,12 @@ data:
                 fi
               elif ls /mnt/v/*.sqlite3 >/dev/null 2>&1; then
                 echo "content=sqlite"
-                echo "sqlite_integrity=$(sqlite3 /mnt/v/*.sqlite3 'PRAGMA integrity_check' 2>&1 | head -1)"
+                # python3's stdlib sqlite3, because this image has no sqlite3
+                # CLI. Opened read-only through a file: URI so the check cannot
+                # create a journal beside the backup it is inspecting -- the
+                # mount is already ro, but relying on that would put the
+                # command's safety in a flag several lines away.
+                echo "sqlite_integrity=$(python3 -c 'import sqlite3,glob;f=glob.glob("/mnt/v/*.sqlite3")[0];print(sqlite3.connect("file:"+f+"?mode=ro",uri=True).execute("PRAGMA integrity_check").fetchone()[0])' 2>&1 | tail -1)"
               else
                 echo "content=generic"
               fi
