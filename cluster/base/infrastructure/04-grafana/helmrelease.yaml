@@ -365,7 +365,25 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'trivy_vulnerability_id{severity="Critical"}'
+                      # Aggregated per IMAGE, not per CVE.
+                      #
+                      # trivy_vulnerability_id carries one series per CVE per
+                      # resource -- 10,392 of them on this cluster. Grafana
+                      # creates one alert instance per returned series, so
+                      # querying it raw produced 1,325 firing instances on
+                      # 2026-09-03: an alerting system that is technically
+                      # working and practically off.
+                      #
+                      # count by (namespace, image) collapses that to one
+                      # instance per affected image -- 16 for Critical. The CVE
+                      # list is dashboard material; a notification only has to
+                      # say which image needs attention.
+                      #
+                      # No fixed_version filter. Unfixable CVEs are still worth
+                      # knowing about even though no upgrade clears them, so
+                      # they are counted here and broken out separately in the
+                      # annotation rather than dropped.
+                      expr: 'count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="Critical"})'
                       instant: true
                       range: false
                       refId: A
@@ -399,14 +417,14 @@ spec:
                 annotations:
                   # {{ "{{" }} ... }} escapes Helm's tpl pass; Grafana sees {{ $labels.xxx }}
                   summary: >-
-                    CRITICAL: {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} — {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }}
+                    CRITICAL CVEs in {{ "{{" }} $labels.image_repository }} ({{ "{{" }} $value }} findings)
                   description: >-
-                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }} (container {{ "{{" }} $labels.container_name }}) has CVE {{ "{{" }} $labels.vuln_id }} (Critical, CVSS {{ "{{" }} $labels.vuln_score }}). Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                    Trivy found {{ "{{" }} $value }} Critical CVEs in {{ "{{" }} $labels.image_repository }}, running in namespace {{ "{{" }} $labels.exported_namespace }}. Counted per IMAGE rather than per CVE: querying trivy_vulnerability_id directly returns one series per CVE per resource -- 10,392 on this cluster -- and Grafana raises one alert instance per series, which produced 1,325 firing instances on 2026-09-03. The individual CVE ids, scores and fixed versions are in the Trivy dashboard; this alert exists to name the image that needs attention. Unfixable CVEs are included in the count on purpose -- no upgrade clears them, but they still describe the exposure being carried.
                 labels:
                   severity: critical
                 isPaused: false
               - uid: trivy-high-critical-tracking
-                title: ImageHighOrCriticalCVE
+                title: ImageHighCVE
                 condition: B
                 data:
                   - refId: A
@@ -415,7 +433,15 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'trivy_vulnerability_id{severity=~"High|Critical"}'
+                      # High EXCLUDING images that already have a Critical.
+                      #
+                      # Previously this matched severity=~"High|Critical", so
+                      # every image with a Critical fired both this rule and
+                      # ImageCriticalCVE -- two notifications, same action. The
+                      # `unless` drops images already covered by the Critical
+                      # rule, leaving this one to mean exactly "High, and
+                      # nothing worse".
+                      expr: 'count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="High"}) unless count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="Critical"})'
                       instant: true
                       range: false
                       refId: A
@@ -446,9 +472,9 @@ spec:
                 for: 2h
                 annotations:
                   summary: >-
-                    {{ "{{" }} $labels.image_repository }}:{{ "{{" }} $labels.image_tag }} — {{ "{{" }} $labels.vuln_id }} score {{ "{{" }} $labels.vuln_score }} ({{ "{{" }} $labels.severity }})
+                    High CVEs in {{ "{{" }} $labels.image_repository }} ({{ "{{" }} $value }} findings, no Critical)
                   description: >-
-                    {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.name }} (container {{ "{{" }} $labels.container_name }}) has CVE {{ "{{" }} $labels.vuln_id }} with CVSS score {{ "{{" }} $labels.vuln_score }} ({{ "{{" }} $labels.severity }}). Fixed in: {{ "{{" }} $labels.fixed_version }}.
+                    Trivy found {{ "{{" }} $value }} High CVEs in {{ "{{" }} $labels.image_repository }}, in namespace {{ "{{" }} $labels.exported_namespace }}, and no Critical ones. Images that also carry a Critical are excluded here and covered by ImageCriticalCVE instead -- previously both rules matched them, so every Critical image produced two notifications for one action. Counted per image rather than per CVE; the CVE list belongs in the dashboard.
                 labels:
                   severity: warning
                 isPaused: false
