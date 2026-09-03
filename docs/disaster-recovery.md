@@ -2,15 +2,18 @@
 
 ## Overview
 
-This document covers recovery procedures for the Talos Kubernetes home lab. All scenarios are automated via `scripts/dr.py`. Read this document to understand the process; use `dr.py` to execute it.
+This document covers recovery procedures for the Talos Kubernetes home lab. Read it to understand the process; where a scenario is automated, use `dr.py` to execute it.
 
-Three recovery scenarios are covered:
+Five recovery scenarios are covered. A and B are automated via `scripts/dr.py`;
+C, D and E are manual procedures.
 
 | Scenario | When to use | Time estimate |
 |---|---|---|
-| **Namespace restore** | A workload is broken or data was accidentally deleted | 5–20 min |
-| **Full cluster recovery** | Nodes are lost; cluster cannot be rebuilt from scratch | 30–60 min |
-| **Add node** | Expanding from 1-node to 3-node, or replacing a failed node | 15–30 min |
+| **A — Namespace restore** | A workload is broken or data was accidentally deleted | 5–20 min |
+| **B — Full cluster recovery** | Nodes are lost; cluster cannot be rebuilt from scratch | 30–60 min |
+| **C — Add node** | Expanding from 1-node to 3-node, or replacing a failed node | 15–30 min |
+| **D — Longhorn disk `NotReady`** | Every volume unschedulable after a node rebuild | 5 min |
+| **E — Roll back Talos** | A Talos upgrade left the node broken or degraded | 5–20 min |
 
 ---
 
@@ -344,6 +347,161 @@ both conditions before assuming volumes will attach — `Ready` alone is not suf
 > Do **not** resolve this by adding a new disk or removing the old one from the `Node` CR.
 > Longhorn would schedule new, empty replicas and the existing replica data on that path
 > becomes unreferenced.
+---
+
+## Scenario E — Roll back a Talos version
+
+Two routes with genuinely different properties. Pick on the basis of what is
+still working, not on which is tidier.
+
+| | `talosctl rollback` | lower the pin, let SUC run |
+|---|---|---|
+| mechanism | swaps the active boot entry (A/B) | installs a fresh image, reboots |
+| downloads | none | pulls the installer image |
+| target | **only the previous install** | any version the Factory can build |
+| repeatable | single-shot | yes |
+| extensions | inherited from that install | whatever the image carries |
+| depends on | the Talos API, port 50000 | Kubernetes + SUC + a schedulable Job + registry + Flux |
+| recorded in git | no | yes, guarded |
+
+Neither touches Kubernetes. Rolling back Talos leaves the Kubernetes version
+exactly where it was.
+
+### E1 — Emergency: `talosctl rollback`
+
+Use when the cluster is degraded, because this path needs almost nothing:
+no registry, no Kubernetes scheduler, no SUC, no Flux. That matters precisely
+when a bad Talos upgrade has broken one of them — on 2026-08-26 an upgrade took
+out DNS and left the apiserver advertising a dead IP, and every Kubernetes-based
+recovery route was unavailable.
+
+```bash
+# What is running now, and what the config says it should be
+talosctl version --short
+kubectl get nodes -o wide
+
+talosctl rollback --nodes 192.168.178.100
+```
+
+Then wait for the node to come back and confirm:
+
+```bash
+talosctl version --short          # expect the PREVIOUS version
+talosctl health --talosconfig .talos/talosconfig
+kubectl get nodes                 # Ready
+kubectl get volumes.longhorn.io -n longhorn-system   # attached, not faulted
+```
+
+**Three things to know before relying on this.**
+
+It is **single-shot**. It reverts to the *previous* install, so after two
+upgrades the other partition holds the second-newest image, not your
+last-known-good. There is no `--to`.
+
+**You cannot query what it will give you.** `bootstatus` and `upgradestatus` are
+not registered resources on Talos v1.13.x, so nothing reports the contents of
+the inactive partition. You are relying on knowing your own upgrade history.
+Record every Talos upgrade somewhere durable for this reason.
+
+**It creates drift that SUC will not notice.** After a rollback git still pins
+the newer version, and SUC tracks completion by *plan hash on the node label*
+rather than by the running version — so the node keeps its
+`plan.upgrade.cattle.io/talos-controlplane` label, SUC concludes there is nothing
+to do, and the cluster sits on the old version while the mechanism believes it is
+current. What catches this is `talos-fleet-health`, which compares desired
+against running and emits `talos_fleet_version_drift`.
+
+So finish the job:
+
+```bash
+# Make git agree with reality, or the drift persists silently
+#   1. lower TALOS_VERSION in versions.env to the version now running
+#   2. open a PR, apply the confirmed-downgrade label, merge
+# See E2 for the details.
+```
+
+### E2 — Planned: lower the pin and let SUC run
+
+Use for a deliberate, reviewable move while the cluster is healthy. The whole
+path already exists; nothing needs building.
+
+```bash
+git checkout -b bug/talos-rollback-to-<version>
+# edit ONLY this file -- Kustomize replacements propagate the value into all
+# four Plans and the machine configs, so editing them by hand causes drift
+$EDITOR cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
+#   TALOS_VERSION=v1.13.6        (or KUBERNETES_VERSION for a k8s move)
+
+gh pr create --base ops/talos_linux --title "bug(talos): roll back to v1.13.6" --body "..."
+gh pr edit <n> --add-label confirmed-downgrade
+```
+
+The `confirmed-downgrade` label is **required**. `guard-downgrade` compares
+`TALOS_VERSION` and `KUBERNETES_VERSION` against the base branch, sorts them with
+`sort -V`, and fails the PR on any decrease without it. That is deliberate: a
+downgrade should never be something a Renovate PR or a careless edit can do
+quietly.
+
+Three other CI checks run on the same PR and are worth understanding, because
+each has caught a real fault here:
+
+- **every pin agrees** — the version appears in nine places across five files;
+  a partial edit installs something other than what the machine config declares.
+- **the schematic ID matches `schematic.yaml`** — the ID is a content hash of
+  the extension list, so a stale one silently deploys the wrong extension set.
+- **the Factory image exists** — the Factory builds per (schematic, version), and
+  extensions are published per Talos version. An older version's image with this
+  schematic may simply not exist, in which case the upgrade Job pulls a 404 and
+  leaves the node cordoned mid-plan. This check is the reason to find that out in
+  CI rather than at 03:00.
+
+After merge, the rollback runs at the next window — or immediately, via the
+label:
+
+```bash
+kubectl label node talos-1ps-0l8 talos.homelab/upgrade-now=""     # arm
+kubectl get jobs -n cattle-system -w
+kubectl label node talos-1ps-0l8 talos.homelab/upgrade-now-       # DISARM
+```
+
+Note the scheduled Plans additionally require `talos.homelab/upgrade-ready`,
+which `upgrade-backup-gate` sets at 11:00 on Sunday only after proving the
+backups are recent and readable. `talos-on-demand` deliberately does not, so it
+remains usable when the gate is refusing — which is a likely state during an
+incident.
+
+### Why E2 is not a substitute for E1
+
+`talosctl upgrade` to an older release is a *different operation* from reverting
+a boot entry, with different guarantees. Talos does not support arbitrary
+downgrades: the META format and etcd schema move between versions, so an older
+release may refuse the config it is handed or start badly. `rollback` is
+explicitly supported for the immediately-previous install because that install
+already ran on this machine with this config.
+
+E2 also depends on the control plane it may be trying to repair — Kubernetes must
+schedule a Job, SUC must be running, the registry must be reachable, and Flux
+must have applied the merge. A bad upgrade can break any of them.
+
+And E2 must use the **Factory** installer with the correct schematic. The stock
+`ghcr.io/siderolabs/installer` carries no extensions, so a rollback through it
+silently drops `iscsi-tools` and `util-linux-tools`, and Longhorn loses iSCSI
+attach on the next boot. `rollback` cannot make this mistake, because it installs
+nothing.
+
+### Known expiry
+
+The Talos Plans pass `--preserve=true`, which is deprecated:
+
+```
+Flag --preserve has been deprecated, legacy flag for MachineService.Upgrade
+fallback, to be removed in Talos 1.18
+```
+
+It is accepted through the 1.13-1.17 line. At Talos 1.18 the flag stops existing
+and the Plans break, so it must be removed from all three Talos Plans before
+that pin is raised.
+
 
 ---
 
