@@ -1802,11 +1802,23 @@ spec:
                 data:
                   - refId: A
                     relativeTimeRange:
-                      from: 93600
+                      from: 172800
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'last_over_time(talos_advisory_check_failed[26h])'
+                      # 48h, against a job that now runs every 12h. The window
+                      # has to outlast more than one missed run: these metrics are
+                      # PUSHED, so a run that does not happen leaves no value and
+                      # the rule sees NoData rather than a stale number. With
+                      # noDataState: Alerting that is indistinguishable from a
+                      # real failure.
+                      #
+                      # 26h against a daily job left exactly one miss between
+                      # healthy and firing, and on 2026-09-03 that fired for hours
+                      # because vmsingle happened to be restarting when the job
+                      # ran. 48h/12h tolerates three consecutive misses, which is
+                      # a genuine outage rather than a coincidence.
+                      expr: 'last_over_time(talos_advisory_check_failed[48h])'
                       instant: true
                       range: false
                       refId: A
