@@ -48,6 +48,83 @@ data:
       kubectl label node "$N" "${LABEL}-" >/dev/null 2>&1 || true
     done
     log "cleared $LABEL from all nodes -- it must be re-earned by this run"
+    # ---------------------------------------------------------------
+    # 0. If a version bump is pending, force a fresh backup+relay first.
+    # ---------------------------------------------------------------
+    # "A new version was merged" is detected as DRIFT: the version this repo
+    # declares (DESIRED_*, baked in at build time from versions.env) differs
+    # from what is actually running. That is exactly what talos-fleet-health
+    # already computes (talos_fleet_version_drift / talos_fleet_k8s_version_drift)
+    # -- but this reads kubectl directly rather than through VictoriaMetrics,
+    # on purpose: whether to force a pre-upgrade backup must not depend on the
+    # metrics pipeline being healthy, and VictoriaMetrics has already had one
+    # multi-hour outage on this cluster (2026-09-02/03).
+    #
+    # Talos version comes off status.nodeInfo.osImage ("Talos (v1.13.9)"), the
+    # same field-and-regex fleet-health uses, just read from the node directly
+    # instead of from kube_node_info. Kubernetes version is
+    # status.nodeInfo.kubeletVersion, already bare and needing no parsing.
+    #
+    # Runs only when something is actually pending, so a normal Sunday with no
+    # version change costs nothing extra -- it fires exactly the week a bump
+    # has landed, which is also the one week the existing weekly cadence is
+    # not enough to trust blindly: "there is a backup" says nothing about
+    # whether it predates the change being tested.
+    wait_for_job() {
+      J="$1"; BUDGET="$2"
+      i=0; STATE=""
+      while [ "$i" -lt "$BUDGET" ]; do
+        if kubectl get job -n longhorn-system "$J" -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q 1; then
+          STATE=ok; break
+        fi
+        if kubectl get job -n longhorn-system "$J" -o jsonpath='{.status.failed}' 2>/dev/null | grep -q '[1-9]'; then
+          STATE=failed; break
+        fi
+        i=$((i + 1)); sleep 10
+      done
+      # Same reason as step 2 below: the Job controller deletes the pod (and
+      # its logs) on BackoffLimitExceeded, so capture before deleting.
+      kubectl logs -n longhorn-system "job/$J" --tail=15 2>/dev/null | sed 's/^/    /' || true
+      kubectl delete job -n longhorn-system "$J" --wait=false >/dev/null 2>&1 || true
+      [ "$STATE" = "ok" ]
+    }
+
+    DRIFT=0
+    for N in $(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||'); do
+      RT="$(kubectl get node "$N" -o jsonpath='{.status.nodeInfo.osImage}' 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')"
+      RK="$(kubectl get node "$N" -o jsonpath='{.status.nodeInfo.kubeletVersion}' 2>/dev/null)"
+      [ "$RT" != "$DESIRED_TALOS_VERSION" ] && DRIFT=1
+      [ "$RK" != "$DESIRED_KUBERNETES_VERSION" ] && DRIFT=1
+    done
+
+    if [ "$DRIFT" = "1" ]; then
+      log "version drift detected (running vs. desired differ) -- a Talos or Kubernetes bump is pending"
+      log "forcing a fresh backup + offsite relay before trusting freshness below"
+
+      BJOB="upgrade-gate-backup-$(date -u +%Y%m%d%H%M)"
+      log "running $BJOB (backup-weekly, on demand)"
+      if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-weekly >/dev/null 2>&1; then
+        wait_for_job "$BJOB" 60 && log "fresh backup completed" \
+          || fail "pre-upgrade backup ($BJOB) did not complete"
+      else
+        fail "could not create the pre-upgrade backup job"
+      fi
+
+      # Do not wait for the 05:00 relay schedule -- push this backup offsite
+      # now, so a same-day rollback (Scenario E2) also has a vault copy rather
+      # than only a local one.
+      RJOB="upgrade-gate-relay-$(date -u +%Y%m%d%H%M)"
+      log "running $RJOB (backup-relay, on demand)"
+      if kubectl create job -n longhorn-system "$RJOB" --from=cronjob/backup-relay >/dev/null 2>&1; then
+        wait_for_job "$RJOB" 60 && log "offsite relay completed" \
+          || fail "pre-upgrade offsite relay ($RJOB) did not complete"
+      else
+        fail "could not create the pre-upgrade relay job"
+      fi
+    else
+      log "no version drift -- running on the existing weekly backup cadence"
+    fi
+
 
     # ---------------------------------------------------------------
     # 1. Longhorn volume backups are recent.
