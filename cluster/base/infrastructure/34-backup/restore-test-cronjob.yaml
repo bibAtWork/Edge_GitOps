@@ -37,18 +37,44 @@ spec:
         spec:
           restartPolicy: OnFailure
           serviceAccountName: backup-restore-test
-          # Runs as root: apk installs e2fsprogs and the aws CLI at start. That
-          # is a deliberate tradeoff -- pinning a purpose-built image would avoid
-          # the runtime dependency, but every candidate either lacks e2fsck or
-          # lacks the aws CLI, and building one here would put an image registry
-          # in the recovery path of the thing that verifies recovery.
+          # Non-root. Root was only ever needed so `apk add` could write to the
+          # package database, and nothing is installed at runtime any more.
+          #
+          # The comment this replaces argued that no candidate image carried
+          # both e2fsck and the aws CLI, so a runtime install was the lesser
+          # evil against "putting an image registry in the recovery path of the
+          # thing that verifies recovery". That reasoning was sound; its premise
+          # is now false in both halves. The aws CLI is not needed at all, since
+          # the SeaweedFS comparison moved to backup-verify. The e2fsck side is
+          # served by longhornio/longhorn-engine, which is already on this node
+          # because Longhorn runs it -- so no registry enters the recovery path:
+          # if that image were unavailable, Longhorn itself would be down.
           securityContext:
-            runAsUser: 0
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
             - name: restore-test
-              image: docker.io/library/alpine:3.24
+              # kubectl baked in, nothing installed at runtime.
+              #
+              # This pod used to be alpine plus
+              # `apk add aws-cli e2fsprogs sqlite gzip kubectl`. Two changes made
+              # that unnecessary: the SeaweedFS half of the script moved to
+              # backup-verify, which reads every object rather than sampling, and
+              # what remained needs only kubectl.
+              #
+              # Installing packages at runtime writes new executables into a
+              # running container and executes them -- Falco's "Executing binary
+              # not part of base image", at Critical, once per daily run. The
+              # options were to silence the rule or to stop doing the thing it
+              # detects; silencing it would have cost the detection that reports
+              # a genuinely compromised container.
+              #
+              # This image is already pulled on the node -- SUC uses it for its
+              # own Jobs -- and it runs as a non-root user.
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
               command: ["/bin/sh", "/scripts/restore-test.sh"]
               env:
                 - name: S3_ENDPOINT
@@ -82,8 +108,6 @@ spec:
                 - name: scripts
                   mountPath: /scripts
                   readOnly: true
-                - name: staging
-                  mountPath: /staging
               resources:
                 requests:
                   cpu: 200m
@@ -97,6 +121,3 @@ spec:
             - name: scripts
               configMap:
                 name: backup-restore-test-script
-            - name: staging
-              persistentVolumeClaim:
-                claimName: seaweedfs-staging
