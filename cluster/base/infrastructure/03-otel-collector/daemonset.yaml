@@ -2,7 +2,7 @@
 # this same directory stays in monitoring.
 #
 # The split is on host access, not on component. This DaemonSet hostPath-mounts
-# /var/log/pods and /var/log/kubernetes/audit to read container and audit logs
+# /var/log/pods and /var/log/audit/kube to read container and audit logs
 # off the node; hostPath is forbidden by PSS baseline, so wherever it runs is
 # pinned to privileged. The gateway is an ordinary Deployment that receives OTLP
 # over the network and needs nothing from the host, so it stays with the rest of
@@ -93,7 +93,7 @@ spec:
               mountPath: /var/log/pods
               readOnly: true
             - name: varlogkubeaudit
-              mountPath: /var/log/kubernetes/audit
+              mountPath: /var/log/audit/kube
               readOnly: true
             - name: tmp
               mountPath: /tmp
@@ -111,6 +111,6 @@ spec:
             path: /var/log/pods
         - name: varlogkubeaudit
           hostPath:
-            path: /var/log/kubernetes/audit
+            path: /var/log/audit/kube
         - name: tmp
           emptyDir: {}
