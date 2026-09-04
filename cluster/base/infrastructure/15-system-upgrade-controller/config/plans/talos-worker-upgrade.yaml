@@ -25,7 +25,7 @@ spec:
   # This value, and the talosctl image tags below, are overwritten at build
   # time by the `replacements` block in ../kustomization.yaml, sourced from
   # ../versions.env's TALOS_VERSION -- edit that file, not this field.
-  version: v1.13.9
+  version: REPLACED-BY-KUSTOMIZE
   exclusive: true
   # Without this, SUC applies the Plan to at most ZERO nodes.
   #
@@ -95,7 +95,7 @@ spec:
   # and SYSTEM_UPGRADE_NODE_IP is not a variable SUC sets.
   prepare:
     # Tag overwritten at build time from ../versions.env's TALOS_VERSION.
-    image: ghcr.io/siderolabs/talosctl:v1.13.9
+    image: ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE
     envs:
       - name: NODE_IP
         valueFrom:
@@ -107,7 +107,7 @@ spec:
       - version
   upgrade:
     # Tag overwritten at build time from ../versions.env's TALOS_VERSION.
-    image: ghcr.io/siderolabs/talosctl:v1.13.9
+    image: ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE
     # No `command:`. The image's entrypoint is /talosctl and it contains no
     # shell -- confirmed from the image config on ghcr.io: Entrypoint
     # ["/talosctl"], Cmd null. The previous `command: [/bin/sh, -c, ...]` could

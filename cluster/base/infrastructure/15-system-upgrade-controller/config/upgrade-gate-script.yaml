@@ -89,6 +89,20 @@ data:
       [ "$STATE" = "ok" ]
     }
 
+    # Desired versions come from the Plans SUC will act on, not from a copy
+    # baked into this CronJob. Those were two records of the same fact, and if a
+    # `replacements` target were ever dropped this gate would compare against a
+    # stale value and PASS -- authorising an upgrade on a check that examined
+    # the wrong thing. Reading spec.version removes the second record.
+    DESIRED_TALOS_VERSION="$(kubectl get plan talos-controlplane -n cattle-system -o jsonpath='{.spec.version}' 2>/dev/null)"
+    DESIRED_KUBERNETES_VERSION="$(kubectl get plan talos-kubernetes -n cattle-system -o jsonpath='{.spec.version}' 2>/dev/null)"
+    if [ -z "$DESIRED_TALOS_VERSION" ] || [ -z "$DESIRED_KUBERNETES_VERSION" ]; then
+      # Fail closed. Not knowing what is desired is not the same as there being
+      # no drift, and this gate's whole job is to refuse when it cannot tell.
+      fail "could not read spec.version from the talos-controlplane/talos-kubernetes Plans"
+    fi
+    log "desired from Plans: talos=$DESIRED_TALOS_VERSION kubernetes=$DESIRED_KUBERNETES_VERSION"
+
     DRIFT=0
     for N in $(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||'); do
       RT="$(kubectl get node "$N" -o jsonpath='{.status.nodeInfo.osImage}' 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')"

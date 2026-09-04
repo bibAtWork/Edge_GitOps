@@ -1,0 +1,54 @@
+# Lets the gates read the desired version from the Plan SUC will actually act on.
+#
+# Both gates exist to answer one question: does the cluster match what is
+# declared? They used to answer it against a copy of the declared version baked
+# into their own manifests at build time -- which is a second copy of the same
+# fact, and one that could disagree with the Plan if a `replacements` target
+# were ever dropped. A gate comparing against the wrong desired value passes
+# when it should refuse, which is the one failure mode a gate must not have.
+#
+# Reading spec.version instead means they compare against the exact object SUC
+# resolves its latestHash from, so the two cannot diverge.
+#
+# A Role in cattle-system with RoleBindings that name ServiceAccounts in other
+# namespaces, rather than a ClusterRole: a RoleBinding may reference a subject
+# from any namespace, so this grants read on Plans in THIS namespace only,
+# instead of on Plans everywhere.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: plan-reader
+  namespace: cattle-system
+rules:
+  - apiGroups: ["upgrade.cattle.io"]
+    resources: ["plans"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: upgrade-backup-gate-plan-reader
+  namespace: cattle-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: plan-reader
+subjects:
+  # Lives in longhorn-system; a RoleBinding can name it from here.
+  - kind: ServiceAccount
+    name: upgrade-backup-gate
+    namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: talos-version-gate-plan-reader
+  namespace: cattle-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: plan-reader
+subjects:
+  - kind: ServiceAccount
+    name: talos-version-gate
+    namespace: cattle-system
