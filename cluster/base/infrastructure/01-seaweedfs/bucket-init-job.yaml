@@ -11,14 +11,29 @@ metadata:
   # root cause and fix as 26-keycloak/setup-job.yaml (see its comment for the
   # full incident writeup).
   #
-  # This Kustomization runs with prune: true, so bump the numeric suffix
-  # whenever this file's pod spec changes for any reason (not just manual
-  # edits — Renovate PRs count) and Flux will garbage-collect the old-named
-  # Job cleanly instead of trying to patch it in place.
-  name: seaweedfs-bucket-init-6
+  # The mitigation used to be a hand-bumped numeric suffix on this name,
+  # which a person had to remember to increment whenever the pod spec
+  # changed -- including when Renovate bumped the image, which is not a
+  # change a person is looking at. It failed exactly that way again on
+  # 2026-09-04, blocking flux-system twice.
+  #
+  # The force annotation is the targeted fix: kustomize-controller deletes
+  # and recreates THIS object when an apply fails on an immutable field,
+  # instead of failing the Kustomization. Scoped to this resource rather
+  # than set on the Kustomization, where it would silently authorise
+  # delete-and-recreate for anything with immutable fields -- a PVC, for
+  # instance.
+  #
+  # Safe here specifically because the Job is idempotent: it checks
+  # head-bucket before creating, so re-running it is a no-op that prints
+  # "Bucket already exists" and exits 0.
+  #
+  # The name is now stable, so there is no counter to forget.
+  name: seaweedfs-bucket-init
   namespace: seaweedfs
   annotations:
-    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-4 -n seaweedfs
+    kustomize.toolkit.fluxcd.io/force: "Enabled"
+    # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init -n seaweedfs
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 6
