@@ -85,18 +85,6 @@ spec:
                 # on the normal week-long gap between backups.
                 - name: MAX_BACKUP_AGE_HOURS
                   value: "26"
-                # Overwritten at build time from versions.env's TALOS_VERSION
-                # by the `replacements` block in kustomization.yaml, same
-                # mechanism talos-fleet-health-cronjob.yaml already uses. The
-                # placeholder is a real version so `kustomize build` still
-                # produces something sane if replacements were ever removed.
-                - name: DESIRED_TALOS_VERSION
-                  value: v1.13.9
-                # Overwritten at build time from versions.env's
-                # KUBERNETES_VERSION, same mechanism as DESIRED_TALOS_VERSION
-                # above.
-                - name: DESIRED_KUBERNETES_VERSION
-                  value: v1.36.3
               volumeMounts:
                 - name: scripts
                   mountPath: /scripts

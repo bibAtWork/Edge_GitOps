@@ -65,16 +65,23 @@ spec:
                   value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
                 # Overwritten at build time from ../versions.env's
                 # TALOS_VERSION by the `replacements` block in
-                # ../kustomization.yaml. The placeholder is a real version so
-                # `kustomize build` still produces something sane if
-                # replacements were ever removed.
+                # ../kustomization.yaml. The literal is a sentinel, NOT a
+                # version: if a replacement is ever dropped this must fail
+                # rather than quietly report drift against a stale number.
+                # gitops-lint.yml asserts the sentinel never survives a build.
+                #
+                # The two gates read spec.version off the Plans instead, which
+                # is strictly better -- but this job runs with
+                # automountServiceAccountToken: false and has no API access at
+                # all, and granting it a token to save one substitution is a
+                # worse trade than keeping the substitution.
                 - name: DESIRED_TALOS_VERSION
-                  value: v1.13.9
+                  value: REPLACED-BY-KUSTOMIZE
                 # Overwritten at build time from ../versions.env's
                 # KUBERNETES_VERSION, same mechanism as DESIRED_TALOS_VERSION
                 # above.
                 - name: DESIRED_KUBERNETES_VERSION
-                  value: v1.36.3
+                  value: REPLACED-BY-KUSTOMIZE
               resources:
                 requests:
                   cpu: 50m

@@ -44,14 +44,6 @@ spec:
               # node: SUC pulls this image for its own Jobs.
               image: docker.io/rancher/kuberlr-kubectl:v8.1.1
               command: ["/bin/sh", "/scripts/gate.sh"]
-              env:
-                # Overwritten at build time from versions.env's TALOS_VERSION
-                # by the `replacements` block in kustomization.yaml, the same
-                # mechanism talos-fleet-health and upgrade-backup-gate already
-                # use. The placeholder is a real version so `kustomize build`
-                # still produces something sane if replacements were removed.
-                - name: DESIRED_TALOS_VERSION
-                  value: v1.13.9
               volumeMounts:
                 - name: scripts
                   mountPath: /scripts

@@ -55,6 +55,18 @@ data:
       exit 1
     fi
 
+    # Read the desired version off the Plan SUC resolves its latestHash from,
+    # rather than a copy baked in here. This gate authorises talos-kubernetes;
+    # comparing against a stale copy would let it authorise on the wrong
+    # target, which is precisely the failure it exists to prevent.
+    DESIRED_TALOS_VERSION="$(kubectl get plan talos-controlplane -n cattle-system -o jsonpath='{.spec.version}' 2>/dev/null)"
+    if [ -z "$DESIRED_TALOS_VERSION" ]; then
+      fail "could not read spec.version from the talos-controlplane Plan"
+      log "GATE_FAILED"
+      exit 1
+    fi
+    log "desired from Plan: talos=$DESIRED_TALOS_VERSION"
+
     MATCH=1
     for N in $NODES; do
       RT="$(kubectl get node "$N" -o jsonpath='{.status.nodeInfo.osImage}' 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')"

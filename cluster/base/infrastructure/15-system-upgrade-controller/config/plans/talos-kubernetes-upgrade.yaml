@@ -49,7 +49,7 @@ spec:
   # that file, not this field. Note this is the Kubernetes version, not the
   # Talos version; the talosctl tool image below still tracks TALOS_VERSION,
   # since talosctl is what runs the upgrade regardless of what it upgrades.
-  version: v1.32.3
+  version: REPLACED-BY-KUSTOMIZE
   exclusive: true
   concurrency: 1
   serviceAccountName: system-upgrade-controller
@@ -145,7 +145,7 @@ spec:
   upgrade:
     # Tag overwritten at build time from ../versions.env's TALOS_VERSION -- the
     # talosctl tool version, not the Kubernetes target (spec.version above).
-    image: ghcr.io/siderolabs/talosctl:v1.13.9
+    image: ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE
     # No `command:` -- same reasoning as the OS Plans: this image's entrypoint
     # is /talosctl and it has no shell.
     envs:

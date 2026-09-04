@@ -26,10 +26,19 @@ spec:
   #
   # This value, and the talosctl image tag below, are overwritten at build time
   # by the `replacements` block in ../kustomization.yaml, sourced from
-  # ../versions.env's TALOS_VERSION. The literal here is a placeholder kept
-  # valid so `kustomize build` still produces a sane Plan if replacements were
-  # ever removed -- edit versions.env, not this field.
-  version: v1.13.9
+  # ../versions.env's TALOS_VERSION -- edit versions.env, not this field.
+  #
+  # The literal is a sentinel, not a version, and that is deliberate. It used
+  # to be a real version "so kustomize build still produces a sane Plan if
+  # replacements were ever removed", which is exactly backwards: a dropped
+  # replacement then deployed a stale but installable version, silently. The
+  # sentinel cannot be pulled, and gitops-lint.yml fails the build if it ever
+  # survives a render -- so the failure is caught in CI rather than on a node.
+  #
+  # It also means `git grep` for a version now returns only the two real pins,
+  # versions.env and the machine config's install.image. It used to return
+  # eleven more that were all wrong.
+  version: REPLACED-BY-KUSTOMIZE
   exclusive: true
   # Without this, SUC applies the Plan to at most ZERO nodes.
   #
@@ -122,7 +131,7 @@ spec:
     # the note on spec.version above. talosctl and the target OS version have
     # no independent Renovate manager anymore; they are the same field now, so
     # they cannot drift the way they used to.
-    image: ghcr.io/siderolabs/talosctl:v1.13.9
+    image: ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE
     # No `command:`. The image's entrypoint is /talosctl and it contains no
     # shell -- confirmed from the image config on ghcr.io: Entrypoint
     # ["/talosctl"], Cmd null. The previous `command: [/bin/sh, -c, ...]` could

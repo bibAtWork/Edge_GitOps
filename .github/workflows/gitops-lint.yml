@@ -99,6 +99,56 @@ jobs:
           [ "$FAIL" -eq 0 ] && echo "No :latest tags found."
           exit $FAIL
 
+  unreplaced-sentinels:
+    name: No unreplaced sentinels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kustomize
+        run: |
+          VERSION=v5.8.1
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz"             | tar -xz -C /usr/local/bin kustomize
+
+      # The version pins in the SUC Plans and the fleet-health CronJob are
+      # Kustomize `replacements` targets sourced from versions.env. Their
+      # literals in git are the sentinel REPLACED-BY-KUSTOMIZE, never a
+      # version.
+      #
+      # They used to be real versions, on the reasoning that a build should
+      # still "produce something sane" if a replacement were dropped. That is
+      # backwards: it produced a Plan pinned to a stale but perfectly
+      # installable version, with nothing reporting anything -- the Plans said
+      # v1.13.9 and one said v1.32.3 while the cluster ran v1.13.0/v1.36.0, and
+      # Renovate read those literals as if they were real pins.
+      #
+      # A sentinel cannot be pulled, so a dropped replacement fails. This makes
+      # it fail HERE, before merge, rather than at image-pull time on a node
+      # that has already been cordoned.
+      - name: Reject sentinels surviving a render
+        run: |
+          FAIL=0
+          # 1-node-config, NOT 1-node. The Plans and the gate CronJobs are
+          # CRD-dependent and live in the config overlay; 1-node pulls in only
+          # the SUC operator. Checking 1-node would render nothing containing a
+          # sentinel and pass unconditionally -- which is exactly what the
+          # first draft of this job did.
+          #
+          # LoadRestrictionsNone because 1-node-config references a file
+          # outside its own directory (19-kyverno/policies), which plain
+          # kustomize build refuses.
+          for overlay in 1-node-config 3-node; do
+            hits=$(kustomize build --load-restrictor LoadRestrictionsNone \
+              cluster/overlays/${overlay} | grep -n 'REPLACED-BY-KUSTOMIZE' || true)
+            if [ -n "$hits" ]; then
+              echo "ERROR: sentinel survived the ${overlay} render -- a replacements target is missing or mis-pathed:"
+              echo "$hits"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] && echo "No unreplaced sentinels."
+          exit $FAIL
+
   # ── Job 3: HelmRelease sourceRef and dependsOn references must resolve ───────
   flux-references:
     name: Flux reference integrity

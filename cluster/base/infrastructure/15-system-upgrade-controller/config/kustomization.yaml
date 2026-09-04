@@ -7,6 +7,7 @@ resources:
   - upgrade-gate-script.yaml
   - upgrade-gate-cronjob.yaml
   - talos-version-gate-rbac.yaml
+  - plan-reader-rbac.yaml
   - talos-version-gate-script.yaml
   - talos-version-gate-cronjob.yaml
   - plans/talos-controlplane-upgrade.yaml
@@ -109,16 +110,6 @@ replacements:
           name: talos-fleet-health
         fieldPaths:
           - spec.jobTemplate.spec.template.spec.containers.[name=check].env.[name=DESIRED_TALOS_VERSION].value
-      - select:
-          kind: CronJob
-          name: upgrade-backup-gate
-        fieldPaths:
-          - spec.jobTemplate.spec.template.spec.containers.[name=gate].env.[name=DESIRED_TALOS_VERSION].value
-      - select:
-          kind: CronJob
-          name: talos-version-gate
-        fieldPaths:
-          - spec.jobTemplate.spec.template.spec.containers.[name=gate].env.[name=DESIRED_TALOS_VERSION].value
   - source:
       kind: ConfigMap
       name: talos-versions
@@ -134,8 +125,3 @@ replacements:
           name: talos-fleet-health
         fieldPaths:
           - spec.jobTemplate.spec.template.spec.containers.[name=check].env.[name=DESIRED_KUBERNETES_VERSION].value
-      - select:
-          kind: CronJob
-          name: upgrade-backup-gate
-        fieldPaths:
-          - spec.jobTemplate.spec.template.spec.containers.[name=gate].env.[name=DESIRED_KUBERNETES_VERSION].value
