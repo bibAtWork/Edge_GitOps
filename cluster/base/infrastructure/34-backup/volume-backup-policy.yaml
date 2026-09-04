@@ -273,6 +273,7 @@ spec:
                   # extra to compute, and closes the gap to about an hour
                   # instead of up to a week.
                   NEVER_BACKED_UP=""
+                  UNBACKABLE=""
                   while read -r VOL PVC; do
                     [ -z "${VOL:-}" ] && continue
                     [ -z "${PVC:-}" ] && continue
@@ -280,8 +281,33 @@ spec:
                     grep -qx "$PVC" /tmp/in_default || continue
                     LB="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
                       -o jsonpath='{.status.lastBackupAt}' 2>/dev/null)"
-                    [ -z "$LB" ] && NEVER_BACKED_UP="$NEVER_BACKED_UP $PVC"
+                    [ -n "$LB" ] && continue
+                    # A DETACHED volume is skipped by the recurring backup job --
+                    # Longhorn cannot snapshot one without attaching it first. So
+                    # triggering for one does not merely waste a run: it can never
+                    # satisfy its own condition. lastBackupAt stays empty, this
+                    # job fires again next hour, and backup-weekly then runs
+                    # HOURLY against every other volume, churning their backups
+                    # through the retain policy. Caught 2026-09-04, in the first
+                    # hour this trigger existed, against a scratch PVC whose only
+                    # pod had already exited.
+                    #
+                    # Reported instead of triggered. A detached in-scope volume
+                    # with no backup is a real gap that no trigger can close --
+                    # which is what LonghornVolumeNeverBackedUp is for, now that
+                    # it pages at critical.
+                    ST="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
+                      -o jsonpath='{.status.state}' 2>/dev/null)"
+                    if [ "$ST" != "attached" ]; then
+                      UNBACKABLE="$UNBACKABLE $PVC($ST)"
+                      continue
+                    fi
+                    NEVER_BACKED_UP="$NEVER_BACKED_UP $PVC"
                   done < /tmp/vols
+
+                  if [ -n "$UNBACKABLE" ]; then
+                    echo "in scope, never backed up, and NOT attached -- nothing can back these up until something mounts them:$UNBACKABLE"
+                  fi
 
                   if [ -n "$NEVER_BACKED_UP" ]; then
                     echo "never backed up yet, triggering backup-weekly now:$NEVER_BACKED_UP"
