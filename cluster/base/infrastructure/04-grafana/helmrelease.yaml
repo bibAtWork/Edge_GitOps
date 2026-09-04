@@ -3084,6 +3084,191 @@ spec:
               # one threshold covers all three: daily 25h, weekly 8d, monthly
               # 32d. Above 1 means that schedule is past its own deadline. The
               # selectors are disjoint, so `or` unions them rather than masking.
+              - uid: etcd-metrics-absent
+                title: EtcdMetricsAbsent
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        absent(etcd_server_has_leader)
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: NoData
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    etcd is publishing no metrics at all
+                  description: >-
+                    This alert exists because of how the previous gap was found. The chart's kube-etcd Service selected {component: etcd}, which matches nothing on Talos, so its Endpoints object was empty from install while the VMServiceScrape reported updateStatus: operational for 54 days -- nothing was collected, and nothing said so. If this fires the scrape is broken again: check that cluster.etcd.extraArgs.listen-metrics-urls is still set on the machineconfig (applied out-of-band via talosctl, so a node rebuilt from a stale config loses it silently) and that the VMNodeScrape control-plane selector still matches. Every other etcd rule here sits in noData when this one fires, which is why this one alerts on absence rather than on a value.
+                labels:
+                  severity: warning
+              - uid: etcd-no-leader
+                title: EtcdNoLeader
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        min(etcd_server_has_leader)
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: NoData
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: >-
+                    etcd has no leader -- the cluster cannot accept writes
+                  description: >-
+                    Without a leader etcd accepts no writes, so the API server cannot persist anything: no scheduling, no scaling, no config changes. On this single-node cluster there is no second member to take over, so this is a full outage rather than a failover. Check `talosctl etcd status` and `talosctl service etcd`. NoData is deliberately not Alerting here -- EtcdMetricsAbsent already covers that case with better wording, and duplicating it would mean two alerts for one fault.
+                labels:
+                  severity: critical
+              - uid: etcd-database-size-high
+                title: EtcdDatabaseSizeHigh
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        max(etcd_mvcc_db_total_size_in_bytes / etcd_server_quota_backend_bytes)
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0.8]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: NoData
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    etcd database is approaching its backend quota
+                  description: >-
+                    Above 80% of the backend quota. On reaching the quota etcd raises NOSPACE and goes read-only, taking the API server with it -- without warning, which is the specific scenario this rule exists to prevent. The usual cause is accumulated revisions rather than real data: `talosctl etcd status` shows DB SIZE against IN USE, and a large gap between them means a defrag will reclaim it. Compaction runs automatically; defrag does not.
+                labels:
+                  severity: critical
+              - uid: etcd-high-fsync-latency
+                title: EtcdHighFsyncLatency
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        histogram_quantile(0.99,
+                        sum by (le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0.5]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: NoData
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    etcd WAL fsync p99 latency is high
+                  description: >-
+                    etcd fsyncs every write to the WAL before acknowledging it, so this latency is a floor under every write in the cluster. Sustained values above 500ms mean the disk is the bottleneck and etcd starts missing heartbeats, which on a multi-node cluster triggers spurious leader elections. p99 rather than an average on purpose: the tail causes the timeouts and an average hides it. Correlate with Longhorn and SeaweedFS I/O on the same disk before concluding etcd is at fault.
+                labels:
+                  severity: warning
               - uid: velero-backup-stale
                 title: VeleroBackupStale
                 condition: B
