@@ -3248,13 +3248,15 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
-              # kubescape's weekly NSA/MITRE posture scan. Severity is derived
-              # from each control's scoreFactor in the job itself (9+ critical),
-              # because kubescape does not put a severity string on a control --
-              # doing the bucketing at publish time keeps the threshold in one
-              # place instead of splitting it between the job and the rule.
+              # kubescape's weekly NSA/MITRE posture scan.
               #
-              # These are push metrics from a WEEKLY job, so both rules wrap in
+              # These read kubescape's OWN metric names and its OWN `severity`
+              # label, because --format prometheus emits both natively. An
+              # earlier revision parsed the JSON report and derived severity
+              # from each control's scoreFactor -- that reinvented a mapping
+              # kubescape already publishes, and got a different answer.
+              #
+              # Push metrics from a WEEKLY job, so both rules wrap in
               # last_over_time over a window wider than the cadence. An instant
               # query returns nothing for six days out of seven.
               - uid: kubescape-critical-control-failing
@@ -3267,7 +3269,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'last_over_time(kubescape_controls_failed{severity="critical"}[8d])'
+                      expr: 'max(last_over_time(kubescape_control_count_resources_failed{severity="Critical"}[8d])) or vector(0)'
                       instant: true
                       range: false
                       refId: A
@@ -3300,9 +3302,9 @@ spec:
                 for: 0m
                 annotations:
                   summary: >-
-                    A CRITICAL kubescape control is failing
+                    A CRITICAL kubescape control has failing resources
                   description: >-
-                    At least one NSA/MITRE control with a scoreFactor of 9 or above is failing. This was 0 when the rule was written -- the standing posture measured 2026-09-04 is 28 failed controls topping out at scoreFactor 8 (10 high, 14 medium, 4 low, 857 failing resources, compliance score 71.3) -- so this firing means something crossed into the top severity band rather than that the baseline is bad. The full report for the run is stored at s3://security-scans/kubescape/kubescape-<timestamp>.json.gz; read it with `aws --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 s3 cp <key> -` piped through `gunzip | jq '.summaryDetails.controls'`.
+                    Measured 2026-09-04, the cluster has 3 Critical-severity controls and all of them pass -- the 28 failing controls are 10 High, 14 Medium and 4 Low. So this firing means a resource started failing a control kubescape rates Critical, not that the baseline is bad. The full report for every run is in VictoriaLogs; query `kubernetes_container_name:"publish" AND kubernetes_namespace_name:"kubescape"` and read the kubescape_control_* lines, each of which carries the control name, its severity and a docs link.
                 labels:
                   severity: critical
                 isPaused: false
@@ -3352,7 +3354,7 @@ spec:
                   summary: >-
                     The kubescape posture scan has not reported in over 10 days
                   description: >-
-                    The scan runs Sundays at 02:00, so 10 days means at least one run was missed entirely rather than merely delayed. Check `kubectl get cronjob kubescape-scan -n kubescape` and the last Job's logs. Note the publish step warns rather than fails when only the metric push is blocked, so this can fire while the report itself is still being stored -- check s3://security-scans/kubescape/ before assuming the scan is broken.
+                    The scan runs Sundays at 02:00, so 10 days means at least one run was missed entirely rather than merely delayed. Check `kubectl get cronjob kubescape-scan -n kubescape` and the last Job's logs. kubescape_scan_last_run_timestamp is appended by the job itself rather than emitted by kubescape, so this can also mean the publish step failed after a successful scan -- the report would still be in VictoriaLogs in that case.
                 labels:
                   severity: warning
                 isPaused: false

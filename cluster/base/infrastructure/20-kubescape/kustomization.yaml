@@ -4,4 +4,3 @@ resources:
   - rbac.yaml
   - cronjob.yaml
   - networkpolicy.yaml
-  - backup-s3-secret.yaml
