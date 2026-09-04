@@ -596,3 +596,95 @@ Full per-namespace classification (which ones were live-verified to need a same-
 vs. confirmed not to) was worked out via `cilium-dbg`, `kubectl`, and Hubble flow observation
 across all 28 existing network-policy files in the repo, and is not reproduced here -- redo that
 audit when this is picked up, since the namespace inventory will have moved on by then.
+
+---
+
+## Cluster review 2026-09-04: what was found and not fixed
+
+A full pass over efficiency, security, maintainability and duplicate/stale mechanisms.
+What was fixed went out as PRs #429-#431; what is recorded here either needs its own
+investigation, needs a decision, or was deliberately left alone.
+
+### Velero's offsite arm has been failing for a month
+
+`weekly-offsite` last **succeeded on 2026-08-09**. Every run since has been `Failed`,
+`PartiallyFailed` (3 and 25 errors) or, on 2026-08-30, `FailedValidation` -- which never
+started at all. `monthly-offsite` also failed on 2026-08-01 before succeeding on 09-03.
+
+This was invisible because `VeleroBackupFailed`/`VeleroBackupStale` were among the alerts
+evaluating into vmalert's blackhole. They are now real Grafana rules and
+`VeleroBackupStale` fires on deployment, which is the intended outcome -- but making it
+visible is not fixing it. The `FailedValidation` in particular suggests the schedule or
+its storage location stopped validating rather than the backup merely erroring, and that
+wants reading before the next Sunday run.
+
+Note what this does and does not mean: Longhorn volume backups and the logical database
+dumps both relay offsite independently and are verified daily, so this is the loss of the
+namespace/manifest arm -- the copy that makes a rebuild-from-nothing quick -- not of the
+data itself.
+
+### 62 Trivy CRITICAL RBAC findings, never once reported
+
+5 namespaced (`longhorn-system/role-longhorn` 2, `velero/role-velero-server` 2,
+`tailscale/role-operator` 1) and 57 on ClusterRoles. Unreported because the rule stacked
+three independent faults: a blackholed notifier, a metric name that does not exist
+(`trivy_resource_rbacassessments`), and the wrong label case (`CRITICAL` vs `Critical`).
+All three are fixed; the findings themselves are untriaged. Expect a large share of the 57
+to be built-in ClusterRoles from Kubernetes and from charts, so the work is triage and
+probably a narrowed query, not 62 fixes.
+
+### local-path is still the default StorageClass
+
+Deliberate, and worth keeping visible rather than changing right now. A PVC created without
+an explicit `storageClassName` lands on unreplicated, node-local storage that no Longhorn
+RecurringJob covers. `zot` (8Gi) and the SeaweedFS filer's Postgres both sit there today --
+the filer metadata is mitigated by its hourly logical dump, `zot` is a rebuildable registry
+cache, so neither is currently a data-loss risk. The risk is the next PVC someone adds
+without thinking about the class. Flipping the default was deliberately deferred when
+Longhorn was introduced ("keeps local-path as the sole default until workloads are migrated
+and verified"); that condition is now largely met, so this is a decision that can be made
+rather than a blocker.
+
+### Memory limits are overcommitted 121% on a single node
+
+36.9Gi of limits against 31Gi allocatable, with nowhere to reschedule. Requests are only
+35%, so it is latent rather than active, and nothing is currently being OOM-killed. The
+four largest are `seaweedfs-filer` (3Gi), `vmsingle`, `immich-server` and
+`immich-machine-learning` (2Gi each). Tuning this needs per-workload measurement rather
+than a guess -- the LimitRange trap that OOM-killed Immich is the standing reminder that a
+number chosen without measuring is worse than no number.
+
+### Immich backs its own database up, on top of the two mechanisms that already do
+
+Immich's built-in backup feature writes ~17MB dumps into the library volume. The pre-incident
+copy held 14 of them, 212MB, which every Longhorn backup of `immich-library-lh` then copied
+again. The rebuilt instance's `backups/` directory is currently empty, so this is dormant
+rather than active -- but it will resume, and the repo already covers this database twice
+(`immich-postgres-backup` into `db-backups`, plus Velero). It is an application setting held
+in Immich's own database, not a Helm value, so turning it off means an API call rather than
+a manifest change, which is why it is recorded rather than done.
+
+### Left alone on purpose
+
+- **`system-upgrade` namespace holds only the HelmRelease** while every workload it creates
+  runs in `cattle-system`. Genuinely confusing, and already a trip hazard. Changing a Helm
+  release's namespace means uninstall and reinstall of the very controller that runs the
+  first unattended Talos/Kubernetes upgrade this Sunday. Not two days beforehand.
+- **`cluster-admin` for `cilium-install` and `longhorn-support-bundle`.** Both look like
+  over-grants for one-shot tooling and neither is safely removable: `cilium-install` is
+  referenced by the Cilium bootstrap inlineManifest in the Talos machine config, so removing
+  it breaks a rebuild, and `longhorn-support-bundle` is generated by the Longhorn chart and
+  would simply be recreated.
+- **Empty namespaces** (`gateway-system`, `cilium-secrets`, and `kubescape`, which holds only
+  a weekly CronJob) are cheap and removing them risks more than it saves.
+
+### Corrections to an earlier draft of this review
+
+Recorded because the mistake is more instructive than the findings: an initial pass reported
+`allow-cluster-internal` as still neutralising every narrower ingress policy, and
+`allow-csi-seaweedfs-egress` as a stale rule for a CSI driver that does not exist. **Both were
+already fixed** -- the hub-and-spoke migration completed on 2026-08-17 and neither object
+exists live or in git; they survive only as references inside comments describing their own
+removal. The claims came from trusting a planning document still sitting in context instead of
+checking the cluster. Same shape as everything else in `Agent.md`'s "success is not the same as
+having done the work": a stale artefact read as current state.
