@@ -115,6 +115,20 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list"]
+  # Triggers backup-weekly on demand for a volume that has never had a backup,
+  # mirroring upgrade-gate-rbac.yaml's identical grant for the same pattern.
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -243,6 +257,53 @@ spec:
 
                   echo "in the default group, and so backed up:"
                   sed 's/^/  /' /tmp/in_default
+
+                  # ---------------------------------------------------------
+                  # A volume newly in the default group otherwise waits for
+                  # the next scheduled weekly/monthly tier -- up to a week --
+                  # before it has any backup at all. That gap is exactly what
+                  # left immich-library-lh uncovered for ten days spanning
+                  # both the 2026-08-24 storage migration and the 2026-08-26
+                  # incident, discovered 2026-09-04 when its actual photos
+                  # turned out to be gone (docs/backlog.md). This job already
+                  # runs hourly and already has the full VOL/PVC list from
+                  # the loop above, so checking each in-scope volume's own
+                  # status.lastBackupAt -- exposed directly on the Volume,
+                  # no separate BackupVolume lookup needed -- costs nothing
+                  # extra to compute, and closes the gap to about an hour
+                  # instead of up to a week.
+                  NEVER_BACKED_UP=""
+                  while read -r VOL PVC; do
+                    [ -z "${VOL:-}" ] && continue
+                    [ -z "${PVC:-}" ] && continue
+                    [ "$PVC" = "<none>" ] && continue
+                    grep -qx "$PVC" /tmp/in_default || continue
+                    LB="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOL" \
+                      -o jsonpath='{.status.lastBackupAt}' 2>/dev/null)"
+                    [ -z "$LB" ] && NEVER_BACKED_UP="$NEVER_BACKED_UP $PVC"
+                  done < /tmp/vols
+
+                  if [ -n "$NEVER_BACKED_UP" ]; then
+                    echo "never backed up yet, triggering backup-weekly now:$NEVER_BACKED_UP"
+                    BJOB="volume-backup-policy-firstrun-$(date -u +%Y%m%d%H%M)"
+                    if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-weekly >/dev/null 2>&1; then
+                      # backup-weekly backs up every default-group volume, not
+                      # only the new one -- the same trade this job already
+                      # makes elsewhere, favouring one simple, proven trigger
+                      # over a volume-scoped one. Budget matches
+                      # upgrade-gate-script.yaml's wait_for_job: 600s.
+                      i=0
+                      while [ "$i" -lt 60 ]; do
+                        kubectl get job -n longhorn-system "$BJOB" -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q 1 && break
+                        kubectl get job -n longhorn-system "$BJOB" -o jsonpath='{.status.failed}' 2>/dev/null | grep -q '[1-9]' && break
+                        i=$((i + 1)); sleep 10
+                      done
+                      kubectl logs -n longhorn-system "job/$BJOB" --tail=15 2>/dev/null | sed 's/^/    /' || true
+                      kubectl delete job -n longhorn-system "$BJOB" --wait=false >/dev/null 2>&1 || true
+                    else
+                      echo "WARN: could not create $BJOB"
+                    fi
+                  fi
 
                   IN_DEFAULT="$(wc -l < /tmp/in_default)"
                   EXPECTED="$((VOLS_TOTAL - EXPECTED_EXCLUDED))"

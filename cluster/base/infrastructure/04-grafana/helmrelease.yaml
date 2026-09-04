@@ -1376,9 +1376,9 @@ spec:
                   summary: >-
                     Longhorn volumes have never been backed up
                   description: >-
-                    One or more Longhorn volumes report no backup at all. RecurringJobs place every volume carrying no recurring-job label into the default group, so a volume showing zero is either newer than the first scheduled run or is being skipped. Sixteen volumes were in this state on 2026-08-24 because the jobs had just been created and the weekly tier had not yet fired -- expected then, but a volume still reporting zero after a full week is not.
+                    One or more Longhorn volumes report no backup at all. RecurringJobs place every volume carrying no recurring-job label into the default group, so a volume showing zero is either newer than the first scheduled run or is being skipped. Sixteen volumes were in this state on 2026-08-24 because the jobs had just been created and the weekly tier had not yet fired -- expected then, but volume-backup-policy.yaml now triggers an immediate backup-weekly the first time it finds an in-scope volume with none, so this firing at all past that means the on-demand trigger itself failed, not that anyone forgot to wait. immich-library-lh sat in exactly this state for ten days spanning both the 2026-08-24 storage migration and the 2026-08-26 incident (docs/backlog.md) before this alert or its trigger existed -- raised from warning because a volume with zero backups ever is the same class of risk as SeaweedFSUnreadableBackupObjects, not a lesser one.
                 labels:
-                  severity: warning
+                  severity: critical
                 isPaused: false
               - uid: longhorn-backup-stale
                 title: LonghornBackupStale
