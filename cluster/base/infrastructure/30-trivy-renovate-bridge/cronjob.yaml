@@ -41,7 +41,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: bridge
-              image: python:3.14.7-slim
+              image: docker.io/library/python:3.14.7-slim
               envFrom:
                 - secretRef:
                     name: telegram-credentials
