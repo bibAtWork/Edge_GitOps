@@ -3358,6 +3358,81 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # The ONLY protection these three databases have.
+              #
+              # volume-backup-policy deliberately excludes data-immich-postgresql-0
+              # and keycloak-pg-1 from Longhorn backups, on the reasoning that
+              # "every database here already produces a logical dump, and that dump
+              # is the artefact the restore-test actually replays". That reasoning
+              # is sound and it makes these CronJobs load-bearing: if a dump stops,
+              # the database has no backup at all and the volume exclusion means
+              # nothing else is covering it.
+              #
+              # Nothing watched them until now. backup-verify reads objects in
+              # db-backups and checks they are readable and relayed -- but it
+              # passes just as happily on yesterday's objects, so a dump that
+              # simply stops arriving is invisible to it.
+              #
+              # It is not hypothetical: immich-postgres-backup failed on 2026-08-30,
+              # 08-31 and 09-03, each time with "connection to server at
+              # immich-postgresql ... Connection refused" while the node was
+              # disrupted, leaving gaps in db-backups/immich/ that nobody saw.
+              # backoffLimit is 2, so a Postgres outage of more than about a minute
+              # costs the whole day's dump.
+              #
+              # Per-CronJob rather than aggregated, so the notification names which
+              # database is unprotected. 26h matches the freshness window
+              # upgrade-backup-gate already uses for a daily cadence.
+              - uid: database-dump-stale
+                title: DatabaseDumpStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 172800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '(time() - kube_cronjob_status_last_successful_time{cronjob=~"immich-postgres-backup|keycloak-postgres-backup|paperless-sqlite-backup"}) / 3600'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [26]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting on NoData: the metric disappearing means the CronJob was
+                # deleted or kube-state-metrics stopped reporting it. For a path
+                # that is the sole backup of a database, "cannot tell" and "not
+                # running" deserve the same response.
+                noDataState: Alerting
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    A database dump has not succeeded in over 26 hours
+                  description: >-
+                    $labels.cronjob in namespace $labels.namespace has not completed successfully within its daily cadence, and for immich and keycloak this dump is the ONLY backup that database has -- their volumes are deliberately excluded from Longhorn backups because the dump was considered to cover them. Check `kubectl get jobs -n $labels.namespace` for the failed run; the pod is deleted on BackoffLimitExceeded, so read its logs from VictoriaLogs by kubernetes_pod_name rather than kubectl. The recurring cause so far has been Postgres being unreachable during a node disruption, which backoffLimit 2 does not survive -- if that is what happened, the next scheduled run recovers on its own and this clears.
+                labels:
+                  severity: critical
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
