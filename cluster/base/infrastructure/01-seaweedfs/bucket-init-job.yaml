@@ -59,6 +59,8 @@ spec:
           # would previously have blocked every Kustomization)
           image: amazon/aws-cli:2.36.38
           env:
+            - name: FORCE_ANNOTATION_PROBE
+              value: "2026-09-05"
             - name: AWS_DEFAULT_REGION
               value: us-east-1
             - name: AWS_ACCESS_KEY_ID
