@@ -688,3 +688,52 @@ exists live or in git; they survive only as references inside comments describin
 removal. The claims came from trusting a planning document still sitting in context instead of
 checking the cluster. Same shape as everything else in `Agent.md`'s "success is not the same as
 having done the work": a stale artefact read as current state.
+
+---
+
+## Trivy CRITICAL RBAC findings: triaged 2026-09-04, 61 of 62 not actionable
+
+Recorded so this is not re-derived. The findings became visible when the alert was moved
+out of vmalert's blackhole and its metric name and label case were corrected (#430); all 62
+had existed unreported for as long as the rule had.
+
+| Owner | Roles | Findings | Actionable |
+|---|---|---|---|
+| Kubernetes built-ins (`system:*`, `cluster-admin`, `admin`, `edit`, `view`) | 13 | | No -- shipped by Kubernetes, reverted if edited |
+| Upstream charts/operators | 26 | | No -- reverted on the next chart upgrade |
+| Helm-managed namespaced Roles (longhorn, velero-server, tailscale operator) | 3 | 5 | No -- same |
+| **`kubescape-scan`** (this repo) | 1 | 1 | **False positive** |
+
+The upstream 26 are kyverno (6), cert-manager (6), victoria-metrics/vmstack (4),
+envoy-gateway (2), flux (3), longhorn, cilium-operator, cloudnative-pg, reloader and
+trivy-operator itself.
+
+`kubescape-scan` is the only role this repo authors, and the finding is wrong on its own
+terms: `AVD-KSV-0046` flags a wildcard on `resources` without looking at the verbs, and that
+role holds `get`, `list`, `watch` and nothing else. A cluster posture scanner that cannot
+read every resource cannot scan every resource. Left as-is.
+
+The checks involved, for reference: `AVD-KSV-0041` manage secrets (23), `AVD-KSV-0046`
+manage all resources (15), `AVD-KSV-0114` manage webhookconfigurations (8), `AVD-KSV-0050`
+manage RBAC (7), `AVD-KSV-0045` wildcard verb (3), `AVD-KSV-0044` wildcard verb and resource
+(1).
+
+**What changed as a result**: `TrivyRBACCritical` now alerts on a 24h delta rather than an
+absolute count, so the immovable baseline cancels and only a *rise* pages. Scoping by name
+was considered and does not work -- the only distinguishing label Trivy puts on these series
+is `name`, and it carries the hashed report name (`clusterrole-54cdc9b678`), not the
+ClusterRole's. The trade is that a new finding stops alerting once 24h of baseline absorbs
+it; that is acceptable precisely because the standing set is written down here instead of
+depending on the rule to keep repeating it.
+
+### Separately: kubescape produces nothing anyone reads
+
+Found during the same triage. `kubescape-scan` runs weekly, scans the NSA and MITRE
+frameworks, and writes its JSON to `/dev/stdout` -- so the result lands in pod logs that age
+out with the Job, and nothing scrapes, alerts on, or stores it. Nothing in Grafana or
+VictoriaMetrics references kubescape at all.
+
+That leaves a cluster-wide read-everything ClusterRole attached to a component whose output
+no one consumes. Two honest options: give it somewhere to report (a pushed metric, the way
+every other job here does) so the grant buys something, or remove it and drop the grant. It
+should not stay as it is.
