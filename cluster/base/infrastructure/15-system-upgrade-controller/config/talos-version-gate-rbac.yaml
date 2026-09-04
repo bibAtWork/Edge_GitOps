@@ -1,0 +1,38 @@
+# Permissions for the Talos-version gate. See talos-version-gate-cronjob.yaml
+# for what it checks and why.
+#
+# Deliberately its own ServiceAccount rather than reusing upgrade-backup-gate's.
+# That account also holds jobs/pods/pods-log in longhorn-system, needed for
+# triggering and reading backup-verify -- none of which this check touches. It
+# only ever reads and labels nodes, so it gets only that.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: talos-version-gate
+  namespace: cattle-system
+---
+# Nodes are cluster-scoped, so labelling one needs a ClusterRole. Scoped to
+# nodes only, and to the verbs required to read and label them -- notably NOT
+# delete, and nothing outside the core API. Mirrors
+# upgrade-backup-gate-node-labeller exactly, for a different ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: talos-version-gate-node-labeller
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: talos-version-gate-node-labeller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: talos-version-gate-node-labeller
+subjects:
+  - kind: ServiceAccount
+    name: talos-version-gate
+    namespace: cattle-system

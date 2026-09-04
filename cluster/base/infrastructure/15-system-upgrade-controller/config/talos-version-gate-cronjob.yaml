@@ -1,0 +1,73 @@
+# Closes the gap between "the Sunday windows are spaced out" and "talos-
+# kubernetes actually waits for Talos". See talos-version-gate-script.yaml for
+# the full reasoning; in short, the Plan CRD has no dependency field, so the
+# three scheduled Plans only ever LOOK like a pipeline -- 12:00, 14:00, 16:00
+# is clock spacing, not an outcome check. This runs at 15:55, after both
+# Talos-affecting windows have had their full span to finish, and sets the
+# label talos-kubernetes now requires.
+#
+# No egress label needed: this only calls the Kubernetes API, which is
+# exempted from default-deny-egress cluster-wide (default-deny.yaml). It never
+# reaches the internet.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: talos-version-gate
+  namespace: cattle-system
+spec:
+  schedule: "55 15 * * 0"
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry. A refusal here means Talos is not at its target version,
+      # which retrying cannot change -- only the next Sunday's controlplane
+      # window can.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: talos-version-gate
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: gate
+              # kubectl baked in, nothing installed at runtime -- see
+              # upgrade-backup-gate-cronjob.yaml for why that matters (Falco
+              # fires Critical on `apk add`, once per run). Already on the
+              # node: SUC pulls this image for its own Jobs.
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              command: ["/bin/sh", "/scripts/gate.sh"]
+              env:
+                # Overwritten at build time from versions.env's TALOS_VERSION
+                # by the `replacements` block in kustomization.yaml, the same
+                # mechanism talos-fleet-health and upgrade-backup-gate already
+                # use. The placeholder is a real version so `kustomize build`
+                # still produces something sane if replacements were removed.
+                - name: DESIRED_TALOS_VERSION
+                  value: v1.13.9
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: scripts
+              configMap:
+                name: talos-version-gate-script

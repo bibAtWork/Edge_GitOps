@@ -6,6 +6,9 @@ resources:
   - upgrade-gate-rbac.yaml
   - upgrade-gate-script.yaml
   - upgrade-gate-cronjob.yaml
+  - talos-version-gate-rbac.yaml
+  - talos-version-gate-script.yaml
+  - talos-version-gate-cronjob.yaml
   - plans/talos-controlplane-upgrade.yaml
   - plans/talos-worker-upgrade.yaml
   # Inert until a node is labelled talos.homelab/upgrade-now. See the file.
@@ -109,6 +112,11 @@ replacements:
       - select:
           kind: CronJob
           name: upgrade-backup-gate
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=gate].env.[name=DESIRED_TALOS_VERSION].value
+      - select:
+          kind: CronJob
+          name: talos-version-gate
         fieldPaths:
           - spec.jobTemplate.spec.template.spec.containers.[name=gate].env.[name=DESIRED_TALOS_VERSION].value
   - source:

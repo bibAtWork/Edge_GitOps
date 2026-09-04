@@ -113,10 +113,28 @@ spec:
   #
   # The manual override is talos-on-demand, which is label-triggered and
   # deliberately NOT gated -- see that file.
+  # Requires talos.homelab/talos-version-ready in addition to
+  # talos.homelab/upgrade-ready.
+  #
+  # upgrade-ready proves the backups are good; it says nothing about whether
+  # Talos itself reached its target version. The three scheduled Plans are
+  # independently time-windowed (12:00/14:00/16:00) with no dependency between
+  # them -- confirmed against the Plan CRD directly, which has no such field --
+  # so without this, talos-kubernetes would attempt to run at 16:00 regardless
+  # of whether the Talos leg succeeded, failed, or never finished.
+  #
+  # talos-version-gate sets this label at 15:55, after both Talos-affecting
+  # windows have had their full span, by checking status.nodeInfo.osImage
+  # against the same TALOS_VERSION this repo declares. It reads the same
+  # either way Talos can legitimately already be correct: a successful
+  # controlplane upgrade brought it there, or it was already there and that
+  # Plan had nothing to do -- both leave running equal to desired, which is
+  # the only fact this checks.
   nodeSelector:
     matchLabels:
       node-role.kubernetes.io/control-plane: ""
       talos.homelab/upgrade-ready: "true"
+      talos.homelab/talos-version-ready: "true"
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists

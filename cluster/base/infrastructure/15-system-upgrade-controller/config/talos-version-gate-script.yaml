@@ -1,0 +1,85 @@
+# The Talos-version gate for talos-kubernetes. Held in a ConfigMap for the
+# same reason as upgrade-backup-gate's script: a Plan's spec.prepare cannot
+# mount one, and inlining shell into a Plan's args is what this repo already
+# refuses for the restore-test, on the grounds that every backslash is a
+# chance for the escaping to be silently wrong in a way nothing validates.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: talos-version-gate-script
+  namespace: cattle-system
+data:
+  gate.sh: |
+    #!/bin/sh
+    # Decides whether talos-kubernetes may run, by proving every node is
+    # ALREADY on the Talos version this repo declares.
+    #
+    # The three scheduled Plans are independently time-windowed --
+    # talos-controlplane 12:00-14:00, talos-worker 14:00-16:00, talos-kubernetes
+    # 16:00-17:00 -- which LOOKS like a pipeline and is not one. Confirmed
+    # against the Plan CRD directly: there is no dependency field between
+    # Plans, only `cooldown`, which spaces repeated runs of the SAME Plan on
+    # the SAME node. Nothing stops talos-kubernetes firing at 16:00 if the
+    # Talos leg failed, hung, or never reached its target version -- the
+    # windows are clock-spaced, not outcome-chained.
+    #
+    # This closes that gap the same way upgrade-backup-gate closes the
+    # "is there actually a good backup" gap: read the real, current state
+    # directly rather than trust that an earlier step must have gone well.
+    #
+    # Deliberately covers both ways Talos can legitimately already be correct:
+    # a successful 12:00-14:00 upgrade brought it there, or it was already
+    # there and talos-controlplane had nothing to do. Both produce the same
+    # observable fact -- running equals desired -- which is exactly what is
+    # tested; the gate does not care how that state was reached.
+    set -u
+
+    LABEL="talos.homelab/talos-version-ready"
+
+    log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
+    fail() { log "REFUSE: $1"; }
+
+    # Revoke first, re-earn second -- same reasoning as upgrade-backup-gate.
+    # This label is a standing authorisation for talos-kubernetes' nodeSelector,
+    # so absence must be the default whenever this run cannot positively confirm
+    # the version, not just when it positively detects a mismatch.
+    NODES="$(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||')"
+    for N in $NODES; do
+      kubectl label node "$N" "${LABEL}-" >/dev/null 2>&1 || true
+    done
+    log "cleared $LABEL from all nodes -- it must be re-earned by this run"
+
+    if [ -z "$NODES" ]; then
+      fail "could not list nodes"
+      log "GATE_FAILED"
+      exit 1
+    fi
+
+    MATCH=1
+    for N in $NODES; do
+      RT="$(kubectl get node "$N" -o jsonpath='{.status.nodeInfo.osImage}' 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')"
+      if [ -z "$RT" ]; then
+        fail "$N: could not read a Talos version from status.nodeInfo.osImage"
+        MATCH=0
+      elif [ "$RT" != "$DESIRED_TALOS_VERSION" ]; then
+        fail "$N running $RT, desired $DESIRED_TALOS_VERSION"
+        MATCH=0
+      else
+        log "$N running $RT -- matches"
+      fi
+    done
+
+    if [ "$MATCH" = "1" ]; then
+      for N in $NODES; do
+        kubectl label node "$N" "$LABEL=true" --overwrite >/dev/null 2>&1 \
+          && log "PASSED -- $N labelled $LABEL=true" \
+          || { fail "label write failed on $N"; MATCH=0; }
+      done
+    fi
+
+    if [ "$MATCH" = "1" ]; then
+      log "GATE_OK"
+    else
+      log "GATE REFUSED -- talos-kubernetes will not run until every node reports $DESIRED_TALOS_VERSION"
+      exit 1
+    fi
