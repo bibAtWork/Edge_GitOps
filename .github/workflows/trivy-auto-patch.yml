@@ -14,8 +14,25 @@ name: Trivy auto-patch
 # CronJob stay cleanly separated: that CronJob owns "what's actually running and is
 # it vulnerable, tell me" against live cluster state; this owns "does this specific
 # known set of chart-default images have a better version available" against this
-# repo's declared state. Neither depends on the other's plumbing, and this workflow
-# needs no credential beyond the free, ambient GITHUB_TOKEN.
+# repo's declared state. Neither depends on the other's plumbing.
+#
+# -- Why this needs a token of its own -----------------------------------------
+# It used to run on the ambient GITHUB_TOKEN, which was deliberate and looked
+# free. It is not: GitHub does not raise workflow events for anything done with
+# GITHUB_TOKEN -- a documented guard against a workflow triggering itself
+# forever -- and every CI workflow here triggers on `pull_request`. So every PR
+# this opened got ZERO checks, silently. `gh pr checks` reports "no checks
+# reported", which reads like "not started yet" rather than "will never run".
+#
+# Confirmed 2026-09-04 on #411 (a Grafana patch for an active Critical CVE, open
+# two days with no checks) and on #173, the previous Grafana CVE patch, which
+# was merged that way. Branch protection here requires six checks that could
+# never appear, so the one path that changes image tags on security grounds was
+# also the least validated path in the repository.
+#
+# AUTOPATCH_TOKEN is a separate identity, so its events propagate normally. A
+# fine-grained PAT scoped to this repository with Contents: read/write and
+# Pull requests: read/write is enough.
 on:
   schedule:
     - cron: "30 6 * * *"
@@ -29,11 +46,30 @@ jobs:
   auto-patch:
     runs-on: ubuntu-latest
     steps:
+      # Fail fast and loudly rather than fall back to GITHUB_TOKEN. A fallback
+      # would restore exactly the failure this exists to fix, and restore it
+      # invisibly: the PR would look normal and simply never be checked. A
+      # scheduled workflow that fails is noticed; a PR with no checks is not.
+      - name: Require a non-ambient token
+        env:
+          AUTOPATCH_TOKEN: ${{ secrets.AUTOPATCH_TOKEN }}
+        run: |
+          if [ -z "${AUTOPATCH_TOKEN}" ]; then
+            echo "::error::AUTOPATCH_TOKEN is not set. PRs opened with the ambient GITHUB_TOKEN receive no CI at all (GitHub raises no workflow events for that token), and branch protection here requires six checks. Create a fine-grained PAT scoped to this repository with Contents: read/write and Pull requests: read/write, then add it as the AUTOPATCH_TOKEN repository secret."
+            exit 1
+          fi
+          echo "AUTOPATCH_TOKEN present"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ops/talos_linux
           fetch-depth: 0
+          # Also the push identity. The PR-opened event is what CI keys on here,
+          # but pushing as the same non-ambient identity keeps `synchronize`
+          # working too, so a later commit to one of these branches re-runs the
+          # checks rather than silently not.
+          token: ${{ secrets.AUTOPATCH_TOKEN }}
 
       - name: Install Trivy
         run: |
@@ -159,7 +195,7 @@ jobs:
       - name: Open patch PRs
         if: steps.scan.outputs.fixes != '[]' && steps.scan.outputs.fixes != ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.AUTOPATCH_TOKEN }}
           FIXES: ${{ steps.scan.outputs.fixes }}
         run: |
           git config user.name "github-actions[bot]"
