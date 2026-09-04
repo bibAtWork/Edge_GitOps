@@ -31,10 +31,11 @@ spec:
       validate:
         message: >-
           Images must be from an approved registry. Allowed: docker.io, ghcr.io,
-          registry.k8s.io, quay.io, gcr.io, or the local Zot registry.
+          registry.k8s.io, quay.io, gcr.io, mirror.gcr.io, reg.kyverno.io, or
+          the local Zot registry.
         pattern:
           spec:
             containers:
-              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/*"
+              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | mirror.gcr.io/* | reg.kyverno.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/*"
             =(initContainers):
-              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/*"
+              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | mirror.gcr.io/* | reg.kyverno.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/*"
