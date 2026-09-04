@@ -32,8 +32,20 @@ data:
               parse_from: attributes.time
               layout: '%Y-%m-%dT%H:%M:%S.%LZ'
       filelog/audit:
+        # /var/log/audit/kube/, not /var/log/kubernetes/audit/.
+        #
+        # The kube-apiserver's --audit-log-path writes to the former; this
+        # receiver watched the latter, which has been empty since 2026-08-09.
+        # The pipeline was wired end to end, reported healthy, and moved
+        # nothing: VictoriaLogs held zero audit records while the node held a
+        # live 100MB kube-apiserver.log.
+        #
+        # The rotated siblings (kube-apiserver-<timestamp>.log) are deliberately
+        # NOT matched. The collector tails the active file and follows it across
+        # rotation; including the rotated copies would re-ingest ~1GB of history
+        # on every restart.
         include:
-          - /var/log/kubernetes/audit/audit.log
+          - /var/log/audit/kube/kube-apiserver.log
         include_file_path: true
         operators:
           - type: json_parser
