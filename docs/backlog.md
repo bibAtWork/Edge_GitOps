@@ -605,24 +605,6 @@ A full pass over efficiency, security, maintainability and duplicate/stale mecha
 What was fixed went out as PRs #429-#431; what is recorded here either needs its own
 investigation, needs a decision, or was deliberately left alone.
 
-### Velero's offsite arm has been failing for a month
-
-`weekly-offsite` last **succeeded on 2026-08-09**. Every run since has been `Failed`,
-`PartiallyFailed` (3 and 25 errors) or, on 2026-08-30, `FailedValidation` -- which never
-started at all. `monthly-offsite` also failed on 2026-08-01 before succeeding on 09-03.
-
-This was invisible because `VeleroBackupFailed`/`VeleroBackupStale` were among the alerts
-evaluating into vmalert's blackhole. They are now real Grafana rules and
-`VeleroBackupStale` fires on deployment, which is the intended outcome -- but making it
-visible is not fixing it. The `FailedValidation` in particular suggests the schedule or
-its storage location stopped validating rather than the backup merely erroring, and that
-wants reading before the next Sunday run.
-
-Note what this does and does not mean: Longhorn volume backups and the logical database
-dumps both relay offsite independently and are verified daily, so this is the loss of the
-namespace/manifest arm -- the copy that makes a rebuild-from-nothing quick -- not of the
-data itself.
-
 ### 62 Trivy CRITICAL RBAC findings, never once reported
 
 5 namespaced (`longhorn-system/role-longhorn` 2, `velero/role-velero-server` 2,
@@ -654,15 +636,27 @@ four largest are `seaweedfs-filer` (3Gi), `vmsingle`, `immich-server` and
 than a guess -- the LimitRange trap that OOM-killed Immich is the standing reminder that a
 number chosen without measuring is worse than no number.
 
-### Immich backs its own database up, on top of the two mechanisms that already do
+### Corrected: Immich does NOT back its own database up
 
-Immich's built-in backup feature writes ~17MB dumps into the library volume. The pre-incident
-copy held 14 of them, 212MB, which every Longhorn backup of `immich-library-lh` then copied
-again. The rebuilt instance's `backups/` directory is currently empty, so this is dormant
-rather than active -- but it will resume, and the repo already covers this database twice
-(`immich-postgres-backup` into `db-backups`, plus Velero). It is an application setting held
-in Immich's own database, not a Helm value, so turning it off means an API call rather than
-a manifest change, which is why it is recorded rather than done.
+An earlier draft of this review recorded Immich's built-in database backup as a third
+mechanism duplicating the two that already cover that database, and claimed it could only be
+turned off through Immich's API because it is application state rather than a Helm value.
+
+Both halves were wrong. It is set declaratively, through `IMMICH_CONFIG_FILE` mounted from
+the `immich-oauth-config` secret, and it is already disabled:
+
+    "backup": {"database": {"enabled": false, "cronExpression": "0 02 * * *",
+                            "keepLastAmount": 1}}
+
+Deliberately so, since #391 on 2026-08-31, with the reasoning recorded in that commit:
+`postgres-backup-cronjob.yaml` owns this database's dump, and having both would write two
+copies of the same data to two places. `keepLastAmount: 1` is there only because Immich
+validates `isPositive` on that field even when the feature is off -- a 0 crash-loops the
+server -- so it is a value the validator accepts, not a retention policy.
+
+The 212MB of dumps that prompted the claim were real, but they were inside the 2026-08-25
+Longhorn backup, which predates the fix by six days. The live directory is empty, which is
+the state the manifest asks for.
 
 ### Left alone on purpose
 
@@ -726,14 +720,31 @@ ClusterRole's. The trade is that a new finding stops alerting once 24h of baseli
 it; that is acceptable precisely because the standing set is written down here instead of
 depending on the rule to keep repeating it.
 
-### Separately: kubescape produces nothing anyone reads
+### Every trivy-auto-patch PR is created with zero CI
 
-Found during the same triage. `kubescape-scan` runs weekly, scans the NSA and MITRE
-frameworks, and writes its JSON to `/dev/stdout` -- so the result lands in pod logs that age
-out with the Job, and nothing scrapes, alerts on, or stores it. Nothing in Grafana or
-VictoriaMetrics references kubescape at all.
+Found 2026-09-04 while asking why #411 -- a Grafana patch for an active Critical CVE, open
+since 09-02 -- had never run a single check. `gh pr checks 411` reports "no checks reported
+on the branch", and the same is true of #173, the previous Grafana CVE patch, **which was
+merged anyway**.
 
-That leaves a cluster-wide read-everything ClusterRole attached to a component whose output
-no one consumes. Two honest options: give it somewhere to report (a pushed metric, the way
-every other job here does) so the grant buys something, or remove it and drop the grant. It
-should not stay as it is.
+The cause is not a broken workflow. `trivy-auto-patch.yml` opens its PR with `gh pr create`
+authenticated by the ambient `GITHUB_TOKEN`, and GitHub deliberately does not raise workflow
+events for actions taken with that token -- a documented recursion guard. Every CI workflow
+here triggers on `pull_request`, so none of them ever fire for these branches.
+
+The consequence is worth stating plainly: the CVE auto-patch path is the least validated
+path in this repository, while being the one that changes image tags on security grounds,
+and branch protection requires six checks that can never appear. The two previous patches
+therefore reached `ops/talos_linux` without a single overlay build, kubeconform run, or
+gitleaks scan.
+
+Two real fixes, neither of which can be applied without a decision:
+
+- Give the workflow a PAT or GitHub App token for `gh pr create`, so events propagate
+  normally. Correct, and needs a secret to be created.
+- Re-trigger by hand per PR. Closing and reopening from the GitHub UI works because the
+  event then carries a human identity; doing the same from inside the workflow does not,
+  because it would use the same suppressed token.
+
+Until one is chosen, treat any open `trivy-auto-patch/*` PR as unreviewed by CI regardless
+of what the checks column shows.
