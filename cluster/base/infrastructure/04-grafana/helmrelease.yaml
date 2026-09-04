@@ -3158,17 +3158,61 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # Delta, not an absolute count, and the 62 findings this fired on
+              # when first deployed are why.
+              #
+              # All 62 were triaged 2026-09-04. 61 of them are on roles this
+              # repo cannot change:
+              #
+              #   13  Kubernetes built-ins -- system:*, cluster-admin, admin,
+              #       edit, view. Shipped by Kubernetes, reverted if edited.
+              #   26  upstream chart/operator roles -- kyverno:* (6),
+              #       cert-manager-* (6), victoria-metrics/vmstack (4),
+              #       envoy-gateway (2), flux (3), longhorn, cilium-operator,
+              #       cloudnative-pg, reloader, trivy-operator. Reverted on the
+              #       next chart upgrade.
+              #    3  namespaced Roles, all Helm-managed: longhorn, velero-server,
+              #       tailscale operator.
+              #
+              # The 62nd is kubescape-scan, the only one this repo authors, and
+              # it is a false positive: AVD-KSV-0046 flags wildcard RESOURCES
+              # without regard to the verbs, and that role holds get/list/watch
+              # and nothing else. A cluster posture scanner that cannot read
+              # every resource cannot scan every resource.
+              #
+              # So the absolute count cannot reach zero, and an alert that is
+              # always firing is one nobody reads -- the failure mode Agent.md
+              # records under "an alert that is always on". Its prescription is
+              # this: compare against the previous day so a known-bad baseline
+              # cancels and only NEW findings fire. Same shape as
+              # SeaweedFSUnreadableBackupObjects, for the same reason.
+              #
+              # Scoping by name instead was considered and does not work: the
+              # only distinguishing label Trivy puts on these series is `name`,
+              # and it carries the hashed report name (clusterrole-54cdc9b678),
+              # not the ClusterRole's. There is nothing readable to exclude on.
+              #
+              # The trade is explicit: a new finding that persists past 24h
+              # stops alerting once the baseline absorbs it. That is acceptable
+              # here because a rise is the actionable signal -- the standing 62
+              # are already recorded in docs/backlog.md rather than depending on
+              # this rule to keep saying so.
+              #
+              # Both sides are guarded with `or vector(0)`, verified live: with
+              # the metric absent the expression returns 0 rather than empty, so
+              # NoData continues to mean "Trivy stopped reporting" and not
+              # "nothing is wrong".
               - uid: trivy-rbac-critical
                 title: TrivyRBACCritical
                 condition: B
                 data:
                   - refId: A
                     relativeTimeRange:
-                      from: 3600
+                      from: 90000
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: '(sum(trivy_role_rbacassessments{severity="Critical"}) or vector(0)) + (sum(trivy_clusterrole_clusterrbacassessments{severity="Critical"}) or vector(0))'
+                      expr: '((sum(trivy_role_rbacassessments{severity="Critical"}) or vector(0)) + (sum(trivy_clusterrole_clusterrbacassessments{severity="Critical"}) or vector(0))) - ((sum(trivy_role_rbacassessments{severity="Critical"} offset 24h) or vector(0)) + (sum(trivy_clusterrole_clusterrbacassessments{severity="Critical"} offset 24h) or vector(0)))'
                       instant: true
                       range: false
                       refId: A
@@ -3198,9 +3242,9 @@ spec:
                 for: 30m
                 annotations:
                   summary: >-
-                    Trivy found CRITICAL RBAC findings
+                    New CRITICAL RBAC findings appeared in the last 24h
                   description: >-
-                    Expect this to be firing when first deployed: 62 Critical findings exist right now -- 5 namespaced (longhorn-system/role-longhorn 2, velero/role-velero-server 2, tailscale/role-operator 1) and 57 on ClusterRoles. They have been there unreported because the original rule read a metric name that does not exist AND matched the wrong label case. Run `kubectl get rbacassessmentreports -A` and `kubectl get clusterrbacassessmentreports`. Triage before muting: these are permissions, and the point of the rule is that nobody had seen them. A large share of the 57 will be built-in ClusterRoles shipped by Kubernetes and by charts, so expect to tune the query rather than fix all 62.
+                    This fires on a RISE, not on the total -- 62 findings are a known, triaged baseline that cancels out (see docs/backlog.md and the comment above this rule). A positive delta means a role gained a critical permission since yesterday, which is the part worth waking up for. Identify it with `kubectl get clusterrbacassessmentreports` and `kubectl get rbacassessmentreports -A`, then read the checks -- the report name is hashed, so resolve the real role via its ownerReference. If the new finding is on an upstream chart role it will have arrived with a chart bump, in which case the question is whether that bump is acceptable rather than whether the role can be edited.
                 labels:
                   severity: warning
                 isPaused: false
