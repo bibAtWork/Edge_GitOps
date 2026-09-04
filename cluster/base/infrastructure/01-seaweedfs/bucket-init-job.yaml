@@ -15,7 +15,7 @@ metadata:
   # whenever this file's pod spec changes for any reason (not just manual
   # edits — Renovate PRs count) and Flux will garbage-collect the old-named
   # Job cleanly instead of trying to patch it in place.
-  name: seaweedfs-bucket-init-4
+  name: seaweedfs-bucket-init-5
   namespace: seaweedfs
   annotations:
     # Re-run manually if buckets are lost: kubectl delete job seaweedfs-bucket-init-4 -n seaweedfs
@@ -76,7 +76,12 @@ spec:
               # Confirmed empty before removal, on 2026-08-17 when this was first proposed
               # and again on 2026-08-25 -- the 64MB it briefly held in between was debris
               # from a SeaweedFS round-trip integrity test, since cleared.
-              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups longhorn-backups seaweedfs-staging; do
+              # security-scans holds the weekly kubescape posture report. Deliberately
+              # NOT added to seaweedfs-staging's BUCKETS list and so not relayed
+              # offsite: a posture report is regenerated every Sunday from the live
+              # cluster, so losing it costs history rather than data -- the same
+              # reasoning that excludes the VictoriaMetrics volumes from backup.
+              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups longhorn-backups seaweedfs-staging security-scans; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else

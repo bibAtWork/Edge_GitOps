@@ -77,6 +77,11 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: velero
             backup.homelab/egress: "true"
+        # kubescape-scan (20-kubescape/cronjob.yaml) pushes its posture metrics
+        # from the kubescape namespace.
+        - matchLabels:
+            io.kubernetes.pod.namespace: kubescape
+            backup.homelab/egress: "true"
       toPorts:
         - ports:
             - port: "8428"
