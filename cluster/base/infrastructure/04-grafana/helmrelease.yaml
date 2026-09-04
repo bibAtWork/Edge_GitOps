@@ -2826,6 +2826,384 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
+          # 2026-09-04. Ported from 02-victoriametrics-stack/alert-rules.yaml,
+          # which is deleted in the same commit.
+          #
+          # Those five VMRules reported `operational` for their whole life and
+          # could never have notified anyone: vmalert runs with
+          # `-notifier.blackhole=true` and this cluster has no Alertmanager, so
+          # every alert they produced was discarded. vmalert itself stays --
+          # it also evaluates 253 chart-shipped RECORDING rules that dashboards
+          # read, which is why the fix is to move the alerting rules here rather
+          # than to remove vmalert.
+          #
+          # Two of the nine were not ported, and two more were wrong on their
+          # own terms -- all four found by querying the metric before trusting
+          # the rule, which is the only reason they surfaced at all:
+          #
+          #   - CiliumL7PolicyAccessDenied read envoy_cilium_access_denied.
+          #     That metric family does not exist here at all: the Gateway moved
+          #     off Cilium's embedded GatewayClass to Envoy Gateway on
+          #     2026-08-16 (ADR-001), so Cilium's L7 proxy is no longer in the
+          #     data path and never will be again. Dropped rather than ported.
+          #   - TrivyExposedSecret is already covered by ImageExposedSecret.
+          #   - TrivyRBACCritical read trivy_resource_rbacassessments, which
+          #     does not exist. The real names are trivy_role_rbacassessments
+          #     and trivy_clusterrole_clusterrbacassessments. Corrected below.
+          #   - Both Trivy rules matched severity="CRITICAL". The label value is
+          #     title case, "Critical". They could not have matched even with a
+          #     working notifier. Corrected below.
+          #
+          # VeleroBackupStale was also rebuilt. The original compared every
+          # schedule against a single 25h bound, which the weekly and monthly
+          # schedules exceed by design -- it would have been permanently true.
+          # Each schedule is now divided by its own allowance so the rule reads
+          # "any schedule past its own deadline", and stays correct if the
+          # schedules change.
+          - orgId: 1
+            name: Platform Health
+            folder: Infrastructure
+            interval: 5m
+            rules:
+              # One Certificate exists (homelab-wildcard-tls, gateway-system)
+              # and it fronts every HTTPS listener, so min() over the family is
+              # both the soonest expiry and the only one.
+              - uid: certificate-expiry-warning
+                title: CertificateExpiryWarning
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(certmanager_certificate_expiration_timestamp_seconds - time())'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1209600]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # OK here, Alerting on the critical rule below -- a missing
+                # metric is one fault and should page once, not twice.
+                noDataState: OK
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    A TLS certificate expires in under 14 days
+                  description: >-
+                    cert-manager reports a certificate inside 14 days of expiry and it has not renewed. Check `kubectl describe certificate -n gateway-system homelab-wildcard-tls` and the cert-manager logs. This is the wildcard that fronts every HTTPS listener, so an expiry is a full outage of everything behind the Gateway, not a partial one.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: certificate-expiry-critical
+                title: CertificateExpiryCritical
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(certmanager_certificate_expiration_timestamp_seconds - time())'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [259200]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # Alerting: if the metric disappears, cert expiry is unobservable
+                # on the one certificate the whole Gateway depends on. Not
+                # knowing is the same risk as knowing it is close.
+                noDataState: Alerting
+                execErrState: Alerting
+                for: 1h
+                annotations:
+                  summary: >-
+                    A TLS certificate expires in under 3 days
+                  description: >-
+                    Renewal has not happened with three days left. Manual intervention is likely needed -- `kubectl delete certificaterequest -n gateway-system --all` forces cert-manager to retry. If this is firing on NoData instead, cert-manager is not being scraped and the expiry is simply unknown, which needs the same urgency.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: flux-reconciliation-error
+                title: FluxReconciliationError
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'sum(increase(controller_runtime_reconcile_total{job="flux", result="error"}[10m])) or vector(0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    Flux is failing to reconcile
+                  description: >-
+                    A Flux controller is returning reconciliation errors, which means git is no longer being applied to the cluster -- changes merge and silently do not land. Start with `flux get kustomizations` and `flux get helmreleases -A`, then the failing controller's logs. `or vector(0)` keeps this at 0 rather than empty when healthy, so NoData means the Flux metrics stopped being scraped rather than that everything is fine.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: velero-backup-failed
+                title: VeleroBackupFailed
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 21600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'sum(increase(velero_backup_failure_total[6h])) or vector(0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    A Velero backup failed
+                  description: >-
+                    Velero is the namespace/manifest arm of the backup strategy -- Longhorn covers volumes, the logical dumps cover databases, and this covers the Kubernetes objects needed to rebuild. Check `kubectl get backups.velero.io -n velero` for the phase and `kubectl describe` the failing one. Critical rather than warning because backup-chain failures elsewhere in this cluster page, and a warning only repeats daily.
+                labels:
+                  severity: critical
+                isPaused: false
+              # Each schedule against its own allowance, expressed as a ratio so
+              # one threshold covers all three: daily 25h, weekly 8d, monthly
+              # 32d. Above 1 means that schedule is past its own deadline. The
+              # selectors are disjoint, so `or` unions them rather than masking.
+              - uid: velero-backup-stale
+                title: VeleroBackupStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        max(
+                        (time() - velero_backup_last_successful_timestamp{schedule="daily-local"}) / 90000
+                        or (time() - velero_backup_last_successful_timestamp{schedule="weekly-offsite"}) / 691200
+                        or (time() - velero_backup_last_successful_timestamp{schedule="monthly-offsite"}) / 2764800
+                        )
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    A Velero schedule has not had a successful backup within its own deadline
+                  description: >-
+                    Expect this to be firing when first deployed: weekly-offsite last succeeded 2026-08-09 and has been Failed, PartiallyFailed or FailedValidation on every run since, which is exactly what nothing was reporting while these rules were blackholed. Check `kubectl get backups.velero.io -n velero` -- the phase column, not just presence. NoData alerts because Velero not publishing this metric is indistinguishable from Velero not running.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: trivy-config-audit-critical
+                title: TrivyConfigAuditCritical
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'sum(trivy_resource_configaudits{severity="Critical"}) or vector(0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    Trivy found CRITICAL config-audit findings
+                  description: >-
+                    Workload misconfiguration, distinct from the image CVE rules. Run `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp`. Currently 0 Critical (306 High, 483 Medium), so this firing means something new landed.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: trivy-rbac-critical
+                title: TrivyRBACCritical
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '(sum(trivy_role_rbacassessments{severity="Critical"}) or vector(0)) + (sum(trivy_clusterrole_clusterrbacassessments{severity="Critical"}) or vector(0))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    Trivy found CRITICAL RBAC findings
+                  description: >-
+                    Expect this to be firing when first deployed: 62 Critical findings exist right now -- 5 namespaced (longhorn-system/role-longhorn 2, velero/role-velero-server 2, tailscale/role-operator 1) and 57 on ClusterRoles. They have been there unreported because the original rule read a metric name that does not exist AND matched the wrong label case. Run `kubectl get rbacassessmentreports -A` and `kubectl get clusterrbacassessmentreports`. Triage before muting: these are permissions, and the point of the rule is that nobody had seen them. A large share of the 57 will be built-in ClusterRoles shipped by Kubernetes and by charts, so expect to tune the query rather than fix all 62.
+                labels:
+                  severity: warning
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
