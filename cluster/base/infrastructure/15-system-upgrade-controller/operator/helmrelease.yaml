@@ -92,3 +92,22 @@ spec:
                 # inspectable at breakfast; successful Jobs are equally cheap
                 # to keep at this volume (one Plan fires per week at most).
                 SYSTEM_UPGRADE_JOB_TTL_SECONDS_AFTER_FINISH: "86400"
+                # Chart default is 99, and until now this was never overridden.
+                # backoffLimit bounds retries of the JOB, not of talosctl's own
+                # internal waits, so 99 never meant "99 genuine attempts" -- it
+                # meant nothing stopped a systemically broken upgrade from
+                # retrying dozens of times before ACTIVE_DEADLINE_SECONDS cut
+                # it off. That is exactly what happened 2026-09-03: the
+                # --drain=true default cascaded into a cluster-wide admission
+                # outage (Kyverno's webhook fails closed), and the Job retried
+                # 14 times -- each retry re-running the same cordon+evict+
+                # outage cycle -- before it was caught and stopped by hand.
+                #
+                # The one genuine transient seen so far (a kube-scheduler
+                # config-propagation timeout during the Kubernetes leg of the
+                # 2026-09-04 rehearsal) needed exactly one retry. 5 gives that
+                # several times over while still failing fast enough that a
+                # systemically broken upgrade surfaces as a failed Job -- and
+                # trips StuckUpgradeJob (04-grafana/helmrelease.yaml) -- well
+                # before it can repeat a costly failure mode 14 times over.
+                SYSTEM_UPGRADE_JOB_BACKOFF_LIMIT: "5"
