@@ -1,10 +1,10 @@
-# Egress for the kubescape scan job's two outbound needs.
+# Egress for the kubescape scan job's one outbound need.
 #
 # Cilium is default-deny in both directions, and this namespace previously had
 # only allow-intra-namespace-egress -- enough for a scan that talked to nothing
 # but the API server (exempt cluster-wide, see 10-network-policies/
-# default-deny.yaml) and threw its report away. Storing the report and reporting
-# a metric are both new outbound paths.
+# default-deny.yaml) and threw its report away. Pushing a metric is the one new
+# outbound path.
 #
 # Scoped to the backup.homelab/egress label rather than the whole namespace,
 # matching 34-backup/networkpolicy.yaml. The scan ServiceAccount holds a
@@ -26,17 +26,12 @@ spec:
     matchLabels:
       backup.homelab/egress: "true"
   egress:
-    # The scan report, stored as an object.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: seaweedfs
-            app.kubernetes.io/name: seaweedfs
-      toPorts:
-        - ports:
-            - port: "8333"
-              protocol: TCP
     # The per-run metrics, so a failing control is visible as an alert rather
-    # than only inside a 3.3MB object nobody opens.
+    # than only in a report someone has to go and read.
+    #
+    # This is the job's ONLY outbound path. The report itself needs no egress
+    # at all: it goes to stdout and reaches VictoriaLogs through the normal pod
+    # log pipeline.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: monitoring

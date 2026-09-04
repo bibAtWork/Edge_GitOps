@@ -15,16 +15,10 @@ spec:
       template:
         metadata:
           labels:
-            # Selected by networkpolicy.yaml in this directory. Without it the
-            # S3 upload and the metric push are both denied by default-deny.
+            # Selected by networkpolicy.yaml in this directory, and by
+            # 34-backup/networkpolicy.yaml on vmsingle's ingress side. Without
+            # it the metric push is denied by default-deny.
             backup.homelab/egress: "true"
-            # SeaweedFS's ingress is an explicit per-caller allowlist
-            # (10-network-policies/allow-seaweedfs-internal.yaml), matching on
-            # this label. Without it the upload hangs until aws-cli's own
-            # timeout rather than failing -- observed on the first run, which
-            # sat silent for nine minutes because the egress half was open and
-            # the ingress half was not.
-            app.kubernetes.io/name: kubescape-scan
         spec:
           serviceAccountName: kubescape
           restartPolicy: OnFailure
@@ -55,18 +49,20 @@ spec:
                 - scan
                 - framework
                 - NSA,MITRE
+                # kubescape emits Prometheus exposition format natively, with
+                # `severity` already a real label -- so nothing here has to parse
+                # a report or derive a severity, and the artefact is 23KB of text
+                # rather than a 3.3MB JSON document.
                 - --format
-                - json
+                - prometheus
                 # NOT /dev/stdout. kubescape APPENDS `.json` to whatever --output
-                # is given, so the previous value produced `/dev/stdout.json` and
+                # is given, so an earlier revision produced `/dev/stdout.json` and
                 # failed with "permission denied" -- confirmed in the job's own
-                # logs on 2026-09-04. It then fell back to dumping the report into
-                # the log stream, interleaved with its own JSON log lines, where
-                # the 3.3MB payload was truncated by the log pipeline and nothing
-                # read it anyway. Writing a real file is what makes the report
-                # both parseable and storable.
+                # logs on 2026-09-04. It then fell back to dumping a report into
+                # the log stream interleaved with its own JSON log lines, where
+                # the payload was truncated and nothing read it anyway.
                 - --output
-                - /work/scan
+                - /work/metrics
                 # Do not phone home. Without it kubescape submits results to the
                 # ARMO SaaS backend, which is a posture report of this cluster
                 # leaving it.
@@ -86,103 +82,57 @@ spec:
                   drop: ["ALL"]
           containers:
             - name: publish
-              # aws-cli for the upload, and it carries python3 and jq for parsing
-              # the report -- verified on the image before relying on it, rather
-              # than installing anything at runtime.
-              image: docker.io/amazon/aws-cli:2.36.37
+              # rancher/kuberlr-kubectl, already pulled on this node for SUC's own
+              # Jobs and the upgrade gates. It carries wget, which is all this
+              # step needs now -- no jq, no python, no aws-cli, nothing installed
+              # at runtime.
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
               command:
                 - /bin/sh
                 - -c
                 - |
                   set -eu
-                  SRC=/work/scan.json
-                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  SRC=/work/metrics
 
                   if [ ! -s "$SRC" ]; then
                     echo "ERROR: $SRC missing or empty -- the scan produced nothing" >&2
                     exit 1
                   fi
-                  # A report that is not valid JSON cannot be parsed for metrics
-                  # and is not worth storing. Fail here rather than uploading a
-                  # truncated file and reporting success.
-                  if ! jq -e . "$SRC" >/dev/null 2>&1; then
-                    echo "ERROR: $SRC is not valid JSON -- refusing to publish" >&2
-                    exit 1
-                  fi
 
-                  # python3's gzip, not the gzip binary: this image has
-                  # python3 and jq but NO gzip and NO wget -- verified against
-                  # the image rather than assumed, after the first run failed on
-                  # exactly that with "gzip: command not found".
-                  python3 -c "import gzip,shutil;shutil.copyfileobj(open('$SRC','rb'),gzip.open('/work/scan.json.gz','wb',9))"
-                  KEY="s3://security-scans/kubescape/kubescape-${TS}.json.gz"
-                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/scan.json.gz "$KEY"
-                  echo "uploaded $KEY"
+                  # kubescape has no metric for "when did this run", and staleness
+                  # is the failure that went unnoticed for this job's entire life,
+                  # so add one. Appended rather than replacing anything kubescape
+                  # emits.
+                  echo "kubescape_scan_last_run_timestamp $(date -u +%s)" >> "$SRC"
 
-                  # A successful PUT is not a readable object. Objects in this
-                  # cluster's S3 have carried correct metadata and correct sizes
-                  # while their chunks were gone, so every listing passed while
-                  # the object could not be fetched. Read it back.
-                  EXPECT="$(stat -c %s /work/scan.json.gz)"
-                  if ! aws --endpoint-url "$S3_ENDPOINT" s3 cp "$KEY" /work/readback --quiet; then
-                    echo "ERROR: uploaded object cannot be read back -- not stored" >&2
-                    exit 1
-                  fi
-                  GOT="$(stat -c %s /work/readback)"
-                  rm -f /work/readback
-                  if [ "$GOT" != "$EXPECT" ]; then
-                    echo "ERROR: read-back ${GOT}B vs uploaded ${EXPECT}B" >&2
-                    exit 1
-                  fi
-                  echo "read-back verified: ${GOT} bytes"
+                  # THE REPORT. Printed to stdout so it lands in VictoriaLogs via
+                  # the normal pod-log pipeline -- no bucket, no credential, no
+                  # second backup mechanism for an artefact that is regenerated
+                  # from the live cluster every Sunday.
+                  #
+                  # This works precisely because the prometheus format is small:
+                  # ~180 lines, one per control per counter, each carrying the
+                  # control name, its severity and its docs link. The JSON report
+                  # this replaced was 3.3MB on a single line, which the log
+                  # pipeline truncated -- the reason the previous output was
+                  # unreadable even though it was technically being emitted.
+                  echo "----- kubescape posture report -----"
+                  cat "$SRC"
+                  echo "----- end of report -----"
 
-                  # Severity comes from scoreFactor: kubescape does not put a
-                  # severity string on a control, it puts a 1-10 weight, and the
-                  # documented mapping is 9+ critical, 7-8 high, 4-6 medium,
-                  # below 4 low. Bucketing here rather than in the alert keeps
-                  # the threshold in one place.
-                  jq -r '
-                    [.summaryDetails.controls[] | select(.status == "failed")] as $f
-                    | ([$f[] | select(.scoreFactor >= 9)] | length) as $crit
-                    | ([$f[] | select(.scoreFactor >= 7 and .scoreFactor < 9)] | length) as $high
-                    | ([$f[] | select(.scoreFactor >= 4 and .scoreFactor < 7)] | length) as $med
-                    | ([$f[] | select(.scoreFactor < 4)] | length) as $low
-                    | (([$f[] | .ResourceCounters.failedResources] | add) // 0) as $res
-                    | ((.summaryDetails.complianceScore // .summaryDetails.score) // 0) as $score
-                    | "kubescape_controls_failed{severity=\"critical\"} \($crit)",
-                      "kubescape_controls_failed{severity=\"high\"} \($high)",
-                      "kubescape_controls_failed{severity=\"medium\"} \($med)",
-                      "kubescape_controls_failed{severity=\"low\"} \($low)",
-                      "kubescape_controls_failed_total \($f | length)",
-                      "kubescape_resources_failed_total \($res)",
-                      "kubescape_compliance_score \($score)"
-                  ' "$SRC" > /work/metrics
+                  # A one-line summary, so the common question does not require
+                  # reading 180 lines back.
+                  echo "SUMMARY $(grep -c '^kubescape_control_count_resources_failed' "$SRC") control counters, cluster score $(sed -n 's/^kubescape_cluster_complianceScore{} //p' "$SRC")"
 
-                  echo "kubescape_scan_last_run_timestamp $(date -u +%s)" >> /work/metrics
-                  sed 's/^/  /' /work/metrics
-
-                  # curl, because this image has no wget. --max-time bounds a
-                  # denied egress path to seconds rather than the two minutes a
-                  # default timeout burns.
-                  if ! curl -sS --max-time 10 --data-binary @/work/metrics "$VM_IMPORT_URL"; then
-                    echo "WARN: metric push failed -- the report is stored but KubescapeCriticalControlFailing is blind this run" >&2
+                  # -T 10 so a denied egress path costs seconds rather than the
+                  # two minutes a default wget timeout burns.
+                  if ! wget -q -T 10 -O /dev/null --post-file="$SRC" "$VM_IMPORT_URL"; then
+                    echo "WARN: metric push failed -- the report above is still in VictoriaLogs, but the alerts are blind this run" >&2
                   fi
                   echo "SCAN_PUBLISHED_OK"
               env:
-                - name: S3_ENDPOINT
-                  value: http://seaweedfs-s3.seaweedfs.svc:8333
                 - name: VM_IMPORT_URL
                   value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
-                - name: AWS_ACCESS_KEY_ID
-                  valueFrom:
-                    secretKeyRef:
-                      name: seaweedfs-backup-credentials
-                      key: admin_access_key_id
-                - name: AWS_SECRET_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: seaweedfs-backup-credentials
-                      key: admin_secret_access_key
               volumeMounts:
                 - name: work
                   mountPath: /work
@@ -191,15 +141,12 @@ spec:
                   cpu: 50m
                   memory: 64Mi
                 limits:
-                  memory: 512Mi
+                  memory: 128Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop: ["ALL"]
           volumes:
-            # The report is 3.3MB uncompressed. emptyDir rather than a PVC: it
-            # exists only between the scan and the upload, and the durable copy
-            # is the object in S3.
             - name: work
               emptyDir:
-                sizeLimit: 512Mi
+                sizeLimit: 64Mi
