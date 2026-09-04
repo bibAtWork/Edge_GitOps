@@ -128,6 +128,25 @@ cluster:
   controllerManager:
     extraArgs:
       bind-address: 0.0.0.0
+      # Default is 12500. The pod-gc-controller only prunes terminated
+      # (Succeeded/Failed) pod objects once their count exceeds this
+      # threshold -- on a cluster this small, that count never gets there, so
+      # nothing is ever pruned. Confirmed live 2026-09-03/04: the same
+      # Failed-phase pods (keycloak, csi-attacher, hubble-relay, others) sat
+      # unchanged across both the drain-storm incident and the next day's
+      # Kubernetes upgrade rehearsal -- not fresh failures each time, the
+      # exact same stale objects persisting.
+      #
+      # That is more than cosmetic. It produced two false-alarm
+      # investigations this session, both from naive not-ready/unhealthy
+      # greps counting stale terminated records as live problems. Sunday's
+      # real unattended run will leave its own such batch after the reboot;
+      # 50 keeps the count from accumulating indefinitely so a post-upgrade
+      # health check reads the actual state rather than weeks of debris.
+      #
+      # Applied live via `talosctl patch machineconfig` (NOT apply-config --
+      # see the placeholder warning at the top of this file).
+      terminated-pod-gc-threshold: "50"
 
   scheduler:
     extraArgs:

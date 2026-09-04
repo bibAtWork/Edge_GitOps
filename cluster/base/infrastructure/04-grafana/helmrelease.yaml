@@ -2742,6 +2742,90 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+          # 2026-09-04. The Talos/Kubernetes upgrade Plans have no dependency
+          # field between them (see talos-version-gate-script.yaml) and no
+          # native alert of their own -- the only reason the 2026-09-03
+          # drain-storm incident and a transient scheduler-config-propagation
+          # retry were both caught was a human watching the rehearsal live.
+          # Sunday's real run is unattended, so a Job that hangs or exhausts
+          # its retries needs to page someone rather than sit unnoticed until
+          # the next manual check.
+          - orgId: 1
+            name: System Upgrade Alerts
+            folder: Infrastructure
+            interval: 5m
+            rules:
+              # kube_job_status_start_time/succeeded come from kube-state-
+              # metrics, confirmed present for cattle-system Jobs by direct
+              # query against vmsingle on 2026-09-04. `unless on(job_name)` on
+              # a metric family that ONLY carries succeeded==1 series drops any
+              # job_name that has already succeeded, leaving only jobs still
+              # running or that gave up -- both read the same way here, since
+              # a Job that exhausted SYSTEM_UPGRADE_JOB_BACKOFF_LIMIT (see
+              # operator/helmrelease.yaml) never sets succeeded and its
+              # start_time stops advancing, so elapsed time keeps climbing
+              # past the threshold below exactly like a hang would.
+              #
+              # `or vector(0)` guarantees a value even on the normal six days
+              # a week with no matching Job at all, so noDataState never has
+              # to guess between "nothing running" and "query broke".
+              #
+              # 1200s (20m): every completed run this cluster has seen,
+              # including the one that needed a retry, finished in well under
+              # that; ACTIVE_DEADLINE_SECONDS still kills the Job at 2700s
+              # regardless, so this fires with ~25 minutes to spare for
+              # someone to look before that happens.
+              - uid: stuck-upgrade-job
+                title: StuckUpgradeJob
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 60
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        max((time() -
+                        kube_job_status_start_time{namespace="cattle-system",
+                        job_name=~"apply-talos-.*"}) unless on(job_name)
+                        kube_job_status_succeeded{namespace="cattle-system",
+                        job_name=~"apply-talos-.*"} == 1) or vector(0)
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1200]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A Talos/Kubernetes upgrade Job has not completed in over 20 minutes
+                  description: >-
+                    apply-talos-controlplane or apply-talos-kubernetes has been running (or exhausted its retries trying to) for more than 20 minutes without succeeding -- every clean run so far, including one that needed a retry, finished well inside that. Check `kubectl get jobs -n cattle-system` and `kubectl logs -n cattle-system -l upgrade.cattle.io/plan=<plan>` first. On 2026-09-03 the cause was talosctl's own --drain=true evicting Kyverno's admission controller, which fails closed and blocked every pod create cluster-wide, including the retry pods for this same Job -- that specific failure mode is now fixed (--drain=false on all three Plans), but this alert exists because the next cause is not guaranteed to be the same one.
+                labels:
+                  severity: critical
+                isPaused: false
     initChownData:
       enabled: false
     securityContext:
