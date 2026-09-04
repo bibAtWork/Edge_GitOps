@@ -6,3 +6,4 @@ resources:
   - seaweedfs-secret.yaml
   - kopia-secret.yaml
   - backupstoragelocations.yaml
+  - backup-retry.yaml
