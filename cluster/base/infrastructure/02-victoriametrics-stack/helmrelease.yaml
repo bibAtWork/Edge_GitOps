@@ -243,6 +243,25 @@ spec:
               tlsConfig:
                 insecureSkipVerify: true
 
+    # Disabled, not configured. The chart's kube-etcd Service selects
+    # {component: etcd}, which matches nothing on Talos -- etcd is a host-level
+    # service, not a pod -- so its Endpoints object has been empty since
+    # install. The VMServiceScrape over it reported "operational" for 54 days
+    # while scraping a target that did not exist, on :2379 (the mTLS client
+    # port) rather than :2381 (metrics). Wrong selector, wrong port, wrong
+    # scheme, and green throughout.
+    #
+    # Replaced by etcd-nodescrape.yaml in this directory: a VMNodeScrape
+    # discovers nodes through the API server, so it needs no Service, no
+    # Endpoints and no node address written into the repo -- which also means
+    # it works unchanged on the 3-node overlay, where a hardcoded endpoint
+    # list would have to be maintained separately.
+    #
+    # Requires cluster.etcd.extraArgs.listen-metrics-urls on the Talos
+    # machineconfig; without it :2381 is closed and the scrape finds nothing.
+    kubeEtcd:
+      enabled: false
+
     vmalert:
       spec:
         # No external notifiers: alert evaluation and routing is handled by

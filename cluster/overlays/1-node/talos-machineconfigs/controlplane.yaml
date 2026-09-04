@@ -106,6 +106,34 @@ cluster:
   etcd:
     advertisedSubnets:
       - 192.168.178.0/24
+    extraArgs:
+      # etcd serves metrics on a dedicated port that is OFF by default. Without
+      # this, `count(etcd_server_has_leader)` returns 0 series -- etcd was the
+      # one control-plane component with no monitoring at all, on a single-node
+      # cluster where it is the entire cluster's single point of failure.
+      #
+      # The chart ships a kube-etcd Service selecting {component: etcd}, which
+      # matches nothing on Talos because etcd is a host-level service rather
+      # than a pod. Its Endpoints object has been empty since install, on :2379,
+      # with the VMServiceScrape reporting "operational" throughout -- config
+      # that parsed, and a target that never existed. That Service is disabled
+      # in 02-victoriametrics-stack and replaced by a VMNodeScrape, which
+      # discovers nodes rather than needing an address written down here.
+      #
+      # :2381 is etcd's metrics-only listener. It is NOT the client port -- no
+      # key/value data is reachable on it, and reads and writes still require
+      # mTLS on :2379, which is untouched.
+      #
+      # 0.0.0.0 rather than 127.0.0.1, for the same reason as kube-scheduler
+      # below: the scrape arrives from a pod via the node address, so a
+      # loopback bind is unreachable. Unlike those two, this endpoint has no
+      # authentication of its own -- etcd does not support any on the metrics
+      # listener -- so binding it publishes operational metrics (DB size,
+      # request rates, leader state) to anything on the LAN. That is the real
+      # cost here and it is accepted deliberately: the alternative is a Talos
+      # ingress firewall, which is worth doing but is a larger change than
+      # this one and is tracked in docs/backlog.md rather than bundled in.
+      listen-metrics-urls: http://0.0.0.0:2381
 
   # kube-controller-manager and kube-scheduler bind their metrics and health
   # endpoints to 127.0.0.1 by default on Talos, which means nothing off the
