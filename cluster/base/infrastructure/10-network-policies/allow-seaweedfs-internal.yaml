@@ -61,6 +61,14 @@ spec:
         - matchLabels:
             app.kubernetes.io/name: paperless-sqlite-backup
             io.kubernetes.pod.namespace: paperless
+        # The weekly kubescape posture report is stored as an object in
+        # security-scans (20-kubescape/cronjob.yaml). Labelled per-job like the
+        # three database backups above rather than allowing the namespace,
+        # because that ServiceAccount holds a cluster-wide read of every
+        # resource -- the last workload that should get a broad egress grant.
+        - matchLabels:
+            app.kubernetes.io/name: kubescape-scan
+            io.kubernetes.pod.namespace: kubescape
       toPorts:
         - ports:
             - port: "8333"
