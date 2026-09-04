@@ -1,0 +1,247 @@
+# Retry a Velero schedule whose most recent backup did not complete.
+#
+# ── Why this exists ──────────────────────────────────────────────────────────
+# Velero schedules have no retry. A backup that fails is simply not retried
+# until the schedule's next tick, which for weekly-offsite means SEVEN DAYS.
+#
+# That is not theoretical here. weekly-offsite last succeeded 2026-08-09 and
+# then missed three consecutive Sundays:
+#
+#   2026-08-16  PartiallyFailed  3 errors
+#   2026-08-23  Failed           DNS lookup for the S3 endpoint timed out
+#   2026-08-30  FailedValidation BackupStorageLocation aws-s3 was Unavailable
+#
+# None of those were configuration faults -- a backup triggered by hand on
+# 2026-09-04 completed in 8s with 420/420 items and zero errors, against the
+# same storage location and the same template. They were transient failures
+# during the 2026-08-26 storage incident window, and each one cost a full week
+# because nothing retried and nothing reported. The reporting half is fixed
+# (VeleroBackupStale, 04-grafana/helmrelease.yaml); this is the retry half.
+#
+# ── Why "latest backup did not complete" rather than a staleness threshold ───
+# The obvious alternative is to compare each schedule's age against an
+# allowance. That means writing 25h/8d/32d here as well as in the alert, and
+# two copies of the same threshold drift apart. Reading the phase of the most
+# recent backup needs no thresholds at all, cannot disagree with the alert, and
+# stays correct if a schedule's cron changes.
+#
+# Retries are bounded by this job's own daily cadence: at most one per schedule
+# per day. A schedule that keeps failing therefore produces one backup a day
+# and keeps VeleroBackupStale firing, which is the correct outcome -- the retry
+# buys back a transient failure, it does not paper over a broken one.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: velero-backup-retry
+  namespace: velero
+---
+# Egress to VictoriaMetrics for the metric push. Cilium is default-deny both
+# ways, and allow-velero-egress covers only SeaweedFS :8333, the S3 FQDNs on
+# :443 and DNS -- so without this the push hangs until it times out. Found on
+# the first live run: "wget: can't connect to remote host (10.107.40.197):
+# Connection timed out", which cost 2m15s and lost the metric.
+#
+# Scoped to the backup.homelab/egress label rather than the namespace, matching
+# 34-backup/networkpolicy.yaml exactly: the velero server itself has no reason
+# to reach the metrics store, and this namespace's ServiceAccount can create
+# backups, so a blanket grant here widens the blast radius of a compromise for
+# no benefit.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: velero-backup-retry-egress
+  namespace: velero
+spec:
+  endpointSelector:
+    matchLabels:
+      backup.homelab/egress: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: vmsingle
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: velero-backup-retry
+  namespace: velero
+rules:
+  # Read the schedule to copy its template, and read backups to find the most
+  # recent one per schedule. No delete: this job creates backups, it must never
+  # be able to remove one.
+  - apiGroups: ["velero.io"]
+    resources: ["schedules"]
+    verbs: ["get", "list"]
+  - apiGroups: ["velero.io"]
+    resources: ["backups"]
+    verbs: ["get", "list", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: velero-backup-retry
+  namespace: velero
+subjects:
+  - kind: ServiceAccount
+    name: velero-backup-retry
+    namespace: velero
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: velero-backup-retry
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: velero-backup-retry
+  namespace: velero
+spec:
+  # 06:00 daily: after the 02:00 daily-local and 03:00 weekly/monthly windows
+  # have had time to finish, and after the 05:00 offsite relay, so a retry
+  # created here is not racing the thing it is retrying.
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            # Selected by velero-backup-retry-egress above; without it the
+            # metric push is denied by default-deny.
+            backup.homelab/egress: "true"
+        spec:
+          restartPolicy: Never
+          serviceAccountName: velero-backup-retry
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: retry
+              # kubectl baked in, nothing installed at runtime. `apk add` writes
+              # new executables into a running container and trips Falco's
+              # "Executing binary not part of base image" at Critical, once per
+              # run -- see restore-test-cronjob.yaml for the full reasoning.
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  STAMP="$(date -u +%Y%m%d%H%M%S)"
+                  RETRIED=0
+                  FAILED=0
+
+                  log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+
+                  SCHEDULES="$(kubectl get schedules.velero.io -n velero \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)"
+
+                  if [ -z "$SCHEDULES" ]; then
+                    log "no Velero schedules found -- nothing to check"
+                    exit 0
+                  fi
+
+                  for S in $SCHEDULES; do
+                    PHASE_S="$(kubectl get schedules.velero.io -n velero "$S" \
+                      -o jsonpath='{.status.phase}' 2>/dev/null)"
+                    if [ "$PHASE_S" != "Enabled" ]; then
+                      log "$S: schedule is ${PHASE_S:-unknown}, not Enabled -- skipping"
+                      continue
+                    fi
+
+                    # --sort-by creationTimestamp, so [-1] is the newest.
+                    LATEST="$(kubectl get backups.velero.io -n velero \
+                      -l velero.io/schedule-name="$S" \
+                      --sort-by=.metadata.creationTimestamp \
+                      -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null)"
+
+                    if [ -z "$LATEST" ]; then
+                      log "$S: no backup has ever been created -- leaving it to the schedule"
+                      continue
+                    fi
+
+                    PHASE="$(kubectl get backups.velero.io -n velero "$LATEST" \
+                      -o jsonpath='{.status.phase}' 2>/dev/null)"
+
+                    case "${PHASE:-unknown}" in
+                      Completed)
+                        log "$S: latest ($LATEST) Completed -- nothing to do"
+                        continue
+                        ;;
+                      New|InProgress|WaitingForPluginOperations|Finalizing)
+                        # Still running. Retrying now would race it and double
+                        # the work for no gain.
+                        log "$S: latest ($LATEST) is $PHASE -- still running, not retrying"
+                        continue
+                        ;;
+                      Failed|PartiallyFailed|FailedValidation)
+                        log "$S: latest ($LATEST) is $PHASE -- retrying"
+                        ;;
+                      *)
+                        log "$S: latest ($LATEST) is ${PHASE:-unknown} -- treating as failed, retrying"
+                        ;;
+                    esac
+
+                    # jsonpath on an object field emits JSON, and kubectl create
+                    # accepts JSON, so the schedule's template is copied verbatim
+                    # rather than reconstructed field by field. Reconstructing it
+                    # would silently drop any field this script does not know
+                    # about, which is exactly how a retry ends up backing up
+                    # something different from what the schedule backs up.
+                    TMPL="$(kubectl get schedules.velero.io -n velero "$S" \
+                      -o jsonpath='{.spec.template}' 2>/dev/null)"
+                    if [ -z "$TMPL" ]; then
+                      log "$S: REFUSING -- could not read the schedule template"
+                      FAILED=$((FAILED + 1))
+                      continue
+                    fi
+
+                    NAME="$S-retry-$STAMP"
+                    # The schedule-name label is what makes Velero count this
+                    # backup toward that schedule's
+                    # velero_backup_last_successful_timestamp, which is what
+                    # VeleroBackupStale reads. Without it the retry would
+                    # succeed and the alert would keep firing.
+                    if printf '%s' "{\"apiVersion\":\"velero.io/v1\",\"kind\":\"Backup\",\"metadata\":{\"name\":\"$NAME\",\"namespace\":\"velero\",\"labels\":{\"velero.io/schedule-name\":\"$S\",\"backup.homelab/retry\":\"true\"}},\"spec\":$TMPL}" \
+                       | kubectl create -f - >/dev/null 2>&1; then
+                      log "$S: created $NAME"
+                      RETRIED=$((RETRIED + 1))
+                    else
+                      log "$S: REFUSING -- could not create $NAME"
+                      FAILED=$((FAILED + 1))
+                    fi
+                  done
+
+                  {
+                    echo "velero_backup_retry_last_run_timestamp $(date -u +%s)"
+                    echo "velero_backup_retry_created $RETRIED"
+                    echo "velero_backup_retry_errors $FAILED"
+                  } | wget -q -T 10 -O /dev/null --post-file=- "$VM_IMPORT_URL" \
+                    || log "WARN: metric push failed"
+
+                  log "RETRY_OK created=$RETRIED errors=$FAILED"
+                  [ "$FAILED" -eq 0 ]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

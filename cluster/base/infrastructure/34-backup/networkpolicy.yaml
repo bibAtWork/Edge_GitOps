@@ -70,6 +70,13 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: longhorn-system
             backup.homelab/egress: "true"
+        # velero-backup-retry (07-velero/backup-retry.yaml) pushes from the
+        # velero namespace. The egress half alone is not enough -- vmsingle's
+        # ingress is an explicit allowlist, so a rule added only on the sending
+        # side fails with a connection timeout rather than a policy error.
+        - matchLabels:
+            io.kubernetes.pod.namespace: velero
+            backup.homelab/egress: "true"
       toPorts:
         - ports:
             - port: "8428"
