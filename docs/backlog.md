@@ -485,3 +485,114 @@ different guarantees than reverting a boot entry.
 
 So the entire Sunday sequence reduces to one Kubernetes patch upgrade, gated on a
 backup job that has never worked on its own. That is the thing to rehearse.
+
+---
+
+## Immich's photo library was lost, and had no backup covering it
+
+**Status (2026-09-04): investigated, not recoverable. Found on a manual walkthrough of every
+service** -- Immich came up empty; the only way back in was to redo first-run setup, meaning
+the database was gone too, not just the library.
+
+Traced through three sources: PVC/object ages, the offsite vault's actual contents (not its
+listings -- see "Success is not the same as having done the work" in `Agent.md`), and Longhorn's
+`backupvolumes.longhorn.io` for the current PVs.
+
+**The timeline**:
+
+- 2026-08-24: the photo library and cache volumes moved from SeaweedFS to Longhorn
+  (#255, #252, #262). `immich-library-lh` (30Gi), `immich-ml-cache-lh`, `immich-valkey-lh` and
+  `data-immich-postgresql-0` all date from this migration.
+- 2026-08-26: the storage incident (see "Open threads as of 2026-09-01", below) destroyed that
+  day's Immich database dump, `immich-20260826T024002Z.sql.gz`, in the same unprotected
+  staging-to-relay window that took Keycloak's and Paperless's data. **Confirmed live**: the
+  object at that path in `db-backups/immich/` is now an S3 delete marker (0 bytes,
+  `Seaweed-X-Amz-Delete-Marker: true`, modified 2026-08-31), matching the cleanup of the 53
+  permanently-lost objects from that incident.
+- The 2026-08-26 -> 2026-09-01 recovery rebuilt Keycloak from the offsite vault and restored
+  Paperless database-and-media together. **Immich is not in that list.** It was missed, not
+  deliberately deferred -- nothing in the recovery record explains why.
+- Checked whether the *library* itself (the actual photos, never stored in Postgres) survived
+  anywhere: SeaweedFS's `pvs` bucket, the old CSI-backed volume location before the Aug 24
+  migration, is now empty -- dropped by the migration itself, per its own commit message. No
+  other copy exists in the vault. `kubectl get backupvolumes.longhorn.io` shows the FIRST
+  Longhorn backup of `immich-library-lh` ever taken was 2026-09-04T05:29:37Z -- **today**,
+  and almost certainly a side effect of this session's drift-triggered backup gate, not a
+  scheduled run. From creation (2026-08-24) to that moment, the actual photo files had zero
+  backup coverage of any kind, through both the incident and the ten days after it.
+
+**What survives**: `immich-20260825T064440Z.sql.gz` (246,716 bytes, real -- verified readable,
+not a phantom) in `db-backups/immich/`, about 30 hours before the incident. It carries users,
+albums, people/faces and sharing metadata, but Immich's actual photo/video bytes were never in
+Postgres, so this dump describes files that no longer exist anywhere. Restoring it live would
+also collide with the admin account already recreated. Worth pulling into a throwaway database
+to read off album names and dates if that context has any value -- not worth restoring live.
+
+**Conclusion: the photos are gone.** No backup ever existed for the window that mattered.
+
+**Two open questions this leaves**:
+
+- `LonghornVolumeNeverBackedUp` (04-grafana/helmrelease.yaml) exists specifically to catch a
+  volume with zero backups and did not fire for ten days on this one. Its query joins
+  `longhorn_volume_last_backup_at == 0` against `backup_volume_policy_in_scope` `on(pvc)` --
+  worth checking whether a newly-created PVC only enters the policy-scope metric on the
+  reconciler's next scheduled pass, leaving a window right after any future migration where a
+  brand-new volume is invisible to this alert too.
+- `immich-library-lh` carries `recurring-job-group.longhorn.io/default: enabled`, so it should
+  now be swept into the regular Sunday `backup-weekly` run going forward -- but that has not
+  yet been observed to happen on its own. Worth confirming after this Sunday's run rather than
+  assuming today's one-off manual trigger will repeat.
+
+---
+
+## Planned: hub-and-spoke Cilium network policy, replacing `allow-cluster-internal`
+
+**Status (2026-09-04): designed, not started.** Deliberately not implemented yet -- recorded so
+the design isn't lost before it is picked up.
+
+`allow-cluster-internal`, a cluster-wide `CiliumClusterwideNetworkPolicy`, grants any pod
+ingress from any other pod on any port (`docs/network-architecture.md` section 3, corrected
+in PR #176). Every narrower per-app ingress rule elsewhere in the repo is therefore an additive no-op
+under it -- verified live via `cilium-dbg` on Keycloak and the SeaweedFS filer. Concretely: a
+single compromised pod anywhere in the cluster, including `kubeopencode`/`mcp-server` (LLM
+agent tooling `security-review.md` already flags as prompt-injection/exfil surface), has direct
+network reach to Keycloak and SeaweedFS S3 on every port, with nothing but each service's own
+app-level auth in the way. It also means `CLAUDE.md`'s claim that SeaweedFS's Cilium policy is
+"the primary auth boundary" for S3 access is not accurate as deployed.
+
+**Proposed replacement** -- default-deny (already true) plus:
+
+1. A same-namespace-only `CiliumNetworkPolicy` per namespace (`endpointSelector: {}` +
+   `ingress: fromEndpoints: [{}]`) -- the pattern `keycloak` and `envoy-gateway-system` already
+   use for both directions, and ~20 namespaces already use for egress.
+2. Two clusterwide hub policies for the only things that genuinely need every namespace:
+   `allow-envoy-gateway-ingress` (replacing dead `fromEntities: [ingress]` rules left over from
+   before the Envoy Gateway cutover, ADR-001, and covering `immich`/`paperless`/`schenkmatch`
+   and OPA's `ext_authz` path, none of which currently have their own ingress rule at all) and
+   `allow-monitoring-scrape-ingress` (mirroring the existing `allow-vmagent-scrape-egress`
+   shape for the ingress side).
+3. An explicit caller list for SeaweedFS's `allow-seaweedfs-internal.yaml`, replacing its
+   current any-pod `fromEndpoints: [{}]` grant on :8333 with `velero`, `talos-backup`, `zot` --
+   live-verified that the CSI-driver rule some of this was written for doesn't apply (`kubectl
+   get csidrivers` is empty; the only provisioner is `local-path-provisioner`).
+
+**Staged rollout** (each stage additive-then-subtractive and independently verifiable, highest
+blast radius last): PR1 adds every new policy while `allow-cluster-internal` stays untouched, so
+nothing changes yet -- verify via `cilium-dbg endpoint get` that each new rule is realized. PR2
+excludes single-purpose/single-pod namespaces (`schenkmatch`, `falco`, `trivy-system`, `zot`,
+`external-dns`, `local-path-storage`, `cilium-secrets`, `kubescape`, `system-upgrade`,
+`gateway-system`). PR3 excludes medium-risk namespaces with the new PR1 rules backing them
+(`immich`, `paperless`, `monitoring`, `flux-system`, `kube-system`, `velero`, `talos-backup`,
+`tailscale`, `cert-manager`, and `kyverno` if a wider Hubble check confirms no same-namespace
+traffic). PR4 excludes `seaweedfs`, relying on its new caller-list policy -- verify Velero,
+`talos-backup` and Zot's S3 access all still work. PR5, last: `keycloak`, `security` (OPA),
+`envoy-gateway-system` -- verify every OIDC login path and every HTTPRoute end-to-end from a
+genuinely external client before merging, with a ready revert. PR6 deletes
+`allow-cluster-internal.yaml` once every namespace is excluded, and updates
+`docs/network-architecture.md` section 3 to describe the new model as current rather than the
+"why the broad-allow is mostly not hub-and-spoke" framing it carries today.
+
+Full per-namespace classification (which ones were live-verified to need a same-namespace rule
+vs. confirmed not to) was worked out via `cilium-dbg`, `kubectl`, and Hubble flow observation
+across all 28 existing network-policy files in the repo, and is not reproduced here -- redo that
+audit when this is picked up, since the namespace inventory will have moved on by then.
