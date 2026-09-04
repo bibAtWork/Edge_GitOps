@@ -173,4 +173,20 @@ spec:
       # installer pin in controlplane.yaml -- the CI workflow verifies this.
       - --image=factory.talos.dev/installer/$(SCHEMATIC_ID):$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
       - --preserve=true
+      # talosctl upgrade defaults --drain=true: cordon AND evict every
+      # evictable pod before rebooting. On a cluster with more than one node
+      # that gives workloads somewhere to land first; on THIS one it means
+      # "evict everything, onto nothing" -- and it does not stop at this
+      # Job's own workload. It took down Kyverno's admission controller on
+      # 2026-09-03, and Kyverno's webhook fails CLOSED, so every pod create
+      # in the cluster started failing -- including the retry pods for this
+      # same Job and for the SUC controller managing it. 14 failed attempts
+      # and a 58-pod not-ready spike later, the node had never actually
+      # rebooted: the upgrade could not survive its own drain.
+      #
+      # `cordon: true` above already does the only thing drain buys on a
+      # single node -- stopping new pods from scheduling here before the
+      # reboot. Eviction adds nothing over that and, with nowhere for
+      # evicted pods to go, actively works against the upgrade succeeding.
+      - --drain=false
       - --wait=true
