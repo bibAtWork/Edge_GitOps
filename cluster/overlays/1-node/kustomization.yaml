@@ -89,3 +89,27 @@ patches:
       kind: ConfigMap
       name: coredns
       namespace: kube-system
+  # Cap Helm release history on every HelmRelease at once.
+  #
+  # maxHistory was never set anywhere, so all 23 releases kept the default and
+  # accumulated 101 `sh.helm.release.v1.*` Secrets between them -- kube-system
+  # 11, and monitoring / immich / kubeopencode-system 10 each. Every one is a
+  # gzipped copy of a full release manifest sitting in etcd, which is the same
+  # etcd that has a 2GB backend quota and, until recently, no monitoring at all.
+  #
+  # An unnamed target matches every HelmRelease in the overlay, so this is one
+  # patch rather than 23 edits that would drift apart the moment a release is
+  # added. A new HelmRelease inherits the cap automatically.
+  #
+  # 3 rather than the default: `helm rollback` in a GitOps repo is a last
+  # resort -- the real rollback is `git revert`, which reproduces the release
+  # from source rather than from a snapshot. Keeping three still allows an
+  # emergency rollback past a bad revision without holding ten.
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+    patch: |
+      - op: add
+        path: /spec/maxHistory
+        value: 3
