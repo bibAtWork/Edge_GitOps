@@ -86,15 +86,26 @@ spec:
               protocol: TCP
 
     # ── 3. Tailscale ─────────────────────────────────────────────────────────
-    # WireGuard, and necessarily from world: the whole point is that it accepts
-    # from wherever the peer happens to be. The traffic inside it is
-    # authenticated and encrypted by Tailscale, so this is not the same kind of
-    # opening as an unauthenticated metrics port.
+    # tailscaled's direct-connection port, and necessarily from world: the
+    # whole point is accepting from wherever the peer happens to be. What rides
+    # inside is authenticated and encrypted by Tailscale, so this is not the
+    # same kind of opening as an unauthenticated metrics port.
+    #
+    # This port only exists because subnet-router-hostnetwork.yaml pins it with
+    # --port=41641. Tailscale otherwise picks a random high port per start
+    # (observed 43242 / 37573), which no firewall rule can name.
+    #
+    # An earlier revision of this file allowed :51871 here and called it
+    # Tailscale. That was wrong: 51871 is CILIUM's WireGuard port
+    # (enable-wireguard=true), it carries node-to-node traffic rather than
+    # anything from world, and it is already covered by remote-node in rule 1.
+    # The audit-mode run below is what caught it -- the real Tailscale flow
+    # showed up as would-be-denied on a port this file never mentioned.
     - fromEntities:
         - world
       toPorts:
         - ports:
-            - port: "51871"
+            - port: "41641"
               protocol: UDP
 
     # ── 4. Service data path ─────────────────────────────────────────────────
