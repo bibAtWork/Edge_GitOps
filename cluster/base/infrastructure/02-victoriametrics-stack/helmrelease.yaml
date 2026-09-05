@@ -299,14 +299,25 @@ spec:
           limits:
             memory: 192Mi
 
-    vmauth:
-      spec:
-        configReloaderResources:
-          requests:
-            cpu: 10m
-            memory: 32Mi
-          limits:
-            memory: 192Mi
+    # NOT `vmauth:`. The VMAuth actually running here is the chart's INTERNAL
+    # one -- vmstack-victoria-metrics-k8s-stack-internal, rendered by
+    # templates/victoria-metrics-operator/vmauth/internal.yaml from the values
+    # path internal.vmauth.spec, and used as vmalert's datasource proxy. The
+    # top-level `vmauth:` key configures a separate CR that is not enabled, so
+    # setting configReloaderResources there applied cleanly and changed
+    # nothing: vmagent and vmalert picked up their limits, vmauth did not.
+    #
+    # Found post-merge by checking the workloads rather than the HelmRelease
+    # status, which reported the upgrade succeeded either way.
+    internal:
+      vmauth:
+        spec:
+          configReloaderResources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 192Mi
 
     vmalert:
       spec:
