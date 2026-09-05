@@ -3084,6 +3084,52 @@ spec:
               # one threshold covers all three: daily 25h, weekly 8d, monthly
               # 32d. Above 1 means that schedule is past its own deadline. The
               # selectors are disjoint, so `or` unions them rather than masking.
+              - uid: log-ingestion-stalled
+                title: LogIngestionStalled
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        sum(increase(vl_rows_ingested_total[30m])) or vector(0)
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    Nothing is reaching VictoriaLogs -- the log pipeline has stopped
+                  description: >-
+                    Steady state is roughly 57 rows/sec, so zero across 30 minutes means the otel agent has stopped shipping rather than the cluster having gone quiet. This is primarily an AUDIT alert. The API server keeps only about 6 hours of audit history on the node -- maxbackup 10 x maxsize 100MB fills long before the 30-day maxage is ever reached -- and VictoriaLogs, at 90 days, is the durable copy. While this is firing, audit records are rotating off the node and are gone permanently, which is why the ~45 minutes it takes to fire is deliberately a small fraction of that 6-hour budget. Check the otel-agent DaemonSet in monitoring-agents first. NoData alerts because a pipeline that stops publishing this metric is indistinguishable from one that stopped working.
+                labels:
+                  severity: critical
               - uid: etcd-metrics-absent
                 title: EtcdMetricsAbsent
                 condition: B
