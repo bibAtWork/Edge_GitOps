@@ -3192,6 +3192,52 @@ spec:
                     A rule that cannot be evaluated reports inactive, which is indistinguishable from a rule whose condition is false. Every alert in this stack is therefore untrustworthy while this fires. Usual causes are a datasource that stopped answering or a rule whose query became invalid; check the Grafana logs and the victoriametrics datasource. NOTE THE LIMIT OF THIS RULE: it is itself a Grafana rule, so it cannot detect the case where Grafana has restarted and NOTHING has evaluated yet -- it would be equally unevaluated. That blind window is addressed by shortening `for` on the rules whose condition is persistent, not by this alert. What this catches is Grafana running while evaluation is broken.
                 labels:
                   severity: critical
+              - uid: node-memory-pressure
+                title: NodeMemoryPressure
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        max(100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)))
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [85]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: NoData
+                execErrState: Error
+                for: 15m
+                annotations:
+                  summary: >-
+                    Node memory is genuinely under pressure
+                  description: >-
+                    This watches memory ACTUALLY IN USE, which is the thing that OOM-kills pods. It deliberately does not watch the limits-to-allocatable ratio, which reads 127% and is not a fault: bounding a previously unlimited container raises that number while improving governance, so the headline metric moves the wrong way when things get better. Requests are at 36%, so the scheduler has room; the exposure is the gap between what is requested and what may be consumed on a node with nowhere to reschedule. Threshold is measured rather than guessed - observed usage sits in a 41-45% band with a 7-day peak of 45.1%, so 85% is well clear of normal and means something has genuinely changed. On a single node there is no eviction target, so this is the warning before an OOM kill rather than before a reschedule.
+                labels:
+                  severity: warning
               - uid: etcd-metrics-absent
                 title: EtcdMetricsAbsent
                 condition: B
