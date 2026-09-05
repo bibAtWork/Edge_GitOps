@@ -51,6 +51,29 @@ spec:
   # dumps to the filer-metadata bucket, not from replication.
   instances: 1
 
+  # No PodDisruptionBudget. CNPG creates a <cluster>-primary PDB with
+  # minAvailable: 1, which on a single-instance cluster means
+  # disruptionsAllowed: 0 permanently -- confirmed live on both clusters.
+  #
+  # That PDB protects nothing here. Its purpose is to keep a primary available
+  # while a replica takes over, and with instances: 1 there is no replica: an
+  # eviction is an outage whether the PDB allows it or not. What it does do is
+  # block every eviction-based operation -- kubectl drain, a drain-enabled
+  # upgrade, node maintenance -- indefinitely and without an obvious cause.
+  #
+  # Today that is masked: the Talos upgrade Plan runs --drain=false with
+  # cordon: true, which is the correct shape for a single node and is why the
+  # v1.13.3 drill succeeded. But the mitigation lives in one Plan argument, so
+  # anything that drains by another route inherits the hang.
+  #
+  # The Longhorn PDBs (csi-attacher, csi-provisioner, instance-manager) are
+  # deliberately left alone. instance-manager's exists to stop a drain while
+  # volumes are attached, which would cost live I/O -- there it is doing its
+  # job, and blocking is the correct outcome rather than a defect.
+  # Raising instances above 1 is the trigger to remove this line: with a
+  # replica present the PDB becomes meaningful and should come back.
+  enablePDB: false
+
   bootstrap:
     initdb:
       # Names carried over from the existing deployment so the filer's
