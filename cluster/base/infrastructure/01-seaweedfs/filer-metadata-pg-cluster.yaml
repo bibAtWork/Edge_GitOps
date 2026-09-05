@@ -44,7 +44,7 @@ spec:
   # Matches the StatefulSet being migrated from (postgres:16-alpine). A restore
   # into an older major fails outright, and pg_dump refuses to read a newer
   # server than itself.
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.10
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15
 
   # Single instance: one node, so a second replica has nowhere to run and CNPG
   # would leave it permanently pending. Durability comes from the hourly logical
