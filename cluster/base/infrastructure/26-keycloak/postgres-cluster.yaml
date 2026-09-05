@@ -49,6 +49,25 @@ spec:
   # replica present the PDB becomes meaningful and should come back.
   enablePDB: false
 
+  # CNPG's default stopDelay is 1800s. With instances: 1 there is no
+  # switchover target, so an image change is a stop-and-start and that
+  # default makes the outage window unbounded up to thirty minutes --
+  # observed live during the 16.10 -> 16.15 rollout, where the phase read
+  # "Primary instance is being restarted without a switchover" and the pod
+  # carried deletionGracePeriod 1800.
+  #
+  # Both rollouts finished in about 2 and 4 minutes, so 1800 was a ceiling
+  # rather than the cost. The point is that the ceiling lands on a database
+  # nothing can fail over to, and for the filer that database is the index
+  # for all object storage including the backup buckets.
+  #
+  # 300s is chosen against the actual size of these databases: full logical
+  # dumps are 66KB and 320KB, so a clean checkpoint takes well under a
+  # second and five minutes is already generous. PostgreSQL is crash-safe
+  # regardless -- a harder stop replays WAL on start rather than losing
+  # data. This bounds the worst case at 5 minutes instead of 30.
+  stopDelay: 300
+
   # Name the database and owner explicitly. CNPG otherwise creates a database
   # called "app" owned by a role called "app", which is functional but obscures
   # what the cluster actually holds -- and this is one of three, so the ambiguity
