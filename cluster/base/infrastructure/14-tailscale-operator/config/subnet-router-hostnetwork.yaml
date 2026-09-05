@@ -111,8 +111,32 @@ spec:
               value: "false"
             - name: TS_AUTH_ONCE
               value: "true"
+            # --port pins tailscaled's UDP listener. Without it Tailscale
+            # picks a random high port at start (observed: 43242, and 37573 on
+            # v6), which cannot be expressed as a firewall rule -- the host
+            # policy in 10-network-policies/host-ingress.yaml has to name a
+            # port, and one that changes on every restart makes direct peer
+            # connections a coin flip.
+            #
+            # Found by running that policy in Cilium's audit mode before
+            # enforcing it: a LAN peer's direct connection
+            # (192.168.178.29:41641 -> :43242) appeared as would-be-denied.
+            # Nothing would have broken outright -- Tailscale falls back to
+            # DERP relay -- but that fallback routes homelab traffic through
+            # Tailscale's relay servers and adds latency, silently.
+            #
+            # 41641 is Tailscale's documented default, and is what the peer
+            # above was already using as its own source port.
             - name: TS_EXTRA_ARGS
               value: "--advertise-tags=tag:k8s-operator --snat-subnet-routes=false"
+            # --port is a tailscaled DAEMON flag, so it belongs here and not in
+            # TS_EXTRA_ARGS above, which the container passes to `tailscale up`.
+            # Putting it there is silently ineffective: tailscale up neither
+            # errors nor warns, and the daemon carries on choosing a random
+            # port. Verified the difference by reading the listener back with
+            # `talosctl netstat --programs` rather than trusting the config.
+            - name: TS_TAILSCALED_EXTRA_ARGS
+              value: "--port=41641"
           securityContext:
             capabilities:
               add:

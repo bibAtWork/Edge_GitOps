@@ -1,0 +1,151 @@
+# Host firewall: the node's own network stack, not its pods.
+#
+# ── What this closes ─────────────────────────────────────────────────────────
+# Cilium's host firewall has been ENABLED (enable-host-firewall=true, on
+# enp2s0 and tailscale0) since install, but no policy has ever carried a
+# nodeSelector -- and the host endpoint only leaves default-allow once one
+# does. So the feature was on, the configuration looked right, and nothing was
+# enforced. `cilium-dbg endpoint list` showed ingress enforcement "none" on the
+# host endpoint. Same shape as the etcd scrape and the alerts that matched no
+# labels: configured, healthy, inert.
+#
+# Concretely, every one of these answered from the LAN, unauthenticated:
+#
+#   :2381   etcd metrics        DB size, request rates, leader state
+#   :9100   node-exporter       full host telemetry
+#   :9962-5 cilium agent/operator/envoy metrics
+#   :4244   hubble peer service
+#   :10257  kube-controller-manager metrics
+#   :10259  kube-scheduler metrics
+#
+# None of those carry authentication of their own (the two kube-* ones do, via
+# delegated authn -- the rest do not). :2381 in particular was opened
+# deliberately to give etcd monitoring, with the exposure noted at the time as
+# the accepted cost and a host firewall named as the proper fix. This is that
+# fix.
+#
+# ── Why an allowlist, and why it is generous inside the cluster ──────────────
+# A CiliumClusterwideNetworkPolicy with a nodeSelector puts the host endpoint
+# into default-deny for the directions it names. This one names ingress only,
+# so host EGRESS is untouched -- the node can still reach the internet, its
+# registries and its upstream DNS exactly as before.
+#
+# Everything already inside the cluster is allowed wholesale rather than
+# enumerated per port. That is deliberate: the pods scraping these endpoints
+# are governed by their own policies (default-deny.yaml plus the per-app
+# allows), so re-listing every metrics port here would duplicate that policy in
+# a second place and guarantee the two drift. What this file is for is the
+# boundary between the node and everything outside the cluster.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: host-ingress
+spec:
+  description: >-
+    Default-deny ingress on the node itself, allowing in-cluster traffic,
+    management access from the LAN and Tailscale, and service data paths.
+  # Empty selector = every node. On the 1-node cluster that is the single
+  # control plane; on the 3-node overlay it is all three, with no change here.
+  nodeSelector: {}
+  ingress:
+    # ── 1. Inside the cluster ────────────────────────────────────────────────
+    # host        the node reaching itself -- kube-apiserver to kubelet :10250
+    #             is host-to-host and breaks the API server if dropped
+    # remote-node other control-plane nodes: etcd peer :2380, trustd :50001
+    # cluster     pods -- vmagent scraping :9100/:2381/:996x/:10257/:10259,
+    #             hubble-relay reaching the peer service on :4244
+    # health      Cilium's own connectivity probes on :4240
+    # init        endpoints that have not yet been assigned an identity; without
+    #             this a pod is unreachable during the first moments of its life
+    - fromEntities:
+        - host
+        - remote-node
+        - cluster
+        - health
+        - init
+
+    # ── 2. Management plane ──────────────────────────────────────────────────
+    # Restricted to the LAN and the Tailscale CGNAT range. These three ports are
+    # the entire remote-administration surface of the node.
+    #
+    # :50000 is the one that matters most. It is talosctl, and it is the only
+    # way to undo a mistake in this file without physical access to the machine
+    # -- including reverting this policy itself. If a future edit narrows these
+    # CIDRs, confirm talosctl still answers BEFORE the change is anything other
+    # than trivially revertible.
+    - fromCIDRSet:
+        - cidr: 192.168.178.0/24
+        - cidr: 100.64.0.0/10
+      toPorts:
+        - ports:
+            - port: "50000"
+              protocol: TCP
+            - port: "50001"
+              protocol: TCP
+            - port: "6443"
+              protocol: TCP
+
+    # ── 3. Tailscale ─────────────────────────────────────────────────────────
+    # tailscaled's direct-connection port, and necessarily from world: the
+    # whole point is accepting from wherever the peer happens to be. What rides
+    # inside is authenticated and encrypted by Tailscale, so this is not the
+    # same kind of opening as an unauthenticated metrics port.
+    #
+    # This port only exists because subnet-router-hostnetwork.yaml pins it with
+    # --port=41641. Tailscale otherwise picks a random high port per start
+    # (observed 43242 / 37573), which no firewall rule can name.
+    #
+    # An earlier revision of this file allowed :51871 here and called it
+    # Tailscale. That was wrong: 51871 is CILIUM's WireGuard port
+    # (enable-wireguard=true), it carries node-to-node traffic rather than
+    # anything from world, and it is already covered by remote-node in rule 1.
+    # The audit-mode run below is what caught it -- the real Tailscale flow
+    # showed up as would-be-denied on a port this file never mentioned.
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "41641"
+              protocol: UDP
+
+    # ── 4. Service data path ─────────────────────────────────────────────────
+    # The Gateway's LoadBalancer VIP (192.168.178.200) is announced by L2
+    # announcements and translated by kube-proxy replacement in eBPF. That
+    # translation happens before the host endpoint's policy in most paths, which
+    # would make these rules unnecessary -- but "most paths" is not a guarantee,
+    # and the failure mode is every externally reachable service going dark at
+    # once. Cilium's own host-firewall documentation calls for allowing NodePort
+    # explicitly for this reason.
+    #
+    # Allowing a port the host does not listen on costs nothing: it grants reach
+    # to a closed port. What it buys is that a rollout of this policy cannot
+    # take the Gateway down. The pods behind these ports keep their own
+    # policies -- allow-gateway-world-ingress governs what the proxy accepts,
+    # and that is unchanged by anything here.
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+            - port: "30000"
+              endPort: 32767
+              protocol: TCP
+
+    # ── 5. ICMP ──────────────────────────────────────────────────────────────
+    # Path-MTU discovery depends on ICMP "fragmentation needed" getting back to
+    # the host. Dropping it does not fail loudly -- it produces connections that
+    # establish and then stall on the first large packet, which is a
+    # considerably worse outcome than the negligible exposure of answering a
+    # ping on a LAN that can already reach the management port above.
+    - fromCIDRSet:
+        - cidr: 192.168.178.0/24
+        - cidr: 100.64.0.0/10
+      icmps:
+        - fields:
+            - type: 8
+              family: IPv4
+            - type: 3
+              family: IPv4
