@@ -59,7 +59,7 @@ spec:
             - name: dump
               # python:3-alpine ships the sqlite3 module, so no extra install is
               # needed and no package fetch happens at backup time.
-              image: docker.io/library/python:3.12-alpine
+              image: docker.io/library/python:3.14-alpine
               command:
                 - /usr/local/bin/python
                 - -c

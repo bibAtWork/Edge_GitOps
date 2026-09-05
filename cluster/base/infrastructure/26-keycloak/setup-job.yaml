@@ -451,7 +451,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: setup
-          image: docker.io/library/python:3.12-alpine
+          image: docker.io/library/python:3.14-alpine
           command: ["python3", "/scripts/setup.py"]
           env:
             - name: KEYCLOAK_ADMIN
