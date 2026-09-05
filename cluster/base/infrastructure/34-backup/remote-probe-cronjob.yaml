@@ -51,7 +51,7 @@ spec:
               # amazon/aws-cli is already on this node and used by four other
               # backup CronJobs, and it runs happily as a non-root user -- so
               # root, needed only so apk could write to /usr/bin, goes too.
-              image: docker.io/amazon/aws-cli:2.36.38
+              image: docker.io/amazon/aws-cli:2.36.39
               command: ["/bin/sh", "/scripts/probe.sh"]
               env:
                 - name: VM_IMPORT_URL
