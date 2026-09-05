@@ -164,30 +164,44 @@ spec:
       template:
         metadata:
           labels:
-            # Needed for apk to reach the alpine mirrors.
+            # Selected by 34-backup/networkpolicy.yaml. Still required after
+            # dropping apk -- not for package mirrors, but for the wget metrics
+            # push to vmsingle further down. Cilium is default-deny egress, so
+            # without this the push hangs until it times out and the run loses
+            # its metrics while still reporting POLICY_OK.
             backup.homelab/egress: "true"
         spec:
           restartPolicy: OnFailure
           serviceAccountName: volume-backup-policy
           securityContext:
-            # root, because apk installs kubectl at start.
-            runAsUser: 0
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
             - name: policy
-              # alpine plus apk, matching the other jobs in this directory.
-              # bitnami/kubectl was the obvious choice and is not pullable --
-              # Bitnami moved their catalogue behind a subscription in 2025, so
-              # the tag resolves to nothing.
-              image: docker.io/library/alpine:3.24
+              # kubectl baked in, nothing installed at runtime.
+              #
+              # This pod used to be alpine plus `apk add kubectl`, which is all
+              # it ever needed. Installing packages at runtime writes new
+              # executables into a running container and executes them --
+              # Falco's "Executing binary not part of base image", at Critical,
+              # once per HOURLY run. That made this job the single largest
+              # source of Critical Falco events on the cluster, roughly 24 a
+              # day on its own. The options were to silence the rule or to stop
+              # doing the thing it detects; silencing it would have cost the
+              # detection that reports a genuinely compromised container.
+              #
+              # This image is already pulled on the node -- SUC uses it for its
+              # own Jobs -- and it runs as a non-root user. Same swap as
+              # restore-test-cronjob.yaml, which carries the fuller reasoning.
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
               command:
                 - /bin/sh
                 - -c
                 - |
                   set -eu
-                  apk add --no-cache kubectl >/dev/null 2>&1 || {
-                    echo "FATAL: kubectl install failed" >&2; exit 1; }
                   NOW="$(date -u +%s)"
                   LABELLED=0
                   CLEARED=0
