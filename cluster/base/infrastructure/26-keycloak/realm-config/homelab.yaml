@@ -284,7 +284,29 @@ clients:
     redirectUris:
       - https://immich.homelab.data-harness.org/auth/login
       - https://immich.homelab.data-harness.org/user-settings
+      # The Android/iOS app. It does not redirect to a URL -- it redirects to a
+      # custom scheme the OS hands back to the installed app, so this entry
+      # cannot be derived from the web origin below and has to be listed
+      # explicitly. Without it Keycloak refuses the login before any
+      # credentials are entered, and the app reports only
+      # "PlatformException(CANCELED, User canceled authentication)", which
+      # reads like the user dismissed the browser rather than a server-side
+      # refusal. The real error is only in Keycloak's event log:
+      #   error="invalid_redirect_uri" redirect_uri="app.immich:///oauth-callback"
+      #
+      # Three slashes is not a typo -- scheme + empty authority + path, the
+      # literal value the app sends. Keycloak matches redirect URIs exactly, so
+      # a two-slash variant would not match.
+      #
+      # The token exchange still happens server-side: the app hands the
+      # authorization code to the Immich server, which redeems it with the
+      # client secret. This client stays confidential.
+      - app.immich:///oauth-callback
     webOrigins:
+      # Deliberately not extended for the mobile entry above. webOrigins is
+      # CORS for browser XHR; a custom scheme handled by the OS makes no
+      # cross-origin browser request, so listing it here would widen nothing
+      # but the config.
       - https://immich.homelab.data-harness.org
     secret: $(env:IMMICH_CLIENT_SECRET)
   - clientId: kubernetes
