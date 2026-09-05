@@ -32,12 +32,26 @@ spec:
           restartPolicy: OnFailure
           automountServiceAccountToken: false
           securityContext:
-            runAsUser: 0
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
             - name: probe
-              image: docker.io/library/alpine:3.24
+              # aws-cli baked in, nothing installed at runtime.
+              #
+              # This pod was alpine plus `apk add aws-cli`, which writes new
+              # executables into a running container and executes them --
+              # Falco's "Executing binary not part of base image", at Critical.
+              # Monthly rather than hourly, so it contributed little of the
+              # volume, but it is the same class as volume-backup-policy and
+              # restore-test-cronjob.yaml, which carries the fuller reasoning.
+              #
+              # amazon/aws-cli is already on this node and used by four other
+              # backup CronJobs, and it runs happily as a non-root user -- so
+              # root, needed only so apk could write to /usr/bin, goes too.
+              image: docker.io/amazon/aws-cli:2.36.38
               command: ["/bin/sh", "/scripts/probe.sh"]
               env:
                 - name: VM_IMPORT_URL
@@ -99,6 +113,11 @@ spec:
                   memory: 256Mi
                 limits:
                   memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
           volumes:
             - name: scripts
               configMap:
