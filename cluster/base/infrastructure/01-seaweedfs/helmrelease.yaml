@@ -31,8 +31,26 @@ spec:
       seaweedfs:
         createClusterRole: true
 
-    image:
-      tag: "4.40"
+    # No image.tag on purpose. The chart resolves the tag as
+    #   {{ default .Chart.AppVersion .Values.image.tag }}
+    # and appVersion tracks the chart version 1:1 (chart 4.45.0 -> appVersion
+    # "4.45"), so leaving this unset makes the image follow the chart. That gives
+    # SeaweedFS one version in this repo instead of two, and means a Renovate
+    # chart bump actually moves what is running.
+    #
+    # It was pinned to "4.40", which was not a considered choice: the no-:latest
+    # linter (1c4be0c) replaced image.tag "latest" with the then-current
+    # appVersion. Correct on the day, a freeze immediately afterwards -- Renovate
+    # advanced the chart 4.40 -> 4.45 while the running image stayed on 4.40, and
+    # nothing reported the gap because from Helm's side every upgrade applied
+    # cleanly and the release stayed Ready.
+    #
+    # The freeze was visible as a split brain: the collection-routing Job pins the
+    # image separately, Renovate DOES track that one, and it had reached 4.45 --
+    # so a 4.45 client was running against 4.40 servers.
+    #
+    # Removing the field keeps the linter satisfied: it fails on a literal
+    # `tag: latest` line, and an absent tag matches nothing.
 
     # Efficiency review 2026-08-17: none of the three seaweedfs components had any
     # resources set, making all of them BestEffort QoS — the first pods the kubelet
