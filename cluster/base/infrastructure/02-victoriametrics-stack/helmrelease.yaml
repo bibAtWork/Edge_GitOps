@@ -158,6 +158,15 @@ spec:
 
     kube-state-metrics:
       enabled: true
+      # 7-day peak working set 222Mi; 512Mi leaves ~2.3x headroom. This scales
+      # with object count, so the headroom is the point -- a burst of Jobs or
+      # ReplicaSets grows it before anything else notices.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
       livenessProbe:
         initialDelaySeconds: 60
       readinessProbe:
@@ -262,8 +271,51 @@ spec:
     kubeEtcd:
       enabled: false
 
+    # The operator itself. 7-day peak 235Mi; 512Mi leaves ~2.2x. Unbounded, it
+    # was one of the 24 controllers failing require-resource-limits -- and it is
+    # the component that reconciles every other component here, so an OOM loop
+    # in it stops the whole stack converging.
+    victoria-metrics-operator:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+
+    # config-reloader is a sidecar the operator injects into vmagent, vmalert
+    # and vmauth. It shipped unbounded in all three, so one missing default
+    # produced three separate policy failures. 7-day peak 97Mi; 192Mi is ~2x.
+    #
+    # Set per-CR rather than globally because the operator exposes no
+    # cluster-wide default for it -- this deployment carries no
+    # VM_CONFIG_RELOADER_* env, so each CR has to name it.
+    vmagent:
+      spec:
+        configReloaderResources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 192Mi
+
+    vmauth:
+      spec:
+        configReloaderResources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 192Mi
+
     vmalert:
       spec:
+        configReloaderResources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 192Mi
         # No external notifiers: alert evaluation and routing is handled by
         # Grafana's native alerting engine. VMAlert runs for recording rules only.
         # notifier.blackhole suppresses the chart's "no notifier configured" error.

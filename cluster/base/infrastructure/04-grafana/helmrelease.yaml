@@ -3813,6 +3813,23 @@ spec:
         cpu: 100m
       limits:
         memory: 512Mi
+
+    # The download-dashboards initContainer, which is why the grafana Deployment
+    # failed require-resource-limits even though the grafana container above is
+    # bounded. Kyverno checks every container in the spec, initContainers
+    # included -- and the report names the Deployment, not the container, which
+    # reads as "grafana has no limit" and sends you to the wrong place.
+    #
+    # No measurement behind this one: it runs only at pod start and is gone
+    # before any scrape samples it. 128Mi is generous for a process that curls
+    # dashboard JSON onto a shared volume.
+    downloadDashboards:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
     # Inject GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET from grafana-oauth-secret into Grafana's env.
     # Grafana config below references it via $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}.
     envFromSecret: grafana-oauth-secret
