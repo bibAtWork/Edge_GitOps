@@ -11,7 +11,20 @@ metadata:
       from pulling images from untrusted sources that could introduce malware
       or bypass the Trivy vulnerability scanning pipeline in Zot.
 spec:
-  validationFailureAction: Audit
+  # Enforce, promoted from Audit on 2026-09-05.
+  #
+  # The Audit phase did its job and is finished: after correcting the
+  # allowlist (mirror.gcr.io, reg.kyverno.io, eight implicit Docker Hub
+  # organisations) and fully qualifying the images this repo controls, the
+  # rule reports 305 pass and 0 fail. Promoting it therefore changes nothing
+  # that runs today -- it changes what is allowed to start tomorrow, which is
+  # the only thing an admission policy is for.
+  #
+  # Deliberately NOT done for require-resource-limits, which still fails 71
+  # resources. Enforcing that today would block Longhorn and Cilium workloads
+  # that are unbounded on purpose. That one needs PolicyExceptions naming the
+  # known set first, which also makes the baseline visible rather than muted.
+  validationFailureAction: Enforce
   background: true
   rules:
     - name: check-image-registry
