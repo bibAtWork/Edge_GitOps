@@ -21,7 +21,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 - **Backup**: Longhorn snapshots/backups to local SeaweedFS, relayed one-way to an immutable AWS S3 vault ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md)) + Velero for Kubernetes objects + per-database logical dumps
 - **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with a Trivy/Renovate bridge that reports images carrying critical CVEs
 - **Ingress**: Envoy Gateway (Gateway API), fronting every application ([ADR-001](./docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md))
-- **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)). OIDC is enforced at the Gateway by Envoy itself; the OPA `ext_authz` authorization layer is wired but not yet reaching OPA (see [ADR-006](./docs/adr/0006-policy-engines-by-layer.md))
+- **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)), enforced at the Gateway: Envoy performs the OIDC flow, and OPA authorizes the resulting request via `ext_authz` ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md))
 - **Databases**: CloudNativePG operator (Keycloak, SeaweedFS filer metadata)
 - **Policy & runtime security**: Kyverno (admission policy) and OPA (request authorization) split by layer rather than by function ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md)), Falco (runtime detection), Kubescape (NSA/MITRE posture scanning)
 - **VPN**: Tailscale Kubernetes Operator

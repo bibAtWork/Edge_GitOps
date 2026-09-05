@@ -84,13 +84,29 @@ matches what is enforced.
 
 ## Status of the OPA path
 
-Recorded because the decision above assumes a working `ext_authz` and it is not yet working.
+**The `ext_authz` path works.** An earlier reading of this concluded it was inert; that was
+wrong, and the error is worth recording because it is easy to repeat.
 
-All three `SecurityPolicy` resources set `failOpen: false`. OPA's own logs show it has never
-received a non-`/health` request in the life of the pod — the `ext_authz` call does not reach
-it. Envoy's separate `oidc` block *does* work (`hubble` returns a 302 to Keycloak), so the
-OIDC half and the authorization half fail independently.
+OPA's HTTP access log records `/health` probes with `"Received request"`. Its **gRPC
+`ext_authz` decisions are not logged that way** — they appear as decision-log entries carrying
+`decision_id` and the full Envoy `input.attributes`. Grepping for `"Received request"`
+therefore returns only kubelet probes and makes a working authorizer look dead.
 
-This is currently harmless only because no traffic arrives. **Repairing the routing without
-first reviewing OPA's policy would make every route behind it fail closed.** Fix the wiring and
-the policy together.
+Verified by driving traffic and watching the decisions: four requests to `immich`, `paperless`,
+`grafana` and `zot` produced four decisions with matching `host` values, each
+`{"allowed": true}` — via the policy's own rule 5, *no Authorization header → browser OIDC
+flow → allow through*, since those apps handle their own session auth.
+
+Two structural details that also look like faults and are not:
+
+- The Gateway-level policy `homelab-gateway-authz` reports `Overridden=True` for
+  `keycloak-admin`, `hubble-ui` and `kubeopencode`. That is Envoy Gateway precedence working
+  as designed: a route-level `SecurityPolicy` supersedes a Gateway-level one. Two of those
+  three declare their own `extAuth` to the same OPA service.
+- An unauthenticated request to `hubble` returns 302 and never reaches OPA. Also correct —
+  `oidc` runs before `extAuth`, so the redirect happens first. Testing an admin-only app
+  unauthenticated cannot exercise the authorization layer.
+
+`failOpen: false` on all three policies is therefore load-bearing rather than theoretical: OPA
+is genuinely in the request path, and an OPA outage denies those routes. That is the intended
+trade, but it means OPA's availability is now part of the Gateway's availability.
