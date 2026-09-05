@@ -35,6 +35,80 @@ talosctl  kubectl  flux  sops  age  terraform  python3
 
 ---
 
+## Network reachability — the recovery path
+
+Every scenario below assumes you can still reach the node. Since the host firewall was
+enforced (`cluster/base/infrastructure/10-network-policies/host-ingress.yaml`), that is no
+longer a given, so it is worth stating plainly.
+
+**Port 50000/TCP — the Talos API — is the only remote recovery path.** It is what
+`talosctl` uses, and it is the only way to undo a mistake in the host firewall without
+physical access to the machine — including reverting the firewall policy itself. If it is
+unreachable and the Kubernetes API is also down, recovery requires a keyboard and monitor
+attached to the node.
+
+It is reachable from two source ranges only:
+
+| range | what it is |
+| --- | --- |
+| `192.168.178.0/24` | the LAN |
+| `100.64.0.0/10` | Tailscale (CGNAT range) |
+
+`50001` (trustd) and `6443` (Kubernetes API) are scoped to the same two ranges. Everything
+else on the host — etcd metrics `:2381`, node-exporter `:9100`, the Cilium metrics ports,
+Hubble's peer service, and the controller-manager/scheduler metrics — is reachable only from
+inside the cluster.
+
+### Before narrowing those CIDRs
+
+If a future change tightens either range, **confirm `talosctl` still answers before the change
+stops being trivially revertible** — that is, while you still have a working `kubectl` to
+delete the policy with:
+
+```bash
+talosctl version --short          # must return a Server tag
+kubectl get ciliumclusterwidenetworkpolicy host-ingress
+```
+
+Losing both `50000` and `6443` at once is the failure that requires physical access. Losing
+only `6443` is recoverable, because `talosctl` can still reach the node.
+
+### If you are already locked out of Kubernetes
+
+`talosctl` does not depend on the Kubernetes API, so it keeps working when `kubectl` does not:
+
+```bash
+talosctl version --short
+talosctl service etcd
+talosctl netstat --listening --tcp --programs
+```
+
+To remove the host firewall when `kubectl` is unavailable, the practical route is to restart
+the Cilium agent through Talos and then delete the policy during the window before it is
+re-applied — or, more reliably, revert the policy in git and let Flux reconcile it away.
+
+### Changing this policy safely
+
+Roll any edit through Cilium's audit mode first — it logs what *would* be dropped instead of
+dropping it:
+
+```bash
+# host endpoint id comes from `cilium-dbg endpoint list` (look for reserved:host)
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- \
+  cilium-dbg endpoint config <host-ep-id> PolicyAuditMode=Enabled
+
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- \
+  cilium-dbg monitor --type policy-verdict | grep "action audit"
+```
+
+`action audit` marks a flow that would have been denied. Two real defects were found this way
+when the policy was first rolled out, neither visible from reading the configuration.
+
+**Audit mode does not survive a Cilium agent restart.** If the agent restarts mid-rollout, the
+host endpoint switches to real enforcement with whatever policy is loaded at that moment.
+
+---
+
 ## Decision Tree
 
 ```mermaid
