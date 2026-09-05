@@ -63,3 +63,34 @@ spec:
         memory: 256Mi
       limits:
         memory: 512Mi
+
+    # The two sidecar charts ship with no memory limit at all, which made them
+    # 2 of the 24 unbounded containers on this node. Both numbers below are
+    # measured, not guessed: the limit is roughly 2.5-5x each container's
+    # observed 7-day peak working set.
+    #
+    # Measuring first is the whole point. This cluster has already had a
+    # limit-less container silently capped at 256Mi by a namespace LimitRange
+    # and OOM-killed for it, so a blanket default is the failure mode being
+    # avoided here rather than the fix. Explicit beats implicit: a limit
+    # written next to the workload is visible in review, whereas a LimitRange
+    # default applies invisibly to anything that forgets to set one.
+    falcoctl:
+      artifact:
+        follow:
+          # 7-day peak 45Mi.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+
+    k8s-metacollector:
+      # 7-day peak 143Mi.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 384Mi
