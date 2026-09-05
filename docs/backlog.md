@@ -748,3 +748,68 @@ Two real fixes, neither of which can be applied without a decision:
 
 Until one is chosen, treat any open `trivy-auto-patch/*` PR as unreviewed by CI regardless
 of what the checks column shows.
+
+## Four database backup scripts implement the same thing four times
+
+Not an offsite-path problem. The two-stage architecture is intact and there is exactly one
+central push to AWS: `backup-relay` (rclone `copy`, never `sync`) is the only job that writes
+backup data to `s3://homelab-backup-vault`. Everything else either writes to the LOCAL
+SeaweedFS store or reads from AWS to verify it. Confirmed by inspection: every `aws s3 cp`
+without `--endpoint-url` has a `/tmp/...` destination, and the reconciler's only AWS write is
+`put-object-tagging` -- tags, not objects, so remote deletion stays with an S3 Lifecycle rule
+and no cluster credential ever holds `s3:DeleteObject`.
+
+What is duplicated is the local half. Four CronJobs -- `keycloak-postgres-backup`,
+`immich-postgres-backup`, `paperless-sqlite-backup`, `seaweedfs-filer-postgres-backup` --
+each implement dump, gzip, upload, and byte read-back independently, in four separately
+maintained shell scripts against the same endpoint. They agree today because they were
+written together and have been corrected together; nothing makes them agree tomorrow.
+
+The cost is already visible in this repo's history. The postgres 16/17 -> 18 image bump had
+to be verified four times. The read-back check -- the thing that distinguishes a real backup
+from a listing, and which exists because SeaweedFS has served phantom objects here -- lives
+in four places, so a fifth database added by someone in a hurry gets it only if they
+remember. The same applies to the `backup.homelab/egress` label, whose absence silently costs
+metrics rather than failing.
+
+Consolidating is not free either: the four differ in real ways (pg_dump vs sqlite, different
+credentials, different buckets), so a shared script means parameterising those differences
+and a shared ConfigMap means a change to one job can break the other three at once. That
+tradeoff is why this is a backlog entry and not a fix.
+
+Worth doing when a fifth database appears, which is the point at which copy-paste stops being
+the cheaper option.
+
+## Nothing actually BLOCKS installing software into a running container
+
+Falco detects it. Nothing prevents it.
+
+`apk add` in a running pod is what produced the largest single source of Critical Falco events
+on this cluster -- 108 in three hours from `volume-backup-policy` alone before it was fixed
+(#479). The fix was per-job: swap to an image that already carries the tool. That works and
+should stay, but it is a convention, and conventions do not survive the next job someone adds
+in a hurry.
+
+Three enforcement layers exist here and none of them stop it:
+
+- **Pod Security Standards** are enforced on every namespace (17 restricted, 4 baseline,
+  9 privileged). The `restricted` profile does not include `readOnlyRootFilesystem`, so it
+  permits writing new executables into the image at runtime.
+- **Kyverno** runs `Audit` only. Both policies report; neither denies. Adding a policy today
+  changes a report, not an outcome.
+- **Cilium default-deny egress** is the one thing that partly bites: a package manager cannot
+  reach its mirrors from a namespace without an egress allowance. That is accidental
+  protection, and it fails exactly where it matters least -- the backup jobs all carry
+  `backup.homelab/egress: "true"` for their metrics push, which incidentally also let `apk`
+  out.
+
+The mechanical block is `readOnlyRootFilesystem: true`: `apk add` cannot write to `/usr/bin`
+and fails at the write rather than being reported after the fact. 29 of 84 running containers
+set it; 55 do not, concentrated in longhorn-system (12), monitoring (11) and kube-system (9)
+-- largely third-party charts where it is not ours to set and where some genuinely need a
+writable root.
+
+So the honest sequencing is: set `readOnlyRootFilesystem` on the workloads this repo owns,
+find which break, and only then consider a Kyverno rule -- and note that such a rule is
+inert until Kyverno moves from Audit to Enforce, which is a larger decision with its own
+blast radius and belongs in its own entry.
