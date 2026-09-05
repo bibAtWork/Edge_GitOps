@@ -65,8 +65,21 @@ spec:
       serviceAccountName: local-path-provisioner-service-account
       containers:
         - name: local-path-provisioner
-          image: rancher/local-path-provisioner:v0.0.37
+          image: docker.io/rancher/local-path-provisioner:v0.0.37
           imagePullPolicy: IfNotPresent
+          # Measured, not guessed: 7-day peak working set is 96Mi. This was one
+          # of 24 containers on this node carrying no memory limit at all.
+          #
+          # It is not the worst of those 24 -- the Longhorn and Cilium ones are
+          # deliberately unbounded, because an OOM kill there costs live I/O or
+          # cluster networking -- but this one has no such argument for it, and
+          # a runaway here would compete with workloads that do matter.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
           command:
             - local-path-provisioner
             - --debug
