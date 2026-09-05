@@ -1,0 +1,85 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-hostpath-volumes
+  annotations:
+    policies.kyverno.io/title: Restrict hostPath Volumes
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Application workloads must not mount host filesystem paths. A hostPath
+      volume escapes the container boundary: it can read host state a pod has
+      no business seeing, and a writable one can modify the node itself.
+spec:
+  # Audit, and scoped so the report means something.
+  #
+  # Measured first: 71 hostPath mounts across 7 namespaces, and every current
+  # user is infrastructure that cannot work without it --
+  # /var/lib/kubelet/plugins/driver.longhorn.io (CSI), /proc and /lib/modules
+  # (Falco kernel introspection), /sys/fs/bpf and the Cilium Envoy sockets,
+  # /var/log/audit/kube (the audit log collector).
+  #
+  # Auditing all of them would produce a permanently-failing rule with a
+  # ~71-item baseline, and a new hostPath in an application namespace would be
+  # invisible inside it. This repo already has one rule in that state
+  # (require-resource-limits, 71 failures) and the lesson from it is that a
+  # report nobody can act on stops being read.
+  #
+  # So the infrastructure namespaces are excluded by name below. The cost is
+  # honest and worth stating: this policy does NOT protect those namespaces,
+  # which are exactly the ones with the most host access. It is a tripwire for
+  # hostPath appearing where it has no reason to be -- an application
+  # namespace -- not a general control on host mounts. Anything added to the
+  # exclusion list later is a decision, not a formality.
+  #
+  # What it actually covers, checked rather than assumed: Pod Security
+  # Standards `restricted` already forbids hostPath, and 17 namespaces enforce
+  # it -- so this rule is only load-bearing in the baseline/privileged ones
+  # that are not excluded above. That is six: immich, keycloak, monitoring and
+  # paperless (baseline), plus local-path-storage and velero (privileged).
+  # The first four are application namespaces where a hostPath would be
+  # genuinely suspicious, which is the case worth catching.
+  #
+  # It reports 0 today. Before promoting to Enforce, note that
+  # local-path-storage provisions volumes by spawning helper Pods that mount
+  # a host path by design -- those are created dynamically and would be
+  # blocked. Enforcing without excluding that namespace would break PVC
+  # provisioning on the default StorageClass.
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-hostpath
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                # CSI plugin registration and the Longhorn engine's device paths.
+                - longhorn-system
+                # Cilium (eBPF maps, Envoy sockets), kube-proxy, CoreDNS.
+                - kube-system
+                # Kernel introspection is the entire function of this component.
+                - falco
+                # node-exporter reads /proc and /sys; otel-agent tails
+                # /var/log/audit/kube.
+                - monitoring-agents
+                # SUC upgrade Jobs need host access to run talosctl.
+                - cattle-system
+                # hostNetwork subnet router.
+                - tailscale
+                # Local volume paths for the object store.
+                - seaweedfs
+                - flux-system
+                - kyverno
+      validate:
+        message: >-
+          hostPath volumes are not permitted in application namespaces. Use a
+          PersistentVolumeClaim, a ConfigMap, or an emptyDir instead.
+        pattern:
+          spec:
+            =(volumes):
+              - X(hostPath): "null"
