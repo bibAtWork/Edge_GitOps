@@ -52,7 +52,7 @@ spec:
             - name: dump
               # Must match the server's major version -- pg_dump refuses to dump
               # from a newer server than itself.
-              image: docker.io/library/postgres:16-alpine
+              image: docker.io/library/postgres:18-alpine
               command:
                 - /bin/sh
                 - -c
