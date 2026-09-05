@@ -1,0 +1,68 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-probes
+  annotations:
+    policies.kyverno.io/title: Require Liveness or Readiness Probe
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Long-running containers should declare at least one probe. Without one,
+      Kubernetes treats "the process has not exited" as "the workload is
+      healthy", so a deadlocked or wedged container keeps receiving traffic and
+      is never restarted.
+spec:
+  # Audit. 21 of 84 running containers currently declare neither a liveness nor
+  # a readiness probe, spread across longhorn-system (8), kube-system (2),
+  # kyverno (2), tailscale (2), and one each in cattle-system, cert-manager,
+  # falco and local-path-storage.
+  #
+  # Severity is deliberately low: this is an availability property, not a
+  # security one.
+  #
+  # The match is on Deployment/StatefulSet/DaemonSet rather than Pod, which
+  # matters. A container that legitimately runs to completion needs no probe,
+  # and several of the 21 counted at Pod level are short-lived Job pods where
+  # a probe would be meaningless -- at Pod level Kyverno cannot tell those
+  # apart from a wedged long-running process without reading ownerReferences.
+  # Matching the controller kinds excludes them structurally instead.
+  #
+  # Audit rather than Enforce because the remaining set is mostly third-party
+  # charts, where the fix is an upstream values change rather than something
+  # this repo can make. The number is a prompt to look at a specific workload.
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-probe-present
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - flux-system
+                - kyverno
+      validate:
+        message: >-
+          Containers in a long-running workload should declare a livenessProbe
+          or a readinessProbe, so a wedged process is detected rather than
+          assumed healthy.
+        anyPattern:
+          - spec:
+              template:
+                spec:
+                  containers:
+                    - livenessProbe:
+                        <(failureThreshold): "?*"
+          - spec:
+              template:
+                spec:
+                  containers:
+                    - readinessProbe:
+                        <(failureThreshold): "?*"

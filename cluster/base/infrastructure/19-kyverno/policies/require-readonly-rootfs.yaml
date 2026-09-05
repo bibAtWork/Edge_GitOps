@@ -1,0 +1,56 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-readonly-rootfs
+  annotations:
+    policies.kyverno.io/title: Require Read-Only Root Filesystem
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Containers should run with a read-only root filesystem. This is the only
+      control in this cluster that actually PREVENTS installing software into a
+      running container, rather than detecting it afterwards.
+spec:
+  # Audit, and it will stay Audit for a while.
+  #
+  # Measured before writing this: 55 of 84 running containers have no
+  # readOnlyRootFilesystem, concentrated in longhorn-system (12), monitoring
+  # (11) and kube-system (9). Enforcing today would block most of the cluster,
+  # and many of those are third-party charts where the field is not ours to set
+  # and some genuinely need a writable root.
+  #
+  # Why this rule is worth having anyway: Falco DETECTS `apk add` in a running
+  # container -- it was the largest single source of Critical events here, 108
+  # in three hours from one hourly job -- but nothing PREVENTS it. Pod Security
+  # Standards are enforced on all 30 namespaces, and the `restricted` profile
+  # does not include readOnlyRootFilesystem. A read-only root makes the install
+  # fail at the write, before anything executes.
+  #
+  # Promotion path: set readOnlyRootFilesystem on the workloads this repo owns,
+  # let this report shrink, then grant PolicyExceptions to the third-party set
+  # that legitimately cannot comply, and only then consider Enforce. See ADR-006.
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-readonly-rootfs
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - flux-system
+                - kyverno
+      validate:
+        message: >-
+          Containers should set securityContext.readOnlyRootFilesystem: true.
+          Mount an emptyDir at any path the process genuinely needs to write.
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true

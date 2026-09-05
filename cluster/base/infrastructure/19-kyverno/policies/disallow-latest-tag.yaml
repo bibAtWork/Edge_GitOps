@@ -1,0 +1,58 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Images must carry an explicit, immutable tag. A `:latest` or untagged
+      image makes the running version unknowable and unreproducible: two pods
+      of the same Deployment can run different code, and a restart can change
+      behaviour with no corresponding change in git.
+spec:
+  # Enforce from the start, which is unusual here and deliberate.
+  #
+  # Measured before writing this: 0 of 84 running containers use :latest or an
+  # untagged image. So enforcing changes nothing that runs today and only
+  # constrains what may start -- the same reasoning that made
+  # restrict-image-registries safe to promote, without needing an Audit phase
+  # to discover the violations, because there are none.
+  #
+  # This is not redundant with the existing CI lint (scripts/check-no-latest.sh).
+  # That guards what enters git. This guards what enters the CLUSTER, which is
+  # not the same set: a kubectl apply by hand, a Helm chart's own default, or an
+  # operator-generated Pod never passes through CI. The repo has already been
+  # bitten by a git-side guard with a regex bug that passed everything for as
+  # long as it existed -- see docs/backlog.md, the schenkmatch entry.
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-explicit-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      # kube-system and flux-system are excluded for the same reason the other
+      # policies exclude them: their workloads are installed by the bootstrap
+      # path and by Flux itself, so a denial there can prevent the cluster from
+      # reconciling its way back to health.
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - flux-system
+                - kyverno
+      validate:
+        message: >-
+          Images must use an explicit tag. ':latest' and untagged images are not
+          permitted -- the running version must be knowable from the manifest.
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+            =(initContainers):
+              - image: "!*:latest"
