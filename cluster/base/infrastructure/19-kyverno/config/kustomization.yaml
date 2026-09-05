@@ -7,3 +7,4 @@ resources:
   - ../policies/require-readonly-rootfs.yaml
   - ../policies/restrict-hostpath-volumes.yaml
   - ../policies/require-probes.yaml
+  - ../policies/set-revision-history-limit.yaml

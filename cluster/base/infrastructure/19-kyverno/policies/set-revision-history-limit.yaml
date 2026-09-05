@@ -1,0 +1,76 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: set-revision-history-limit
+  annotations:
+    policies.kyverno.io/title: Set Revision History Limit
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Default a Deployment's revisionHistoryLimit to 3 when it does not set one.
+      Kubernetes defaults to 10, which on a cluster that reconciles frequently
+      leaves an unbounded trail of superseded ReplicaSets.
+spec:
+  # This is a mutate policy, so it has no Audit mode -- it either changes
+  # objects or it does not. That is why the anchor below matters more than
+  # usual.
+  #
+  # Why: 52 of 56 Deployments carry the Kubernetes default of 10. A manual
+  # sweep on 2026-09-05 removed 158 superseded ReplicaSets, and within hours
+  # of a normal working day the count was back to 13. The sweep was never the
+  # fix -- it treated a symptom that regenerates on every rollout -- and the
+  # residue is not merely untidy: 30 of the 73 require-resource-limits
+  # failures are stale ReplicaSets restating the same finding as their live
+  # Deployment, which inflates a 24-controller problem into a 73-item report.
+  #
+  # The obvious form of this rule does not work, and the reason is worth
+  # writing down. `+(revisionHistoryLimit): 3` is Kyverno's ADD anchor -- set
+  # the field only when absent -- and it never fires here, because the API
+  # server applies its own default of 10 while decoding the object, BEFORE any
+  # admission webhook sees it. By the time Kyverno is consulted the field is
+  # always present. Tested: a Deployment submitted with no revisionHistoryLimit
+  # came back as 10, unmutated.
+  #
+  # So the rule keys on the value instead: mutate only when it is exactly 10.
+  # That has an honest cost -- a Deployment that deliberately sets 10 is
+  # indistinguishable from one that said nothing, and will be changed to 3. The
+  # consequence is fewer retained rollback revisions for that workload, and
+  # nothing else. Every value other than 10 is left alone, which covers the
+  # four that state their own today (three at 3, one at 2).
+  #
+  # This is also what keeps it safe alongside Flux. Where a manifest does not
+  # mention the field, Kyverno owns it under server-side apply and Flux has
+  # nothing to contest; where a manifest declares a value other than 10, this
+  # rule does not touch it.
+  #
+  # Deployments only. StatefulSets and DaemonSets keep controller revisions
+  # rather than ReplicaSets, and their default of 10 is both cheaper and not
+  # what produced this.
+  background: true
+  rules:
+    - name: default-revision-history
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+      # kube-system and flux-system are excluded on the same grounds as every
+      # other policy here: mutating what installs and reconciles the cluster is
+      # the wrong place to be clever, and a mutation that breaks flux-system
+      # removes the mechanism that would undo it.
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - flux-system
+                - kyverno
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.revisionHistoryLimit || `0` }}"
+            operator: Equals
+            value: 10
+      mutate:
+        patchStrategicMerge:
+          spec:
+            revisionHistoryLimit: 3
