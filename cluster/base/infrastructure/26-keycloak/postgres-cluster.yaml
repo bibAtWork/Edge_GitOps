@@ -19,7 +19,7 @@ spec:
   # Must match the version being migrated from -- pg_dump refuses to read a
   # server newer than itself, and a restore into an older major fails outright.
   # The bitnami StatefulSet ran postgres:16-alpine.
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.10
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15
 
   # Single instance. This is a one-node cluster: a second replica has nowhere to
   # run, and CNPG would leave it permanently pending. Durability comes from the
