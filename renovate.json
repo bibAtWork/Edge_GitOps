@@ -99,7 +99,7 @@
         "allowedVersions": "<110.0.0 || >110.0.0"
     },
     {
-      "description": "Group all Talos ecosystem updates into one PR. talosctl is no longer tracked separately -- its image tag is now the same Kustomize-replacements field as TALOS_VERSION (see config/kustomization.yaml), so it cannot drift from it the way it used to and needs no manager of its own.",
+      "description": "Group the CLUSTER's Talos updates into one PR: versions.env's TALOS_VERSION and the machineconfig installer tag. Those two must move together -- talos-image-check fails a PR where they disagree -- so splitting them would produce a PR that fails its own check. The talosctl IMAGE in the SUC Plans needs no manager of its own: it is the same Kustomize-replacements field as TALOS_VERSION (see config/kustomization.yaml), so it cannot drift. The workstation talosctl BINARY in bootstrap/ is deliberately NOT in this group -- see the talos-cli rule at the end of this list.",
       "matchPackageNames": ["siderolabs/talos"],
       "groupName": "talos",
       "automerge": false,
@@ -151,6 +151,20 @@
         "trivy-operator"
       ],
       "automerge": false
+    },
+    {
+      "description": "Split the admin workstation's talosctl CLI out of the cluster Talos group. bootstrap/ansible/group_vars/all.yml pins a BINARY downloaded onto a laptop (roles/homelab-tools fetches talosctl-{os}-{arch} from the release). That is a different artifact from the cluster's OS version, it touches no node, and it cannot break an upgrade. The rule grouping all siderolabs/talos updates has a rationale written about the ghcr.io/siderolabs/talosctl IMAGE in the SUC Plans -- which genuinely is driven by the same Kustomize replacement as TALOS_VERSION. The workstation binary was swept in only because it resolves to the same GitHub release. Talos supports client/server skew (a reboot on 2026-09-05 printed 'server version 1.13.0 is older than client version 1.13.6' as a normal warning), so these need not move together -- and bundling them puts a laptop tool bump in the same PR that reboots the cluster.",
+      "matchFileNames": [
+        "bootstrap/ansible/group_vars/all.yml"
+      ],
+      "matchPackageNames": [
+        "siderolabs/talos"
+      ],
+      "groupName": "talos-cli",
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
     }
   ]
 }
