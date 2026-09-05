@@ -3701,4 +3701,4 @@ spec:
         use_pkce: true
         auto_login: false
     image:
-      tag: 12.4.8
+      tag: 12.4.10
