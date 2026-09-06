@@ -661,29 +661,28 @@ spec:
             folder: Security
             interval: 5m
             rules:
-              # Two scoping decisions, both deliberate.
+              # Scoped by ENFORCEMENT MODE, not by policy name.
               #
-              # rule_result, not result -- the metric has no `result` label, so
-              # this rule matched nothing at all until 2026-09-04 while showing
-              # Ready. 4,392 recorded failures were invisible to it.
+              # An Audit policy exists to produce a report. By definition it
+              # describes a tolerated baseline, so it must never page anyone --
+              # and this rule learned that the hard way twice. First it matched
+              # `result` instead of `rule_result` and fired on nothing while
+              # 4,392 real failures went unseen. Then, once fixed, it was scoped
+              # by excluding a single policy by name; adding four more policies
+              # on 2026-09-05 left the exclusion behind and the alert fired
+              # continuously on 23 failures per 5m, essentially all of them the
+              # accepted read-only-rootfs and probe baselines.
               #
-              # require-resource-limits is excluded. It fails across most
-              # namespaces because many workloads genuinely have no limits, and
-              # for longhorn-system that is a documented decision rather than an
-              # oversight -- instance-manager is deliberately unbounded because
-              # an OOM there is I/O loss on live volumes, not a restart. Leaving
-              # it in would make this rule fire continuously on a known,
-              # unchanging baseline, which is how an alert stops being read.
-              # Re-including it is the natural trigger for closing that gap.
+              # policy_validation_mode is a real label on this metric, carrying
+              # `enforce` or `audit`. Keying on it means a new Audit policy adds
+              # nothing here and a policy promoted to Enforce is picked up
+              # automatically -- there is no list to keep in step, which is the
+              # thing that actually failed last time.
               #
-              # restrict-image-registries was the other continuous source, and
-              # it is fixed rather than muted -- in two places. The allowlist
-              # was missing two first-party registries the cluster actually
-              # pulls from (mirror.gcr.io, reg.kyverno.io), and four manifests
-              # named their images bare -- `python:3.14.7-slim` rather than
-              # `docker.io/library/python:3.14.7-slim`. Kyverno globs against
-              # the literal string, so `docker.io/*` never matched those, and
-              # they failed a policy they were never actually violating.
+              # What it now means: an Enforce policy recorded a failure. Since
+              # Enforce blocks at admission, that is either a resource that
+              # predates enforcement or a rejected request -- both worth
+              # knowing, and both currently 0.
               - uid: kyverno-policy-violation
                 title: KyvernoPolicyViolation
                 condition: B
@@ -694,7 +693,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'sum(increase(kyverno_policy_results_total{rule_result="fail", policy_name!="require-resource-limits"}[5m])) or vector(0)'
+                      expr: 'sum(increase(kyverno_policy_results_total{rule_result="fail", policy_validation_mode="enforce"}[5m])) or vector(0)'
                       instant: true
                       range: false
                       refId: A
