@@ -44,6 +44,36 @@ loginWithEmailAllowed: true
 verifyEmail: false
 resetPasswordAllowed: false
 
+# ── Brute force and password policy ──────────────────────────────────────────
+# bruteForceProtected is already true on the live realm, with failureFactor 30
+# and maxFailureWaitSeconds 900 -- read directly out of realm_attribute, since
+# the admin API could not be authenticated against the credentials available in
+# the pod. It is declared here anyway: an unstated value is Keycloak's default,
+# and a default is not a decision. Pinning it means an upgrade that changes the
+# default cannot silently change this realm.
+#
+# failureFactor drops 30 -> 10. Thirty failed attempts before any delay is a
+# lot for a realm with two human users, and the wait is temporary rather than a
+# permanent lockout, so there is no self-lockout risk to trade against.
+bruteForceProtected: true
+failureFactor: 10
+maxFailureWaitSeconds: 900
+permanentLockout: false
+
+# passwordPolicy was genuinely absent -- confirmed as literally empty on both
+# realms in the database, not merely undeclared here.
+#
+# Deliberately modest. Most access to this realm arrives through Google as an
+# identity provider, so this governs the small number of local passwords, and
+# the admin account among them. Length does the real work; complexity rules
+# mostly push people toward predictable substitutions. notUsername and notEmail
+# block the two guesses an attacker makes first, and passwordHistory stops a
+# forced change being a change back.
+#
+# It applies on the next password set or change, not retroactively, so nothing
+# existing breaks when this lands.
+passwordPolicy: "length(12) and notUsername and notEmail and passwordHistory(3)"
+
 defaultGroups:
   - /self-service
 
