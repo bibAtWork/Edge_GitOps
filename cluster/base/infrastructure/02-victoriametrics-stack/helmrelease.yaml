@@ -327,6 +327,20 @@ spec:
 
     vmalert:
       spec:
+        # The chart default is a 200Mi request against a 500Mi limit. 7-day p95
+        # working set is 56Mi -- this instance evaluates recording rules only
+        # (notifier.blackhole below), which is the cheap half of what vmalert
+        # normally does, so the default is sized for a job it is not doing.
+        #
+        # 96Mi request is ~1.7x observed, 256Mi limit ~4.5x. The reclaimed
+        # ~104Mi is capacity the scheduler can actually offer something else on
+        # a single node, which is the whole point of a request being accurate.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 96Mi
+          limits:
+            memory: 256Mi
         configReloaderResources:
           requests:
             cpu: 10m
