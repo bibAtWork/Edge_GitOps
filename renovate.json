@@ -165,6 +165,19 @@
       "addLabels": [
         "manual-review"
       ]
+    },
+    {
+      "description": "Never bump the postgres backup client across a major. These three images run pg_dump against keycloak-pg, filer-meta-pg and immich-postgresql, and each must match its server's major: pg_dump emits SQL for its OWN version, with no target-version flag and no down-conversion, so a dump taken by a newer client can fail to replay into an older server. On 2026-09-05 Renovate moved all three to 18 -- two majors ahead of two of the servers. Nothing caught it, because the DUMP direction kept working and the read-back checks kept passing; the failure would have appeared for the first time during an actual restore. Renovate cannot know these versions are coupled to a server it never sees, so the coupling is enforced here. Patch and minor updates within the pinned major still flow normally.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "docker.io/library/postgres"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ]
 }
