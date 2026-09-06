@@ -55,7 +55,19 @@ spec:
               # than itself, so a 16 client here produced a 20-byte file and
               # the size guard below rejected it. Bump this in step with the
               # postgresql chart, not independently.
-              image: docker.io/library/postgres:18-alpine
+              # MUST match immich-postgresql's server major (17). pg_dump emits SQL
+              # for its OWN version -- there is no target-version flag and no
+              # down-conversion -- so a dump taken by a newer client can fail
+              # to replay into an older server on syntax or catalog constructs
+              # that postdate it.
+              #
+              # Renovate moved all three of these to 18-alpine on 2026-09-05,
+              # two majors ahead of this server. The DUMP direction kept
+              # working and the read-back checks kept passing, which is why
+              # nothing caught it: the failure would have appeared for the
+              # first time during an actual restore. renovate.json now blocks
+              # major bumps on this image for that reason.
+              image: docker.io/library/postgres:17-alpine
               command:
                 - /bin/sh
                 - -c
