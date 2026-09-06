@@ -98,7 +98,10 @@ spec:
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
+      # 256Mi -> 128Mi. 7-day p95 is 76Mi. This database holds two realms and
+      # two users; its working set is small and stable, and the old request
+      # reserved more than three times what it has ever used.
+      memory: 128Mi
     limits:
       memory: 1Gi
 

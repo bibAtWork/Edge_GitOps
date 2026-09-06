@@ -113,7 +113,10 @@ spec:
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
+      # 256Mi -> 160Mi. 7-day p95 is 105Mi. Larger than keycloak's because this
+      # holds the filer's metadata index, which grows with object count -- hence
+      # 1.5x headroom rather than keycloak's 1.7x on a smaller absolute number.
+      memory: 160Mi
     limits:
       memory: 1Gi
 
