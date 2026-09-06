@@ -57,7 +57,7 @@ spec:
         - name: create-buckets
           # (force-annotation verification 2026-09-05: a pod-spec change that
           # would previously have blocked every Kustomization)
-          image: amazon/aws-cli:2.36.39
+          image: amazon/aws-cli:2.36.40
           env:
             - name: AWS_DEFAULT_REGION
               value: us-east-1
