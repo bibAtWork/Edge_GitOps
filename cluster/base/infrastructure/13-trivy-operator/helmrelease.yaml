@@ -163,6 +163,14 @@ spec:
     resources:
       requests:
         cpu: 100m
-        memory: 128Mi
-      limits:
+        # 128Mi -> 512Mi. 7-day p95 is 507Mi, so this ran at 4x its request and
+        # was the single most evictable pod on the node: the kubelet ranks
+        # Burstable pods by how far usage exceeds request, and nothing else came
+        # close to that ratio. It is also not the cause of memory pressure, so
+        # it was first to die for someone else's spike.
         memory: 512Mi
+      limits:
+        # Raised with the request. A p95 of 507Mi against a 512Mi ceiling is a
+        # workload living at its limit, so leaving the limit there would trade
+        # eviction risk for OOM-kill risk rather than removing it.
+        memory: 1Gi

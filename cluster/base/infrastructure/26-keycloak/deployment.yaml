@@ -92,11 +92,16 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 384Mi
+              # 384Mi -> 640Mi. 7-day p95 is 608Mi: the JVM heap settles well
+              # above the old request, so the scheduler was placing on a number
+              # this pod passes within minutes of starting.
+              memory: 640Mi
               ephemeral-storage: 256Mi
             limits:
               cpu: 1000m
-              memory: 640Mi
+              # Raised with the request: p95 608Mi against a 640Mi ceiling is 5%
+              # of headroom, which is an OOM waiting for a slow GC.
+              memory: 1Gi
               ephemeral-storage: 512Mi
           readinessProbe:
             httpGet:

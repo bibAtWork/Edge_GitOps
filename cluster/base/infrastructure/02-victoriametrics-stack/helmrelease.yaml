@@ -45,9 +45,15 @@ spec:
         # This deletes nothing today -- the cluster is 44 days old, so no data
         # is yet past 90 days. It caps future growth instead.
         retentionPeriod: "3"
+        # Request raised 512Mi -> 1Gi. 7-day p95 working set is 1024Mi, so the
+        # old request under-declared actual usage by half. The scheduler places
+        # on requests, so that gap was capacity the node believed it had and did
+        # not -- and under memory pressure the kubelet evicts by how far a pod
+        # exceeds its request, which put the metrics store near the front of the
+        # queue during exactly the incident it exists to explain.
         resources:
           requests:
-            memory: "512Mi"
+            memory: "1Gi"
             cpu: "100m"
           limits:
             memory: "2Gi"

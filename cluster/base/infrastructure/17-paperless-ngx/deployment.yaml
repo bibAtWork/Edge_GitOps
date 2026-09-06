@@ -146,7 +146,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              # 256Mi -> 640Mi. 7-day p95 is 633Mi, so this ran at 2.5x its
+              # request. Document parsing is bursty by nature, and here the
+              # burst is the normal case rather than the exception.
+              memory: 640Mi
             limits:
               memory: 1Gi
           livenessProbe:
