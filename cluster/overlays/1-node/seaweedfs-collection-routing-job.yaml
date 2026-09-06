@@ -9,12 +9,27 @@ metadata:
   # and a bump to either one is enough to trigger it. Same root cause and fix
   # as 26-keycloak/setup-job.yaml and 01-seaweedfs/bucket-init-job.yaml.
   #
-  # Bump the numeric suffix whenever this file's pod spec changes for any
-  # reason (Renovate PRs count) — prune: true on this Kustomization means Flux
-  # garbage-collects the old-named Job instead of trying to patch it in place.
-  name: seaweedfs-collection-routing-1
+  # The previous defence was a numeric suffix, bumped by hand whenever the pod
+  # spec changed. It failed on 2026-09-06 exactly as it failed for
+  # 26-keycloak/setup-job.yaml the day before: two Renovate auto-merges bumped
+  # the images this Job carries, nothing bumped the suffix, and Flux stopped
+  # reconciling entirely until it was fixed.
+  #
+  # The comment above already warned that "Renovate PRs count". That is the
+  # point -- a rule that depends on a human remembering cannot survive the
+  # automation whose whole purpose is to change these files without one.
+  name: seaweedfs-collection-routing
   namespace: seaweedfs
   annotations:
+    # Delete and recreate rather than patch. Structural, not procedural: it
+    # holds whoever or whatever edits the pod spec next. Third and last
+    # instance of this pattern in the repo -- bucket-init and the Keycloak
+    # setup Job already carry it.
+    #
+    # Re-running is safe: the script sets bucket-to-collection assignments,
+    # which is idempotent by construction -- assigning the same collection
+    # twice is a no-op.
+    kustomize.toolkit.fluxcd.io/force: "Enabled"
     # 1-node only: pins buckets to specific volume collections for disk isolation.
     # primary collection  → primary disk (OS + workloads)
     # backup collection   → dedicated backup disk
