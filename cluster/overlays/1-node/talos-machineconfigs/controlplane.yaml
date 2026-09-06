@@ -344,6 +344,23 @@ cluster:
                     - -c
                     - |
                       set -e
+
+                      # Bootstrap only. Cilium is a Flux HelmRelease in steady state; this
+                      # Job exists solely for the chicken-and-egg at first boot, where Flux
+                      # cannot run until something has provided a CNI.
+                      #
+                      # Without this guard the Job is not idempotent: `cilium install`
+                      # errors on a cluster that already has Cilium, and Talos recreates
+                      # the Job from the machine config on EVERY boot -- so after the
+                      # first, it crashloops to backoffLimit 10 forever. Observed
+                      # 2026-09-06 after the v1.14.0 upgrade: 6 restarts, the only
+                      # unhealthy pod in the cluster, masking the next real one.
+                      #
+                      # Exiting early still reaches the cleanup below, which is the point:
+                      # this Job holds cluster-admin, and the cleanup is what removes it.
+                      if cilium status --brief >/dev/null 2>&1; then
+                        echo "Cilium is already installed -- nothing to do."
+                      else
                       cilium install \
                         --set=ipam.mode=kubernetes \
                         --set=kubeProxyReplacement=true \
@@ -355,6 +372,10 @@ cluster:
                         '--set=securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}' \
                         --set=cgroup.autoMount.enabled=false \
                         --set=cgroup.hostRoot=/sys/fs/cgroup
+                      fi
+
+                      # Runs on both paths. This Job's ServiceAccount is bound to
+                      # cluster-admin and should not outlive the one task it exists for.
                       kubectl delete clusterrolebinding cilium-install --ignore-not-found
                       kubectl delete serviceaccount cilium-install -n kube-system --ignore-not-found
 ---
