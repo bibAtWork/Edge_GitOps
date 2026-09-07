@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - helmrelease.yaml
   - l2-announce-rbac.yaml
+  - bootstrap-rbac-cleanup.yaml

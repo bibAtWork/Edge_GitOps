@@ -1,0 +1,133 @@
+# Removes the bootstrap RBAC that the Talos `cilium-install` inlineManifest
+# leaves behind.
+#
+# That Job runs with a cluster-admin ClusterRoleBinding, because installing a
+# CNI means creating ClusterRoles, and Kubernetes' privilege-escalation
+# prevention will not let a ServiceAccount grant permissions it does not itself
+# hold. The binding is therefore unavoidable -- but it only needs to exist for
+# the length of one install.
+#
+# It used to delete itself, as the last two lines of the Job's own shell script.
+# That stopped working silently when the cilium-cli image went distroless: with
+# no /bin/sh the container never started, so the script -- cleanup included --
+# never ran. The lesson is that a credential should not depend on the thing it
+# privileges to clean it up.
+#
+# So the cleanup lives here instead, on the Flux side, which is strictly better
+# ordered anyway: Flux cannot run until the CNI is up, and the CNI being up is
+# exactly the condition that makes the bootstrap binding disposable.
+#
+# A CronJob rather than a Job because Talos re-materialises inlineManifests at
+# every OS and Kubernetes upgrade, not just at bootstrap -- each one recreates
+# this binding. A one-shot Job would clean up once and never again, leaving a
+# cluster-admin binding live from each Sunday upgrade onwards. Orphaned
+# cluster-scoped RBAC has already gone unnoticed here for 54 days once.
+#
+# Steady state is a no-op: `--ignore-not-found` exits 0 when there is nothing
+# to remove, which is the case on all but a few hours a month.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cilium-bootstrap-rbac-cleanup
+  namespace: kube-system
+automountServiceAccountToken: true
+---
+# Scoped to the two object names it may delete, so this cleanup cannot become a
+# general-purpose RBAC-deletion primitive if the image is ever compromised.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cilium-bootstrap-rbac-cleanup
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings"]
+    resourceNames: ["cilium-install"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cilium-bootstrap-rbac-cleanup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cilium-bootstrap-rbac-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: cilium-bootstrap-rbac-cleanup
+    namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cilium-bootstrap-rbac-cleanup
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    resourceNames: ["cilium-install"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cilium-bootstrap-rbac-cleanup
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cilium-bootstrap-rbac-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: cilium-bootstrap-rbac-cleanup
+    namespace: kube-system
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cilium-bootstrap-rbac-cleanup
+  namespace: kube-system
+spec:
+  # Offset off the hour so it does not pile onto the other scheduled work.
+  schedule: "40 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: cilium-bootstrap-rbac-cleanup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: cilium-bootstrap-rbac-cleanup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: cleanup
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  kubectl delete clusterrolebinding cilium-install --ignore-not-found
+                  kubectl delete serviceaccount cilium-install -n kube-system --ignore-not-found
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 96Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL

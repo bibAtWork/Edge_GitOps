@@ -96,6 +96,21 @@ jobs:
               FAIL=1
             fi
           done
+
+          # The loop above only sees what Kustomize renders. Talos machine
+          # configs are not in any kustomization -- they are applied by hand via
+          # talosctl -- so an image pinned in an inlineManifest is invisible to
+          # it. That blind spot is not hypothetical: the CNI bootstrap Job sat
+          # on cilium-cli-ci:latest until that tag went distroless and broke a
+          # fresh bootstrap outright, and this gate passed on every run in
+          # between. Grep the files directly, since there is nothing to render.
+          mc_hits=$(grep -rnE 'image:[[:space:]]*[^[:space:]]+:latest([[:space:]]|$)' cluster/overlays/*/talos-machineconfigs/*.yaml || true)
+          if [ -n "$mc_hits" ]; then
+            echo "ERROR: :latest tags found in Talos machine configs (applied out-of-band, so nothing else tracks them):"
+            echo "$mc_hits"
+            FAIL=1
+          fi
+
           [ "$FAIL" -eq 0 ] && echo "No :latest tags found."
           exit $FAIL
 
