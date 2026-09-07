@@ -157,14 +157,6 @@ def main() -> None:
         modified_cfg = True
         print("  auto-generated zot.admin_password")
 
-    etcd_enc_key = get(cfg, "etcd", "encryption_key", required=False)
-    if not etcd_enc_key:
-        # 32 random bytes → base64 gives a 44-char string; used as the AES-CBC key
-        etcd_enc_key = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
-        cfg.setdefault("etcd", {})["encryption_key"] = etcd_enc_key
-        modified_cfg = True
-        print("  auto-generated etcd.encryption_key (AES-256-CBC, stored in config.json)")
-
     dex_client_secret = get(cfg, "dex", "grafana_client_secret", required=False)
     if not dex_client_secret:
         dex_client_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
@@ -217,7 +209,6 @@ def main() -> None:
         cluster / "overlays/3-node/talos-machineconfigs/controlplane.yaml",
     ]:
         patched = patch_subnet(mc, subnet)
-        patched |= replace_in_file(mc, {"REPLACE_WITH_ETCD_ENCRYPTION_KEY": etcd_enc_key})
         if patched:
             changed.append(str(mc.relative_to(REPO_ROOT)))
             print(f"  ✓ machineconfig patched in {mc.parent.parent.name}")
