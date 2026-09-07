@@ -3515,7 +3515,71 @@ spec:
                   summary: >-
                     Trivy found CRITICAL config-audit findings
                   description: >-
-                    Workload misconfiguration, distinct from the image CVE rules. Run `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp`. Currently 0 Critical (306 High, 483 Medium), so this firing means something new landed.
+                    Workload misconfiguration, distinct from the image CVE rules. Run `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp`. Currently 0 Critical (217 High, 387 Medium, measured 2026-09-07), so this firing means something new landed. This rule is a canary for the FIRST Critical and nothing else -- the standing High population is covered by TrivyConfigAuditHighRise below, because an absolute-count rule on 217 findings would fire permanently and be silenced within a day.
+                labels:
+                  severity: warning
+                isPaused: false
+              # The Critical rule above cannot fire today and is not meant to:
+              # Trivy's config-audit checks top out at High on this cluster, so
+              # `severity="Critical"` is structurally 0 and the rule is a canary
+              # for the first one ever. That left the actual exposure -- 217 High
+              # findings -- watched by nothing at all.
+              #
+              # A delta rather than a total, for the same reason as
+              # TrivyRBACCritical below: 217 is a standing baseline, and a rule
+              # that fires on `> 0` would be firing permanently from the moment it
+              # deployed. This repo has already produced that failure once, with a
+              # Kyverno rule that sat at 23 firings per 5m until it was rekeyed.
+              # An alert that is always on is an alert that gets silenced, and a
+              # silenced alert covers nothing.
+              #
+              # Verified live 2026-09-07 before committing: the expression returns
+              # -30 (217 now against 240 24h ago), and the `offset 24h` side has
+              # data rather than resolving empty -- so a quiet day reads as a
+              # negative number, not as NoData.
+              - uid: trivy-config-audit-high-rise
+                title: TrivyConfigAuditHighRise
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 90000
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '(sum(trivy_resource_configaudits{severity="High"}) or vector(0)) - (sum(trivy_resource_configaudits{severity="High"} offset 24h) or vector(0))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: >-
+                    New HIGH config-audit findings appeared in the last 24h
+                  description: >-
+                    Fires on a RISE, not the total. The standing population was 217 on 2026-09-07 and is expected to move as workloads change; a positive delta means new workload misconfiguration landed since yesterday, which usually arrives with a chart bump rather than a hand edit. Find it with `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp` and read `.report.checks[] | select(.severity == "HIGH")`; the report is named after the workload it covers. Concentrations as of writing: longhorn-system 52, monitoring 32, kube-system 28, velero 23.
                 labels:
                   severity: warning
                 isPaused: false
