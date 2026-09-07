@@ -310,19 +310,36 @@ cluster:
           name: cilium-install
           namespace: kube-system
         ---
+        # Bootstrap only. Cilium is a Flux HelmRelease in steady state; this Job
+        # exists solely for the chicken-and-egg at first boot, where Flux cannot
+        # run until something has provided a CNI. `cilium install` creates a real
+        # Helm release, which is what lets the HelmRelease adopt it afterwards.
+        #
+        # Talos re-materialises inlineManifests at bootstrap and at OS/Kubernetes
+        # upgrades -- NOT on a plain reboot. On those re-runs `cilium install`
+        # correctly fails, because the Helm release already exists. That is
+        # bounded rather than prevented: cilium-cli has no install-if-missing
+        # mode, and a pre-flight check is impossible in a distroless image with
+        # no shell. So backoffLimit stops it at 3 attempts instead of the
+        # previous 10, and ttlSecondsAfterFinished removes the Job and its pods
+        # afterwards so the failure cannot masquerade as a live incident.
+        #
+        # backoffLimit is 2 rather than 0 because the genuine bootstrap path does
+        # need retries -- the API server is not always ready on the first try.
         apiVersion: batch/v1
         kind: Job
         metadata:
           name: cilium-install
           namespace: kube-system
         spec:
-          backoffLimit: 10
+          backoffLimit: 2
+          ttlSecondsAfterFinished: 900
           template:
             metadata:
               labels:
                 app: cilium-install
             spec:
-              restartPolicy: OnFailure
+              restartPolicy: Never
               tolerations:
                 - operator: Exists
                   effect: NoSchedule
@@ -330,7 +347,7 @@ cluster:
               hostNetwork: true
               containers:
                 - name: cilium-install
-                  image: quay.io/cilium/cilium-cli-ci:latest
+                  image: quay.io/cilium/cilium-cli:v0.20.0
                   env:
                     - name: KUBERNETES_SERVICE_HOST
                       valueFrom:
@@ -339,45 +356,32 @@ cluster:
                           fieldPath: status.podIP
                     - name: KUBERNETES_SERVICE_PORT
                       value: "6443"
+                  # These images are DISTROLESS -- there is no /bin/sh in them.
+                  # `command` therefore execs the binary directly; a shell form
+                  # here fails the container at StartError before any of it runs,
+                  # which is exactly how the previous version broke.
                   command:
-                    - /bin/sh
-                    - -c
-                    - |
-                      set -e
-
-                      # Bootstrap only. Cilium is a Flux HelmRelease in steady state; this
-                      # Job exists solely for the chicken-and-egg at first boot, where Flux
-                      # cannot run until something has provided a CNI.
-                      #
-                      # Without this guard the Job is not idempotent: `cilium install`
-                      # errors on a cluster that already has Cilium, and Talos recreates
-                      # the Job from the machine config on EVERY boot -- so after the
-                      # first, it crashloops to backoffLimit 10 forever. Observed
-                      # 2026-09-06 after the v1.14.0 upgrade: 6 restarts, the only
-                      # unhealthy pod in the cluster, masking the next real one.
-                      #
-                      # Exiting early still reaches the cleanup below, which is the point:
-                      # this Job holds cluster-admin, and the cleanup is what removes it.
-                      if cilium status --brief >/dev/null 2>&1; then
-                        echo "Cilium is already installed -- nothing to do."
-                      else
-                      cilium install \
-                        --set=ipam.mode=kubernetes \
-                        --set=kubeProxyReplacement=true \
-                        --set=gatewayAPI.enabled=true \
-                        --set=hubble.enabled=true \
-                        --set=encryption.enabled=true \
-                        --set=encryption.type=wireguard \
-                        '--set=securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}' \
-                        '--set=securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}' \
-                        --set=cgroup.autoMount.enabled=false \
-                        --set=cgroup.hostRoot=/sys/fs/cgroup
-                      fi
-
-                      # Runs on both paths. This Job's ServiceAccount is bound to
-                      # cluster-admin and should not outlive the one task it exists for.
-                      kubectl delete clusterrolebinding cilium-install --ignore-not-found
-                      kubectl delete serviceaccount cilium-install -n kube-system --ignore-not-found
+                    - cilium
+                  args:
+                    - install
+                    # Pinned to the same chart version as the 05-cilium
+                    # HelmRelease. Without it the CLI's own built-in default
+                    # decides which Cilium gets installed at bootstrap, so a CLI
+                    # bump would silently change the cluster's CNI version.
+                    - --version=v1.20.1
+                    # Makes the Job's exit code mean "CNI is actually up" rather
+                    # than "the helm release was created".
+                    - --wait
+                    - --set=ipam.mode=kubernetes
+                    - --set=kubeProxyReplacement=true
+                    - --set=gatewayAPI.enabled=true
+                    - --set=hubble.enabled=true
+                    - --set=encryption.enabled=true
+                    - --set=encryption.type=wireguard
+                    - '--set=securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}'
+                    - '--set=securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}'
+                    - --set=cgroup.autoMount.enabled=false
+                    - --set=cgroup.hostRoot=/sys/fs/cgroup
 ---
 # Dedicated NVMe for SeaweedFS, per Sidero's Talos+SeaweedFS guidance.
 #
