@@ -82,14 +82,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
-      - name: Install kustomize
-        run: |
-          VERSION=v5.8.1
-          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin kustomize
-          echo "kustomize $(kustomize version)"
-
       - name: Verify Talos version pin agrees with the machine config
         run: |
           set -euo pipefail
@@ -363,7 +355,7 @@ jobs:
           # grepping the whole file -- that every field `replacements` is
           # supposed to drive actually equals versions.env's value.
           RENDERED=$(mktemp)
-          kustomize build cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
+          kubectl kustomize cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
 
           TALOS_VERSION=$(grep -oP '^TALOS_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
           KUBERNETES_VERSION=$(grep -oP '^KUBERNETES_VERSION=\K.*' cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env)
@@ -461,7 +453,7 @@ jobs:
           # finding 1 impossible to reintroduce -- the step cannot print
           # "ok" unless it actually compared at least one Plan-day.
           RENDERED=$(mktemp)
-          kustomize build cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
+          kubectl kustomize cluster/base/infrastructure/15-system-upgrade-controller/config > "$RENDERED"
 
           export CRON=$(yq -r 'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.schedule' "$RENDERED")
           echo "fleet-health schedule: $CRON"

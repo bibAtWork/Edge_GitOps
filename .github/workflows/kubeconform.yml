@@ -37,26 +37,20 @@ jobs:
       # (a rate-limit error body downloaded instead of the real release
       # tarball) on unrelated PRs. Bump these pins by hand when there's a
       # reason to.
+      # renovate: datasource=github-releases depName=yannh/kubeconform
       - name: Install kubeconform
         run: |
           VERSION=v0.8.0
-          curl -sL "https://github.com/yannh/kubeconform/releases/download/${VERSION}/kubeconform-linux-amd64.tar.gz" \
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${VERSION}/kubeconform-linux-amd64.tar.gz" \
             | tar -xz -C /usr/local/bin kubeconform
           echo "kubeconform $(kubeconform -v)"
-
-      - name: Install kustomize
-        run: |
-          VERSION=v5.8.1
-          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin kustomize
-          echo "kustomize $(kustomize version)"
 
       - name: Build and validate ${{ matrix.overlay }} overlay
         run: |
           # Build the full rendered manifest, then strip SOPS-encrypted documents
           # before feeding to kubeconform — SOPS adds a root-level `sops:` key
           # that would trigger strict-mode failures on every secret.
-          kustomize build cluster/overlays/${{ matrix.overlay }} \
+          kubectl kustomize cluster/overlays/${{ matrix.overlay }} \
             | yq 'select(.sops == null)' \
             | kubeconform \
                 -schema-location default \

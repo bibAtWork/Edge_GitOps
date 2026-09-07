@@ -71,13 +71,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
-      - name: Install kustomize
-        run: |
-          VERSION=v5.8.1
-          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin kustomize
-
       - name: Reject :latest image tags in rendered overlays
         run: |
           FAIL=0
@@ -88,7 +81,7 @@ jobs:
             # every match. This gate passed on everything for as long as it has
             # existed, including on the one image in this repo that did use
             # :latest -- which is exactly what it was written to catch.
-            hits=$(kustomize build cluster/overlays/${overlay} \
+            hits=$(kubectl kustomize cluster/overlays/${overlay} \
               | grep -E '^\s*-?\s*image:\s+\S+:latest(\s|$)' || true)
             if [ -n "$hits" ]; then
               echo "ERROR: :latest tags found in ${overlay} overlay (bypasses Trivy gate and Renovate tracking):"
@@ -120,11 +113,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install kustomize
-        run: |
-          VERSION=v5.8.1
-          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz"             | tar -xz -C /usr/local/bin kustomize
-
       # The version pins in the SUC Plans and the fleet-health CronJob are
       # Kustomize `replacements` targets sourced from versions.env. Their
       # literals in git are the sentinel REPLACED-BY-KUSTOMIZE, never a
@@ -151,9 +139,9 @@ jobs:
           #
           # LoadRestrictionsNone because 1-node-config references a file
           # outside its own directory (19-kyverno/policies), which plain
-          # kustomize build refuses.
+          # kubectl kustomize refuses.
           for overlay in 1-node-config 3-node; do
-            hits=$(kustomize build --load-restrictor LoadRestrictionsNone \
+            hits=$(kubectl kustomize --load-restrictor LoadRestrictionsNone \
               cluster/overlays/${overlay} | grep -n 'REPLACED-BY-KUSTOMIZE' || true)
             if [ -n "$hits" ]; then
               echo "ERROR: sentinel survived the ${overlay} render -- a replacements target is missing or mis-pathed:"
@@ -171,13 +159,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Pinned 2026-08-17 -- see kubeconform.yml's Install kustomize step for why.
-      - name: Install kustomize
-        run: |
-          VERSION=v5.8.1
-          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin kustomize
-
       - name: Verify HelmRelease sourceRef and dependsOn references resolve
         run: |
           python3 - <<'PY'
@@ -187,11 +168,11 @@ jobs:
 
           for overlay in ('1-node', '3-node'):
               result = subprocess.run(
-                  ['kustomize', 'build', f'cluster/overlays/{overlay}'],
+                  ['kubectl', 'kustomize', f'cluster/overlays/{overlay}'],
                   capture_output=True, text=True,
               )
               if result.returncode != 0:
-                  errors.append(f'[{overlay}] kustomize build failed:\n{result.stderr.strip()}')
+                  errors.append(f'[{overlay}] kubectl kustomize failed:\n{result.stderr.strip()}')
                   continue
 
               docs = [d for d in yaml.safe_load_all(result.stdout) if d]
