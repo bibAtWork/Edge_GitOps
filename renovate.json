@@ -101,6 +101,16 @@
       "datasourceTemplate": "helm",
       "depNameTemplate": "cilium",
       "registryUrlTemplate": "https://helm.cilium.io"
+    },
+    {
+      "customType": "regex",
+      "description": "Pinned CI tool versions in .github/workflows, comment-driven like the Ansible manager. These are plain `curl` downloads of release binaries, so no built-in manager sees them. Before this existed the pins drifted by hand and two of them were not pins at all -- Trivy came from an install.sh on the main branch and yq from /releases/latest -- which made CI unreproducible and, in Trivy's case, executed unversioned remote code.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+(?:- name:[^\\n]*\\n\\s+run: [|]\\n)?\\s*[A-Z_]*VERSION=(?<currentValue>v[\\d.]+)"
+      ]
     }
   ],
   "packageRules": [

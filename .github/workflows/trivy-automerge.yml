@@ -73,16 +73,29 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # Pinned release tarball rather than `install.sh | sh` off the `main`
+      # branch. That form fetched an unversioned script from a moving branch and
+      # piped it straight into a shell: unpinned remote code execution in CI, and
+      # unreproducible besides -- two runs a week apart could install different
+      # Trivy versions with nothing in the diff to show for it.
+      # renovate: datasource=github-releases depName=aquasecurity/trivy
       - name: Install Trivy
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin
+          VERSION=v0.74.0
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${VERSION}/trivy_${VERSION#v}_Linux-64bit.tar.gz" \
+            | tar -xz -C /usr/local/bin trivy
+          trivy --version
 
+      # Pinned, not resolved via unauthenticated api.github.com "latest". That
+      # endpoint's anonymous rate limit is shared across the whole Actions runner
+      # pool and fails intermittently regardless of anything in this repo. The
+      # sibling workflow trivy-auto-patch.yml was fixed for this in 2026-08; this
+      # one was missed.
+      # renovate: datasource=github-releases depName=google/go-containerregistry
       - name: Install crane (registry tag lister)
         run: |
-          VERSION=$(curl -sL https://api.github.com/repos/google/go-containerregistry/releases/latest \
-            | jq -r '.tag_name')
-          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+          VERSION=v0.21.9
+          curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin crane
 
       # ── Step 1: extract old and new image from the PR diff ───────────────────
