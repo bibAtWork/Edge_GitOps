@@ -140,5 +140,11 @@ data:
     spec:
       containers:
       - name: helper-pod
-        image: busybox
+        # Pinned. This was a bare `busybox`, which Kubernetes resolves to
+        # busybox:latest -- the only untagged image in either overlay, and
+        # invisible to the :latest CI gate precisely because it never says
+        # "latest". It is also nested inside a ConfigMap, so it is a manifest
+        # no schema validation reaches either. Same tag already used by
+        # 01-seaweedfs/bucket-init-job.yaml.
+        image: docker.io/library/busybox:1.38
         imagePullPolicy: IfNotPresent
