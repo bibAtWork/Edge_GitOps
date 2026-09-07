@@ -58,6 +58,22 @@ spec:
       metricsVulnIdEnabled: true
 
     trivy:
+      # Scan-job resources, not the operator's. The chart default is a 500M
+      # limit, and scanning keycloak-config-cli exceeded it: that scan job
+      # was OOMKilled six times in the operator's last 300 log lines, so the
+      # image simply had no report while everything looked healthy.
+      #
+      # Raised rather than exempted -- an image too big to scan is exactly
+      # the kind this should cover. scanJobsConcurrentLimit is 1 on the
+      # single-node overlay, so this is a 1Gi ceiling for one pod at a time,
+      # not 1Gi per concurrent scan.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256M
+        limits:
+          cpu: 500m
+          memory: 1Gi
       ignoreUnfixed: false
       severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 

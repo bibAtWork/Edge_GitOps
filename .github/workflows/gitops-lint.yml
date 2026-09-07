@@ -94,7 +94,19 @@ jobs:
               FAIL=1; rm -f "$rendered"; continue
             fi
             hits=$(grep -E '^\s*-?\s*image:\s+\S+:latest(\s|$)' "$rendered" || true)
+
+            # An image with NO tag is :latest too, and says so nowhere -- the
+            # check above cannot see it. local-path-provisioner's helper pod
+            # carried a bare `busybox` for the life of this repo, inside a
+            # ConfigMap, so neither this gate nor schema validation touched it.
+            # A digest pin is fine; a bare repository name is not.
+            untagged=$(grep -E '^[[:space:]]*-?[[:space:]]*image:' "$rendered" | sed -E 's/^.*image:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/' | grep -v '@sha256:' | awk -F/ '$NF !~ /:/' || true)
             rm -f "$rendered"
+            if [ -n "$untagged" ]; then
+              echo "ERROR: untagged images in ${overlay} overlay (resolve to :latest at pull time):"
+              echo "$untagged"
+              FAIL=1
+            fi
             if [ -n "$hits" ]; then
               echo "ERROR: :latest tags found in ${overlay} overlay (bypasses Trivy gate and Renovate tracking):"
               echo "$hits"
