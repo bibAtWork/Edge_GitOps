@@ -47,6 +47,10 @@ jobs:
 
       - name: Build and validate ${{ matrix.overlay }} overlay
         run: |
+          # pipefail so a failed render fails the step. Without it the pipeline's
+          # status is kubeconform's alone, and kubeconform given an empty stream
+          # exits 0 -- the job would go green having validated nothing.
+          set -o pipefail
           # Build the full rendered manifest, then strip SOPS-encrypted documents
           # before feeding to kubeconform — SOPS adds a root-level `sops:` key
           # that would trigger strict-mode failures on every secret.

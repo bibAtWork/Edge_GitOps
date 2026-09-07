@@ -81,8 +81,20 @@ jobs:
             # every match. This gate passed on everything for as long as it has
             # existed, including on the one image in this repo that did use
             # :latest -- which is exactly what it was written to catch.
-            hits=$(kubectl kustomize cluster/overlays/${overlay} \
-              | grep -E '^\s*-?\s*image:\s+\S+:latest(\s|$)' || true)
+            # Render to a file first. Piping straight into grep hides the build's
+            # own exit status behind `|| true`, so a failed render reads as "no
+            # violations found" and the gate passes on nothing at all.
+            rendered=$(mktemp)
+            if ! kubectl kustomize "cluster/overlays/${overlay}" > "$rendered"; then
+              echo "ERROR: kubectl kustomize failed for ${overlay}"
+              FAIL=1; rm -f "$rendered"; continue
+            fi
+            if [ ! -s "$rendered" ]; then
+              echo "ERROR: ${overlay} rendered empty"
+              FAIL=1; rm -f "$rendered"; continue
+            fi
+            hits=$(grep -E '^\s*-?\s*image:\s+\S+:latest(\s|$)' "$rendered" || true)
+            rm -f "$rendered"
             if [ -n "$hits" ]; then
               echo "ERROR: :latest tags found in ${overlay} overlay (bypasses Trivy gate and Renovate tracking):"
               echo "$hits"
@@ -141,8 +153,17 @@ jobs:
           # outside its own directory (19-kyverno/policies), which plain
           # kubectl kustomize refuses.
           for overlay in 1-node-config 3-node; do
-            hits=$(kubectl kustomize --load-restrictor LoadRestrictionsNone \
-              cluster/overlays/${overlay} | grep -n 'REPLACED-BY-KUSTOMIZE' || true)
+            rendered=$(mktemp)
+            if ! kubectl kustomize --load-restrictor LoadRestrictionsNone "cluster/overlays/${overlay}" > "$rendered"; then
+              echo "ERROR: kubectl kustomize failed for ${overlay}"
+              FAIL=1; rm -f "$rendered"; continue
+            fi
+            if [ ! -s "$rendered" ]; then
+              echo "ERROR: ${overlay} rendered empty"
+              FAIL=1; rm -f "$rendered"; continue
+            fi
+            hits=$(grep -n 'REPLACED-BY-KUSTOMIZE' "$rendered" || true)
+            rm -f "$rendered"
             if [ -n "$hits" ]; then
               echo "ERROR: sentinel survived the ${overlay} render -- a replacements target is missing or mis-pathed:"
               echo "$hits"
