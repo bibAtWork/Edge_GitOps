@@ -243,6 +243,22 @@ export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 | AWS S3 — backup vault | SSE-S3 ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md) — SSE-KMS was declined here: a KMS outage or key-policy error makes the vault unreadable exactly when it is needed) |
 | AWS S3 — Velero offsite bucket | SSE-KMS (managed key, auto-rotation) |
 
+### Storage encryption (at rest)
+
+| Layer | Mechanism |
+|---|---|
+| Node disks (STATE, EPHEMERAL, both NVMe user volumes) | **None** — plaintext at rest by decision ([ADR-007](./docs/adr/0007-no-disk-encryption.md)) |
+| Kubernetes `Secret` objects in etcd | secretbox via Talos `cluster.secretboxEncryptionSecret`, scoped to `resources: [secrets]` |
+| Everything else in etcd (ConfigMaps, object metadata) | Not encrypted — outside the provider scope |
+| Offsite etcd snapshots | age-encrypted, private key held offline |
+
+Disk encryption and Secret encryption are separate mechanisms and are easy to conflate. Only
+the former protects against physical possession of a drive, and it is deliberately not enabled;
+the secretbox key sits in the machine config on the same unencrypted partition as the
+ciphertext, so Secret encryption does **not** substitute for it. See
+[ADR-007](./docs/adr/0007-no-disk-encryption.md) for the threat ranking and the disposal
+procedure this implies.
+
 ### Network policies
 
 Default deny-all ingress/egress with explicit allow rules:
