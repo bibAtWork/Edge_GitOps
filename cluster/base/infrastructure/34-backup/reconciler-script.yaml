@@ -48,11 +48,8 @@ data:
         echo "backup_reconcile_cap_abort $CAP_ABORT"
         shift
         for m in "$@"; do echo "$m"; done
-      } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
+      } | curl -sS -o /dev/null --data-binary @- "$VM_IMPORT_URL" || log "WARN: metric push failed"
     }
-
-    apk add --no-cache aws-cli kubectl gzip jq >/dev/null 2>&1 || {
-      echo "FATAL: tool install failed" >&2; exit 1; }
 
     # ------------------------------------------------------------------
     # GATE FIRST. Nothing below runs unless the most recent restore-test passed
@@ -65,8 +62,14 @@ data:
     # STOP pruning rather than permit it -- a verifier that silently stops
     # should freeze the destructive path, not open it.
     # ------------------------------------------------------------------
-    RESULT="$(kubectl get configmap -n longhorn-system backup-restore-test-result -o jsonpath='{.data.result}' 2>/dev/null)"
-    EPOCH="$(kubectl get configmap -n longhorn-system backup-restore-test-result -o jsonpath='{.data.epoch}' 2>/dev/null)"
+    # Read the gate straight from the API rather than through kubectl, which
+    # this image does not carry. Same ServiceAccount, same RBAC, same two
+    # fields; an unreachable API leaves both empty and the gate below closes,
+    # which is the direction a failure here must fail.
+    SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+    GATE_JSON="$(curl -sS --cacert "$SA_DIR/ca.crt" -H "Authorization: Bearer $(cat "$SA_DIR/token")" "https://kubernetes.default.svc/api/v1/namespaces/longhorn-system/configmaps/backup-restore-test-result" 2>/dev/null)"
+    RESULT="$(printf '%s' "$GATE_JSON" | jq -r '.data.result // empty' 2>/dev/null)"
+    EPOCH="$(printf '%s' "$GATE_JSON" | jq -r '.data.epoch // empty' 2>/dev/null)"
 
     if [ -z "$RESULT" ]; then
       log "GATE CLOSED: no restore-test result exists; refusing to tag anything"
@@ -110,7 +113,8 @@ data:
     for DKEY in $(jq -r '.files[].key' /tmp/manifest.json 2>/dev/null); do
       aws s3 cp "s3://$AWS_BUCKET/$DKEY" /tmp/part.csv.gz --quiet 2>/dev/null || continue
       # Inventory CSV is quoted; column 2 is the key, URL-encoded.
-      gzip -dc /tmp/part.csv.gz \
+      # No gzip binary in this image; python3 is present and does the same job.
+      python3 -c "import gzip,sys; sys.stdout.buffer.write(gzip.open(sys.argv[1],'rb').read())" /tmp/part.csv.gz \
         | awk -F'","' '{gsub(/^"/,"",$1); print $2}' >> /tmp/remote_keys
       rm -f /tmp/part.csv.gz
     done

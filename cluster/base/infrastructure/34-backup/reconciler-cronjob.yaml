@@ -65,12 +65,43 @@ spec:
           restartPolicy: OnFailure
           serviceAccountName: backup-reconciler
           securityContext:
-            runAsUser: 0
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            # The staging PVC holds this job's grace-period state
+            # (.reconcile/first-absent.tsv). Without fsGroup a non-root uid
+            # cannot write it, and the failure is quiet: the job still exits 0
+            # and still reports, but no object ever ages past the grace window,
+            # so pruning silently stops. backup-relay and seaweedfs-staging
+            # already mount this same PVC with fsGroup 1000.
+            fsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
             - name: reconcile
-              image: docker.io/library/alpine:3.24
+              # Tools baked in, nothing installed at runtime.
+              #
+              # This pod was alpine plus `apk add aws-cli kubectl gzip jq`,
+              # the last runtime install left in this directory -- the same
+              # swap was already made for volume-backup-policy, remote-probe
+              # and restore-test, which carry the fuller reasoning: installing
+              # packages at runtime writes new executables into a running
+              # container and executes them, which is Falco's "Executing binary
+              # not part of base image" at Critical.
+              #
+              # It matters more here than in the others. This is the job that
+              # TAGS objects for deletion in the offsite vault, and it reached
+              # that code path only after fetching four packages over the
+              # network. A destructive path should not depend on a package
+              # mirror being up and serving what it served last time.
+              #
+              # amazon/aws-cli is already used by four other backup CronJobs
+              # and ships aws, jq, curl, python3, awk and sed. It has no
+              # kubectl, gzip or wget, so the three uses of those are rewritten
+              # in reconcile.sh against tools the image does have. Running as
+              # non-root follows: uid 0 was only ever needed so apk could write
+              # to /usr/bin.
+              image: docker.io/amazon/aws-cli:2.36.40
               command: ["/bin/sh", "/scripts/reconcile.sh"]
               env:
                 - name: VM_IMPORT_URL
