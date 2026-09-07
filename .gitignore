@@ -72,3 +72,9 @@ docs/*-review-????-??-??.md
 docs/**/*finding*
 docs/*finding*
 findings*.md
+
+# Python bytecode caches. A .pyc was committed once by a `git add -A` that
+# ran right after a py_compile syntax check; ignoring the directory stops the
+# next one silently repeating it.
+__pycache__/
+*.py[cod]
