@@ -1,12 +1,13 @@
 # FIRST BOOT ONLY: talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
 #
 # ⚠️ DO NOT run apply-config against an already-running node to make a change.
-# This file is a TEMPLATE, not the live config: encryptionConfig below still
-# carries the literal REPLACE_WITH_ETCD_ENCRYPTION_KEY placeholder, which
-# bootstrap/scripts/apply-config.py substitutes at provisioning time. Applying
-# it wholesale to a live node would push that placeholder over the real etcd
-# encryption key. (An earlier revision of this repo -- PR #197's own
-# description -- told you to do exactly that; it was wrong.)
+# This file is a TEMPLATE, not the live config. It carries none of the secrets
+# the cluster actually runs on -- no CA certificates, no service-account keys,
+# no secretboxEncryptionSecret -- because those are generated into the secrets
+# bundle at provisioning time and are never committed. Applying it wholesale to
+# a live node would strip every one of them, which is a good deal worse than
+# the placeholder this warning used to cite. (An earlier revision of this repo
+# -- PR #197's own description -- told you to do exactly that; it was wrong.)
 #
 # To change a running node, patch only the delta instead, which leaves every
 # other field untouched and needs no reboot:
@@ -234,13 +235,19 @@ cluster:
       # 9.5 MiB, which brings the scrape back under the limit without raising
       # maxScrapeSize.
       disabled-metrics: "apiserver_request_body_size_bytes,apiserver_response_sizes,apiserver_watch_events_sizes,apiserver_watch_list_duration_seconds,apiserver_watch_cache_read_wait_seconds,apiserver_request_sli_duration_seconds"
-    encryptionConfig:
-      providers:
-        - aescbc:
-            keys:
-              - name: key1
-                secret: REPLACE_WITH_ETCD_ENCRYPTION_KEY
-        - identity: {}
+    # There is deliberately no encryptionConfig here.
+    #
+    # `cluster.apiServer.encryptionConfig` is not a Talos field. Talos rejects
+    # the whole document with "unknown keys found during decoding", so a block
+    # here never reaches the node AND silently disables `talosctl validate` for
+    # this file -- which is how it went unnoticed: the validator that would
+    # have caught it was the thing it broke.
+    #
+    # Secrets encryption at rest is already enabled, by Talos itself, through
+    # cluster.secretboxEncryptionSecret in the generated secrets bundle. The
+    # apiserver runs with --encryption-provider-config pointing at a config
+    # Talos writes. There is nothing to configure here, and a raw Kubernetes
+    # EncryptionConfiguration is not the way to configure it if there were.
     auditPolicy:
       apiVersion: audit.k8s.io/v1
       kind: Policy

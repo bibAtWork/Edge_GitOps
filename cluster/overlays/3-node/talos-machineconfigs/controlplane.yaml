@@ -54,13 +54,19 @@ cluster:
       - 192.168.178.0/24
 
   apiServer:
-    encryptionConfig:
-      providers:
-        - aescbc:
-            keys:
-              - name: key1
-                secret: REPLACE_WITH_ETCD_ENCRYPTION_KEY
-        - identity: {}
+    # There is deliberately no encryptionConfig here.
+    #
+    # `cluster.apiServer.encryptionConfig` is not a Talos field. Talos rejects
+    # the whole document with "unknown keys found during decoding", so a block
+    # here never reaches the node AND silently disables `talosctl validate` for
+    # this file -- which is how it went unnoticed: the validator that would
+    # have caught it was the thing it broke.
+    #
+    # Secrets encryption at rest is already enabled, by Talos itself, through
+    # cluster.secretboxEncryptionSecret in the generated secrets bundle. The
+    # apiserver runs with --encryption-provider-config pointing at a config
+    # Talos writes. There is nothing to configure here, and a raw Kubernetes
+    # EncryptionConfiguration is not the way to configure it if there were.
     auditPolicy:
       apiVersion: audit.k8s.io/v1
       kind: Policy
