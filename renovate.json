@@ -76,6 +76,31 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "cilium-cli image used by the Talos cilium-install inlineManifest, which installs the CNI at first boot before Flux exists. This was cilium-cli-ci:latest -- an unpinned rolling CI build -- until it went distroless and broke bootstrap outright: the Job's shell form could no longer start. Pinning it is what stops the bootstrap path drifting under us again. Same file as the installer tag above and the same caveat: applied by hand via talosctl, outside Kustomize and Flux.",
+      "managerFilePatterns": [
+        "/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*quay\\.io/cilium/cilium-cli:(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "quay.io/cilium/cilium-cli"
+    },
+    {
+      "customType": "regex",
+      "description": "Cilium version the bootstrap cilium install lays down. Deliberately tracked as the SAME dep as the 05-cilium HelmRelease chart (datasource helm, name cilium) so Renovate bumps both in one PR instead of letting them drift -- a mismatch means first boot installs one Cilium and Flux immediately upgrades it to another. The capture group omits the leading v so it matches the chart version exactly; the v stays literal in the file because the CLI flag requires it.",
+      "managerFilePatterns": [
+        "/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
+      ],
+      "matchStrings": [
+        "--version=v(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "helm",
+      "depNameTemplate": "cilium",
+      "registryUrlTemplate": "https://helm.cilium.io"
     }
   ],
   "packageRules": [
