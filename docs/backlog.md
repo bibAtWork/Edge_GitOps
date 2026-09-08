@@ -838,17 +838,21 @@ Immich is currently about a minor version behind.
 
 The three exceptions do not work as they look:
 
-- **grafana** sets `image.tag: 12.4.10` with no `repository:` beside it. It was added by hand to
+- **grafana** set `image.tag: 12.4.10` with no `repository:` beside it. FIXED -- registry and
+  repository now restate the chart defaults so the pin is resolvable; the image is unchanged. It was added by hand to
   patch an active Critical CVE (#411) and is currently *ahead* of the chart's appVersion
   (12.3.1), so it is doing its job. But `helm-values` cannot resolve an image from a bare tag,
   so Renovate will never advance it, and there is no comment at the override saying why it
   exists. Upstream Grafana is now on 13.x. Two things follow: 12.4.10 will age with nothing
   watching it, and if the chart's appVersion ever passes 12.4.10 the override silently becomes a
   freeze instead of a patch.
-- **zot** sets `image.repository` with `tag: ""`, which falls through to the chart appVersion.
-  It looks like a pin and is not one.
-- **immich-postgresql** sets `repository: immich-app/postgres` with no registry, so a resolver
-  defaulting to Docker Hub will not find it.
+- **zot** set `image.repository` with `tag: ""`, which fell through to the chart appVersion --
+  it looked like a pin and was not one. FIXED -- pinned to v2.1.18, the version already running.
+- **immich-postgresql** is correctly specified -- `registry: ghcr.io`, `repository:
+  immich-app/postgres`, `tag: 17-vectorchord0.3.0-pgvectors0.3.0` -- and an earlier draft of
+  this entry wrongly said it lacked a registry. It is still not *updatable*, for a different
+  reason: the tag is not semver, so nothing can order it. Renovate would need an explicit
+  versioning hint before it could ever propose a bump.
 
 Measured 2026-09-08, because the answer turns on how much the chart model actually costs:
 **9 of 18 charts ship an appVersion older than the app's latest release.** grafana (12.3.1 vs

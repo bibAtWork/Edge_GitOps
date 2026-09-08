@@ -3935,4 +3935,18 @@ spec:
         use_pkce: true
         auto_login: false
     image:
+      # registry and repository restate the chart's own defaults, so the
+      # running image is unchanged: docker.io/grafana/grafana:12.4.10.
+      # They are here because a bare `tag:` is not resolvable -- Renovate
+      # cannot tell which image a lone version belongs to, so it never
+      # proposed an update for this pin. That mattered: the tag was applied
+      # by hand to patch an active Critical CVE (#411) and would otherwise
+      # have sat here ageing with nothing watching it.
+      #
+      # It is currently AHEAD of the chart's appVersion (12.3.1), so it is a
+      # patch rather than a freeze. If the chart's appVersion ever passes
+      # this value, it silently becomes a freeze instead -- which is the
+      # reason to keep it tracked rather than pinned and forgotten.
+      registry: docker.io
+      repository: grafana/grafana
       tag: 12.4.10
