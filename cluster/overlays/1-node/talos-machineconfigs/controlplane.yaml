@@ -73,6 +73,29 @@ machine:
     nodeIP:
       validSubnets:
         - 192.168.178.0/24
+    # Bind-mounts the PARENT of the user volumes, not each volume. With rshared
+    # propagation any number of /var/mnt/* user volumes are carried into the
+    # kubelet container automatically, so adding a disk later needs no change
+    # here. Without this the kubelet cannot see u-longhorn0 or u-seaweedfs at
+    # all, and Longhorn comes up with no disk to schedule on.
+    extraMounts:
+      - destination: /var/mnt
+        type: bind
+        source: /var/mnt
+        options:
+          - bind
+          - rshared
+          - rw
+
+  # Longhorn disk discovery. defaultDataPath in the Helm chart is a single
+  # cluster-wide string and cannot describe per-node layouts, so labeled-node
+  # disk configuration is used instead: Longhorn creates disks only on nodes
+  # carrying the label, and reads the disk list from the annotation.
+  nodeLabels:
+    node.longhorn.io/create-default-disk: "config"
+  nodeAnnotations:
+    node.longhorn.io/default-disks-config: |
+      [{"path":"/var/mnt/longhorn0","allowScheduling":true}]
 
 cluster:
   # Required on single-node: no worker nodes, so control-plane must run all workloads
@@ -409,6 +432,21 @@ cluster:
 # (expect u-seaweedfs phase=ready) rather than assuming success.
 #
 # Mounts at /var/mnt/seaweedfs. Verified live: /dev/nvme0n1p1, xfs, ready.
+# ⚠️ SIZES ARE LOAD-BEARING. This file previously gave seaweedfs up to 480GiB
+# and declared no longhorn0 at all, while the node had actually been
+# repartitioned to 120 + 340 by longhorn-node.patch.yaml. Bootstrapping from
+# the old version produced SeaweedFS owning nearly the whole NVMe, no Longhorn
+# volume, and no way to reach the intended layout except by destroying the
+# SeaweedFS partition and starting again.
+#
+# Talos can only resize a user volume by destroying and recreating the
+# partition, so changing either size below on a node that already holds data
+# LOSES that data. Evacuate first.
+#
+# Explicit sizes rather than grow:true. With two volumes selecting the same
+# disk, grow on either races the other for the remaining space depending on
+# evaluation order; fixed sizes are deterministic. 120 + 340 = 460GiB of the
+# ~477GiB usable, leaving headroom for partition alignment.
 apiVersion: v1alpha1
 kind: UserVolumeConfig
 name: seaweedfs
@@ -416,5 +454,29 @@ provisioning:
   diskSelector:
     match: disk.transport == "nvme" && !system_disk
   minSize: 100GiB
-  maxSize: 480GiB
+  maxSize: 120GiB
   grow: false
+filesystem:
+  type: xfs
+---
+# Longhorn's data disk, mounted at /var/mnt/longhorn0 and named in the
+# node.longhorn.io/default-disks-config annotation above.
+#
+# Why Longhorn is NOT on the system disk: /var/lib/longhorn would sit on
+# EPHEMERAL alongside /var/lib/etcd. etcd is unusually sensitive to fsync
+# latency, and sustained replica writes on the same filesystem push its fsync
+# p99 up -- which presents as leader elections and slow API responses, i.e.
+# looks like a control-plane fault rather than a storage one. Putting Longhorn
+# on the NVMe separates them at the device level, not just the filesystem
+# level.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: longhorn0
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 300GiB
+  maxSize: 340GiB
+  grow: false
+filesystem:
+  type: xfs
