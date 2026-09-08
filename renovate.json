@@ -215,6 +215,16 @@
       "enabled": false
     },
     {
+      "description": "Hold Grafana on the 12 series. The chart does not track it: grafana 10.5.15 is the newest chart published and still ships appVersion 12.3.1, and no chart in the index ships a 13.x appVersion at all -- so there is no chart bump that would carry Grafana 13, only an image override against templates written for 12.x. This cluster provisions its dashboards and its alert rules through those chart values, which makes that override exactly the chart/app mismatch ADR-009 exists to prevent. Holding costs no security currency: Grafana patches the 12.4 branch alongside 13, and 12.4.10, 13.1.5 and 13.2.1 were all released on 2026-09-01, so the pin sits on the current patch of a maintained branch rather than on a stale one. Patch and minor updates within 12 still flow and still auto-merge. Revisit when a grafana chart ships a 13.x appVersion -- that arrives on its own as a chart update PR, and the cap moves with it.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "docker.io/grafana/grafana"
+      ],
+      "allowedVersions": "<13"
+    },
+    {
       "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
       "matchPackageNames": [
         "cilium",
