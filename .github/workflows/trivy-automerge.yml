@@ -446,8 +446,22 @@ jobs:
           # required checks pass. It needs allow_auto_merge on the repository,
           # which was off -- GitHub rejects the flag outright rather than
           # ignoring it -- and is now on.
-          gh pr merge ${{ github.event.pull_request.number }} \
-            --auto \
-            --squash \
-            --subject "chore(deps): auto-merge minor update (Trivy CVE gate passed)" \
-            --delete-branch
+          # Both orderings have to work, because GitHub refuses each flag in the
+          # other's case:
+          #
+          #   checks still running -> a plain merge exits 1 ("base branch policy
+          #                           prohibits the merge"); --auto queues it
+          #   checks already green -> --auto exits 1 ("Pull request is in clean
+          #                           status"); a plain merge succeeds
+          #
+          # This gate reaches here in about ten seconds against six required
+          # checks, so which case applies is a race decided by runner scheduling.
+          # Try to queue first, and merge directly if there is nothing to queue.
+          PR=${{ github.event.pull_request.number }}
+          SUBJECT="chore(deps): auto-merge minor update (Trivy CVE gate passed)"
+          if gh pr merge "$PR" --auto --squash --subject "$SUBJECT" --delete-branch; then
+            echo "auto-merge queued (or performed) for #$PR"
+          else
+            echo "--auto refused; PR is already mergeable, merging directly"
+            gh pr merge "$PR" --squash --subject "$SUBJECT" --delete-branch
+          fi
