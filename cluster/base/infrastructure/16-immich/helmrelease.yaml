@@ -11,6 +11,18 @@ spec:
   chart:
     spec:
       chart: immich
+      # Pinned. Every other HelmRelease in this repo names a version; these two
+      # did not, which meant Flux resolved `*` and would take whatever the
+      # index offered -- including a major app version -- with no PR, no
+      # review and no major-update checklist. It had not happened yet only
+      # because the cached index was stale: chart 0.13.1 (appVersion v3.0.0)
+      # has been published since 2026-07-03 while this ran 0.12.0 (v2.6.3).
+      # A refresh would have jumped Immich v2 -> v3 unattended.
+      #
+      # Pinned to what is actually running, so this commit changes nothing at
+      # runtime. Renovate reads this field, so the upgrade becomes a reviewable
+      # PR -- which is what a major version with a database migration needs.
+      version: 0.12.0
       sourceRef:
         kind: HelmRepository
         name: immich
