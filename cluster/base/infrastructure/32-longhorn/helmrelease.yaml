@@ -91,12 +91,29 @@ spec:
     # default classes (local-path and longhorn) and a test volume provisioned with
     # replicas=3 on a node that has exactly one Longhorn disk.
     #
-    # Configure the chart's class rather than duplicating it. defaultClass: false
-    # keeps local-path as the sole default until workloads are migrated and
-    # verified -- flipping the default early silently sends every new PVC to
-    # storage not yet proven under load here.
+    # Configure the chart's class rather than duplicating it.
+    #
+    # defaultClass was false while workloads migrated, so that flipping it
+    # early could not silently send every new PVC to storage not yet proven
+    # under load here. That condition is met: 15 volumes have run on Longhorn
+    # for the life of this cluster, and the migration it was waiting for is
+    # done.
+    #
+    # Being the default now matters for more than tidiness. local-path held it
+    # before, so a PVC that named no class got node-local storage with no
+    # replication, no snapshots, no backups and reclaimPolicy Delete -- and
+    # nothing reported that. On Longhorn the same PVC is snapshotted daily and
+    # backed up weekly and monthly from the moment it exists, because Longhorn
+    # stamps recurring-job-group.longhorn.io/default on every new volume and
+    # all three RecurringJobs are bound to that group. Forgetting to classify
+    # a volume now means it is protected rather than silently exposed.
+    #
+    # The cost of that direction is a reconstructible volume being backed up
+    # until someone excludes it in volume-backup-policy's ephemeral-pvcs list.
+    # Against a 1.24Gi backed-up baseline that is cheap; the reverse mistake is
+    # silent data loss.
     persistence:
-      defaultClass: false
+      defaultClass: true
       defaultClassReplicaCount: 1
       defaultFsType: ext4
       # Retain, matching longhorn-db (storageclass.yaml) and for the same

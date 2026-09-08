@@ -103,8 +103,13 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: local-path
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
+  # Deliberately NOT the default any more. As the default, any PVC that
+  # named no class landed on unreplicated, unsnapshotted, node-local storage
+  # with reclaimPolicy Delete -- and nothing reported it. zot's cache got
+  # here that way; nobody chose it. Longhorn is the default now, so this
+  # class is reached only by naming it, which today means exactly one
+  # volume: the SeaweedFS filer metadata database, which may live on neither
+  # Longhorn nor SeaweedFS (see 01-seaweedfs/filer-metadata-pg-cluster.yaml).
 provisioner: rancher.io/local-path
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
