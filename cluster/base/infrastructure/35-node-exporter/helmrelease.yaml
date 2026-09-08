@@ -41,6 +41,14 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Image pinned explicitly per ADR-009. Set to the version already
+    # running, so this changes nothing now; from here the version is
+    # decided in this repository rather than inferred from the chart's
+    # appVersion, and Renovate can propose updates against it.
+    image:
+      registry: quay.io
+      repository: prometheus/node-exporter
+      tag: v1.12.1
     # Without this the resources are named node-exporter-prometheus-node-exporter.
     # The name is load-bearing in one place -- the VMServiceScrape selector in
     # servicescrape.yaml -- but a readable DaemonSet name is worth having anyway.

@@ -23,6 +23,13 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Image pinned explicitly per ADR-009. Set to the version already
+    # running, so this changes nothing now; from here the version is
+    # decided in this repository rather than inferred from the chart's
+    # appVersion, and Renovate can propose updates against it.
+    image:
+      repository: registry.k8s.io/metrics-server/metrics-server
+      tag: v0.9.0
     # Efficiency review 2026-08-17: added because the Metrics API was entirely
     # absent — `kubectl top node` / `kubectl top pod` returned "Metrics API not
     # available", so every routine capacity question required port-forwarding
