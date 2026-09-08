@@ -36,7 +36,7 @@ spec:
     # appVersion, and Renovate can propose updates against it.
     image:
       repository: docker.io/velero/velero
-      tag: v1.18.1
+      tag: v1.18.2
     configuration:
       # Velero's built-in default is 1h, which on this cluster meant 20
       # BackupRepository objects (2 backends x 10 app namespaces) each spawning
