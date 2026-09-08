@@ -34,6 +34,51 @@ spec:
   driftDetection:
     mode: enabled
   values:
+    # Images pinned per ADR-009, at the versions already running.
+    #
+    # All ten move as one group. The four longhorn-* images are one release, and
+    # the six CSI sidecars are republished by longhornio and version-matched to
+    # it -- upstream csi-attacher and Longhorn's build of it are not
+    # interchangeable. A CSI driver assembled from mismatched sidecars fails at
+    # volume attach, which on this cluster means every workload with a PVC.
+    #
+    # longhorn-ui, backingImageManager and supportBundleKit are deliberately
+    # absent: they are not deployed here, so a pin could never be verified
+    # against a running pod.
+    image:
+      longhorn:
+        manager:
+          repository: longhornio/longhorn-manager
+          tag: v1.12.1
+        engine:
+          repository: longhornio/longhorn-engine
+          tag: v1.12.1
+        instanceManager:
+          repository: longhornio/longhorn-instance-manager
+          tag: v1.12.1
+        shareManager:
+          repository: longhornio/longhorn-share-manager
+          tag: v1.12.1
+      csi:
+        attacher:
+          repository: longhornio/csi-attacher
+          tag: v4.12.0
+        provisioner:
+          repository: longhornio/csi-provisioner
+          tag: v5.3.0
+        resizer:
+          repository: longhornio/csi-resizer
+          tag: v2.2.1
+        snapshotter:
+          repository: longhornio/csi-snapshotter
+          tag: v8.6.0
+        nodeDriverRegistrar:
+          repository: longhornio/csi-node-driver-registrar
+          tag: v2.17.0
+        livenessProbe:
+          repository: longhornio/livenessprobe
+          tag: v2.19.0
+
     # Fails the release before it touches the running cluster if the upgrade is
     # incompatible, rather than discovering it half-applied.
     preUpgradeChecker:

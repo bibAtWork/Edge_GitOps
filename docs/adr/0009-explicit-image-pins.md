@@ -47,6 +47,16 @@ semantic versions, a pin records what runs but no tooling can tell which of two 
 The pin is still worth having — it makes the version explicit — but it will not produce update
 proposals, and that should not be mistaken for the image being current.
 
+**A chart that already pins its images by digest is left alone.** Where a chart resolves images
+by digest rather than by tag, the tag is decoration: the rendered reference carries both, and the
+digest decides what runs. Setting a tag there produces `repository:newtag@olddigest` — a pin that
+reads as an upgrade and delivers the previous image, which is precisely the mis-specified pin
+this decision exists to eliminate. Pinning the digest instead would work, but it duplicates by
+hand a guarantee the chart already provides and makes it stronger nowhere: a digest is the most
+specific pin there is. The chart is doing more than this ADR asks, and taking it over would trade
+a maintained guarantee for a hand-maintained one on components that tend to be the least
+forgiving.
+
 **Images belonging to a feature this cluster does not enable are out of scope.** Chart values
 frequently carry images for optional subsystems that are never rendered here. Pinning them costs
 maintenance, cannot be verified against a running pod, and protects nothing.

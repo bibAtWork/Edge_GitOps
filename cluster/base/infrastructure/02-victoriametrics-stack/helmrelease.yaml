@@ -162,7 +162,13 @@ spec:
     prometheus-node-exporter:
       enabled: false
 
+    # Images pinned per ADR-009, at the versions already running. The operator
+    # and kube-state-metrics are separate projects, so they are tracked apart.
     kube-state-metrics:
+      image:
+        registry: registry.k8s.io
+        repository: kube-state-metrics/kube-state-metrics
+        tag: v2.19.1
       enabled: true
       # 7-day peak working set 222Mi; 512Mi leaves ~2.3x headroom. This scales
       # with object count, so the headroom is the point -- a burst of Jobs or
@@ -282,6 +288,9 @@ spec:
     # the component that reconciles every other component here, so an OOM loop
     # in it stops the whole stack converging.
     victoria-metrics-operator:
+      image:
+        repository: victoriametrics/operator
+        tag: v0.74.0
       resources:
         requests:
           cpu: 50m
