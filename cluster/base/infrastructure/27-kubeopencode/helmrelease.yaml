@@ -39,7 +39,12 @@ spec:
     # set at pod or container level. kubernetes-mcp-server's chart sets this by
     # default; kubeopencode's doesn't, so it's added explicitly here for both
     # workloads the chart creates.
+    # Images pinned per ADR-009. controller and server run the SAME image and
+    # must stay on one version -- they are two roles of one binary.
     controller:
+      image:
+        repository: ghcr.io/kubeopencode/kubeopencode
+        tag: v0.1.9
       # Scaled to zero: parked, not running-and-broken.
       #
       # The controller builds a cluster-wide informer cache at startup and
@@ -78,6 +83,9 @@ spec:
         seccompProfile:
           type: RuntimeDefault
     server:
+      image:
+        repository: ghcr.io/kubeopencode/kubeopencode
+        tag: v0.1.9
       auth:
         enabled: true
         allowAnonymous: false

@@ -25,6 +25,13 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Images pinned per ADR-009. The operator and the Trivy CLI it schedules are
+    # separate projects with separate versions, so they are tracked apart.
+    image:
+      registry: mirror.gcr.io
+      repository: aquasec/trivy-operator
+      tag: 0.34.0
+
     operator:
       # Efficiency review 2026-08-17: this key was misspelled
       # (scanJobConcurrentLimit, missing the "s" in "Jobs") for as long as it's
@@ -58,6 +65,13 @@ spec:
       metricsVulnIdEnabled: true
 
     trivy:
+      # 0.74.0 is what the operator's own config already requests. The running
+      # trivy-server Deployment is still on 0.73.0 -- the operator does not roll
+      # it on a config change -- so this pins the intent, not the drift.
+      image:
+        registry: mirror.gcr.io
+        repository: aquasec/trivy
+        tag: 0.74.0
       # Scan-job resources, not the operator's. The chart default is a 500M
       # limit, and scanning keycloak-config-cli exceeded it: that scan job
       # was OOMKilled six times in the operator's last 300 log lines, so the

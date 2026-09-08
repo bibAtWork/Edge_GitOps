@@ -25,7 +25,20 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Images pinned per ADR-009, at the versions already running. These move
+    # as one group -- they are a single product release, and bumping one
+    # alone would put mismatched components in the same deployment.
     admissionController:
+      container:
+        image:
+          registry: reg.kyverno.io
+          repository: kyverno/kyverno
+          tag: v1.19.0
+      initContainer:
+        image:
+          registry: reg.kyverno.io
+          repository: kyverno/kyvernopre
+          tag: v1.19.0
       replicas: 1
       # Must be able to run on a cordoned node.
       #
@@ -56,6 +69,10 @@ spec:
           memory: 512Mi
 
     backgroundController:
+      image:
+        registry: reg.kyverno.io
+        repository: kyverno/background-controller
+        tag: v1.19.0
       resources:
         requests:
           cpu: 50m
@@ -64,6 +81,10 @@ spec:
           memory: 256Mi
 
     cleanupController:
+      image:
+        registry: reg.kyverno.io
+        repository: kyverno/cleanup-controller
+        tag: v1.19.0
       resources:
         requests:
           cpu: 50m
@@ -72,6 +93,10 @@ spec:
           memory: 256Mi
 
     reportsController:
+      image:
+        registry: reg.kyverno.io
+        repository: kyverno/reports-controller
+        tag: v1.19.0
       resources:
         requests:
           cpu: 50m
