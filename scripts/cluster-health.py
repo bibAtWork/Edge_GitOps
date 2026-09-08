@@ -712,6 +712,41 @@ def print_report(results: List[Result], mode: str) -> None:
 
 # ── Entry point ─────────────────────────────────────────────────────────────────
 
+# Which pinned images track the chart's own appVersion.
+#
+# A chart's appVersion describes ONE application. Charts routinely ship
+# companion images from other projects on their own release cadences -- a
+# sidecar, a CLI the operator schedules, a metadata collector -- and comparing
+# those against appVersion is meaningless: it reads a version from one project
+# against a version from another and calls the difference drift.
+#
+# Charts absent from this map compare their conventional primary image only.
+# Anything not listed is still reported, but as independent rather than
+# compared, because a false critical trains people to ignore the check.
+APP_IMAGE_PATHS: Dict[str, List[str]] = {
+    # Every controller is one Kyverno release, versioned with the chart.
+    "kyverno": [
+        "admissionController.container.image.tag",
+        "admissionController.initContainer.image.tag",
+        "backgroundController.image.tag",
+        "cleanupController.image.tag",
+        "reportsController.image.tag",
+    ],
+    # Operator and proxy ship together.
+    "tailscale-operator": ["operatorConfig.image.tag", "proxyConfig.image.tag"],
+    # Two roles of one binary.
+    "kubeopencode": ["controller.image.tag", "server.image.tag"],
+    # falcoctl and k8s-metacollector are separate projects; only falco tracks
+    # the chart.
+    "falco": ["image.tag"],
+    # The Trivy CLI the operator schedules is a different project on a
+    # different cadence to the operator itself.
+    "trivy-operator": ["image.tag"],
+}
+
+DEFAULT_APP_IMAGE_PATHS = ("image.tag",)
+
+
 def check_pins(cl: Cluster) -> List[Result]:
     """Image pins must not fall behind the chart that packages them (ADR-009).
 
@@ -762,9 +797,18 @@ def check_pins(cl: Cluster) -> List[Result]:
 
         for path, pinned in tags(values):
             checked += 1
+            tracks_app = path in APP_IMAGE_PATHS.get(name, DEFAULT_APP_IMAGE_PATHS)
             pin_v, app_v = semver(pinned), semver(app_version)
 
-            if pin_v is None or app_v is None:
+            if not tracks_app:
+                # A companion image from another project. Recorded so the pin is
+                # visible, but never compared -- its version has no relationship
+                # to this chart's appVersion.
+                results.append(Result(
+                    "pins", f"{name}/{path}", True, "info",
+                    f"{name}: pinned {pinned} (companion image, independent of appVersion)",
+                ))
+            elif pin_v is None or app_v is None:
                 unorderable += 1
                 # Not a failure. A pin that cannot be ordered is still explicit;
                 # it simply cannot generate update proposals, and saying so is
