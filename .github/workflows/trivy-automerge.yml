@@ -433,7 +433,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # --auto, because this gate finishes before the checks the branch
+          # ruleset requires. Six checks are required to merge into
+          # ops/talos_linux, and this job reaches its merge step in about ten
+          # seconds -- often while they are still running. A plain `gh pr merge`
+          # does not wait: it asks whether the PR is mergeable right now, gets
+          # no, and exits 1. The gate then reports failure having actually PASSED
+          # its CVE evaluation, and the PR sits open with every check green and
+          # nothing left to merge it.
+          #
+          # --auto queues the merge instead, and GitHub performs it once the
+          # required checks pass. It needs allow_auto_merge on the repository,
+          # which was off -- GitHub rejects the flag outright rather than
+          # ignoring it -- and is now on.
           gh pr merge ${{ github.event.pull_request.number }} \
+            --auto \
             --squash \
             --subject "chore(deps): auto-merge minor update (Trivy CVE gate passed)" \
             --delete-branch
