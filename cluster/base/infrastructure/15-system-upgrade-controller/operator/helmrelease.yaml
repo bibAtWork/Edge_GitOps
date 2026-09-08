@@ -57,7 +57,7 @@ spec:
     systemUpgradeController:
       image:
         repository: rancher/system-upgrade-controller
-        tag: v0.19.1
+        tag: v0.19.2
     global:
       cattle:
         systemDefaultRegistry: ""
