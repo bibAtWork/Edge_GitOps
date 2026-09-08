@@ -615,18 +615,6 @@ All three are fixed; the findings themselves are untriaged. Expect a large share
 to be built-in ClusterRoles from Kubernetes and from charts, so the work is triage and
 probably a narrowed query, not 62 fixes.
 
-### local-path is still the default StorageClass
-
-Deliberate, and worth keeping visible rather than changing right now. A PVC created without
-an explicit `storageClassName` lands on unreplicated, node-local storage that no Longhorn
-RecurringJob covers. `zot` (8Gi) and the SeaweedFS filer's Postgres both sit there today --
-the filer metadata is mitigated by its hourly logical dump, `zot` is a rebuildable registry
-cache, so neither is currently a data-loss risk. The risk is the next PVC someone adds
-without thinking about the class. Flipping the default was deliberately deferred when
-Longhorn was introduced ("keeps local-path as the sole default until workloads are migrated
-and verified"); that condition is now largely met, so this is a decision that can be made
-rather than a blocker.
-
 ### Memory limits are overcommitted 121% on a single node
 
 36.9Gi of limits against 31Gi allocatable, with nowhere to reschedule. Requests are only
@@ -813,3 +801,57 @@ So the honest sequencing is: set `readOnlyRootFilesystem` on the workloads this 
 find which break, and only then consider a Kyverno rule -- and note that such a rule is
 inert until Kyverno moves from Audit to Enforce, which is a larger decision with its own
 blast radius and belongs in its own entry.
+
+---
+
+## Immich is a major version behind, and the upgrade is now a decision rather than a drift
+
+Immich runs chart `0.12.0` / app **v2.6.3**. Chart `0.13.1` (app **v3.0.0**) has been published
+since 2026-07-03, and upstream app v3.1.0 since 2026-07-29. Until #513 neither Immich
+HelmRelease named a chart version, so Flux resolved `*` and would have taken v3.0.0 unattended
+on the next index refresh -- a major version with a database migration, arriving with no PR and
+skipping this repo's own major-update checklist. It had not happened only because the cached
+index was stale.
+
+Both are now pinned to what is running, so the upgrade is a reviewable Renovate PR. It is worth
+doing rather than deferring indefinitely: Immich carries the large majority of the cluster's
+critical CVE findings across `immich-server`, `immich-machine-learning` and its postgres image,
+and roughly half of those carry a `fixedVersion`, meaning they clear with the app version.
+
+What the upgrade needs, and why it is not a routine merge:
+
+- a verified database dump taken first, and read back -- not just taken;
+- the major-update checklist, since v2 -> v3 crosses a schema migration;
+- a decision about `immich-postgresql`, whose image is pinned separately in values
+  (`immich-app/postgres:17-vectorchord0.3.0-pgvectors0.3.0`) and may need to move with the app;
+- awareness that the chart trails the app by roughly a minor version, so even after this the
+  cluster will not be on the newest Immich.
+
+## Container images track the chart's appVersion, not the image itself
+
+Worth knowing before reaching for an image-level CVE fix. Twenty-one of twenty-four
+HelmReleases pin no image tag at all, so the running image is whatever `appVersion` the chart
+ships. Renovate's `flux` manager bumps the chart; nothing watches the image directly. That is
+the normal Helm model and is usually right -- the chart author tests the chart/app pairing --
+but it means image CVE fixes arrive only as fast as the chart maintainer releases, which for
+Immich is currently about a minor version behind.
+
+The three exceptions do not work as they look:
+
+- **grafana** sets `image.tag: 12.4.10` with no `repository:` beside it. It was added by hand to
+  patch an active Critical CVE (#411) and is currently *ahead* of the chart's appVersion
+  (12.3.1), so it is doing its job. But `helm-values` cannot resolve an image from a bare tag,
+  so Renovate will never advance it, and there is no comment at the override saying why it
+  exists. Upstream Grafana is now on 13.x. Two things follow: 12.4.10 will age with nothing
+  watching it, and if the chart's appVersion ever passes 12.4.10 the override silently becomes a
+  freeze instead of a patch.
+- **zot** sets `image.repository` with `tag: ""`, which falls through to the chart appVersion.
+  It looks like a pin and is not one.
+- **immich-postgresql** sets `repository: immich-app/postgres` with no registry, so a resolver
+  defaulting to Docker Hub will not find it.
+
+The decision to make is whether image-level tracking is wanted at all. Pinning `repository` and
+`tag` together for the images that matter would let Renovate propose image bumps independently
+of chart releases, at the cost of running pairings the chart author did not test. Doing it for
+everything would be worse than doing it for nothing; doing it for the handful carrying real CVE
+exposure is defensible.
