@@ -3,13 +3,25 @@
 ---
 machine:
   type: controlplane
-  features:
-    kubernetesTalosAPIAccess:
-      enabled: true
-      allowedRoles:
-        - os:etcd:backup
-      allowedKubernetesNamespaces:
-        - talos-backup
+  # kubernetesTalosAPIAccess is deliberately NOT enabled.
+  #
+  # It existed to let talos-backup reach the Talos machine API for etcd
+  # snapshots. That CronJob was removed in #327 after running every six hours
+  # for 44 days, exiting 0 every time, taking a real 219MB snapshot and never
+  # uploading it -- reproduced on demand, seven seconds to "complete", target
+  # bucket still empty. Upstream is still on the same v0.1.0-beta.2 that
+  # failed, so redeploying it would reproduce the failure exactly.
+  #
+  # The grant outlived the workload: it authorised os:etcd:backup for a
+  # namespace that no longer exists, which reads as a live backup path to
+  # anyone auditing this file and is not one. Nothing else uses the feature --
+  # it provides the serviceaccounts.talos.dev CRD, and the cluster holds zero
+  # of those objects.
+  #
+  # etcd is out of scope for backups here: Velero covers the application
+  # namespaces, the databases have their own logical dumps, and everything
+  # else in etcd is declared in git and rebuilt by Flux. Re-enable this only
+  # alongside a workload proven to actually upload. See docs/backup-architecture.md.
 
   # Pin the node IP to the LAN subnet -- same reason as the 1-node overlay, and
   # the same subnet etcd.advertisedSubnets already uses below.

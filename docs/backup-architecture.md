@@ -160,6 +160,34 @@ that data was *written*; only a restore shows it can be *read back*.
   SeaweedFS out of the cluster on a schedule.
 - A restore drill. Artifacts are verified to decode; nothing has been restored.
 
+**Deliberately out of scope: etcd**
+
+There is no etcd backup, and that is a decision rather than a gap. It is written here because it
+has now been rediscovered as a gap twice, once by reading a Talos API grant that outlived the
+workload behind it.
+
+`talos-backup` was deployed and removed (#327). It ran every six hours for 44 days, exited 0
+every time, took a real snapshot — the logs record 219 MB — and never uploaded it. Reproduced on
+demand before removal: a fresh run logged a 219,336,736-byte snapshot, exited 0 in seven seconds,
+and the target bucket was still empty. Seven seconds is not long enough to compress, encrypt and
+upload 219 MB, and no line about any of those steps is ever logged. Six preceding commits had
+already fixed the plumbing — `USE_PATH_STYLE`, `hostAliases`, `workingDir`, `HOME`, the
+talosconfig secret, the container security context — so the failure is in the tool, not the
+configuration.
+
+Upstream has published no release since: `v0.1.0-beta.2`, 2024-08-27, is still the latest and is
+the exact version that failed. Redeploying it reproduces the failure.
+
+The cluster does not need it. Velero covers the application namespaces, each database has its own
+logical dump, and everything else in etcd is declared in git and rebuilt by Flux. What an etcd
+snapshot would add is faster recovery, not recoverability.
+
+`machine.features.kubernetesTalosAPIAccess` was removed from both overlays for the same reason:
+it granted `os:etcd:backup` to a namespace that no longer exists, which reads as a live backup
+path to anyone auditing the machine config. Re-enable it only alongside a workload proven to
+actually upload — and prove that by reading the bucket, not the exit code. A job reporting
+success while storing nothing is worse than no job.
+
 ## Upstream assessment
 
 Checked whether the two structural limitations are likely to be fixed for us.
