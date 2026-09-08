@@ -284,6 +284,104 @@
         "/^factory[.]talos[.]dev//"
       ],
       "enabled": false
+    },
+    {
+      "description": "Move the victoria-metrics chart and its pinned images together. ADR-009 requires a chart and the images it packages to move in one change. The chart's appVersion and the pinned tags describe the same release, so a proposal that carries one without the other opens a window where the pin is a downgrade of the chart's own intent. Grouping by package file keeps them in a single branch whenever both updates are available together.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/02-victoriametrics-stack/helmrelease.yaml"
+      ],
+      "groupName": "victoria-metrics"
+    },
+    {
+      "description": "Move the grafana chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/04-grafana/helmrelease.yaml"
+      ],
+      "groupName": "grafana"
+    },
+    {
+      "description": "Move the velero chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/07-velero/helmrelease.yaml"
+      ],
+      "groupName": "velero"
+    },
+    {
+      "description": "Move the external-dns chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/08-external-dns/helmrelease.yaml"
+      ],
+      "groupName": "external-dns"
+    },
+    {
+      "description": "Move the reloader chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/09-reloader/helmrelease.yaml"
+      ],
+      "groupName": "reloader"
+    },
+    {
+      "description": "Move the zot chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/12-zot/operator/helmrelease.yaml"
+      ],
+      "groupName": "zot"
+    },
+    {
+      "description": "Move the trivy-operator chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/13-trivy-operator/helmrelease.yaml"
+      ],
+      "groupName": "trivy-operator"
+    },
+    {
+      "description": "Move the system-upgrade-controller chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/15-system-upgrade-controller/operator/helmrelease.yaml"
+      ],
+      "groupName": "system-upgrade-controller"
+    },
+    {
+      "description": "Move the immich-postgresql chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/16-immich/postgresql-helmrelease.yaml"
+      ],
+      "groupName": "immich-postgresql"
+    },
+    {
+      "description": "Move the falco chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/18-falco/helmrelease.yaml"
+      ],
+      "groupName": "falco"
+    },
+    {
+      "description": "Move the envoy-gateway chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/28-envoy-gateway/operator/helmrelease.yaml"
+      ],
+      "groupName": "envoy-gateway"
+    },
+    {
+      "description": "Move the metrics-server chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/29-metrics-server/helmrelease.yaml"
+      ],
+      "groupName": "metrics-server"
+    },
+    {
+      "description": "Move the cloudnative-pg chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/33-cloudnative-pg/helmrelease.yaml"
+      ],
+      "groupName": "cloudnative-pg"
+    },
+    {
+      "description": "Move the node-exporter chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/35-node-exporter/helmrelease.yaml"
+      ],
+      "groupName": "node-exporter"
     }
   ]
 }
