@@ -264,6 +264,16 @@
       ],
       "groupName": "longhorn",
       "automerge": false
+    },
+    {
+      "description": "Stop the built-in kubernetes manager trying to resolve the Talos factory installer image. machine.install.image is a real YAML key, so that manager claims it and attempts a Docker lookup on factory.talos.dev/installer/<schematic-id> -- which has no tag list to enumerate, because the path segment is a content hash of the schematic rather than a repository name. The lookup fails with no-result and Renovate reports \"Some dependencies could not be looked up\" on every PR it opens. The version is already tracked, correctly, by the custom manager that reads the same line as siderolabs/talos from github-releases, so nothing is lost by silencing this one -- the line simply has two managers claiming it and only one that can resolve it. Scoped to the manager as well as the package so a future custom manager could still track this registry if needed.",
+      "matchManagers": [
+        "kubernetes"
+      ],
+      "matchPackageNames": [
+        "/^factory[.]talos[.]dev//"
+      ],
+      "enabled": false
     }
   ]
 }
