@@ -110,7 +110,17 @@ spec:
 
     image:
       repository: ghcr.io/project-zot/zot-linux-amd64
-      tag: ""
+      # Was `tag: ""`, which reads as a pin and is not one -- an empty string
+      # overrides the chart's own default tag and falls through to
+      # .Chart.AppVersion, so the running version was decided by chart
+      # metadata while this file appeared to decide it. Renovate saw nothing
+      # to track.
+      #
+      # Set to the version that was already running, so this changes no image
+      # and starts being true. zot is one of the charts whose appVersion
+      # trails upstream (v2.1.18 here against v2.1.21 released), so a real
+      # pin is also what lets that gap surface as a PR.
+      tag: v2.1.18
 
     # S3 storage initialization can be slow; give Zot 5 minutes before giving up
     startupProbe:
