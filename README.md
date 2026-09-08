@@ -16,7 +16,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 - **OS**: Talos Linux (immutable, no SSH, API-driven)
 - **CNI**: Cilium (Gateway API, Hubble, kube-proxy replacement, WireGuard configured)
 - **GitOps**: FluxCD v2 + SOPS/Age encrypted secrets
-- **Storage**: Longhorn (block storage for application PVCs) + SeaweedFS (S3-compatible object storage: Velero backup target, database dumps, Zot registry, Longhorn backup target)
+- **Storage**: Longhorn (block storage for application PVCs, and the default StorageClass) + SeaweedFS (S3-compatible object storage: Velero backup target, database dumps, Zot registry, Longhorn backup target). local-path is retained for exactly one volume that can use neither — the SeaweedFS filer metadata database — see [ADR-008](./docs/adr/0008-storage-mechanisms.md)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
 - **Backup**: Longhorn snapshots/backups to local SeaweedFS, relayed one-way to an immutable AWS S3 vault ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md)) + Velero for Kubernetes objects + per-database logical dumps
 - **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with a Trivy/Renovate bridge that reports images carrying critical CVEs
