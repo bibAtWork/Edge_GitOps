@@ -255,6 +255,15 @@
       ],
       "groupName": "kubeopencode",
       "automerge": false
+    },
+    {
+      "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it -- upstream csi-attacher and Longhorn's build of it are not interchangeable. A CSI driver assembled from mismatched sidecars fails at volume attach, which here means every workload with a PVC. Also carries manual-review from the unrecoverable-component rule.",
+      "matchPackageNames": [
+        "longhorn",
+        "/^(docker[.]io/)?longhornio//"
+      ],
+      "groupName": "longhorn",
+      "automerge": false
     }
   ]
 }
