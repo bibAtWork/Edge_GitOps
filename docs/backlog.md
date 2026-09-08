@@ -850,8 +850,79 @@ The three exceptions do not work as they look:
 - **immich-postgresql** sets `repository: immich-app/postgres` with no registry, so a resolver
   defaulting to Docker Hub will not find it.
 
+Measured 2026-09-08, because the answer turns on how much the chart model actually costs:
+**9 of 18 charts ship an appVersion older than the app's latest release.** grafana (12.3.1 vs
+13.2.1) and immich (v3.0.0 vs v3.1.0) lag by a major; external-dns, system-upgrade-controller
+and seaweedfs by a minor; velero and zot by a patch. Nine are current. So chart-driven updating
+is not "doing nothing" -- half the estate tracks upstream exactly -- but it is not complete
+either.
+
+What that implies for the proposed rule is not obvious and is worth stating: capping image
+updates at the current major would close the patch and minor gaps (velero, zot, seaweedfs,
+external-dns, system-upgrade-controller) and would **not** close the two large ones, because
+grafana and immich both need a major. Since Immich carries the large majority of this cluster's
+critical CVE findings, a within-major image rule would leave most of the actual exposure
+untouched. The thing that clears it is the Immich major upgrade, which is a decision rather than
+an automation.
+
+Scale check on the same idea: the 23 charts expose **88 image tag keys** between them. Two
+(cert-manager, kubernetes-mcp-server) expose none at all, twelve have a plain `image.tag`, and
+nine need a bespoke nested path. Several ship many -- cilium 16, longhorn 14, vmstack 11,
+kyverno 8 -- where most are sidecars version-matched to the operator (Longhorn's CSI attacher,
+provisioner and resizer are released with Longhorn). Bumping those independently is not a
+freshness win, it is a compatibility risk.
+
+The middle option worth evaluating: pin `image.tag` only where the chart lags **and** the image
+carries real CVE exposure -- today Immich's two images and Grafana's one, so three pins rather
+than eighty-eight -- keep chart-driven updates everywhere else, and let Trivy's existing
+per-image critical alerting remain the risk trigger rather than version age.
+
 The decision to make is whether image-level tracking is wanted at all. Pinning `repository` and
 `tag` together for the images that matter would let Renovate propose image bumps independently
 of chart releases, at the cost of running pairings the chart author did not test. Doing it for
 everything would be worse than doing it for nothing; doing it for the handful carrying real CVE
 exposure is defensible.
+
+---
+
+## Evaluate: alert on upstream project liveness, not on our version's age
+
+Proposed 2026-09-08, recorded for evaluation rather than implemented. The goal is a proactive
+signal that a component has stopped being maintained, instead of finding out when a CVE lands
+in something nobody has released for two years.
+
+The design that does **not** work is alerting on the age of the version we run. Measured across
+17 components, that fires on five today: one critical and four warnings. The critical is
+**false** -- Grafana's chart appVersion is 12.3.1, released 266 days ago, while the cluster
+actually runs 12.4.10 via a values override applied to patch a Critical CVE. Chart metadata
+stops describing reality exactly where an override exists, which is exactly where the work was
+already done. Falco shows the other failure: 0.44.1 is 89 days old *and* is the newest release,
+so it warns tomorrow with no action available.
+
+The design that does work measures the **project**, not our pin: days since upstream's most
+recent stable release. Measured across 21 projects, every one has released within 89 days,
+median around 21. So:
+
+- **180 days = warning, 365 days = critical.** Both fire on nothing today, which means the first
+  alert is real signal rather than something to learn to ignore. 90 days is too tight: falco sits
+  at 89 and quarterly-cadence projects would oscillate in and out.
+
+Validation that the threshold detects what it should: `talos-backup` returns no stable releases
+at all -- its newest is a prerelease from 2024-08-27. That is the abandonment case, and it is the
+component that silently failed here for 44 days before being removed (#327).
+
+This pairs with a second, separate signal rather than replacing it: **Renovate PR age** answers
+"are we behind", is actionable because the PR is the remedy, needs no new data source, and cannot
+false-positive on something already newest.
+
+Implementation notes for whoever picks this up:
+
+- The shape already exists twice in this repo -- `talos-cve-watch` and `trivy-renovate-bridge`
+  both query upstream on a schedule and push metrics to VictoriaMetrics.
+- Use the authenticated token. Unauthenticated `api.github.com` rate limits have broken CI here
+  more than once.
+- Publish a `last_successful_check` timestamp alongside the age metric and alert on *that* too. A
+  staleness alert whose fetcher fails silently goes quiet, which is the worst possible direction
+  for this particular check.
+- Coverage will be partial. Not every dependency is a GitHub project with a release feed --
+  `immich-postgresql` comes from a Bitnami registry with none.
