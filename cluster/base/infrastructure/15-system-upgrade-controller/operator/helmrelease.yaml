@@ -48,6 +48,16 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Image pinned per ADR-009, at the version already running in cattle-system.
+    #
+    # kubectl.image is deliberately not pinned. SUC uses it only inside the
+    # upgrade Jobs it creates, so no pod runs it between upgrades and a pin
+    # could not be verified against anything -- and an unverifiable pin is the
+    # kind ADR-009 exists to prevent.
+    systemUpgradeController:
+      image:
+        repository: rancher/system-upgrade-controller
+        tag: v0.19.1
     global:
       cattle:
         systemDefaultRegistry: ""
