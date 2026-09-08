@@ -135,6 +135,19 @@ spec:
       # exactly the accident the default is being moved away from.
       storageClassName: longhorn
 
+    # Pod-level, and distinct from the container `securityContext` below --
+    # the chart renders this one at spec.template.spec.securityContext and
+    # that one at the container. fsGroup is only meaningful here.
+    #
+    # Without it the Longhorn volume (ext4, root-owned at format time) is
+    # unwritable by uid 1000 and zot exits immediately with
+    # "open /var/lib/registry/cache.db: permission denied".
+    #
+    # This was not needed while the volume came from local-path, whose setup
+    # script does `mkdir -m 0777` -- any uid could write. Moving to real block
+    # storage is what exposed the missing field, not what broke it.
+    podSecurityContext:
+      fsGroup: 1000
     securityContext:
       runAsNonRoot: true
       runAsUser: 1000
