@@ -35,12 +35,21 @@ spec:
       targetPath: oauth.clientSecret
 
   values:
+    # Images pinned per ADR-009, at the versions already running. Operator and
+    # proxy ship as one release and move together. This chart is also never
+    # auto-merged: losing the operator removes the remote path into the cluster.
     operatorConfig:
+      image:
+        repository: tailscale/k8s-operator
+        tag: v1.102.3
       hostname: homelab-operator
       defaultTags:
         - tag:k8s-operator
 
     proxyConfig:
+      image:
+        repository: tailscale/tailscale
+        tag: v1.102.3
       defaultTags: tag:k8s-operator
 
     securityContext:

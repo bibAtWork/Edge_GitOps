@@ -23,6 +23,14 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Images pinned per ADR-009, at the versions already running. falco,
+    # falcoctl and k8s-metacollector are separate upstream projects on their own
+    # release cadences, so each is tracked independently rather than grouped.
+    image:
+      registry: docker.io
+      repository: falcosecurity/falco
+      tag: 0.44.1
+
     driver:
       kind: modern_ebpf
 
@@ -76,6 +84,10 @@ spec:
     # written next to the workload is visible in review, whereas a LimitRange
     # default applies invisibly to anything that forgets to set one.
     falcoctl:
+      image:
+        registry: docker.io
+        repository: falcosecurity/falcoctl
+        tag: 0.13.0
       artifact:
         follow:
           # 7-day peak 45Mi.
@@ -87,6 +99,10 @@ spec:
               memory: 256Mi
 
     k8s-metacollector:
+      image:
+        registry: docker.io
+        repository: falcosecurity/k8s-metacollector
+        tag: 0.1.1
       # 7-day peak 143Mi.
       resources:
         requests:

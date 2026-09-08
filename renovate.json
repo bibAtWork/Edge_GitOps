@@ -228,6 +228,33 @@
       "addLabels": [
         "manual-review"
       ]
+    },
+    {
+      "description": "Kyverno ships five images from one release -- four controllers plus the admission init container -- and the chart that wires them. ADR-009 requires they move as one change: a deployment running mismatched Kyverno components is a worse failure than one that is a version behind.",
+      "matchPackageNames": [
+        "kyverno",
+        "/^reg[.]kyverno[.]io/kyverno//"
+      ],
+      "groupName": "kyverno",
+      "automerge": false
+    },
+    {
+      "description": "Tailscale's operator and proxy images ship as one release, with the chart. Grouped so they cannot diverge. Also carries manual-review from the unrecoverable-component rule -- losing the operator removes the remote path into the cluster.",
+      "matchPackageNames": [
+        "tailscale-operator",
+        "/^(docker[.]io/)?tailscale//"
+      ],
+      "groupName": "tailscale",
+      "automerge": false
+    },
+    {
+      "description": "kubeopencode's controller and server are two roles of one binary, pinned twice from the same repository. Grouped so a bump cannot land on one and not the other.",
+      "matchPackageNames": [
+        "kubeopencode",
+        "/^ghcr[.]io/kubeopencode//"
+      ],
+      "groupName": "kubeopencode",
+      "automerge": false
     }
   ]
 }
