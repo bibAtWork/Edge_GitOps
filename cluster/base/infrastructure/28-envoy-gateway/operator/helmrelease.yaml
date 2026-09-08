@@ -25,6 +25,18 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Image pinned per ADR-009, at the version already running. The chart ships
+    # empty repository and tag defaults and fills them from its appVersion, so
+    # nothing here named the version before this.
+    #
+    # Only the control-plane image is pinned. The Envoy proxy image the Gateway
+    # runs is resolved by digest through the EnvoyProxy resource, not from these
+    # values -- see the digest limitation in ADR-009.
+    deployment:
+      envoyGateway:
+        image:
+          repository: docker.io/envoyproxy/gateway
+          tag: v1.9.1
     # The chart's bundled crds subchart installs its own copy of the upstream
     # Gateway API CRDs alongside Envoy Gateway's own (EnvoyProxy, SecurityPolicy,
     # etc.), all under this one flag. Gateway API CRDs are managed separately by
