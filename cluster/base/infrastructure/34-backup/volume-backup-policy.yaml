@@ -93,6 +93,20 @@ data:
     # degraded until Immich re-imports them. See docs/runbooks/backup-recovery.md.
     keycloak-pg-1
     data-immich-postgresql-0
+
+    # zot's local volume. Image blobs live in SeaweedFS S3 (storageDriver s3,
+    # bucket zot-registry); this holds only cache.db, meta.db and zot's
+    # bundled Trivy databases, all of which zot rebuilds or re-downloads.
+    # Listed in the same change that moves it onto Longhorn, so it is never
+    # backed up even once -- it sat on local-path before, where nothing was
+    # backing it up and nothing said so.
+    zot-pvc-zot-0
+
+    # Paperless' document-exporter output, regenerable from paperless-data
+    # and paperless-media, both of which are themselves backed up. It was the
+    # only volume left in `default` whose contents are reconstructible from
+    # other volumes in `default`.
+    paperless-export-lh
 ---
 apiVersion: v1
 kind: ServiceAccount

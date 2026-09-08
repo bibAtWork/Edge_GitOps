@@ -118,9 +118,22 @@ spec:
       periodSeconds: 10
       initialDelaySeconds: 10
 
-    persistence:
-      # zot stores image data in SeaweedFS S3; local persistence is only a cache
-      enabled: false
+    # `persistence` is a plain bool in this chart, not a map. Setting
+    # `persistence.enabled: false` made it a non-empty map, which Helm
+    # evaluates as truthy -- so this said "off" and meant "on" for the life
+    # of the file, and the PVC it was supposed to suppress has existed all
+    # along. On is the correct answer anyway: image blobs live in SeaweedFS
+    # S3 (storageDriver: s3, bucket zot-registry), but the volume still holds
+    # zot's cache.db, meta.db and its bundled Trivy vulnerability databases.
+    # Losing it costs a Trivy DB re-download, not images.
+    persistence: true
+    pvc:
+      create: true
+      storage: 8Gi
+      # Named explicitly rather than inheriting the cluster default. This
+      # volume landed on local-path only because nothing pinned it, which is
+      # exactly the accident the default is being moved away from.
+      storageClassName: longhorn
 
     securityContext:
       runAsNonRoot: true
