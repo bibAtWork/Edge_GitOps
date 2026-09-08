@@ -213,6 +213,21 @@
         "major"
       ],
       "enabled": false
+    },
+    {
+      "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
+      "matchPackageNames": [
+        "cilium",
+        "longhorn",
+        "tailscale-operator",
+        "/^quay[.]io/cilium//",
+        "/^(docker[.]io/)?longhornio//",
+        "/^(docker[.]io/)?tailscale//"
+      ],
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
     }
   ]
 }

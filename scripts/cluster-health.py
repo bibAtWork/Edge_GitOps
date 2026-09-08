@@ -18,6 +18,7 @@ Run from any machine that has a working kubeconfig for the cluster.
 import argparse
 import dataclasses
 import json
+import re
 import subprocess
 import sys
 import time
@@ -711,6 +712,90 @@ def print_report(results: List[Result], mode: str) -> None:
 
 # ── Entry point ─────────────────────────────────────────────────────────────────
 
+def check_pins(cl: Cluster) -> List[Result]:
+    """Image pins must not fall behind the chart that packages them (ADR-009).
+
+    An explicit image tag overrides the chart's appVersion permanently. While the
+    pin is ahead it is a patch -- a security fix the chart has not shipped yet.
+    The moment the chart's appVersion passes the pin, the same line silently
+    becomes a downgrade: the chart's templates are written for a newer binary
+    than the one that will run.
+
+    Nothing else reports this. It produces no image diff in a version-bump PR, so
+    the auto-merge gate classifies it as a chart-only update and treats it as the
+    safest possible change.
+
+    Both values are already in the cluster -- the pin in spec.values, the
+    appVersion in the deployed release's status -- so this needs no registry
+    call, no token and no chart download.
+    """
+    results: List[Result] = []
+
+    def semver(raw: str):
+        m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", str(raw or "").strip())
+        return tuple(int(x) for x in m.groups()) if m else None
+
+    def tags(node, path=""):
+        """Yield (dotted-path, value) for every *.tag in a values tree."""
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield from tags(value, f"{path}.{key}" if path else key)
+        elif path.endswith(".tag") or path == "tag":
+            if value_is_set(node):
+                yield path, node
+
+    def value_is_set(v) -> bool:
+        return isinstance(v, str) and v.strip() not in ("", "null")
+
+    try:
+        releases = cl.items("helmrelease", "-A")
+    except Exception as exc:
+        return [Result("pins", "helmreleases", False, "critical",
+                       f"Cannot list helmreleases: {exc}")]
+
+    checked = frozen = unorderable = 0
+    for hr in releases:
+        name = hr.get("metadata", {}).get("name", "?")
+        history = (hr.get("status", {}) or {}).get("history") or [{}]
+        app_version = history[0].get("appVersion", "")
+        values = (hr.get("spec", {}) or {}).get("values") or {}
+
+        for path, pinned in tags(values):
+            checked += 1
+            pin_v, app_v = semver(pinned), semver(app_version)
+
+            if pin_v is None or app_v is None:
+                unorderable += 1
+                # Not a failure. A pin that cannot be ordered is still explicit;
+                # it simply cannot generate update proposals, and saying so is
+                # the point -- "pinned" must not be read as "current".
+                results.append(Result(
+                    "pins", f"{name}/{path}", True, "info",
+                    f"{name}: {pinned} not comparable with appVersion {app_version or '(none)'}",
+                ))
+            elif pin_v < app_v:
+                frozen += 1
+                results.append(Result(
+                    "pins", f"{name}/{path}", False, "critical",
+                    f"{name}: pinned {pinned} is OLDER than the chart's appVersion "
+                    f"{app_version} -- the pin is now a downgrade, not a patch",
+                    detail="Raise the pin to at least the chart's appVersion, or drop the "
+                           "pin if the chart's own version is wanted. See ADR-009.",
+                ))
+            else:
+                results.append(Result(
+                    "pins", f"{name}/{path}", True, "info",
+                    f"{name}: pinned {pinned} vs appVersion {app_version} "
+                    f"({'ahead' if pin_v > app_v else 'equal'})",
+                ))
+
+    results.append(Result(
+        "pins", "summary", frozen == 0, "critical" if frozen else "info",
+        f"{checked} pin(s) checked, {frozen} behind their chart, {unorderable} not orderable",
+    ))
+    return results
+
+
 GROUPS: Dict[str, Callable] = {
     "flux":       check_flux,
     "storage":    check_storage,
@@ -719,6 +804,7 @@ GROUPS: Dict[str, Callable] = {
     "certs":      check_certs,
     "network":    check_network,
     "apps":       check_apps,
+    "pins":       check_pins,
 }
 
 
