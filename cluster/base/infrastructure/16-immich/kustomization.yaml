@@ -10,3 +10,20 @@ resources:
   - postgres-backup-cronjob.yaml
   - backup-s3-secret.yaml
   - backup-netpol.yaml
+
+configMapGenerator:
+  # The upload half of this namespace's database backup. Generated from the
+  # single shared script rather than copied: cluster/base/infrastructure/
+  # _shared/backup-upload.sh is the only implementation, and all four backup
+  # jobs generate their own namespaced ConfigMap from that one file.
+  #
+  # disableNameSuffixHash for the reason already recorded above -- kustomize's
+  # nameReference rewrite does not reach into a Job's
+  # spec.template.spec.volumes[].configMap.name, so a hashed name would 404 at
+  # apply time.
+  - name: backup-upload-script
+    namespace: immich
+    files:
+      - upload.sh=../_shared/backup-upload.sh
+    options:
+      disableNameSuffixHash: true

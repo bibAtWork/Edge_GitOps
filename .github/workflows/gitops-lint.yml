@@ -85,7 +85,12 @@ jobs:
             # own exit status behind `|| true`, so a failed render reads as "no
             # violations found" and the gate passes on nothing at all.
             rendered=$(mktemp)
-            if ! kubectl kustomize "cluster/overlays/${overlay}" > "$rendered"; then
+            # LoadRestrictionsNone: the backup CronJobs generate their upload-script
+            # ConfigMap from the single shared file in _shared/, which sits outside
+            # their own component directory. Flux renders that fine -- the
+            # 1-node-config overlay has relied on the same thing for a while -- but
+            # plain kubectl kustomize refuses it.
+            if ! kubectl kustomize --load-restrictor LoadRestrictionsNone "cluster/overlays/${overlay}" > "$rendered"; then
               echo "ERROR: kubectl kustomize failed for ${overlay}"
               FAIL=1; rm -f "$rendered"; continue
             fi
@@ -201,7 +206,8 @@ jobs:
 
           for overlay in ('1-node', '3-node'):
               result = subprocess.run(
-                  ['kubectl', 'kustomize', f'cluster/overlays/{overlay}'],
+                  ['kubectl', 'kustomize', '--load-restrictor',
+                   'LoadRestrictionsNone', f'cluster/overlays/{overlay}'],
                   capture_output=True, text=True,
               )
               if result.returncode != 0:
@@ -257,80 +263,122 @@ jobs:
               print('All HelmRelease references resolve correctly.')
           PY
 
-  backup-upload-identical:
-    name: Backup upload scripts identical
+  backup-upload-contract:
+    name: Backup upload contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      # The database backup CronJobs each dump something different, then upload
-      # it in exactly the same way. That upload half is where the read-back
-      # check lives -- the thing that separates a real backup from a listing,
-      # which exists because SeaweedFS has served phantom objects in this
-      # cluster: correct size in a listing, unreadable on GET.
+      # The upload half of every database backup is one file:
+      # cluster/base/infrastructure/_shared/backup-upload.sh. It used to be
+      # four copies, which agreed only because they were written together --
+      # and by the time anyone looked, one had already drifted (a missing
+      # docker.io/ prefix, which made Renovate track the same image twice and
+      # open two PRs for one bump).
       #
-      # Four copies of that logic agreed only because they were written
-      # together. Nothing made them agree tomorrow, and one had already drifted
-      # -- a missing docker.io/ prefix, which made Renovate treat it as a
-      # separate package and open two PRs for the same image bump.
-      #
-      # They are now byte-identical and parameterised entirely by env. This
-      # fails the build if that stops being true. It discovers the jobs rather
-      # than listing them, so a fifth database cannot arrive without a
-      # read-back check by someone copying in a hurry.
-      - name: Verify every backup upload container is byte-identical
+      # Copies were not the answer to that, and neither is trusting review.
+      # There is one implementation, and these checks are the guardrail: they
+      # fail the build if a backup job stops using it, if a required parameter
+      # is missing, or if a new namespace generates its ConfigMap from
+      # somewhere else. A job cannot quietly acquire its own upload logic.
+      - name: Lint the shared upload script
+        run: shellcheck cluster/base/infrastructure/_shared/backup-upload.sh
+
+      - name: Verify every backup job honours the upload contract
         run: |
           python3 - <<'PY'
           import glob
-          import hashlib
+          import os
           import sys
+          import yaml
 
-          found = {}
-          for path in sorted(glob.glob('cluster/base/**/*.yaml', recursive=True)):
-              try:
-                  text = open(path, encoding='utf-8', errors='replace').read()
-              except OSError:
-                  continue
-              if '- name: upload' not in text or 'aws-cli' not in text:
-                  continue
+          SHARED = 'cluster/base/infrastructure/_shared/backup-upload.sh'
+          COMMAND = ['/bin/sh', '/scripts/upload.sh']
+          CONFIGMAP = 'backup-upload-script'
+          REQUIRED = ('S3_ENDPOINT', 'SRC_FILE', 'DEST_DIR', 'OBJECT_NAME', 'OBJECT_EXT')
 
-              lines = text.splitlines()
-              start = end = None
-              for n, line in enumerate(lines):
-                  if start is None and line.strip() == '- name: upload':
-                      start = n
-                  elif start is not None and line.strip() == 'env:':
-                      end = n
-                      break
-              if start is None or end is None:
-                  print('ERROR: ' + path + ': upload container has no env: block')
-                  sys.exit(1)
+          errors = []
+          jobs = []
 
-              block = chr(10).join(lines[start:end])
-              found[path] = hashlib.sha256(block.encode()).hexdigest()[:12]
-
-          if len(found) < 4:
-              print('ERROR: expected at least 4 backup upload containers, found '
-                    + str(len(found)) + '.')
-              print('       One was renamed or removed. Update this check deliberately.')
-              for path in found:
-                  print('         ' + path)
+          if not os.path.exists(SHARED):
+              print('ERROR: the shared upload script is missing: ' + SHARED)
               sys.exit(1)
 
-          variants = {}
-          for path, digest in found.items():
-              variants.setdefault(digest, []).append(path)
+          for path in sorted(glob.glob('cluster/base/**/*.yaml', recursive=True)):
+              text = open(path, encoding='utf-8', errors='replace').read()
+              if 'kind: CronJob' not in text:
+                  continue
+              try:
+                  docs = [d for d in yaml.safe_load_all(text) if d]
+              except yaml.YAMLError as exc:
+                  errors.append(path + ': cannot parse: ' + str(exc))
+                  continue
 
-          if len(variants) == 1:
-              print('All ' + str(len(found)) + ' backup upload containers are identical.')
-              sys.exit(0)
+              for doc in docs:
+                  if doc.get('kind') != 'CronJob':
+                      continue
+                  spec = doc['spec']['jobTemplate']['spec']['template']['spec']
+                  uploads = [c for c in spec.get('containers', []) if c.get('name') == 'upload']
+                  if not uploads:
+                      continue
 
-          print('ERROR: the backup upload containers have diverged.')
-          print('       Anything that differs between these jobs belongs in env,')
-          print('       not in the script. See docs/backlog.md.')
-          for digest, paths in sorted(variants.items(), key=lambda kv: -len(kv[1])):
-              print('  variant ' + digest + ' (' + str(len(paths)) + '):')
-              for path in paths:
-                  print('    ' + path)
-          sys.exit(1)
+                  name = doc['metadata']['name']
+                  jobs.append((path, name))
+                  up = uploads[0]
+                  where = path + ' (' + name + ')'
+
+                  if up.get('command') != COMMAND:
+                      errors.append(where + ': upload must run the shared script, not its own. '
+                                    'Expected command ' + str(COMMAND))
+
+                  mounts = [m for m in up.get('volumeMounts', [])
+                            if m.get('mountPath') == '/scripts']
+                  if not mounts:
+                      errors.append(where + ': upload does not mount the script at /scripts')
+                  else:
+                      vol_name = mounts[0].get('name')
+                      vols = [v for v in spec.get('volumes', []) if v.get('name') == vol_name]
+                      source = vols[0].get('configMap', {}).get('name') if vols else None
+                      if source != CONFIGMAP:
+                          errors.append(where + ': /scripts must come from ConfigMap '
+                                        + CONFIGMAP + ', found ' + str(source))
+
+                  present = set()
+                  for entry in up.get('env', []):
+                      present.add(entry.get('name'))
+                  missing = [v for v in REQUIRED if v not in present]
+                  if missing:
+                      errors.append(where + ': upload is missing required env: '
+                                    + ', '.join(missing))
+
+                  kust = os.path.join(os.path.dirname(path), 'kustomization.yaml')
+                  generated = False
+                  if os.path.exists(kust):
+                      kdoc = yaml.safe_load(open(kust, encoding='utf-8')) or {}
+                      for gen in kdoc.get('configMapGenerator', []) or []:
+                          if gen.get('name') != CONFIGMAP:
+                              continue
+                          for f in gen.get('files', []) or []:
+                              if f.endswith('_shared/backup-upload.sh'):
+                                  generated = True
+                  if not generated:
+                      errors.append(where + ': ' + kust + ' must generate ' + CONFIGMAP
+                                    + ' from ' + SHARED)
+
+          if len(jobs) < 4:
+              errors.append('expected at least 4 backup jobs with an upload container, found '
+                            + str(len(jobs)) + ' -- one was renamed or removed')
+
+          if errors:
+              print('ERROR: the backup upload contract is broken.')
+              for e in errors:
+                  print('  ' + e)
+              print('')
+              print('There is one upload implementation: ' + SHARED)
+              print('Everything that differs between backup jobs belongs in env.')
+              sys.exit(1)
+
+          print('All ' + str(len(jobs)) + ' backup jobs use the shared upload script:')
+          for path, name in jobs:
+              print('  ' + name)
           PY
