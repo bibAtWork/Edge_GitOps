@@ -399,6 +399,40 @@ command to run, which is the difference between a reminder and a runbook.
 
 ---
 
+### Still open, re-checked 2026-09-09
+
+Unchanged since it was found. `grep -rn "rotate-secrets\|rotation-log" .github/` still returns
+nothing and `docs/rotation-log.md` does not exist, so nothing prompts, tracks or verifies any
+rotation.
+
+**What already rotates itself, and is not part of this gap:** TLS certificates via cert-manager
+(`cluster-health.py` checks for anything expiring within 14 days and it currently passes), bound
+ServiceAccount tokens, and kubelet certificates under Talos.
+
+**What never rotates unless a human does it:** the SOPS age key, the SeaweedFS S3 admin
+credential, the AWS relay and auditor keys, the age key protecting offsite etcd snapshots,
+Keycloak client secrets, and the SSH signing key. `bootstrap/scripts/rotate-secrets.py` covers
+three of those shapes today -- `sops-age` (two-phase), `backup-age`, and `credential`.
+
+### Refinement: automate the proof, not just the prompt
+
+The recommendation above -- prompt, never rotate unattended -- still stands. But the dangerous
+state is not an old key, it is a **half-finished rotation**, and a reminder does nothing about
+that. Two things are safely automatable and neither touches a key:
+
+1. **Prove the new credential works.** Every one of these credentials already has a round-trip
+   that exercises it: the backup jobs' own read-back for the S3 admin key, a relay dry-run for
+   the AWS keys, `sops -d` for the age key. A post-rotation job that runs the relevant one and
+   fails loudly is the difference between "rotated" and "rotated and still working".
+2. **Prove no consumer still holds the old one.** The failure this guards against is a rotation
+   that updates the secret but misses a consumer, which stays silent until the next backup runs
+   -- the same class of silent failure as the frozen `talos-backup` that went 44 days unnoticed
+   (#327).
+
+That reframes the work: the tracked file and scheduled issue remain the reminder, and the
+verification is what makes a rotation safe to perform at all.
+
+
 ## Deferred: report Trivy CVEs as a delta, not a standing total
 
 #420 cut the CVE alerting from 1,325 firing instances to 70 by counting per image
