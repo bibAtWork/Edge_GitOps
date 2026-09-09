@@ -120,7 +120,7 @@ spec:
       # and starts being true. zot is one of the charts whose appVersion
       # trails upstream (v2.1.18 here against v2.1.21 released), so a real
       # pin is also what lets that gap surface as a PR.
-      tag: v2.1.18
+      tag: v2.1.21
 
     # S3 storage initialization can be slow; give Zot 5 minutes before giving up
     startupProbe:
