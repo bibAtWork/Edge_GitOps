@@ -1155,21 +1155,52 @@ the only push to the vault:
 | Removes the per-namespace dump and upload manifests | Another operator and CRD set on a single node |
 | Deduplicated and encrypted at rest | A backup stops being an inspectable `.sql.gz` |
 | `check` verifies stored data -- our read-back instinct | Restore needs restic and the repository password |
-| Scheduling, retention and restore become declarative | `prune` deletes, conflicting with the no-delete vault |
+| Scheduling, retention and restore become declarative | `prune` runs locally, so the relay must re-mirror after every prune |
 | A fifth database is one annotation | The restore drill and restore-test need rebuilding |
 
-### The blocker
+### Corrected 2026-09-09: the blocker recorded here was wrong
 
-A restic repository is **mutable state**, and ADR-005 relays one-way into a vault that
-deliberately grants no `s3:DeleteObject`. Copying a repository forward means the vault accumulates
-every generation of pack files, and a locally-pruned repository relayed afterwards can leave it
-holding an inconsistent mix. This is harder than the barman conflict: barman archives are
-append-only until expiry, while restic rewrites packs during prune.
+This entry originally claimed that deduplication is structurally incompatible with the vault,
+because an S3 Lifecycle rule expiring an old pack file would break restores of newer snapshots
+that reference it. **That is not how this vault expires anything, and the claim was wrong.**
 
-Settle that before anything else. The plausible answers are to relay snapshots and never prune
-locally, or to keep the vault on the current object-per-dump format and run k8up only as the local
-mechanism -- which is two systems, and probably not worth it.
+There is no age-based expiry. `bootstrap/terraform/backup-vault-lifecycle.tf` expires objects
+only when they carry a tag:
 
+```hcl
+rule { id = "tag-gated-prune"
+  filter { tag { key = "lifecycle" value = "prunable" } }
+  expiration { days = 1 } }
+```
+
+and `backup-reconciler` is the only thing that applies that tag. It builds a local inventory,
+diffs it against the remote one, applies a 14-day grace measured on **how long an object has been
+absent locally** rather than on its age, and refuses to tag anything at all if the local inventory
+came back empty -- "that is a local failure, not a reason to prune". Retention is therefore driven
+by local state and merely mirrored remotely; AWS performs the deletion because no cluster
+credential may.
+
+**The architecture already runs a chunked, reference-counted store this way.** Longhorn's
+backupstore is exactly that: incremental backups sharing blocks, with its own reference graph.
+Longhorn prunes locally, where deletes are permitted, and the reconciler mirrors the absence. A
+restic repository would behave identically -- `restic prune` locally, the relay stops copying the
+removed packs, the reconciler notices, waits out the grace, tags, and AWS deletes. The vault never
+needs to understand restic's reference graph, because it never decides anything.
+
+### What actually argues against k8up
+
+Weaker than what was recorded, and trade-offs rather than a structural bar:
+
+- **The artifact stops being inspectable.** restic always encrypts, so `gunzip | psql` becomes
+  `restic restore` plus a repository password.
+- **That password becomes a recovery dependency**, with a chicken-and-egg risk if it lives in a
+  cluster secret and the cluster is what is being restored.
+- **A third backup system** and another operator beside Longhorn and Velero, on a single node.
+- **The restore drill and `backup-restore-test` need rebuilding** around restic -- and those are
+  the least-tested part of this cluster's recovery story, so disturbing them has real cost.
+
+The lesson worth keeping: the retention mechanism was subtle enough to be misread from the
+manifests alone, which is why it is now drawn out in `docs/backup-architecture.md`.
 ### When this flips
 
 Adopt it if the estate grows past four databases, if encryption at rest for backups becomes a
