@@ -974,3 +974,42 @@ the warning is permanent and harmless.
 
 Reviewed 2026-09-09. Revisit only if the noise starts hiding a *real* lookup failure -- that is the
 one way this becomes more than cosmetic, since a second failing dependency would look identical.
+
+## F1 partially closed: the database dumps do replay — verified once, not continuously
+
+`keycloak-pg`, `immich-postgresql` and `filer-meta-pg` have `pg_dump` to S3 as their only recovery
+path, and until 2026-09-09 no dump had ever been replayed. It had been assumed rather than tested.
+
+**All three replay.** Full procedure, evidence and prerequisites are in `docs/disaster-recovery.md`
+under Scenario F. Summary: `seaweedfs_filer` restored 3,109 rows against 3,111 live (a 23-minute
+dump gap), `keycloak` restored 88 tables, `immich` restored 61.
+
+The drill was worth running for what it found, not for the reassurance:
+
+- **Every dump needs its owner role created first.** They carry ownership statements, so replaying
+  into an empty cluster fails until `CREATE ROLE <app>` has run.
+- **Immich could not be restored at all at stock settings**, even using its own image:
+  `ERROR: vchord must be loaded via shared_preload_libraries`. The restore server must start with
+  `-c shared_preload_libraries=vchord`, and a plain `postgres:17` cannot replay the dump at any
+  setting. The restore image has to match the server's *flavour*, not just its major.
+- **A restore pod that is not an authorised S3 client fails silently.** `allow-seaweedfs-internal`
+  gates port 8333 by pod label. Without it there is no permission error -- there is a connect
+  timeout, and an `aws s3 ls` that returns empty instead of failing, so the job proceeds to
+  download nothing.
+
+Each of those turns a real recovery into a confusing failure at the worst possible moment, and none
+of them was written down anywhere.
+
+### What is still open
+
+**This is not automated, so it will decay.** It is a single point-in-time result. The Longhorn
+restore-test CronJob (`longhorn-system/backup-restore-test`, daily 07:00) is the shape to copy --
+the databases need the same treatment, and the reason they do not have it yet is that a permanent
+restore job needs its own entry in `allow-seaweedfs-internal` rather than borrowing the backup
+job's label, which is a policy change rather than a manifest addition.
+
+**Replaying into a live database has still never been exercised.** The drill restores into a
+throwaway server and throws it away. Bringing a real database back means stopping the application,
+replaying into the live instance and restarting it -- untested, and the step that actually matters
+in an emergency.
+
