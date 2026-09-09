@@ -225,6 +225,16 @@
       "allowedVersions": "<13"
     },
     {
+      "description": "Hold the CI Helm binary on the 3.x line. The image gate renders every changed HelmRelease with `helm template` to catch a chart that moves its own image defaults, and that render is only meaningful if it matches what actually applies the chart -- Flux's helm-controller, which is Helm 3. A gate rendering with Helm 4 would answer a question nobody asked, and could differ from the cluster in either direction. The floor matters too: `fromToml` arrived in 3.17, and below it the SeaweedFS chart does not render at all.",
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "matchPackageNames": [
+        "helm/helm"
+      ],
+      "allowedVersions": "<4"
+    },
+    {
       "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
       "matchPackageNames": [
         "cilium",
