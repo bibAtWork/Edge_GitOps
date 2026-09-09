@@ -256,3 +256,81 @@ jobs:
           else:
               print('All HelmRelease references resolve correctly.')
           PY
+
+  backup-upload-identical:
+    name: Backup upload scripts identical
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The database backup CronJobs each dump something different, then upload
+      # it in exactly the same way. That upload half is where the read-back
+      # check lives -- the thing that separates a real backup from a listing,
+      # which exists because SeaweedFS has served phantom objects in this
+      # cluster: correct size in a listing, unreadable on GET.
+      #
+      # Four copies of that logic agreed only because they were written
+      # together. Nothing made them agree tomorrow, and one had already drifted
+      # -- a missing docker.io/ prefix, which made Renovate treat it as a
+      # separate package and open two PRs for the same image bump.
+      #
+      # They are now byte-identical and parameterised entirely by env. This
+      # fails the build if that stops being true. It discovers the jobs rather
+      # than listing them, so a fifth database cannot arrive without a
+      # read-back check by someone copying in a hurry.
+      - name: Verify every backup upload container is byte-identical
+        run: |
+          python3 - <<'PY'
+          import glob
+          import hashlib
+          import sys
+
+          found = {}
+          for path in sorted(glob.glob('cluster/base/**/*.yaml', recursive=True)):
+              try:
+                  text = open(path, encoding='utf-8', errors='replace').read()
+              except OSError:
+                  continue
+              if '- name: upload' not in text or 'aws-cli' not in text:
+                  continue
+
+              lines = text.splitlines()
+              start = end = None
+              for n, line in enumerate(lines):
+                  if start is None and line.strip() == '- name: upload':
+                      start = n
+                  elif start is not None and line.strip() == 'env:':
+                      end = n
+                      break
+              if start is None or end is None:
+                  print('ERROR: ' + path + ': upload container has no env: block')
+                  sys.exit(1)
+
+              block = chr(10).join(lines[start:end])
+              found[path] = hashlib.sha256(block.encode()).hexdigest()[:12]
+
+          if len(found) < 4:
+              print('ERROR: expected at least 4 backup upload containers, found '
+                    + str(len(found)) + '.')
+              print('       One was renamed or removed. Update this check deliberately.')
+              for path in found:
+                  print('         ' + path)
+              sys.exit(1)
+
+          variants = {}
+          for path, digest in found.items():
+              variants.setdefault(digest, []).append(path)
+
+          if len(variants) == 1:
+              print('All ' + str(len(found)) + ' backup upload containers are identical.')
+              sys.exit(0)
+
+          print('ERROR: the backup upload containers have diverged.')
+          print('       Anything that differs between these jobs belongs in env,')
+          print('       not in the script. See docs/backlog.md.')
+          for digest, paths in sorted(variants.items(), key=lambda kv: -len(kv[1])):
+              print('  variant ' + digest + ' (' + str(len(paths)) + '):')
+              for path in paths:
+                  print('    ' + path)
+          sys.exit(1)
+          PY
