@@ -64,7 +64,7 @@ spec:
           # Same tag trivy-operator passes to its scan jobs. Renovate tracks the
           # operator chart, not this, so a drift here is silent -- keep the two
           # aligned when the chart moves.
-          image: mirror.gcr.io/aquasec/trivy:0.73.0
+          image: mirror.gcr.io/aquasec/trivy:0.74.0
           args:
             - server
             - --listen
