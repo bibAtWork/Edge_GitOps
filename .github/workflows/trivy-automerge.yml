@@ -104,11 +104,16 @@ jobs:
       # diff-based check can see it. Rendering both revisions and comparing the
       # resulting image sets can.
       #
-      # 3.x rather than 4.x deliberately: Flux's helm-controller renders with
-      # Helm 3, and a gate that renders differently from the cluster would be
-      # answering a question nobody asked. 3.21.4 also clears the floor for
-      # `fromToml`, added in 3.17 -- below that the SeaweedFS chart fails to
-      # render at all, which cost a chart of real consequence its coverage.
+      # 3.x rather than 4.x today: Flux's helm-controller renders with Helm 3,
+      # and a gate that renders differently from the cluster would be answering
+      # a question nobody asked. 3.21.4 also clears the floor for `fromToml`,
+      # added in 3.17 -- below that the SeaweedFS chart fails to render at all,
+      # which cost a chart of real consequence its coverage.
+      #
+      # That is a reason to review a Helm 4 bump, not to hide it, so nothing
+      # caps this at <4. A major arrives as an ordinary major-update PR that
+      # never auto-merges, and the question to answer then is the one above:
+      # which Helm does helm-controller render with now?
       # renovate: datasource=github-releases depName=helm/helm
       - name: Install Helm (chart rendering)
         run: |
