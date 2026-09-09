@@ -1115,3 +1115,70 @@ it already dumps hourly because its loss is the hardest to recover from, and it 
 database where an hour of lost metadata is genuinely expensive. Turning on `spec.backup` for that
 one cluster, against the local SeaweedFS target, tests every question above at the smallest scale
 and leaves the other three untouched.
+
+## Evaluate: k8up as one backup mechanism for all four databases
+
+Asked 2026-09-09: is there an open-source tool that does what
+`_shared/backup-upload.sh` does, but for every database at once? Yes -- k8up (https://k8up.io),
+a CNCF sandbox project with restic underneath. Recorded here rather than adopted, alongside
+[ADR-010](adr/0010-backup-topology.md) and the WAL-archiving entry above.
+
+It fits where barman does not, because it is dump-command-agnostic: annotate a pod with
+`k8up.io/backupcommand` (historically `appuio.ch/backupcommand`) plus `k8up.io/file-extension`,
+and the operator execs that command and streams its stdout into a restic repository. `pg_dump`
+for the three Postgres databases, `sqlite3 .dump` for paperless -- one mechanism for all four,
+where barman reaches only two.
+
+It is orthogonal to ADR-010: k8up execs inside the database's own pod, so it also dumps where the
+data is. It would replace the mechanism, not the topology.
+
+### The shape closest to what runs today
+
+Keeping ADR-005 intact -- k8up writes to the LOCAL SeaweedFS endpoint, and `backup-relay` remains
+the only push to the vault:
+
+| today | k8up equivalent |
+| --- | --- |
+| `dump` initContainer running pg_dump / sqlite3 | `k8up.io/backupcommand` annotation on the database pod |
+| `upload` container plus the shared script | the operator streams that stdout straight into restic |
+| timestamped object key | a restic snapshot, identified by ID and tags |
+| read-back byte comparison | `Schedule.spec.check`, running `restic check` |
+| `backup-relay` rclone copy to the vault | unchanged, but copying a repository rather than objects |
+| `backup-restore-test` replaying into a scratch server | a `Restore` CRD into a scratch target |
+| retention by S3 lifecycle only | `Schedule.spec.prune` locally, lifecycle still remote |
+
+### Pros and cons
+
+| Pros | Cons |
+| --- | --- |
+| One mechanism for all four databases | A third backup system beside Longhorn and Velero |
+| Removes the per-namespace dump and upload manifests | Another operator and CRD set on a single node |
+| Deduplicated and encrypted at rest | A backup stops being an inspectable `.sql.gz` |
+| `check` verifies stored data -- our read-back instinct | Restore needs restic and the repository password |
+| Scheduling, retention and restore become declarative | `prune` deletes, conflicting with the no-delete vault |
+| A fifth database is one annotation | The restore drill and restore-test need rebuilding |
+
+### The blocker
+
+A restic repository is **mutable state**, and ADR-005 relays one-way into a vault that
+deliberately grants no `s3:DeleteObject`. Copying a repository forward means the vault accumulates
+every generation of pack files, and a locally-pruned repository relayed afterwards can leave it
+holding an inconsistent mix. This is harder than the barman conflict: barman archives are
+append-only until expiry, while restic rewrites packs during prune.
+
+Settle that before anything else. The plausible answers are to relay snapshots and never prune
+locally, or to keep the vault on the current object-per-dump format and run k8up only as the local
+mechanism -- which is two systems, and probably not worth it.
+
+### When this flips
+
+Adopt it if the estate grows past four databases, if encryption at rest for backups becomes a
+requirement, or if the per-namespace dump manifests -- rather than the upload logic -- become the
+maintenance burden. Today the thing being replaced is one ~60-line script with a contract check
+that fails the build when a job drifts from it, so the gain is mostly fewer bespoke lines against
+real architectural cost.
+
+Also considered and rejected as answers to the same question: **KubeStash/Stash**, whose database
+coverage is broadest but whose database addons are largely commercial, and **restic or kopia
+used directly**, which replaces only the upload half and still needs a dump command per database --
+roughly today's shape with a better store.
