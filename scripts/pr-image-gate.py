@@ -436,7 +436,22 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
             verdict["blockers"].append(
                 f"new image appeared in rendered output: {a['new']} - no predecessor to compare")
 
-    for pair in result.get("pairs", []):
+    # Collapse identical references before scanning. Where a pin fully decides
+    # the image, the static values and the rendered chart resolve to the same
+    # pair, and each Trivy scan is a registry pull -- #538 pulled and scanned
+    # four images to answer a question about two. Scanning once per distinct
+    # reference roughly halves gate time on a pinned chart, and the report
+    # still names every source the reference came from.
+    deduped: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for p in result.get("pairs", []):
+        key = (p["old"], p["new"])
+        if key in deduped:
+            deduped[key]["sources"].append(p["kind"])
+            deduped[key]["paths"].append(p["path"])
+        else:
+            deduped[key] = {**p, "sources": [p["kind"]], "paths": [p["path"]]}
+
+    for pair in deduped.values():
         old, new = pair["old"], pair["new"]
         ov, nv = semver(split_ref(old)[1]), semver(split_ref(new)[1])
         is_minor = bool(ov and nv and ov[0] == nv[0])
@@ -494,7 +509,8 @@ def markdown(result: Dict[str, Any], verdict: Dict[str, Any]) -> str:
         out += ["| Source | Image | Max CVSS (CRITICAL+HIGH) | |", "|---|---|---|---|"]
         for p in pairs:
             mark = "✅" if p["ok"] else "❌"
-            out.append(f"| `{p['kind']}` | `{p['old']}` | {p['old_cvss']} | |")
+            src = ", ".join(sorted(set(p.get("sources") or [p["kind"]])))
+            out.append(f"| `{src}` | `{p['old']}` | {p['old_cvss']} | |")
             out.append(f"| | `{p['new']}` | **{p['new_cvss']}** | {mark} {p['note']} |")
         out.append("")
     else:
