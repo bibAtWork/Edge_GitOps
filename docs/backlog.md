@@ -772,31 +772,53 @@ the cheaper option.
 
 The trigger named above was "when a fifth database appears". It was brought forward because the
 restore drill showed the cost was already being paid: each of the four had accumulated its own
-undocumented prerequisites, and one had already drifted outright -- `seaweedfs` referenced
+undocumented prerequisites, and one had drifted outright -- `seaweedfs` referenced
 `amazon/aws-cli` where the other three referenced `docker.io/amazon/aws-cli`. Renovate treated
 those as two packages and opened two PRs for the same image bump (#539 and #540). That is the
 predicted divergence, already happening, in the one line nobody would think to compare.
 
-The `upload` container is now **byte-identical** in all four jobs, parameterised entirely by env:
-`SRC_FILE`, `DEST_DIR`, `OBJECT_NAME`, `OBJECT_EXT`. Every object key is unchanged --
-`s3://db-backups/keycloak/keycloak-<TS>.sql.gz` and the rest render exactly as before, which
-matters because the restore procedure and the offsite lifecycle rules key off those names.
+**There is now one upload implementation:** `cluster/base/infrastructure/_shared/backup-upload.sh`.
+Each of the four namespaces generates its own `backup-upload-script` ConfigMap from that same file
+via `configMapGenerator`, and the jobs mount and run it. Everything that differs arrives as env --
+`SRC_FILE`, `DEST_DIR`, `OBJECT_NAME`, `OBJECT_EXT` -- and the script refuses before touching the
+network if one is missing, rather than uploading to a malformed key and reporting success. Every
+object key is unchanged, which matters because the restore procedure and the offsite lifecycle
+rules key off those names.
 
-**It is enforced, not merely tidied.** `gitops-lint` gains a `backup-upload-identical` job that
-discovers every CronJob with an `upload` container and fails the build if their blocks are not
-identical, or if fewer than four exist. Verified both ways: it passes today, and re-introducing
-the missing `docker.io/` prefix makes it fail and name the outlier.
+### Correcting the objection recorded above
 
-**The objection above was not overruled, it was routed around.** Consolidating into a shared
-ConfigMap was rejected because a change to one job could break the other three at once -- and
-separately, it turns out CI could not do it anyway: `gitops-lint` renders with `kubectl kustomize`
-under default load restrictions, so a `configMapGenerator` reading a file outside its own
-component directory fails there. Byte-identical copies with a drift check give the guarantee that
-mattered (they cannot silently diverge) without the coupling that was objected to (each job still
-deploys independently).
+The paragraph above argued consolidation was not free because "a shared ConfigMap means a change
+to one job can break the other three at once". **That reasoning was wrong, and it was wrong in a
+way worth naming**, because it is the argument that keeps duplication alive everywhere.
 
-Verified functionally before merge: a canary Job built from the new manifest dumped 363,428 bytes,
-uploaded to `filer-20260909T163447Z.sql.gz` and read back 363,428 bytes.
+Duplication does not buy stability. It buys the *appearance* of isolation while removing the one
+place a guardrail could live. The four copies could not be linted as one thing, could not be
+tested as one thing, and drifted anyway -- so the supposed protection cost the protection. If a
+change to shared logic can break four consumers, the answer is validation that catches the break
+before it ships, not four hand-maintained copies that fail independently and silently.
+
+The guardrails are now the stability mechanism, in `gitops-lint`'s `backup-upload-contract` job:
+
+- `shellcheck` on the single script -- possible only because there is a single script
+- every CronJob with an `upload` container must run `/bin/sh /scripts/upload.sh`, mount it from
+  the `backup-upload-script` ConfigMap, and define all five required variables
+- the component's own `kustomization.yaml` must generate that ConfigMap from the shared file, so a
+  new namespace cannot quietly point at a private copy
+- at least four such jobs must exist, so one cannot be silently dropped
+
+Verified in both directions: the checks pass as committed, and each of three separate breakages --
+a job growing its own inline script, a dropped `OBJECT_EXT`, and a kustomization pointing at a
+local copy -- fails the build naming the exact file and reason.
+
+A second claim in the first attempt was also wrong: that CI could not do this because
+`gitops-lint` renders under kustomize's default load restrictions. The restriction is real, but
+the repository had already solved it -- the `1-node-config` overlay references a file outside its
+own directory and Flux has rendered it in production for weeks. The overlay renders now pass
+`--load-restrictor LoadRestrictionsNone`, which was already this repo's established pattern.
+
+Verified functionally before merge: a canary Job built from the rendered manifest, running the
+script from the generated ConfigMap, dumped 363,910 bytes, uploaded
+`filer-20260909T181256Z.sql.gz` and read back 363,910 bytes.
 
 ## Nothing actually BLOCKS installing software into a running container
 

@@ -116,40 +116,19 @@ spec:
                     - ALL
           containers:
             - name: upload
-              # This container is byte-identical in all four database backup
-              # CronJobs, and gitops-lint fails the build if that stops being
-              # true. Everything that differs between them is passed in as env
-              # below.
+              # The upload half lives in exactly one place:
+              # cluster/base/infrastructure/_shared/backup-upload.sh, mounted
+              # here from the backup-upload-script ConfigMap that every one of
+              # these jobs generates from that same file.
               #
-              # The point is the read-back: an upload that "succeeded" and an
-              # object that can actually be read are different claims here,
-              # because SeaweedFS has served phantom objects in this cluster --
-              # correct size in a listing, unreadable on GET. Keeping one copy
-              # of this logic is what stops a fifth database being added
-              # without it by someone copying in a hurry.
+              # Everything that differs between the four backup jobs is passed
+              # as env below. If a variable is missing the script refuses
+              # before touching the network, rather than uploading to a
+              # malformed key and reporting success.
               image: docker.io/amazon/aws-cli:2.36.41
               command:
                 - /bin/sh
-                - -c
-                - |
-                  set -eu
-                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
-                  OBJECT="${OBJECT_NAME}-${TS}${OBJECT_EXT}"
-                  KEY="${DEST_DIR}/${OBJECT}"
-                  aws --endpoint-url "$S3_ENDPOINT" s3 cp "$SRC_FILE" "$KEY"
-                  echo "uploaded ${OBJECT}"
-                  EXPECT="$(stat -c %s "$SRC_FILE")"
-                  if ! aws --endpoint-url "$S3_ENDPOINT" s3 cp "$KEY" /work/readback --quiet; then
-                    echo "ERROR: uploaded object cannot be read back -- not a durable backup" >&2
-                    exit 1
-                  fi
-                  GOT="$(stat -c %s /work/readback)"
-                  rm -f /work/readback
-                  if [ "$GOT" != "$EXPECT" ]; then
-                    echo "ERROR: read-back ${GOT}B vs uploaded ${EXPECT}B -- refusing to report success" >&2
-                    exit 1
-                  fi
-                  echo "read-back verified: ${GOT} bytes"
+                - /scripts/upload.sh
               env:
                 - name: SRC_FILE
                   value: "/work/keycloak.sql.gz"
@@ -174,6 +153,9 @@ spec:
               volumeMounts:
                 - name: work
                   mountPath: /work
+                - name: upload-script
+                  mountPath: /scripts
+                  readOnly: true
               resources:
                 requests:
                   cpu: 50m
@@ -188,3 +170,6 @@ spec:
           volumes:
             - name: work
               emptyDir: {}
+            - name: upload-script
+              configMap:
+                name: backup-upload-script
