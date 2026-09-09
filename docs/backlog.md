@@ -930,3 +930,47 @@ Implementation notes for whoever picks this up:
   for this particular check.
 - Coverage will be partial. Not every dependency is a GitHub project with a release feed --
   `immich-postgresql` comes from a Bitnami registry with none.
+
+## Accepted: Renovate warns about the Talos factory installer on every PR
+
+Every Renovate PR body carries `> Some dependencies could not be looked up`, naming
+`factory.talos.dev/installer/<schematic-id>` in `cluster/overlays/1-node/talos-machineconfigs/`
+`controlplane.yaml`. This is accepted, not unexplained -- the entry exists so nobody spends the
+afternoon on it a third time.
+
+`machine.install.image` is an ordinary YAML key, so Renovate's built-in `kubernetes` manager claims
+it and attempts a Docker lookup. That path segment is a content hash of the schematic rather than a
+repository name, so there is no tag list to enumerate and the lookup returns `no-result`.
+
+**Nothing is actually untracked.** The same line is read by the custom manager as
+`siderolabs/talos` from `github-releases`, which resolves fine and is what the `talos` group uses.
+One line, two managers claiming it, one of them able to resolve it.
+
+**Suppression was tried twice on 2026-09-09 and does not work.** A `packageRule` with
+`enabled: false` matched first on `matchManagers: [kubernetes]` -- where the dependency is
+detected -- and then on `matchDatasources: [docker]`. The regex matches the package name in both
+cases. The warning survived both. The conclusion is that `enabled: false` stops the update being
+*proposed* and does not stop the datasource being *queried*.
+
+### Why it was not pursued further
+
+The remaining options all act at extraction time and cost more than the noise:
+
+- **`ignorePaths`** is global. Excluding that file would also blind the custom manager that tracks
+  the Talos version -- trading a cosmetic warning for the pin the upgrade path depends on.
+- **Narrowing `kubernetes.managerFilePatterns`** needs either a negative lookahead, which Renovate
+  runs through RE2 where lookahead is unsupported, or an explicit include-list. That manager tracks
+  every plain `image:` in the CronJobs (aws-cli, rclone, the postgres dump clients), so an
+  include-list's failure mode is silently losing image tracking -- the exact failure ADR-009 and
+  the image gate exist to prevent. It would also drop `quay.io/cilium/cilium-cli`, tracked from the
+  same file, unless a replacement custom manager is added first.
+
+### To settle it
+
+The dependency dashboard links Mend's logs at `developer.mend.io`, which would say definitively why
+`enabled: false` does not skip the lookup. That needs a human with access. If the answer is that a
+different config key does suppress it, this becomes a one-line fix; if not, the entry stands and
+the warning is permanent and harmless.
+
+Reviewed 2026-09-09. Revisit only if the noise starts hiding a *real* lookup failure -- that is the
+one way this becomes more than cosmetic, since a second failing dependency would look identical.
