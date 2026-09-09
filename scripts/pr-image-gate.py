@@ -452,6 +452,17 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
             row["ok"] = False
             row["note"] = (f"repository changed ({split_ref(old)[0]} -> "
                            f"{split_ref(new)[0]}) - not a version bump")
+        elif ov and nv and nv < ov:
+            # A version that goes backwards is not an update. This is reachable
+            # without anyone proposing a rollback: a branch cut before a newer
+            # version merged still carries the older one, and merging it
+            # reverts the base. Seen on #546, whose stale branch would have
+            # taken aws-cli from 2.36.41 back to 2.36.40 -- and the CVE test
+            # would have waved it through, because a rollback's scores are
+            # equal or better by construction.
+            row["ok"] = False
+            row["note"] = (f"version goes backwards ({split_ref(old)[1]} -> "
+                           f"{split_ref(new)[1]}) - stale branch or rollback")
         elif old_cvss is None or new_cvss is None:
             row["ok"] = False
             row["note"] = "image could not be scanned"
