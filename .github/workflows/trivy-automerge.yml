@@ -165,8 +165,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/image-gate.md
 
-      # ── Step 8: label auto-merges that still land on a HIGH/CRITICAL image ───
-      # Chosen policy (see the still_high_cvss comment in step 6): keep
+      # ── Label auto-merges that still land on a HIGH/CRITICAL image ───────────
+      # Chosen policy (the still_high flag in pr-image-gate.py): keep
       # auto-merging when 3c passes even if the result is still HIGH/CRITICAL —
       # a clean version may not exist yet — but never let that go silent. The
       # label makes these greppable/dashboard-able after merge instead of
@@ -181,7 +181,7 @@ jobs:
             --force
           gh pr edit ${{ github.event.pull_request.number }} --add-label cvss-high
 
-      # ── Step 9: auto-merge if all conditions met ─────────────────────────────
+      # ── Auto-merge if the gate raised no blocker ─────────────────────────────
       - name: Auto-merge PR
         if: steps.decision.outputs.should_merge == 'true'
         env:
