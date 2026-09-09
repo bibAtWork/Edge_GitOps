@@ -32,7 +32,7 @@ spec:
       # standalone Job (no external DB to stand up a separate connection to).
       initContainers:
         - name: ensure-rbac-groups
-          image: ghcr.io/paperless-ngx/paperless-ngx:3.0.3
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.0.5
           command: ["/bin/sh", "-c", "python3 manage.py shell < /scripts/ensure_groups.py"]
           env:
             - name: PAPERLESS_REDIS
@@ -55,7 +55,7 @@ spec:
               readOnly: true
       containers:
         - name: paperless-ngx
-          image: ghcr.io/paperless-ngx/paperless-ngx:3.0.3
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.0.5
           ports:
             - name: http
               containerPort: 8000
