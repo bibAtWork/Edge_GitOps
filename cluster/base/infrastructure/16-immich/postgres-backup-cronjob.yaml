@@ -130,6 +130,17 @@ spec:
                     - ALL
           containers:
             - name: upload
+              # This container is byte-identical in all four database backup
+              # CronJobs, and gitops-lint fails the build if that stops being
+              # true. Everything that differs between them is passed in as env
+              # below.
+              #
+              # The point is the read-back: an upload that "succeeded" and an
+              # object that can actually be read are different claims here,
+              # because SeaweedFS has served phantom objects in this cluster --
+              # correct size in a listing, unreadable on GET. Keeping one copy
+              # of this logic is what stops a fifth database being added
+              # without it by someone copying in a hurry.
               image: docker.io/amazon/aws-cli:2.36.41
               command:
                 - /bin/sh
@@ -137,16 +148,12 @@ spec:
                 - |
                   set -eu
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
-                  aws --endpoint-url "$S3_ENDPOINT" s3 cp /work/immich.sql.gz \
-                    "s3://db-backups/immich/immich-${TS}.sql.gz"
-                  echo "uploaded immich-${TS}.sql.gz"
-
-                  # A successful PUT is not a readable object. Four dumps in this
-                  # bucket carried correct metadata and correct sizes while their
-                  # chunks were gone, so every listing and every size guard passed
-                  # while the objects could not be fetched at all. Read it back.
-                  EXPECT="$(stat -c %s /work/immich.sql.gz)"
-                  if ! aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://db-backups/immich/immich-${TS}.sql.gz" /work/readback --quiet; then
+                  OBJECT="${OBJECT_NAME}-${TS}${OBJECT_EXT}"
+                  KEY="${DEST_DIR}/${OBJECT}"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp "$SRC_FILE" "$KEY"
+                  echo "uploaded ${OBJECT}"
+                  EXPECT="$(stat -c %s "$SRC_FILE")"
+                  if ! aws --endpoint-url "$S3_ENDPOINT" s3 cp "$KEY" /work/readback --quiet; then
                     echo "ERROR: uploaded object cannot be read back -- not a durable backup" >&2
                     exit 1
                   fi
@@ -158,6 +165,14 @@ spec:
                   fi
                   echo "read-back verified: ${GOT} bytes"
               env:
+                - name: SRC_FILE
+                  value: "/work/immich.sql.gz"
+                - name: DEST_DIR
+                  value: "s3://db-backups/immich"
+                - name: OBJECT_NAME
+                  value: "immich"
+                - name: OBJECT_EXT
+                  value: ".sql.gz"
                 - name: S3_ENDPOINT
                   value: http://seaweedfs-s3.seaweedfs.svc:8333
                 - name: AWS_ACCESS_KEY_ID

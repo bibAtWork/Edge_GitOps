@@ -737,7 +737,7 @@ Two real fixes, neither of which can be applied without a decision:
 Until one is chosen, treat any open `trivy-auto-patch/*` PR as unreviewed by CI regardless
 of what the checks column shows.
 
-## Four database backup scripts implement the same thing four times
+## Closed: four database backup scripts implemented the same thing four times
 
 Not an offsite-path problem. The two-stage architecture is intact and there is exactly one
 central push to AWS: `backup-relay` (rclone `copy`, never `sync`) is the only job that writes
@@ -767,6 +767,36 @@ tradeoff is why this is a backlog entry and not a fix.
 
 Worth doing when a fifth database appears, which is the point at which copy-paste stops being
 the cheaper option.
+
+### Closed 2026-09-09
+
+The trigger named above was "when a fifth database appears". It was brought forward because the
+restore drill showed the cost was already being paid: each of the four had accumulated its own
+undocumented prerequisites, and one had already drifted outright -- `seaweedfs` referenced
+`amazon/aws-cli` where the other three referenced `docker.io/amazon/aws-cli`. Renovate treated
+those as two packages and opened two PRs for the same image bump (#539 and #540). That is the
+predicted divergence, already happening, in the one line nobody would think to compare.
+
+The `upload` container is now **byte-identical** in all four jobs, parameterised entirely by env:
+`SRC_FILE`, `DEST_DIR`, `OBJECT_NAME`, `OBJECT_EXT`. Every object key is unchanged --
+`s3://db-backups/keycloak/keycloak-<TS>.sql.gz` and the rest render exactly as before, which
+matters because the restore procedure and the offsite lifecycle rules key off those names.
+
+**It is enforced, not merely tidied.** `gitops-lint` gains a `backup-upload-identical` job that
+discovers every CronJob with an `upload` container and fails the build if their blocks are not
+identical, or if fewer than four exist. Verified both ways: it passes today, and re-introducing
+the missing `docker.io/` prefix makes it fail and name the outlier.
+
+**The objection above was not overruled, it was routed around.** Consolidating into a shared
+ConfigMap was rejected because a change to one job could break the other three at once -- and
+separately, it turns out CI could not do it anyway: `gitops-lint` renders with `kubectl kustomize`
+under default load restrictions, so a `configMapGenerator` reading a file outside its own
+component directory fails there. Byte-identical copies with a drift check give the guarantee that
+mattered (they cannot silently diverge) without the coupling that was objected to (each job still
+deploys independently).
+
+Verified functionally before merge: a canary Job built from the new manifest dumped 363,428 bytes,
+uploaded to `filer-20260909T163447Z.sql.gz` and read back 363,428 bytes.
 
 ## Nothing actually BLOCKS installing software into a running container
 
