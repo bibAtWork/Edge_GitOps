@@ -1065,3 +1065,53 @@ throwaway server and throws it away. Bringing a real database back means stoppin
 replaying into the live instance and restarting it -- untested, and the step that actually matters
 in an emergency.
 
+
+## Evaluate: continuous WAL archiving instead of periodic logical dumps
+
+All four databases are backed up by a periodic logical dump -- hourly for the filer, nightly for
+the rest. The alternative is continuous archiving with point-in-time recovery. Raised 2026-09-09
+alongside [ADR-010](adr/0010-backup-topology.md), which settles *where* backup work runs and
+deliberately leaves *what mechanism* open.
+
+**CNPG's barman covers half the estate and no more.** Only two of the four are CNPG clusters:
+
+| database | kind | native option |
+| --- | --- | --- |
+| `keycloak-pg` | CNPG cluster | barman, via `spec.backup` -- currently unset |
+| `filer-meta-pg` | CNPG cluster | barman, via `spec.backup` -- currently unset |
+| `immich-postgresql` | plain StatefulSet, immich's vectorchord image | not CNPG; would need pgBackRest or WAL-G |
+| paperless | SQLite on a PVC | not Postgres; Litestream is the direct analogue |
+
+So "turn on barman" is two databases, one third-party sidecar and one entirely different tool --
+three mechanisms replacing one, which is the opposite of the consolidation that motivated it.
+
+### What it would buy
+
+RPO drops from an hour (filer) or a day (the rest) to seconds, and recovery gains a time axis:
+restore to just before the bad migration rather than to the last dump.
+
+### What it would cost, and the part that actually conflicts
+
+- **Retention is deletion.** barman, WAL-G and Litestream all expire old WAL by removing it. The
+  offsite vault deliberately grants no `s3:DeleteObject` to any cluster credential
+  ([ADR-003](adr/0003-backup-immutability-versioning-only.md),
+  [ADR-005](adr/0005-two-stage-backup-relay.md)); remote expiry is an S3 Lifecycle rule instead.
+  A continuous archive whose retention the cluster cannot perform needs that reconciled first.
+  This is the real blocker, not the tooling.
+- **Relay economics change** from one object per hour to a continuous stream of small WAL
+  segments, which is a different shape for `backup-relay`'s rclone `copy` and for the reconciler.
+- **Restore gets more prerequisites, not fewer.** The 2026-09-09 drill already found three
+  undocumented ones for logical dumps. A WAL archive is restorable only with matching binaries
+  and extensions -- immich already needs `shared_preload_libraries=vchord` and its own image, and
+  a WAL restore would inherit that and add version-matching on top.
+- **A dump is portable and verifiable; a WAL archive is neither, cheaply.** The nightly
+  restore-test replays a dump into a throwaway server and counts rows. The equivalent for PITR is
+  materially more machinery.
+
+### Suggested shape if pursued
+
+Do not adopt it estate-wide. `filer-meta-pg` is the candidate worth evaluating first: it is CNPG,
+it already dumps hourly because its loss is the hardest to recover from, and it is the one
+database where an hour of lost metadata is genuinely expensive. Turning on `spec.backup` for that
+one cluster, against the local SeaweedFS target, tests every question above at the smallest scale
+and leaves the other three untouched.
