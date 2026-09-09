@@ -266,9 +266,9 @@
       "automerge": false
     },
     {
-      "description": "Stop the built-in kubernetes manager trying to resolve the Talos factory installer image. machine.install.image is a real YAML key, so that manager claims it and attempts a Docker lookup on factory.talos.dev/installer/<schematic-id> -- which has no tag list to enumerate, because the path segment is a content hash of the schematic rather than a repository name. The lookup fails with no-result and Renovate reports \"Some dependencies could not be looked up\" on every PR it opens. The version is already tracked, correctly, by the custom manager that reads the same line as siderolabs/talos from github-releases, so nothing is lost by silencing this one -- the line simply has two managers claiming it and only one that can resolve it. Scoped to the manager as well as the package so a future custom manager could still track this registry if needed.",
-      "matchManagers": [
-        "kubernetes"
+      "description": "Stop Renovate resolving the Talos factory installer image. machine.install.image is a real YAML key, so the built-in kubernetes manager claims it and attempts a Docker lookup on factory.talos.dev/installer/<schematic-id> -- which has no tag list to enumerate, because that path segment is a content hash of the schematic rather than a repository name. The lookup fails with no-result and Renovate reports \"Some dependencies could not be looked up\" on every PR it opens. This was first scoped to matchManagers: [kubernetes], which is where the dependency is detected -- and the warning survived it, still naming this image on 2026-09-09. Disabling updates is evidently not the same as skipping the lookup when the match is manager-scoped, so the match is now on the datasource instead. That also preserves the original intent better than the manager scoping did: the version is already tracked, correctly, by the custom manager that reads the same line as siderolabs/talos from github-releases. A different datasource, so it is untouched by this rule -- the line simply has two managers claiming it and only one that can resolve it.",
+      "matchDatasources": [
+        "docker"
       ],
       "matchPackageNames": [
         "/^factory[.]talos[.]dev//"
