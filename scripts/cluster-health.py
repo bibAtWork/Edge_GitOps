@@ -742,6 +742,27 @@ APP_IMAGE_PATHS: Dict[str, List[str]] = {
     # The Trivy CLI the operator schedules is a different project on a
     # different cadence to the operator itself.
     "trivy-operator": ["image.tag"],
+    # Longhorn's four own images ship with the chart -- all four read v1.12.1
+    # against appVersion v1.12.1. The six image.csi.* pins beside them are
+    # upstream Kubernetes sidecars (attacher v4.12.0, snapshotter v8.6.0 and
+    # so on), unrelated to Longhorn's version and correctly left uncompared.
+    "longhorn": [
+        "image.longhorn.engine.tag",
+        "image.longhorn.instanceManager.tag",
+        "image.longhorn.manager.tag",
+        "image.longhorn.shareManager.tag",
+    ],
+    # The gateway the chart exists to deploy.
+    "envoy-gateway": ["deployment.envoyGateway.image.tag"],
+    # The controller the chart exists to deploy. Its pin currently sits ahead
+    # of appVersion, which is the point of comparing: if the chart ever passes
+    # it, the pin turns from a patch into a freeze.
+    "system-upgrade-controller": ["systemUpgradeController.image.tag"],
+    # Deliberately absent: vmstack. The umbrella chart's appVersion tracks
+    # VictoriaMetrics itself (v1.151.0), while the pins beside it are the
+    # operator (v0.74.1) and kube-state-metrics (v2.20.0) -- different
+    # projects on different numbering. Comparing them would report a
+    # permanent, meaningless "behind".
 }
 
 DEFAULT_APP_IMAGE_PATHS = ("image.tag",)
