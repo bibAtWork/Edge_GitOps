@@ -168,7 +168,7 @@ spec:
       image:
         registry: registry.k8s.io
         repository: kube-state-metrics/kube-state-metrics
-        tag: v2.19.1
+        tag: v2.20.0
       enabled: true
       # 7-day peak working set 222Mi; 512Mi leaves ~2.3x headroom. This scales
       # with object count, so the headroom is the point -- a burst of Jobs or
