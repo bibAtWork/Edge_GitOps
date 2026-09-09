@@ -36,7 +36,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:26.3.1
+          image: quay.io/keycloak/keycloak:26.3.5
           args: ["start", "--import-realm"]
           ports:
             - containerPort: 8080
