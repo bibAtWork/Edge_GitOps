@@ -44,7 +44,7 @@ spec:
               # is the actual one-shot CLI image (Entrypoint: ["kubescape"],
               # confirmed via the image manifest); bumped to v3.0.39 (latest at
               # time of fix) rather than re-pinning the stale v3.0.22 tag.
-              image: quay.io/kubescape/kubescape-cli:v3.0.39
+              image: quay.io/kubescape/kubescape-cli:v4.0.13
               args:
                 - scan
                 - framework
