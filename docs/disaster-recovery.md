@@ -579,6 +579,103 @@ that pin is raised.
 
 ---
 
+## Scenario F — Restore a Postgres database from its dump
+
+For `keycloak-pg`, `immich-postgresql` and `filer-meta-pg`, an hourly/nightly `pg_dump` to S3 is
+the **only** recovery path. Longhorn's backup policy excludes these volumes, Velero stores no
+volume bytes for them, and CNPG runs without barman. If the dump cannot be replayed, the data is
+gone.
+
+That path was first exercised end-to-end on **2026-09-09**. It works — and it has three
+prerequisites that are not obvious and are not in any manifest. A restore attempted without them
+fails, which in an emergency reads as "the backup is corrupt" when it is not.
+
+| database | dump object | schedule | restore image |
+| --- | --- | --- | --- |
+| `filer-meta-pg` / `seaweedfs_filer` | `s3://filer-metadata/filer-<TS>.sql.gz` | hourly, :17 | `postgres:16-alpine` |
+| `keycloak-pg` / `keycloak` | `s3://db-backups/keycloak/keycloak-<TS>.sql.gz` | daily, 02:50 | `postgres:16-alpine` |
+| `immich-postgresql` / `immich` | `s3://db-backups/immich/immich-<TS>.sql.gz` | daily, 02:40 | `ghcr.io/immich-app/postgres:17-vectorchord…` |
+
+### The three prerequisites
+
+**1. The owner role must exist before the dump is replayed.** Each dump is taken as its
+application's role and carries ownership statements. Replaying into an empty cluster fails until
+the role exists:
+
+```sql
+CREATE ROLE seaweedfs LOGIN;   -- or keycloak, or immich
+```
+
+**2. Immich needs `vchord` preloaded, and its own image.** The immich dump references vectorchord
+and pgvector types. A stock `postgres:17` cannot replay it at all, and even immich's own image
+fails at default settings with:
+
+```
+ERROR:  vchord must be loaded via shared_preload_libraries.
+```
+
+The restore server must be started with `-c shared_preload_libraries=vchord`. The restore image
+must match the server's *flavour*, not merely its major version — which is the same coupling the
+dump clients have, in the other direction.
+
+**3. The restore pod must be an authorised S3 client.** `allow-seaweedfs-internal` restricts port
+8333 to specific pod labels. A restore pod without the right label does not get a permission
+error — it gets a **connect timeout**, and an `aws s3 ls` that returns empty rather than failing
+loudly. The authorised labels are `app.kubernetes.io/name: <app>-postgres-backup` in the
+`keycloak` and `immich` namespaces; anything in the `seaweedfs` namespace is allowed already.
+
+### Procedure
+
+Restore into a **throwaway** server first and compare it against the live database. Never replay a
+dump over a running database to find out whether the dump is good.
+
+```sh
+# 1. fetch the newest dump (from a pod carrying the authorised label)
+NEWEST=$(aws --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 \
+          s3 ls s3://db-backups/keycloak/ | sort | tail -1 | awk '{print $4}')
+aws --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 \
+    s3 cp "s3://db-backups/keycloak/$NEWEST" /work/dump.sql.gz
+
+# 2. scratch server (add -c shared_preload_libraries=vchord for immich)
+initdb -D /work/pgdata -U postgres --auth=trust
+pg_ctl -D /work/pgdata -o "-c listen_addresses='' -k /work" -w start
+
+# 3. prerequisites, then replay with ON_ERROR_STOP so failure is loud
+psql -h /work -U postgres -d postgres -c "CREATE ROLE keycloak LOGIN;"
+createdb -h /work -U postgres keycloak
+gunzip -c /work/dump.sql.gz | psql -h /work -U postgres -d keycloak -v ON_ERROR_STOP=1
+
+# 4. verify against the live database before trusting it
+psql -h /work -U postgres -d keycloak -At -c \
+  "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 5;"
+```
+
+`ON_ERROR_STOP=1` matters. Without it `psql` reports success having skipped every statement it
+could not apply, which is the failure mode that makes a restore look fine and leave a half-built
+schema.
+
+### What the 2026-09-09 drill found
+
+| database | result | restored | live at the time |
+| --- | --- | --- | --- |
+| `seaweedfs_filer` | replay OK | 3,109 rows in `filemeta` | 3,111 |
+| `keycloak` | replay OK | 88 tables, `user_entity` = 2 | — |
+| `immich` | replay OK *after* preloading `vchord` | 61 tables | — |
+
+The filer's two-row gap is the 23 minutes of activity between the 14:17Z dump and the drill — a
+coherent delta, not loss. Immich's tables are small because its library was previously lost and
+the database was rebuilt; that is expected here and is not a restore defect.
+
+### What this does not cover
+
+The drill proves a dump **replays into a schema**. It does not prove the application starts
+against the restored database, and it does not restore anything: it verifies, then throws the
+scratch server away. Bringing a real database back means stopping the application, replaying into
+the live instance, and restarting it — which has never been exercised.
+
+This is also a point-in-time result, not a standing guarantee. It is not yet automated, so it will
+decay. See `docs/backlog.md`.
+
 ## Post-Recovery Verification Checklist
 
 After any recovery scenario, verify the following:
