@@ -310,10 +310,22 @@ def chart_app_version(chart: str, version: str, url: str, is_oci: bool,
 
 
 def semver(raw: Any) -> Optional[Tuple[int, int, int]]:
-    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", str(raw or "").strip())
+    """Parse a version, treating a missing patch component as zero.
+
+    The patch part has to be optional: SeaweedFS ships two-component tags
+    (4.45, 4.46), and requiring three made every one of them unparseable, so
+    the gate called an ordinary minor step a major one and blocked it. The
+    gate this replaced had it right -- the regression came in with the
+    rewrite.
+
+    A tag that merely starts with digits is still not a version: immich's
+    `17-vectorchord0.3.0-pgvectors0.3.0` has no dot after 17, so it stays
+    unorderable and is reported as such rather than guessed at.
+    """
+    m = re.match(r"^v?(\d+)\.(\d+)(?:\.(\d+))?", str(raw or "").strip())
     if not m:
         return None
-    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
 
 
 # ── Reference helpers ──────────────────────────────────────────────────────────
