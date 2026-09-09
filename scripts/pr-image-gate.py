@@ -184,8 +184,18 @@ def helm_repositories(ref: str) -> Dict[str, Tuple[str, bool]]:
     if ref in _repo_cache:
         return _repo_cache[ref]
     repos: Dict[str, Tuple[str, bool]] = {}
-    files = [l for l in git("ls-tree", "-r", "--name-only", ref).splitlines()
-             if l.startswith("cluster/") and l.endswith((".yaml", ".yml"))]
+    # git grep narrows 295 candidate files to the handful that actually declare
+    # a HelmRepository, which turns ~590 `git show` calls per run into ~46.
+    # It falls back to the full listing rather than failing, because a missed
+    # repository would silently disable rendering for that chart.
+    try:
+        out = git("grep", "-l", "kind: HelmRepository", ref, "--", "cluster/")
+        files = [l.split(":", 1)[1] for l in out.splitlines() if ":" in l]
+    except subprocess.CalledProcessError:
+        files = []
+    if not files:
+        files = [l for l in git("ls-tree", "-r", "--name-only", ref).splitlines()
+                 if l.startswith("cluster/") and l.endswith((".yaml", ".yml"))]
     for f in files:
         for doc in load_docs(git_show(ref, f)):
             if isinstance(doc, dict) and doc.get("kind") == "HelmRepository":
