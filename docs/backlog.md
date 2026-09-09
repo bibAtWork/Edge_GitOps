@@ -399,6 +399,40 @@ command to run, which is the difference between a reminder and a runbook.
 
 ---
 
+### Still open, re-checked 2026-09-09
+
+Unchanged since it was found. `grep -rn "rotate-secrets\|rotation-log" .github/` still returns
+nothing and `docs/rotation-log.md` does not exist, so nothing prompts, tracks or verifies any
+rotation.
+
+**What already rotates itself, and is not part of this gap:** TLS certificates via cert-manager
+(`cluster-health.py` checks for anything expiring within 14 days and it currently passes), bound
+ServiceAccount tokens, and kubelet certificates under Talos.
+
+**What never rotates unless a human does it:** the SOPS age key, the SeaweedFS S3 admin
+credential, the AWS relay and auditor keys, the age key protecting offsite etcd snapshots,
+Keycloak client secrets, and the SSH signing key. `bootstrap/scripts/rotate-secrets.py` covers
+three of those shapes today -- `sops-age` (two-phase), `backup-age`, and `credential`.
+
+### Refinement: automate the proof, not just the prompt
+
+The recommendation above -- prompt, never rotate unattended -- still stands. But the dangerous
+state is not an old key, it is a **half-finished rotation**, and a reminder does nothing about
+that. Two things are safely automatable and neither touches a key:
+
+1. **Prove the new credential works.** Every one of these credentials already has a round-trip
+   that exercises it: the backup jobs' own read-back for the S3 admin key, a relay dry-run for
+   the AWS keys, `sops -d` for the age key. A post-rotation job that runs the relevant one and
+   fails loudly is the difference between "rotated" and "rotated and still working".
+2. **Prove no consumer still holds the old one.** The failure this guards against is a rotation
+   that updates the secret but misses a consumer, which stays silent until the next backup runs
+   -- the same class of silent failure as the frozen `talos-backup` that went 44 days unnoticed
+   (#327).
+
+That reframes the work: the tracked file and scheduled issue remain the reminder, and the
+verification is what makes a rotation safe to perform at all.
+
+
 ## Deferred: report Trivy CVEs as a delta, not a standing total
 
 #420 cut the CVE alerting from 1,325 firing instances to 70 by counting per image
@@ -1201,6 +1235,60 @@ Weaker than what was recorded, and trade-offs rather than a structural bar:
 
 The lesson worth keeping: the retention mechanism was subtle enough to be misread from the
 manifests alone, which is why it is now drawn out in `docs/backup-architecture.md`.
+### Resolved 2026-09-09: k8up can produce self-contained artefacts, via Archive
+
+This entry previously noted that the Archive output format was unverified. It now is, from
+`restic/cli/restore.go`, and it removes the second objection recorded above.
+
+The **backup** path genuinely cannot be self-contained: restic's repository format *is*
+deduplication across snapshots, blobs are shared by design, and one-repository-per-run would
+mean `restic init` every run with no dedup and no way to template the path in k8up anyway.
+
+The **Archive** path is different. `ArchiveSpec` is `*RestoreSpec` inlined -- an Archive is a
+scheduled restore to a second destination -- and its S3 method writes a single object:
+
+```go
+fileName := fmt.Sprintf("backup-%v-%v-%v.tar.gz", ...)
+gzipWriter := gzip.NewWriter(uploadWritePipe)
+s3Client.Upload(ctx, s3.UploadObject{Name: fileName, ObjectStream: uploadReadPipe})
+```
+
+The pipeline is `restic dump <snapshotID> <root>` piped through gzip into one S3 object. One
+self-contained `.tar.gz` per snapshot, openable with `tar` and `gzip` -- no restic binary, no
+repository password, no shared chunks. Nothing in that pipeline applies client-side encryption
+(the tar/gzip/upload path was read; `s3Connect`'s internals were not, so treat that as strongly
+implied rather than confirmed).
+
+### Suggested solution if this is ever adopted
+
+A hybrid, which maps onto the existing two-stage architecture rather than replacing it:
+
+| stage | mechanism |
+| --- | --- |
+| frequent backup | k8up `Backup` into a restic repository on the **local** SeaweedFS endpoint -- dedup where storage is cheap and deletes are permitted |
+| local retention | k8up `Prune` against that local repository, which owns its own reference graph |
+| offsite copy | k8up `Archive` producing one self-contained `.tar.gz` per snapshot into the vault |
+| vault retention | unchanged -- independent objects, so `backup-reconciler`'s tag-gated pruning applies as-is |
+
+That keeps the vault holding exactly what it holds today: standalone objects recoverable with
+ordinary tools and individually expirable. It also keeps the property that matters for recovery
+-- the offsite copy does not depend on restic or on a repository password.
+
+Two caveats before this looks too attractive:
+
+- **Archive is a restore.** It rehydrates the snapshot, so it costs a full read per archived
+  snapshot. Archiving hourly would be expensive; it suits a weekly or monthly vault cadence
+  better than the filer's hourly dump.
+- The archive filename is derived from `snapshot.Paths` and referred to internally as a PVC
+  name. How it names a stdin-based `backupcommand` snapshot was not verified.
+
+### What still argues against k8up
+
+Thinner than what this entry originally claimed, and now free of format objections: a third
+backup system and another operator on a single node, the repository password as a dependency
+for **local** restores, and rebuilding the restore drill and `backup-restore-test` around
+restic. Weigh those on their merits.
+
 ### When this flips
 
 Adopt it if the estate grows past four databases, if encryption at rest for backups becomes a
