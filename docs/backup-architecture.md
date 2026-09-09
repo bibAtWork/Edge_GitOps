@@ -215,3 +215,63 @@ before building anything more elaborate than a sync job.
 **No published open-source roadmap** was found. The assessment above is drawn from repository
 documentation, issues and the project's own site rather than a roadmap document, so it
 describes present state and stated intent, not commitments.
+
+## Retention: how an object actually leaves the vault
+
+This is the least obvious part of the design and the easiest to misread. Nothing in the vault
+expires because it is old. **Retention is decided locally and mirrored remotely**, and the deletion
+itself is performed by AWS, because no cluster credential is allowed to perform it.
+
+```mermaid
+flowchart TD
+    subgraph LOCAL["Local -- SeaweedFS on the NVMe"]
+      LHJ["Longhorn RecurringJobs<br/>snapshot 02:00 keep 7<br/>weekly Sun 03:00 keep 5<br/>monthly 1st 04:00 keep 6"] --> LHB[("longhorn-backups<br/><i>shared blocks</i>")]
+      DMP["4 database dumps<br/>filer hourly, others nightly"] --> DBB[("db-backups + filer-metadata<br/><i>self-contained objects</i>")]
+    end
+
+    LHB --> RLY["backup-relay 05:00<br/>rclone COPY, never sync"]
+    DBB --> RLY
+    RLY -->|write only, no delete rights| VLT[("AWS homelab-backup-vault<br/>versioned<br/>longhorn/ + seaweedfs/")]
+
+    LHB -.->|local inventory| RC["backup-reconciler 09:00"]
+    DBB -.->|local inventory| RC
+    VLT -.->|remote inventory| RC
+
+    RC --> EMPTY{"local inventory<br/>empty?"}
+    EMPTY -- yes --> ABORT["ABORT -- a local failure is<br/>not a reason to prune"]
+    EMPTY -- no --> DIFF{"in remote but<br/>absent locally?"}
+    DIFF -- no --> KEEP["leave it alone"]
+    DIFF -- yes --> GR["record first-absent timestamp"]
+    GR --> AGE{"absent >= 14 days?"}
+    AGE -- no --> KEEP
+    AGE -- yes --> TAG["put-object-tagging<br/>lifecycle=prunable<br/>max 5000 per run"]
+    TAG --> LC["AWS Lifecycle: tag-gated-prune<br/>expiration 1 day"]
+    LC --> DEL((("deleted by AWS,<br/>never by us")))
+```
+
+### Why it is built this way
+
+**The cluster can nominate, only AWS can delete.** The relay credential holds no
+`s3:DeleteObject`; the reconciler's sole write against AWS is `put-object-tagging`. Tags, not
+objects. An attacker holding every cluster credential can still not erase the vault -- the worst
+they can do is mark objects, and the versioning and 14-day absence grace both sit in the way.
+
+**The grace is measured on absence, not age.** An object deleted locally yesterday is a different
+thing from one that has been gone a fortnight. `first-absent.tsv` records when each object was
+first observed missing, so a transient local listing failure cannot cascade into remote deletion.
+
+**An empty local inventory aborts the run.** A diff-driven pruner that reads the local side as
+empty concludes that everything is prunable. That is the single most dangerous failure mode in
+this design, and it is checked explicitly.
+
+### What this means for backup formats
+
+Because retention is local-state-driven rather than age-based, the vault imposes **no requirement
+that stored objects be independent of one another**. Longhorn's backupstore is already a
+reference-counted store of shared blocks: Longhorn prunes locally, where it owns the reference
+graph and deletes are permitted, and the reconciler mirrors that absence.
+
+Any deduplicating format would work the same way, which is worth stating plainly because the
+opposite was assumed once and recorded as fact. The constraint that matters is not "objects must
+be self-contained" -- it is "whatever prunes must do so locally, and must own its own reference
+graph while doing it".
