@@ -3947,6 +3947,20 @@ spec:
       # patch rather than a freeze. If the chart's appVersion ever passes
       # this value, it silently becomes a freeze instead -- which is the
       # reason to keep it tracked rather than pinned and forgotten.
+      #
+      # On staying at 12 (decided 2026-09-09, #517): no chart carries
+      # Grafana 13. grafana 10.5.15 is the newest chart published and still
+      # ships appVersion 12.3.1, and no version in the index ships a 13.x
+      # appVersion at all -- so taking 13 means running it against templates
+      # written for 12.x, and this release provisions its dashboards and
+      # alert rules through those templates.
+      #
+      # Holding costs no patch currency: Grafana maintains 12.4 alongside 13,
+      # and 12.4.10, 13.1.5 and 13.2.1 all shipped on 2026-09-01. Nothing
+      # blocks the proposal -- a v13 PR is expected to sit open as a standing
+      # reminder, labelled major-update and never auto-merged. Take it when a
+      # grafana chart ships a 13.x appVersion, which arrives on its own as a
+      # chart update.
       registry: docker.io
       repository: grafana/grafana
       tag: 12.4.10
