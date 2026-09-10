@@ -24,8 +24,12 @@ metadata:
 spec:
   schedule: "0 2 * * *"
   template:
+    # 336h rather than 96h: Velero expires by age, not by count, and this
+    # node is not always on. At 96h a week of downtime left no local daily
+    # at all -- and the vault mirrors local state, so they would have gone
+    # from the vault too. 662 objects is 11.6 MiB, so the cost is nil.
     storageLocation: seaweedfs-local
-    ttl: 96h
+    ttl: 336h
     snapshotVolumes: false
     # Objects only. Velero's file-system backup has never captured a single PVC
     # in this cluster: Kopia silently skips hostPath volumes (every local-path
@@ -63,7 +67,13 @@ metadata:
 spec:
   schedule: "0 3 * * 0"
   template:
-    storageLocation: aws-s3
+    # Writes to the LOCAL endpoint, like every other backup here. These are
+    # still the offsite retention tiers -- the relay is what carries them to
+    # the vault. Velero holding its own AWS credential made it a second,
+    # independent writer to AWS, which ADR-005 exists to prevent, and meant a
+    # missed run was a lost point-in-time rather than something the next
+    # relay pass picks up. That matters on a node that is not always on.
+    storageLocation: seaweedfs-local
     ttl: 2160h
     snapshotVolumes: false
     # Objects only -- see daily-local above.
@@ -85,7 +95,13 @@ metadata:
 spec:
   schedule: "0 4 1 * *"
   template:
-    storageLocation: aws-s3
+    # Writes to the LOCAL endpoint, like every other backup here. These are
+    # still the offsite retention tiers -- the relay is what carries them to
+    # the vault. Velero holding its own AWS credential made it a second,
+    # independent writer to AWS, which ADR-005 exists to prevent, and meant a
+    # missed run was a lost point-in-time rather than something the next
+    # relay pass picks up. That matters on a node that is not always on.
+    storageLocation: seaweedfs-local
     ttl: 8760h
     snapshotVolumes: false
     # Objects only -- see daily-local above.

@@ -30,7 +30,7 @@ metadata:
 spec:
   schedule: "0 3 * * 0"
   template:
-    storageLocation: aws-s3
+    storageLocation: seaweedfs-local
     ttl: 2160h
     snapshotVolumes: false
     defaultVolumesToFsBackup: true
@@ -50,7 +50,7 @@ metadata:
 spec:
   schedule: "0 4 1 * *"
   template:
-    storageLocation: aws-s3
+    storageLocation: seaweedfs-local
     ttl: 8760h
     snapshotVolumes: false
     defaultVolumesToFsBackup: true

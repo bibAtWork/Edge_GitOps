@@ -171,6 +171,40 @@ kubectl get pods -n <namespace>
 
 ---
 
+### Restoring a Velero backup that only exists offsite
+
+Velero writes **only** to the local `seaweedfs-local` location. There is no offsite
+BackupStorageLocation, deliberately: `backup-relay` is the single point that pushes to AWS
+([ADR-005](adr/0005-two-stage-backup-relay.md)), and giving Velero its own AWS credential made it a
+second, independent writer.
+
+The consequence is that a backup which has aged out locally, but still exists in the vault, cannot
+be restored directly. Bring the objects back first, then restore normally:
+
+```sh
+# 1. from a pod that is an authorised S3 client, copy the backup back into the
+#    local bucket. The vault mirrors local paths under seaweedfs/.
+aws s3 cp --recursive \
+  s3://homelab-backup-vault/seaweedfs/velero-backups/backups/<backup-name>/ \
+  s3://velero-backups/backups/<backup-name>/ --endpoint-url <local endpoint>
+
+# 2. Velero rescans the location and the backup reappears
+velero backup get
+
+# 3. restore as usual -- the storage location is seaweedfs-local either way
+velero restore create --from-backup <backup-name>
+```
+
+Copying the `backups/<name>/` prefix is not enough on its own if the repository metadata has also
+aged out; copy `restic/` or `kopia/` prefixes alongside it if the restore reports missing data.
+
+**Retention is now local retention.** A monthly backup survives offsite for a year because the
+local bucket keeps it for a year and `backup-reconciler` therefore never sees it as absent -- not
+because AWS was told to keep it. Shortening a local TTL shortens the offsite copy too, after the
+14-day absence grace.
+
+---
+
 ## Scenario B — Full Cluster Recovery
 
 Rebuild the cluster from scratch using an etcd snapshot. This wipes all nodes.
