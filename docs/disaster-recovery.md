@@ -198,6 +198,13 @@ velero restore create --from-backup <backup-name>
 Copying the `backups/<name>/` prefix is not enough on its own if the repository metadata has also
 aged out; copy `restic/` or `kopia/` prefixes alongside it if the restore reports missing data.
 
+**Backups taken before 2026-09-10 are in a different bucket.** Until then Velero wrote weekly and
+monthly backups directly to `homelab-velero-backups-offsite`. That bucket and its contents still
+exist -- nothing in this change deletes them -- but Velero can no longer see them, because the
+BackupStorageLocation pointing at it is gone. To reach one, add a temporary read-only
+BackupStorageLocation for that bucket, restore, then remove it again. Do not leave it in place:
+a standing offsite location re-creates the second writer this change removed.
+
 **Retention is now local retention.** A monthly backup survives offsite for a year because the
 local bucket keeps it for a year and `backup-reconciler` therefore never sees it as absent -- not
 because AWS was told to keep it. Shortening a local TTL shortens the offsite copy too, after the
