@@ -3963,4 +3963,4 @@ spec:
       # chart update.
       registry: docker.io
       repository: grafana/grafana
-      tag: 12.4.10
+      tag: 13.2.1
