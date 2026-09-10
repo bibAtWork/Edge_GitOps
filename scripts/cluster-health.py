@@ -507,6 +507,80 @@ def check_certs(cl: Cluster) -> List[Result]:
     except Exception as exc:
         results.append(Result("certs", "certificates", False, "warning", str(exc)))
 
+    # ── Talos API credential expiry ───────────────────────────────────────────
+    #
+    # system-upgrade-controller drives every Talos and Kubernetes upgrade
+    # through a talosconfig client certificate. cert-manager does not manage it
+    # and nothing else watches it, so the day it lapses the upgrade Plans stop
+    # working -- silently, because a Plan that cannot authenticate looks much
+    # like a Plan with nothing to do.
+    #
+    # It also cannot be scoped narrower. Talos requires os:admin for
+    # /machine.MachineService/Upgrade (os:operator can reboot but not upgrade),
+    # so this credential holds full control of the node and its lifetime is the
+    # only axis available. `talosctl config new` defaults --crt-ttl to 8760h,
+    # which makes "when does it expire" a question worth asking continuously
+    # rather than once a year.
+    try:
+        secrets = cl.items("secret", "talos-credentials", "-n", "cattle-system")
+        if not secrets:
+            data = cl.get_json("secret", "talos-credentials", "-n", "cattle-system")
+            secrets = [data] if data else []
+        blob = (secrets[0].get("data") or {}).get("talosconfig") if secrets else None
+        if not blob:
+            raise RuntimeError("talos-credentials holds no talosconfig key")
+
+        import base64 as _b64
+        cfg = _b64.b64decode(blob).decode("utf-8", "replace")
+        m = re.search(r"crt:\s*([A-Za-z0-9+/=]+)", cfg)
+        if not m:
+            raise RuntimeError("talosconfig contains no client certificate")
+
+        der = _b64.b64decode(m.group(1))
+        if der[:5] == b"-----":
+            inner = re.search(rb"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----",
+                              der, re.S)
+            der = _b64.b64decode(inner.group(1)) if inner else der
+
+        # Read notAfter straight out of the DER rather than adding a crypto
+        # dependency: an X.509 Validity is two ASN.1 time values, and the
+        # second is notAfter. UTCTime is tag 0x17 len 0x0d, GeneralizedTime is
+        # tag 0x18 len 0x0f.
+        times: List[datetime] = []
+        for tag, ln, fmt in ((b"\x17\x0d", 13, "%y%m%d%H%M%S"),
+                             (b"\x18\x0f", 15, "%Y%m%d%H%M%S")):
+            for mt in re.finditer(re.escape(tag) + b"([0-9]{" + str(ln - 1).encode() + b"})Z", der):
+                try:
+                    times.append(datetime.strptime(mt.group(1).decode(), fmt)
+                                 .replace(tzinfo=timezone.utc))
+                except ValueError:
+                    continue
+        times.sort()
+        if len(times) < 2:
+            raise RuntimeError("could not read validity dates from the certificate")
+
+        not_after = times[-1]
+        days_left = (not_after - utcnow()).days
+        roles = sorted({r.decode() for r in re.findall(rb"os:[a-z:]+", der)})
+        role_note = ", ".join(roles) if roles else "role not recorded in cert"
+
+        results.append(Result(
+            "certs", "talos/upgrade-credential",
+            days_left >= 30,
+            "critical" if days_left < 14 else "warning",
+            f"Talos API credential ({role_note}) expires in {days_left}d "
+            f"({not_after:%Y-%m-%d})",
+            detail=("Renew with `talosctl config new --roles os:admin --crt-ttl <ttl>` and "
+                    "reseal cattle-system/talos-credentials. Upgrade requires os:admin, so "
+                    "the role cannot be reduced -- the TTL is the only control."),
+        ))
+    except Exception as exc:
+        results.append(Result(
+            "certs", "talos/upgrade-credential", False, "warning",
+            f"Cannot read the Talos upgrade credential: {exc}",
+            detail="Without this, an expiring credential fails the next upgrade silently.",
+        ))
+
     return results
 
 
