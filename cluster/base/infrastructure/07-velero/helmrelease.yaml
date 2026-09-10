@@ -106,14 +106,6 @@ spec:
             region: us-east-1
             s3ForcePathStyle: "true"
             s3Url: http://seaweedfs-s3.seaweedfs.svc:8333
-        - name: aws-s3
-          provider: aws
-          bucket: homelab-velero-backups-offsite
-          credential:
-            name: velero-aws-credentials
-            key: cloud
-          config:
-            region: eu-central-1
 
     credentials:
       useSecret: false
