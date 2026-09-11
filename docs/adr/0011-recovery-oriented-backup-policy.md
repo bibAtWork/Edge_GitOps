@@ -85,12 +85,12 @@ already has.**
    dumps a few MB), so the ETag is the MD5. A multipart ETag is reported as unverifiable, never
    assumed, which is the proposal's own caution.
 
-7. **Offline is not failure, and the CronJob controller already implements it.** No backup
-   CronJob sets `startingDeadlineSeconds`, so after the node has been off Kubernetes runs the
+7. **Offline is not failure — mostly handled by the CronJob controller.** No backup CronJob
+   sets `startingDeadlineSeconds`, so after the node has been off Kubernetes runs each job's
    most recent missed schedule once and does not replay the rest — the proposal's preferred
-   model exactly. Observed on 2026-09-06: the weekly backup scheduled for 03:00 ran at 11:00,
-   when the node came up. RPO is measured from when a point was taken, so what alerts is catch-up
-   not happening, not the outage.
+   model. RPO is measured from when a point was taken, so what alerts is catch-up not
+   happening, not the outage. What catch-up does not do is run the stages *in order*; see
+   Open.
 
 8. **Monitoring is per guarantee.** The alert that matters is "this dataset has no validated
    point younger than its RPO", raised per dataset. Job-level alerts stay, as diagnostics.
@@ -107,9 +107,11 @@ primitives can express the behaviour before anything is built on top; they can. 
 controller, CRDs, a UI and an upgrade path to a single node for no capability this uses. Revisit
 if a workflow needs fan-out and fan-in, or per-dataset retries that a CronJob cannot give.
 
-**A reconciler.** Same answer. The one reconciliation the proposal needs — "the RPO was missed,
-take a point now" — is what catch-up already does. Its warning, *do not accidentally build a
-backup operator*, is why recovery-point state is derived rather than stored.
+**A reconciler — not yet.** The one reconciliation the proposal needs — "the RPO was missed,
+take a point now" — is what catch-up does, as long as the stages run in order. After an outage
+they do not (see Open), and that is exactly the case the proposal's last phase exists to
+decide. Its warning, *do not accidentally build a backup operator*, is why recovery-point state
+is derived rather than stored, and why that decision is left open here rather than made.
 
 **Restic.** Its role in the proposal is object data held in SeaweedFS, and there is none.
 Longhorn's backupstore already deduplicates at block level, and the dumps are self-contained
@@ -166,6 +168,14 @@ plain-text table parsed by shell, which is less expressive than a CRD, on purpos
   exists.
 - **Stale etcd snapshots** sit in a bucket nothing writes to or relays. Under this policy
   etcd is reconstructable; they should be classified and removed.
+- **Catch-up after an outage is unordered.** When the node comes back, the CronJob controller
+  starts every missed job at once. A restore test can run before that day's dumps exist and
+  validate the previous day's points, and a Longhorn backup that fires before workloads have
+  attached their volumes skips them, because Longhorn does not back up a detached volume. The
+  next scheduled night repairs both, so the cost is up to a day of BackupRecoveryPointOverdue
+  after an outage. Closing it needs ordering the CronJob controller cannot express: the
+  proposal's own trigger for building the smallest possible reconciler, or a workflow engine.
+  A wait on host uptime in each stage would fix the first half and not the second.
 
 ## Implementation
 
@@ -180,5 +190,5 @@ plain-text table parsed by shell, which is less expressive than a CRD, on purpos
 | 7. Restore tests | Longhorn volumes (existing); databases (`backup-db-restore-test`) | In place |
 | 8. Promotion and remote verification | Relay gated on both restore tests, promoting only what they validated; each validated point confirmed in the vault from listing hashes | In place |
 | 9. Argo Workflows | — | Not adopted |
-| 10. End-to-end test | Failure cases against the gates | Follows |
-| 11. Reconciler | — | Not needed |
+| 10. End-to-end test | Restore-test, promotion and vault-verification failure cases exercised live; outage catch-up not | Partly |
+| 11. Reconciler | Needed only for ordered catch-up after an outage | Open |
