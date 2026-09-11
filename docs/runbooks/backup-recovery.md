@@ -227,8 +227,9 @@ Verify readability during each quarterly drill. An escrow nobody has ever read i
 ## 6. Restoring a database
 
 Every database in this cluster is protected by a logical dump and by nothing else. There is
-no volume-level copy of any of them, deliberately: the dumps are small, the nightly
-restore-test actually replays them, and a Longhorn snapshot of a Postgres data volume was
+no volume-level copy of any of them, deliberately: the dumps are small,
+`backup-db-restore-test` replays the newest of each into a throwaway server every night and
+checks that the data came back (ADR-011), and a Longhorn snapshot of a Postgres data volume was
 either unrestorable or redundant depending on the database. See
 the `not-backed-up` list in `34-backup/backup-policy.yaml` for which, and why.
 
