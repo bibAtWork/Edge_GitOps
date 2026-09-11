@@ -70,10 +70,10 @@ only by naming it, and exactly one manifest does. It is an exception with an add
 default anyone can fall into.
 
 **A PVC that names no class is protected.** Longhorn stamps
-`recurring-job-group.longhorn.io/default` on every new volume and all three RecurringJobs are
+`recurring-job-group.longhorn.io/default` on every new volume and every RecurringJob is
 bound to that group, so forgetting to classify a volume now means it is snapshotted and backed
 up rather than silently exposed. The cost is that a reconstructible volume is backed up until
-someone adds it to `volume-backup-policy`'s `ephemeral-pvcs` list. Against a ~1.2 GiB backed-up
+someone adds it to `backup-policy`'s `not-backed-up` list. Against a ~1.2 GiB backed-up
 baseline that is cheap; the reverse mistake is silent data loss.
 
 **local-path-provisioner must keep running,** including the busybox helper pod it schedules to

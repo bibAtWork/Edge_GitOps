@@ -1,7 +1,11 @@
 # Backup Architecture
 
 **Status:** problem statement and target design. Partially implemented.
-**Related:** [ADR-003](adr/0003-backup-immutability-versioning-only.md), `docs/backlog.md`
+**Related:** [ADR-003](adr/0003-backup-immutability-versioning-only.md), [ADR-011](adr/0011-recovery-oriented-backup-policy.md), `docs/backlog.md`
+
+What has to be recoverable, and how well, is stated in one place:
+[`34-backup/backup-policy.yaml`](../cluster/base/infrastructure/34-backup/backup-policy.yaml), checked
+against the mechanisms below by `scripts/check-backup-policy.py` on every build (ADR-011).
 
 ## Problem statement
 

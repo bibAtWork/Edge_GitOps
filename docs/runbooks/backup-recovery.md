@@ -230,7 +230,7 @@ Every database in this cluster is protected by a logical dump and by nothing els
 no volume-level copy of any of them, deliberately: the dumps are small, the nightly
 restore-test actually replays them, and a Longhorn snapshot of a Postgres data volume was
 either unrestorable or redundant depending on the database. See
-`34-backup/volume-backup-policy.yaml` for which, and why.
+the `not-backed-up` list in `34-backup/backup-policy.yaml` for which, and why.
 
 The practical consequence is that **a database is never restored by attaching a volume.**
 Create an empty cluster, then replay.

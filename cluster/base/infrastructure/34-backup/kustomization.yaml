@@ -20,6 +20,7 @@ resources:
   - reconciler-cronjob.yaml
   - remote-probe-script.yaml
   - remote-probe-cronjob.yaml
+  - backup-policy.yaml
   - volume-backup-policy.yaml
   - backup-auditor-credential.yaml
 
@@ -34,6 +35,15 @@ replacements:
   - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.snapshot_retain}
     targets:
       - select: {kind: RecurringJob, name: snapshot}
+        fieldPaths: [spec.retain]
+        options: {create: true}
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_daily_cron}
+    targets:
+      - select: {kind: RecurringJob, name: backup-daily}
+        fieldPaths: [spec.cron]
+  - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_daily_retain}
+    targets:
+      - select: {kind: RecurringJob, name: backup-daily}
         fieldPaths: [spec.retain]
         options: {create: true}
   - source: {kind: ConfigMap, name: backup-retention-config, fieldPath: data.backup_weekly_cron}

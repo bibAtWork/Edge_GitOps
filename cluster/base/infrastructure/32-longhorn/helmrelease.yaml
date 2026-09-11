@@ -150,11 +150,11 @@ spec:
     # nothing reported that. On Longhorn the same PVC is snapshotted daily and
     # backed up weekly and monthly from the moment it exists, because Longhorn
     # stamps recurring-job-group.longhorn.io/default on every new volume and
-    # all three RecurringJobs are bound to that group. Forgetting to classify
+    # every RecurringJob is bound to that group. Forgetting to classify
     # a volume now means it is protected rather than silently exposed.
     #
     # The cost of that direction is a reconstructible volume being backed up
-    # until someone excludes it in volume-backup-policy's ephemeral-pvcs list.
+    # until someone excludes it in backup-policy's not-backed-up list.
     # Against a 1.24Gi backed-up baseline that is cheap; the reverse mistake is
     # silent data loss.
     persistence:

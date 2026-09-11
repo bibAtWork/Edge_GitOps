@@ -14,8 +14,9 @@
 #
 # Longhorn has no declarative per-volume exclusion: Volume resources are created
 # by the CSI driver at provisioning time, so they cannot be labelled from Git.
-# This job reconciles the labels from the list below, which keeps the decision
-# reviewable in a PR even though the mechanism is imperative.
+# This job reconciles the labels from the not-backed-up list in
+# backup-policy.yaml, which keeps the decision reviewable in a PR even though the
+# mechanism is imperative.
 #
 # Exclusion means REMOVING recurring-job-group.longhorn.io/default, not adding
 # some other group label. Longhorn's documented rule is that a volume with no
@@ -33,81 +34,6 @@
 #
 # Judge this job by which volumes are in the `default` group, never by what it
 # says it did. The closing lines of the script print exactly that.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: volume-backup-policy
-  namespace: longhorn-system
-data:
-  # PVCs excluded from Longhorn backups, with the reason. Anything not listed
-  # here is backed up, so forgetting an entry costs storage rather than data.
-  ephemeral-pvcs: |
-    # Metrics and logs: 10.8GB of the 14.5GB total, high churn, and expendable.
-    # Losing them costs history, not capability.
-    vlsingle-vmstack-victoria-metrics-k8s-stack
-    vmsingle-vmstack-victoria-metrics-k8s-stack
-    vtsingle-vmstack-victoria-metrics-k8s-stack
-
-    # The staging copy of SeaweedFS. Backing this up is circular -- it would
-    # store a Longhorn backup of a copy of SeaweedFS, inside SeaweedFS.
-    seaweedfs-staging
-
-    # Caches and spools. Reconstructible by the applications that own them:
-    # Immich re-downloads its models, valkey is a cache, and the paperless
-    # consume directory is a transient ingest spool whose contents are moved
-    # into paperless-media almost immediately.
-    immich-ml-cache-lh
-    immich-valkey-lh
-    paperless-valkey-lh
-    paperless-consume-lh
-
-    # Postgres WAL volumes. A WAL backup is only meaningful alongside its data
-    # volume captured at the same instant, which independent volume backups do
-    # not guarantee. The coherent artefact for these databases is the hourly
-    # logical dump in the db-backups bucket, which the restore-test verifies by
-    # replaying the gzip stream and checking the dump header.
-    keycloak-pg-1-wal
-    filer-meta-pg-1-wal
-
-    # Postgres DATA volumes. Every database here already produces a logical
-    # dump on its own schedule, into the db-backups bucket, and that dump is
-    # the artefact the nightly restore-test actually replays. The volume copy
-    # was verified by nothing.
-    #
-    # keycloak-pg-1 was never a second path to begin with. CNPG puts its WAL on
-    # a separate volume (excluded just above) and Longhorn snapshots volumes
-    # independently, so what was being kept was a data volume at one instant
-    # paired with a WAL volume at another -- a combination Postgres cannot
-    # replay. Dropping it removes a copy that could not have been restored,
-    # not a copy that could.
-    #
-    # data-immich-postgresql-0 is the honest case: Immich runs a plain
-    # StatefulSet with pg_wal inside the data directory, so a single-volume
-    # snapshot is crash-consistent and genuinely restorable. It is dropped
-    # anyway, to hold one mechanism per database rather than two -- 485MB in
-    # every weekly tier to duplicate what a 247KB dump already covers.
-    #
-    # The cost is real and worth stating: restoring Immich now means creating
-    # the database and replaying a dump rather than attaching a volume, and
-    # the dump excludes the geodata tables, so reverse geocoding stays
-    # degraded until Immich re-imports them. See docs/runbooks/backup-recovery.md.
-    keycloak-pg-1
-    data-immich-postgresql-0
-
-    # zot's local volume. Image blobs live in SeaweedFS S3 (storageDriver s3,
-    # bucket zot-registry); this holds only cache.db, meta.db and zot's
-    # bundled Trivy databases, all of which zot rebuilds or re-downloads.
-    # Listed in the same change that moves it onto Longhorn, so it is never
-    # backed up even once -- it sat on local-path before, where nothing was
-    # backing it up and nothing said so.
-    zot-pvc-zot-0
-
-    # Paperless' document-exporter output, regenerable from paperless-data
-    # and paperless-media, both of which are themselves backed up. It was the
-    # only volume left in `default` whose contents are reconstructible from
-    # other volumes in `default`.
-    paperless-export-lh
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -129,7 +55,7 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list"]
-  # Triggers backup-weekly on demand for a volume that has never had a backup,
+  # Triggers backup-daily on demand for a volume that has never had a backup,
   # mirroring upgrade-gate-rbac.yaml's identical grant for the same pattern.
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
@@ -224,7 +150,7 @@ spec:
 
                   # Strip comments and blanks so the ConfigMap can carry the
                   # reasoning alongside the list.
-                  sed 's/#.*//' /policy/ephemeral-pvcs | tr -d ' \t' | grep -v '^$' > /tmp/ephemeral
+                  sed 's/#.*//' /policy/not-backed-up | tr -d ' \t' | grep -v '^$' > /tmp/ephemeral
 
                   echo "excluded PVCs: $(wc -l < /tmp/ephemeral)"
 
@@ -314,7 +240,7 @@ spec:
                     # Longhorn cannot snapshot one without attaching it first. So
                     # triggering for one does not merely waste a run: it can never
                     # satisfy its own condition. lastBackupAt stays empty, this
-                    # job fires again next hour, and backup-weekly then runs
+                    # job fires again next hour, and the tier it triggers then runs
                     # HOURLY against every other volume, churning their backups
                     # through the retain policy. Caught 2026-09-04, in the first
                     # hour this trigger existed, against a scratch PVC whose only
@@ -338,14 +264,20 @@ spec:
                   fi
 
                   if [ -n "$NEVER_BACKED_UP" ]; then
-                    echo "never backed up yet, triggering backup-weekly now:$NEVER_BACKED_UP"
+                    echo "never backed up yet, triggering backup-daily now:$NEVER_BACKED_UP"
                     BJOB="volume-backup-policy-firstrun-$(date -u +%Y%m%d%H%M)"
-                    if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-weekly >/dev/null 2>&1; then
-                      # backup-weekly backs up every default-group volume, not
+                    if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-daily >/dev/null 2>&1; then
+                      # backup-daily backs up every default-group volume, not
                       # only the new one -- the same trade this job already
                       # makes elsewhere, favouring one simple, proven trigger
                       # over a volume-scoped one. Budget matches
                       # upgrade-gate-script.yaml's wait_for_job: 600s.
+                      #
+                      # Daily, never weekly. The backups this creates carry the
+                      # tier's label and take its retain slots; created from
+                      # backup-weekly, three of them in two days once left the
+                      # weekly tier holding two days of history
+                      # (backup-retention-config).
                       i=0
                       while [ "$i" -lt 60 ]; do
                         kubectl get job -n longhorn-system "$BJOB" -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q 1 && break
@@ -416,4 +348,4 @@ spec:
           volumes:
             - name: policy
               configMap:
-                name: volume-backup-policy
+                name: backup-policy
