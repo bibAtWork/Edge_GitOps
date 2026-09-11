@@ -161,6 +161,14 @@ data:
     # zero tested and zero failed, which reads exactly like a clean pass.
     kubectl get backupvolumes.longhorn.io -n longhorn-system -o custom-columns=A:.metadata.name,B:.status.lastBackupName --no-headers > /tmp/bvs 2>/dev/null
 
+    # The Longhorn datasets in backup-policy.yaml, as "namespace/claim dataset".
+    # Every backup restored below is recorded against its dataset, so the run
+    # names the recovery point it proved: which backup, taken when (ADR-011).
+    # The relay promotes on that record and backup-verify confirms it offsite.
+    sed 's/#.*//' /policy/datasets | awk '$3 == "longhorn" {sub(/^pvc:/, "", $4); print $4, $1}' > /tmp/lh-datasets
+    : > /tmp/points
+    : > /tmp/evidence.prom
+
     while read -r BV LASTBACKUP; do
       [ -z "${BV:-}" ] && continue
       if [ -z "${LASTBACKUP:-}" ] || [ "$LASTBACKUP" = "<none>" ]; then
@@ -181,6 +189,18 @@ data:
       if [ -z "$URL" ] || [ -z "$SIZE" ]; then
         fail "$BV: backup $LASTBACKUP exposes no restore URL or size"
         continue
+      fi
+
+      # Which dataset this backup is a recovery point of, and when it was
+      # taken. A volume that is no dataset (an exclusion that still has old
+      # backups) is restored and checked all the same, and recorded as nothing.
+      VOLNAME="$(kubectl get backups.longhorn.io -n longhorn-system "$LASTBACKUP" -o jsonpath='{.status.volumeName}' 2>/dev/null)"
+      CLAIM="$(kubectl get volumes.longhorn.io -n longhorn-system "$VOLNAME" -o jsonpath='{.status.kubernetesStatus.namespace}/{.status.kubernetesStatus.pvcName}' 2>/dev/null)"
+      DS="$(awk -v k="$CLAIM" '$1 == k {print $2; exit}' /tmp/lh-datasets)"
+      TAKEN="$(kubectl get backups.longhorn.io -n longhorn-system "$LASTBACKUP" -o jsonpath='{.status.backupCreatedAt}' 2>/dev/null)"
+      TAKEN_EPOCH="$(date -u -d "$(echo "$TAKEN" | tr 'T' ' ' | tr -d 'Z')" +%s 2>/dev/null || echo 0)"
+      if [ -n "$DS" ] && [ "$TAKEN_EPOCH" != 0 ]; then
+        echo "backup_dataset_backed_timestamp{dataset=\"$DS\"} $TAKEN_EPOCH" >> /tmp/evidence.prom
       fi
 
       RT="rt-$(echo "$BV" | md5sum | cut -c1-10)"
@@ -290,6 +310,12 @@ data:
       else
         LH_TESTED=$(( LH_TESTED + 1 ))
         log "OK $BV"
+        # The recovery point this run has now proved.
+        if [ -n "$DS" ] && [ "$TAKEN_EPOCH" != 0 ]; then
+          echo "$DS $LASTBACKUP $TAKEN_EPOCH $VOLNAME pass" >> /tmp/points
+          echo "backup_dataset_validated_timestamp{dataset=\"$DS\"} $TAKEN_EPOCH" >> /tmp/evidence.prom
+          echo "backup_dataset_restore_test_timestamp{dataset=\"$DS\"} $(date -u +%s)" >> /tmp/evidence.prom
+        fi
       fi
 
       kubectl delete pod -n longhorn-system "$RT" --wait=false >/dev/null 2>&1
@@ -332,13 +358,23 @@ data:
       --from-literal=longhorn_tested="$LH_TESTED" \
       --from-literal=longhorn_skipped="$LH_SKIPPED" \
       --from-literal=failures="${FAILURES:-none}" \
+      --from-file=points=/tmp/points \
       --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+
+    # Read it back. The relay and the reconciler both act on this record, so a
+    # run whose verdict did not land must fail rather than let the previous
+    # verdict stand in for it.
+    if [ "$(kubectl get configmap backup-restore-test-result -n longhorn-system -o jsonpath='{.data.epoch}' 2>/dev/null)" != "$NOW" ]; then
+      log "ERROR: backup-restore-test-result does not hold this run's verdict"
+      RESULT=fail
+    fi
 
     {
       echo "backup_restore_test_last_run_timestamp $NOW"
       if [ "$RESULT" = pass ]; then echo "backup_restore_test_pass 1"; else echo "backup_restore_test_pass 0"; fi
       echo "backup_restore_test_longhorn_volumes_tested $LH_TESTED"
       echo "backup_restore_test_longhorn_volumes_skipped $LH_SKIPPED"
+      cat /tmp/evidence.prom
     } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
 
     [ "$RESULT" = pass ] || exit 1

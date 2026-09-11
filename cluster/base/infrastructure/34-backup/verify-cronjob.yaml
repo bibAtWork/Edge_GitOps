@@ -105,6 +105,13 @@ spec:
                   readOnly: true
                 - name: tmp
                   mountPath: /tmp
+                # The points the restore tests validated, to confirm offsite.
+                - name: points-volumes
+                  mountPath: /gates/volumes
+                  readOnly: true
+                - name: points-databases
+                  mountPath: /gates/databases
+                  readOnly: true
               resources:
                 requests:
                   cpu: 200m
@@ -125,3 +132,11 @@ spec:
                 name: backup-verify-script
             - name: tmp
               emptyDir: {}
+            - name: points-volumes
+              configMap:
+                name: backup-restore-test-result
+                optional: true
+            - name: points-databases
+              configMap:
+                name: backup-db-restore-test-result
+                optional: true

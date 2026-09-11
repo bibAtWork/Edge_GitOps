@@ -295,6 +295,51 @@ spec:
                   EXPECTED="$((VOLS_TOTAL - EXPECTED_EXCLUDED))"
                   DRIFT="$((IN_DEFAULT - EXPECTED))"
 
+                  # The policy itself, as metrics (ADR-011): every dataset's RPO
+                  # and offsite age, so the guarantee alerts compare evidence
+                  # against the policy in Git rather than numbers copied into
+                  # alert rules. Published here because this job already reads
+                  # the policy hourly, and if it stops, BackupScopeDrift fires.
+                  #
+                  # No backslashes: the quote comes from sprintf, since escaping
+                  # inside a block scalar is where scripts here have gone
+                  # silently wrong before.
+                  for T in profiles applications datasets; do
+                    sed 's/#.*//' "/policy/$T" | awk 'NF' > "/tmp/$T"
+                  done
+                  awk '
+                    BEGIN { q = sprintf("%c", 34) }
+                    function secs(v) {
+                      if (v ~ /^[0-9]+h$/) return substr(v, 1, length(v) - 1) * 3600
+                      if (v ~ /^[0-9]+d$/) return substr(v, 1, length(v) - 1) * 86400
+                      return -1
+                    }
+                    FILENAME ~ /profiles$/     { RPO[$1] = secs($2); OFF[$1] = secs($5); next }
+                    FILENAME ~ /applications$/ { CRIT[$1] = $2; PROF[$1] = $3; next }
+                    {
+                      p = PROF[$2]
+                      if (p == "" || RPO[p] < 0) next
+                      d = "dataset=" q $1 q
+                      print "backup_policy_dataset_info{" d ",application=" q $2 q ",engine=" q $3 q ",profile=" q p q ",criticality=" q CRIT[$2] q "} 1"
+                      print "backup_policy_dataset_rpo_seconds{" d "} " RPO[p]
+                      print "backup_policy_dataset_offsite_max_age_seconds{" d "} " OFF[p]
+                    }
+                  ' /tmp/profiles /tmp/applications /tmp/datasets > /tmp/policy.prom
+
+                  # Unclassified: backed up because it is in the default group,
+                  # but no dataset in the policy. Protected by accident rather
+                  # than by decision -- no RPO, no restore check, and nobody
+                  # would be told if it stopped.
+                  awk '$3 == "longhorn" {n = split($4, a, "/"); print a[n]}' /tmp/datasets > /tmp/lh-claims
+                  UNCLASSIFIED=0
+                  while read -r P; do
+                    [ -z "$P" ] && continue
+                    grep -qxF "$P" /tmp/lh-claims && continue
+                    UNCLASSIFIED=$((UNCLASSIFIED + 1))
+                    echo "backup_policy_unclassified{pvc=\"$P\"} 1" >> /tmp/policy.prom
+                    echo "  UNCLASSIFIED: $P is backed up but is no dataset in backup-policy.yaml"
+                  done < /tmp/in_default
+
                   # Metrics, so this is visible without reading pod logs that age
                   # out after three runs.
                   #
@@ -323,10 +368,11 @@ spec:
                       [ -z "$P" ] && continue
                       echo "backup_volume_policy_in_scope{pvc=\"$P\"} 1"
                     done < /tmp/in_default
+                    cat /tmp/policy.prom
                   } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" \
                     || echo "WARN: metric push failed"
 
-                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED in_default=$IN_DEFAULT expected=$EXPECTED drift=$DRIFT"
+                  echo "POLICY_OK excluded=$LABELLED re-included=$CLEARED in_default=$IN_DEFAULT expected=$EXPECTED drift=$DRIFT unclassified=$UNCLASSIFIED"
               env:
                 - name: VM_IMPORT_URL
                   value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus

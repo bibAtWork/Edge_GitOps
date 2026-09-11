@@ -1903,6 +1903,160 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
+              # ── Recovery guarantees (ADR-011) ───────────────────────────
+              # Per dataset, and against the policy rather than against a job.
+              # Every threshold is a policy value published by
+              # volume-backup-policy as backup_policy_dataset_*; the evidence is
+              # published by the restore tests (validated points) and by
+              # backup-verify (points confirmed in the vault). Nothing here
+              # restates an RPO -- changing the policy changes the alert.
+              #
+              # Each has a second branch for a dataset with no evidence at all,
+              # which would otherwise produce no series and stay silent. The 40d
+              # lookback is what lets a node that was off for weeks come back
+              # and still see its last evidence.
+              - uid: backup-recovery-point-overdue
+                title: BackupRecoveryPointOverdue
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '((time() - max by (dataset) (last_over_time(backup_dataset_validated_timestamp[40d]))) - on (dataset) (max by (dataset) (last_over_time(backup_policy_dataset_rpo_seconds[3h])) + 14400) > 0) or on (dataset) (max by (dataset) (last_over_time(backup_policy_dataset_rpo_seconds[3h])) unless on (dataset) max by (dataset) (last_over_time(backup_dataset_validated_timestamp[40d])))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                # No series means no dataset is overdue. A publisher that stops is
+                # BackupScopeDrift's to report, on its own noData.
+                noDataState: OK
+                execErrState: Error
+                # 2h: after the node has been off, catch-up needs time to take
+                # and validate a new point before an old one counts as overdue.
+                for: 2h
+                annotations:
+                  summary: >-
+                    A dataset's recovery guarantee is no longer met
+                  description: >-
+                    This dataset has no validated recovery point younger than its RPO in backup-policy.yaml, plus 4 hours for validation to run after a point is taken. A point is validated only when a restore of it has passed, so either nothing new has been backed up, or nothing new has restored. The value is how far past the guarantee it is, in seconds. Check the dataset's producer (its CronJob or Longhorn RecurringJob, named in the policy) and then BackupDbRestoreTestFailing or BackupRestoreTestFailing.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-promotion-pending
+                title: BackupPromotionPending
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '((time() - max by (dataset) (last_over_time(backup_dataset_remote_verified_timestamp[40d]))) - on (dataset) max by (dataset) (last_over_time(backup_policy_dataset_offsite_max_age_seconds[3h])) > 0) or on (dataset) (max by (dataset) (last_over_time(backup_policy_dataset_offsite_max_age_seconds[3h])) unless on (dataset) max by (dataset) (last_over_time(backup_dataset_remote_verified_timestamp[40d])))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 2h
+                annotations:
+                  summary: >-
+                    A dataset's newest offsite recovery point is older than the policy allows
+                  description: >-
+                    The newest point of this dataset confirmed in the vault -- present there with the hashes of the copy that was restored -- is older than its offsite age in backup-policy.yaml. Local recovery is unaffected; this is the DEGRADED state, where only the independent copy has fallen behind. Usually the promotion gate is holding because a restore test has not passed (backup_relay_gate_open), or the relay or backup-verify has not run.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: backup-dataset-unclassified
+                title: BackupDatasetUnclassified
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 10800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max by (pvc) (last_over_time(backup_policy_unclassified[3h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A volume is backed up but belongs to no dataset in the policy
+                  description: >-
+                    This PVC is in Longhorn's default group, so it is being backed up, but backup-policy.yaml names it as no dataset. It is protected by accident rather than by decision: no RPO, no restore check, and nothing would report it stopping. Add it to `datasets` under its application, or to `not-backed-up` with the reason.
+                labels:
+                  severity: warning
+                isPaused: false
               # ── Talos advisories ────────────────────────────────────────
               # Fed by the talos-cve-watch CronJob, which compares the version
               # actually running on each node -- read from kube_node_info's
