@@ -1,0 +1,310 @@
+# The database restore test (ADR-011), held in a ConfigMap for the same reason
+# as restore-test-script.yaml: long scripts inside a CronJob's block scalar are
+# where escaping goes silently wrong.
+#
+# Replays the newest dump of every database dataset in backup-policy.yaml into
+# a throwaway server and proves the data came back -- not only that the replay
+# finished, but that the policy's restore-checks hold against the result.
+#
+# Until this existed no database dump here had ever been restored by anything
+# but a person. The nightly restore-test covers Longhorn volumes; every
+# database is deliberately excluded from those (backup-policy's not-backed-up
+# list), which made the dumps their only protection and left it unproven.
+#
+# Four stages, run as init containers in order and then a report:
+#
+#   fetch.sh      rclone    newest object of each dataset, read in full
+#   postgres.sh   postgres  one container per server major, replay + checks
+#   sqlite.py     python    integrity_check + checks
+#   report.sh     kubectl   one record per dataset, result ConfigMap, metrics
+#
+# Every stage exits 0 whatever it finds and writes its verdicts to /work. An
+# init container that exits non-zero stops the pod before the report runs,
+# which would record nothing -- the one outcome worse than a recorded failure.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-db-restore-test-script
+  namespace: longhorn-system
+data:
+  fetch.sh: |
+    #!/bin/sh
+    # Writes, for the stages after it:
+    #   /work/started        epoch this run started; the relay promotes nothing newer
+    #   /work/datasets       dataset engine source, the database rows of the policy
+    #   /work/points         dataset engine object taken_epoch md5 size
+    #   /work/results.fetch  dataset fail reason, for anything that failed here
+    set -u
+    W=/work
+    date -u +%s > "$W/started"
+    : > "$W/points"
+    : > "$W/results.fetch"
+
+    RC_LIMITS="--retries 1 --low-level-retries 1 --timeout 60s --contimeout 20s"
+
+    sed 's/#.*//' /policy/datasets \
+      | awk 'NF == 5 && ($3 == "postgres" || $3 == "sqlite") {print $1, $3, $4}' > "$W/datasets"
+    echo "database datasets in the policy: $(wc -l < "$W/datasets")"
+
+    while read -r DS ENGINE SOURCE; do
+      LOC="${SOURCE#s3:}"
+      LOC="${LOC%/}"
+      # Newest by upload time. lsf's tp format leads with a fixed-width
+      # timestamp, so a plain sort orders by time.
+      NEWEST="$(rclone lsf "s3:$LOC" --files-only --format tp --separator "|" $RC_LIMITS 2>/dev/null | sort | tail -n 1)"
+      if [ -z "$NEWEST" ]; then
+        echo "$DS fail nothing to restore under $LOC" >> "$W/results.fetch"
+        continue
+      fi
+      TAKEN="${NEWEST%%|*}"
+      NAME="${NEWEST#*|}"
+      # Read the bytes, not the listing. Objects here have listed at the right
+      # size and then failed on read; only fetching one proves it is there.
+      if ! rclone copyto "s3:$LOC/$NAME" "$W/$DS.gz" $RC_LIMITS 2>/dev/null; then
+        echo "$DS fail could not read $LOC/$NAME" >> "$W/results.fetch"
+        continue
+      fi
+      if ! gzip -t "$W/$DS.gz" 2>/dev/null; then
+        echo "$DS fail $LOC/$NAME is not a complete gzip stream" >> "$W/results.fetch"
+        continue
+      fi
+      EPOCH="$(date -u -d "$TAKEN" +%s 2>/dev/null || echo 0)"
+      # The MD5 of the bytes actually restored. backup-verify compares the
+      # vault's copy against this, so the point confirmed offsite is provably
+      # the one that was tested, not merely one with the same name.
+      MD5="$(md5sum "$W/$DS.gz" | cut -d' ' -f1)"
+      SIZE="$(stat -c %s "$W/$DS.gz")"
+      echo "$DS $ENGINE $LOC/$NAME $EPOCH $MD5 $SIZE" >> "$W/points"
+      echo "fetched $DS: $LOC/$NAME, $SIZE bytes, taken $TAKEN"
+    done < "$W/datasets"
+    exit 0
+
+  postgres.sh: |
+    #!/bin/sh
+    # Runs once per PostgreSQL major (PG_MAJOR). Replays every dump taken from a
+    # server of that major into a fresh cluster, then runs the policy's
+    # restore-checks against it.
+    #
+    # One container per major because a dump is only shown to be restorable by
+    # a server of the version it would be restored into. A dump from a major
+    # with no container here gets no result, and the report records that as a
+    # failure -- so upgrading a database without adding its restore server
+    # fails loudly rather than quietly skipping the test.
+    #
+    # Isolation: the server listens on a unix socket inside /work and on no TCP
+    # port, so nothing outside this container can reach it, and trust
+    # authentication covers only this container's own processes. The pod holds
+    # no credential for any production database.
+    set -u
+    W=/work
+    OUT="$W/results.pg$PG_MAJOR"
+    PGDATA="$W/pg$PG_MAJOR"
+    SOCK="$W/sock$PG_MAJOR"
+    : > "$OUT"
+    mkdir -p "$SOCK"
+
+    record() { echo "$1 $2 $3" >> "$OUT"; echo "$1: $2 -- $3"; }
+
+    MINE=""
+    while read -r DS ENGINE OBJ EPOCH MD5 SIZE; do
+      [ "$ENGINE" = postgres ] || continue
+      # "-- Dumped from database version 16.15 (...)" names the source server.
+      MAJOR="$(gzip -dc "$W/$DS.gz" | head -n 30 | awk '/^-- Dumped from database version/ {split($6, v, "."); print v[1]; exit}')"
+      [ "$MAJOR" = "$PG_MAJOR" ] && MINE="$MINE $DS"
+    done < "$W/points"
+    if [ -z "$MINE" ]; then
+      echo "no dumps from a PostgreSQL $PG_MAJOR server"
+      exit 0
+    fi
+
+    if ! initdb -D "$PGDATA" -U postgres --auth=trust --no-sync --encoding=UTF8 --locale=C > "$W/initdb$PG_MAJOR.log" 2>&1; then
+      for DS in $MINE; do record "$DS" fail "initdb failed: $(tail -n 1 "$W/initdb$PG_MAJOR.log")"; done
+      exit 0
+    fi
+    # fsync off: this cluster lives for minutes and is deleted with the pod.
+    if ! pg_ctl -D "$PGDATA" -l "$W/server$PG_MAJOR.log" -w -t 120 \
+         -o "-c listen_addresses='' -k $SOCK -c fsync=off -c full_page_writes=off ${PG_EXTRA:-}" start > /dev/null 2>&1; then
+      for DS in $MINE; do record "$DS" fail "server did not start: $(tail -n 1 "$W/server$PG_MAJOR.log")"; done
+      exit 0
+    fi
+
+    PSQL="psql -h $SOCK -U postgres -X -q"
+    for DS in $MINE; do
+      createdb -h "$SOCK" -U postgres "$DS"
+      # A dump hands ownership and grants to the production roles, and a replay
+      # into a cluster without them stops at the first ALTER ... OWNER TO.
+      # Create them bare: no login, no password.
+      gzip -dc "$W/$DS.gz" | grep -oE ' TO [A-Za-z_][A-Za-z0-9_]*;' \
+        | awk '{sub(/;$/, "", $2); print $2}' | sort -u > "$W/$DS.roles"
+      while read -r ROLE; do
+        $PSQL -d postgres -c "create role $ROLE nologin" > /dev/null 2>&1 || true
+      done < "$W/$DS.roles"
+
+      # ON_ERROR_STOP: a replay that skips a failed statement is not a restore.
+      if ! gzip -dc "$W/$DS.gz" | $PSQL -d "$DS" -v ON_ERROR_STOP=1 > "$W/$DS.replay.log" 2>&1; then
+        record "$DS" fail "replay stopped: $(grep -m 1 -E 'ERROR|FATAL|invalid' "$W/$DS.replay.log" | cut -c1-200)"
+        continue
+      fi
+
+      sed 's/#.*//' /policy/restore-checks | awk -v ds="$DS" '$1 == ds' > "$W/$DS.checks"
+      N=0
+      BAD=""
+      while read -r _ MIN QUERY; do
+        N=$((N + 1))
+        GOT="$($PSQL -d "$DS" -tA -c "$QUERY" 2>/dev/null | head -n 1)"
+        case "$GOT" in
+          ''|*[!0-9]*) BAD="$BAD; [$QUERY] returned '${GOT:-nothing}'"; continue ;;
+        esac
+        echo "  $DS: $QUERY -> $GOT (at least $MIN)"
+        [ "$GOT" -ge "$MIN" ] || BAD="$BAD; [$QUERY] = $GOT, needs at least $MIN"
+      done < "$W/$DS.checks"
+      if [ "$N" -eq 0 ]; then
+        record "$DS" fail "no restore-checks in the policy"
+      elif [ -n "$BAD" ]; then
+        record "$DS" fail "${BAD#; }"
+      else
+        record "$DS" pass "replayed, $N checks hold"
+      fi
+    done
+
+    pg_ctl -D "$PGDATA" -m immediate stop > /dev/null 2>&1 || true
+    exit 0
+
+  sqlite.py: |
+    #!/usr/bin/env python3
+    # Opens every SQLite dataset's copy and runs the policy's checks.
+    # integrity_check saying "ok" is necessary and not sufficient -- an empty
+    # database passes it. The restore-checks are what show the data came back.
+    import gzip
+    import shutil
+    import sqlite3
+
+    W = '/work'
+    OUT = W + '/results.sqlite'
+
+
+    def record(ds, verdict, detail):
+        with open(OUT, 'a') as f:
+            f.write(ds + ' ' + verdict + ' ' + detail + '\n')
+        print(ds + ': ' + verdict + ' -- ' + detail)
+
+
+    checks = {}
+    with open('/policy/restore-checks') as f:
+        for line in f:
+            line = line.split('#', 1)[0].strip()
+            if line:
+                ds, minimum, query = line.split(None, 2)
+                checks.setdefault(ds, []).append((int(minimum), query))
+
+    open(OUT, 'w').close()
+    with open(W + '/points') as f:
+        points = [line.split() for line in f if line.strip()]
+
+    for ds, engine, obj, epoch, md5, size in points:
+        if engine != 'sqlite':
+            continue
+        db = W + '/' + ds + '.sqlite3'
+        try:
+            with gzip.open(W + '/' + ds + '.gz', 'rb') as src, open(db, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            # Opened read-write: it is a scratch copy, and a WAL-mode database
+            # cannot always be opened read-only without its -shm file.
+            con = sqlite3.connect(db)
+            verdict = con.execute('pragma integrity_check').fetchone()[0]
+            if verdict != 'ok':
+                record(ds, 'fail', 'integrity_check said ' + str(verdict))
+                continue
+            bad = []
+            for minimum, query in checks.get(ds, []):
+                got = con.execute(query).fetchone()[0]
+                print('  ' + ds + ': ' + query + ' -> ' + str(got) + ' (at least ' + str(minimum) + ')')
+                if not isinstance(got, int) or got < minimum:
+                    bad.append('[' + query + '] = ' + str(got) + ', needs at least ' + str(minimum))
+            if not checks.get(ds):
+                record(ds, 'fail', 'no restore-checks in the policy')
+            elif bad:
+                record(ds, 'fail', '; '.join(bad))
+            else:
+                record(ds, 'pass', 'integrity ok, ' + str(len(checks[ds])) + ' checks hold')
+        except Exception as exc:  # a failure is a result, never a crash
+            record(ds, 'fail', type(exc).__name__ + ': ' + str(exc).replace('\n', ' '))
+
+  report.sh: |
+    #!/bin/sh
+    # Joins every stage's verdicts into one record per dataset, writes
+    # backup-db-restore-test-result, and pushes the metrics.
+    #
+    # The record is the evidence ADR-011's recovery points are derived from:
+    # which object was restored, when it was taken, the MD5 of the bytes that
+    # were restored, and whether it passed. The relay promotes nothing newer
+    # than `started`; backup-verify confirms that exact object in the vault.
+    set -u
+    W=/work
+    STARTED="$(cat "$W/started" 2>/dev/null || date -u +%s)"
+    NOW="$(date -u +%s)"
+    STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    cat "$W"/results.* > "$W/results" 2>/dev/null || : > "$W/results"
+    : > "$W/record"
+    : > "$W/metrics"
+    FAILURES=""
+    TESTED=0
+    TOTAL=0
+
+    while read -r DS ENGINE SOURCE; do
+      TOTAL=$((TOTAL + 1))
+      VERDICT="$(awk -v ds="$DS" '$1 == ds {print $2; exit}' "$W/results")"
+      DETAIL="$(awk -v ds="$DS" '$1 == ds {$1 = ""; $2 = ""; print; exit}' "$W/results" | sed 's/^ *//')"
+      OBJ="$(awk -v ds="$DS" '$1 == ds {print $3; exit}' "$W/points")"
+      EPOCH="$(awk -v ds="$DS" '$1 == ds {print $4; exit}' "$W/points")"
+      MD5="$(awk -v ds="$DS" '$1 == ds {print $5; exit}' "$W/points")"
+      if [ -z "$VERDICT" ]; then
+        VERDICT=fail
+        DETAIL="no stage produced a result -- most likely a dump from a PostgreSQL major with no restore server here"
+      fi
+      echo "$DS ${OBJ:--} ${EPOCH:-0} ${MD5:--} $VERDICT" >> "$W/record"
+      echo "$DS: $VERDICT -- $DETAIL"
+      if [ -n "$EPOCH" ] && [ "$EPOCH" != 0 ]; then
+        echo "backup_dataset_backed_timestamp{dataset=\"$DS\"} $EPOCH" >> "$W/metrics"
+      fi
+      if [ "$VERDICT" = pass ]; then
+        TESTED=$((TESTED + 1))
+        echo "backup_db_restore_test_dataset_pass{dataset=\"$DS\"} 1" >> "$W/metrics"
+        echo "backup_dataset_validated_timestamp{dataset=\"$DS\"} $EPOCH" >> "$W/metrics"
+        echo "backup_dataset_restore_test_timestamp{dataset=\"$DS\"} $NOW" >> "$W/metrics"
+      else
+        echo "backup_db_restore_test_dataset_pass{dataset=\"$DS\"} 0" >> "$W/metrics"
+        FAILURES="${FAILURES}$DS: $DETAIL; "
+      fi
+    done < "$W/datasets"
+
+    [ "$TOTAL" -eq 0 ] && FAILURES="the policy lists no database datasets; "
+    if [ -n "$FAILURES" ]; then RESULT=fail; else RESULT=pass; fi
+    echo "result=$RESULT tested=$TESTED of $TOTAL"
+
+    kubectl create configmap backup-db-restore-test-result -n longhorn-system \
+      --from-literal=result="$RESULT" \
+      --from-literal=started="$STARTED" \
+      --from-literal=epoch="$NOW" \
+      --from-literal=timestamp="$STAMP" \
+      --from-literal=failures="${FAILURES:-none}" \
+      --from-file=points="$W/record" \
+      --dry-run=client -o yaml | kubectl apply -f - > /dev/null 2>&1 || true
+
+    # Read it back. The relay promotes on this record, so a run whose verdict
+    # did not land must fail -- otherwise the previous verdict stands, and a
+    # pass from yesterday would promote whatever was dumped since.
+    if [ "$(kubectl get configmap backup-db-restore-test-result -n longhorn-system -o jsonpath='{.data.started}' 2>/dev/null)" != "$STARTED" ]; then
+      echo "ERROR: backup-db-restore-test-result does not hold this run's verdict"
+      RESULT=fail
+    fi
+
+    {
+      echo "backup_db_restore_test_last_run_timestamp $NOW"
+      if [ "$RESULT" = pass ]; then echo "backup_db_restore_test_pass 1"; else echo "backup_db_restore_test_pass 0"; fi
+      echo "backup_db_restore_test_datasets_tested $TESTED"
+      cat "$W/metrics"
+    } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || echo "WARN: metric push failed"
+
+    [ "$RESULT" = pass ] || exit 1
+    echo "DB_RESTORE_TEST_OK"

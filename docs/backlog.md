@@ -1061,7 +1061,21 @@ the warning is permanent and harmless.
 Reviewed 2026-09-09. Revisit only if the noise starts hiding a *real* lookup failure -- that is the
 one way this becomes more than cosmetic, since a second failing dependency would look identical.
 
-## F1 partially closed: the database dumps do replay — verified once, not continuously
+## F1 closed: every database dump is restore-tested nightly
+
+**Automated 2026-09-12** by `longhorn-system/backup-db-restore-test` (ADR-011). Each night it
+replays the newest dump of every database dataset in `34-backup/backup-policy.yaml` into a
+throwaway server of the same major and flavour, and runs the policy's `restore-checks` against the
+result. Its scripts encode every prerequisite the drill below found: owner roles created first,
+Immich's server started with its vector extensions preloaded. First run: all four passed. A run
+against a deliberately broken policy failed exactly the three sabotaged datasets.
+
+The network-policy blocker recorded below did not apply. The job runs in `longhorn-system`, which
+`allow-seaweedfs-internal` already admits as an S3 client, so no policy change was needed.
+
+What stays open is the last paragraph: replaying into a *live* database.
+
+### The original drill, 2026-09-09
 
 `keycloak-pg`, `immich-postgresql` and `filer-meta-pg` have `pg_dump` to S3 as their only recovery
 path, and until 2026-09-09 no dump had ever been replayed. It had been assumed rather than tested.

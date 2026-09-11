@@ -170,9 +170,9 @@ plain-text table parsed by shell, which is less expressive than a CRD, on purpos
 | 2. Datasets | `datasets`, `not-backed-up`; daily Longhorn tier to meet the RPO | In place |
 | 3. Recovery point | Derived from per-point evidence | Follows |
 | 4. Restic | — | Not adopted |
-| 5. PostgreSQL | `pg_dump` kept; database restore test | Follows |
-| 6. SQLite | Online-backup API (existing); restore test | Follows |
-| 7. Restore tests | Longhorn (existing); databases | Follows |
+| 5. PostgreSQL | `pg_dump` kept; `backup-db-restore-test` replays every dump into a server of its own major | In place |
+| 6. SQLite | Online-backup API (existing); `integrity_check` and restore checks on the copy | In place |
+| 7. Restore tests | Longhorn volumes (existing); databases (`backup-db-restore-test`) | In place |
 | 8. Promotion and remote verification | Gated relay; per-point verification | Follows |
 | 9. Argo Workflows | — | Not adopted |
 | 10. End-to-end test | Failure cases against the gates | Follows |
