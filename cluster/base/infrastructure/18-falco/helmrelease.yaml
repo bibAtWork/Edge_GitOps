@@ -87,7 +87,7 @@ spec:
       image:
         registry: docker.io
         repository: falcosecurity/falcoctl
-        tag: 0.14.0
+        tag: 0.14.1
       artifact:
         follow:
           # 7-day peak 45Mi.
