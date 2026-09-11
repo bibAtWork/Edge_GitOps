@@ -132,6 +132,80 @@ data:
       NO_HASH=$((NO_HASH + $5)); LOST=$((LOST + $6)); PENDING=$((PENDING + $7))
     done
 
+    # ------------------------------------------------------------------
+    # Recovery points (ADR-011). The restore tests record exactly which point
+    # each one validated: a dump object and the MD5 of the bytes it restored,
+    # or a Longhorn backup. A point is REMOTE_VERIFIED when that same point is
+    # in the vault with matching hashes -- established from listings alone,
+    # nothing downloaded. Every object involved is a single-part upload (dumps
+    # are a few MB, Longhorn blocks 2 MiB), so the vault's ETag is its MD5; a
+    # multipart ETag lists no hash and counts as unverified, never as a match.
+    #
+    # An unverified point is not a failure of this job. It is PROMOTION_PENDING,
+    # and BackupPromotionPending reports it once it outlasts the policy.
+    # ------------------------------------------------------------------
+    : > /tmp/points.prom
+    POINTS_CHECKED=0
+    POINTS_VERIFIED=0
+
+    # Database points. The remote listings for these buckets were taken above.
+    if [ -s /gates/databases/points ]; then
+      log "=== recovery points: databases"
+      while read -r DS OBJ TAKEN MD5 VERDICT; do
+        [ "$VERDICT" = pass ] || continue
+        POINTS_CHECKED=$((POINTS_CHECKED + 1))
+        B="${OBJ%%/*}"
+        KEY="${OBJ#*/}"
+        REMOTE="$(awk -v k="$KEY" 'substr($0, 35) == k {print substr($0, 1, 32); exit}' "/tmp/$B.remote" 2>/dev/null || true)"
+        if [ -n "$REMOTE" ] && [ "$REMOTE" = "$MD5" ]; then
+          POINTS_VERIFIED=$((POINTS_VERIFIED + 1))
+          echo "backup_dataset_remote_verified_timestamp{dataset=\"$DS\"} $TAKEN" >> /tmp/points.prom
+          log "  REMOTE_VERIFIED  $DS $OBJ"
+        else
+          log "  NOT IN VAULT     $DS $OBJ (vault md5 ${REMOTE:-none}, restored ${MD5})"
+        fi
+      done < /gates/databases/points
+    fi
+
+    # Longhorn points. A backup is its cfg plus every block the cfg names, and
+    # all of them must be in the vault with the local copy's hash. Blocks live
+    # at blocks/<first 2>/<next 2>/<checksum>.blk under the volume's directory.
+    if [ -s /gates/volumes/points ]; then
+      log "=== recovery points: volumes"
+      rclone lsf s3:longhorn-backups/backupstore/volumes --recursive --files-only --include "backup_*.cfg" $RC_LIMITS > /tmp/lh-cfgs 2>/dev/null || true
+      while read -r DS BACKUP TAKEN VOL VERDICT; do
+        [ "$VERDICT" = pass ] || continue
+        POINTS_CHECKED=$((POINTS_CHECKED + 1))
+        CFG="$(grep -m 1 "/backup_${BACKUP}.cfg$" /tmp/lh-cfgs || true)"
+        if [ -z "$CFG" ]; then
+          log "  NO LOCAL CFG     $DS $BACKUP"
+          continue
+        fi
+        DIR="${CFG%/backups/*}"
+        {
+          echo "backups/backup_${BACKUP}.cfg"
+          rclone cat "s3:longhorn-backups/backupstore/volumes/$CFG" $RC_LIMITS 2>/dev/null \
+            | grep -oE '"BlockChecksum":"[0-9a-f]+"' | cut -d'"' -f4 | sort -u \
+            | awk '{print "blocks/" substr($0, 1, 2) "/" substr($0, 3, 2) "/" $0 ".blk"}'
+        } > /tmp/need
+        NEED="$(wc -l < /tmp/need | tr -d ' ')"
+        # --one-way: only whether the vault holds what local holds. Hashes come
+        # from both listings; --download is deliberately absent.
+        : > /tmp/combined
+        rclone check "s3:longhorn-backups/backupstore/volumes/$DIR" "aws:${AWS_BUCKET}/longhorn/backupstore/volumes/$DIR" \
+          --one-way --files-from /tmp/need --combined /tmp/combined $RC_LIMITS > /dev/null 2>&1 || true
+        MATCH="$(grep -c '^= ' /tmp/combined || true)"
+        if [ "$NEED" -gt 1 ] && [ "${MATCH:-0}" -eq "$NEED" ]; then
+          POINTS_VERIFIED=$((POINTS_VERIFIED + 1))
+          echo "backup_dataset_remote_verified_timestamp{dataset=\"$DS\"} $TAKEN" >> /tmp/points.prom
+          log "  REMOTE_VERIFIED  $DS $BACKUP ($NEED objects)"
+        else
+          log "  NOT IN VAULT     $DS $BACKUP (${MATCH:-0} of $NEED objects match)"
+        fi
+      done < /gates/volumes/points
+    fi
+    log "recovery points: checked=$POINTS_CHECKED remote_verified=$POINTS_VERIFIED"
+
     log "checked=$CHECKED unreadable=$UNREADABLE no_offsite=$MISSING_REMOTE mismatch=$MISMATCH no_hash=$NO_HASH lost=$LOST pending=$PENDING"
 
     TS=0
@@ -145,6 +219,9 @@ data:
       echo "seaweedfs_verify_objects_no_hash $NO_HASH"
       echo "seaweedfs_verify_objects_lost $LOST"
       echo "seaweedfs_verify_objects_pending_relay $PENDING"
+      echo "backup_verify_points_checked $POINTS_CHECKED"
+      echo "backup_verify_points_remote_verified $POINTS_VERIFIED"
+      cat /tmp/points.prom
     } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || log "WARN: metric push failed"
 
     # Unreadable or diverged is a real fault and fails the run. NO OFFSITE does

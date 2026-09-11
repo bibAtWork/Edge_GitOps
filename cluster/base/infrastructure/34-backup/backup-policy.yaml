@@ -29,6 +29,9 @@ data:
   #   rpo           maximum age of the newest VALIDATED recovery point, measured
   #                 from when the point was taken -- not from when a job last
   #                 ran. A point is VALIDATED once a restore of it has passed.
+  #                 Validation runs hours after a point is taken, so a point
+  #                 ages to the RPO plus that lag before the next one replaces
+  #                 it; BackupRecoveryPointOverdue allows 4h for it.
   #   rto           acceptance criterion, not enforced. The evidence is a timed
   #                 restore drill (docs/disaster-recovery.md), not a timer.
   #   restore_test  maximum age of the newest passing restore test: the floor a

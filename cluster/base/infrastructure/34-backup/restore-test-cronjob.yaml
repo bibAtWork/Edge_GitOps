@@ -108,6 +108,11 @@ spec:
                 - name: scripts
                   mountPath: /scripts
                   readOnly: true
+                # Which volumes are datasets, so each restore is recorded as
+                # the recovery point it proves (ADR-011).
+                - name: policy
+                  mountPath: /policy
+                  readOnly: true
               resources:
                 requests:
                   cpu: 200m
@@ -121,3 +126,6 @@ spec:
             - name: scripts
               configMap:
                 name: backup-restore-test-script
+            - name: policy
+              configMap:
+                name: backup-policy
