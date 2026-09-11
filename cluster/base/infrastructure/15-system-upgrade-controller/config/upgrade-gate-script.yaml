@@ -116,8 +116,10 @@ data:
       log "forcing a fresh backup + offsite relay before trusting freshness below"
 
       BJOB="upgrade-gate-backup-$(date -u +%Y%m%d%H%M)"
-      log "running $BJOB (backup-weekly, on demand)"
-      if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-weekly >/dev/null 2>&1; then
+      # From backup-daily, never backup-weekly: an on-demand backup carries the
+      # tier's label and takes one of its retain slots (backup-retention-config).
+      log "running $BJOB (backup-daily, on demand)"
+      if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-daily >/dev/null 2>&1; then
         wait_for_job "$BJOB" 60 && log "fresh backup completed" \
           || fail "pre-upgrade backup ($BJOB) did not complete"
       else
@@ -136,7 +138,7 @@ data:
         fail "could not create the pre-upgrade relay job"
       fi
     else
-      log "no version drift -- running on the existing weekly backup cadence"
+      log "no version drift -- running on the existing daily backup cadence"
     fi
 
 

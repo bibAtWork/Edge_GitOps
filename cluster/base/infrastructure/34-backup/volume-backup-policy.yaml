@@ -129,7 +129,7 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list"]
-  # Triggers backup-weekly on demand for a volume that has never had a backup,
+  # Triggers backup-daily on demand for a volume that has never had a backup,
   # mirroring upgrade-gate-rbac.yaml's identical grant for the same pattern.
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
@@ -314,7 +314,7 @@ spec:
                     # Longhorn cannot snapshot one without attaching it first. So
                     # triggering for one does not merely waste a run: it can never
                     # satisfy its own condition. lastBackupAt stays empty, this
-                    # job fires again next hour, and backup-weekly then runs
+                    # job fires again next hour, and the tier it triggers then runs
                     # HOURLY against every other volume, churning their backups
                     # through the retain policy. Caught 2026-09-04, in the first
                     # hour this trigger existed, against a scratch PVC whose only
@@ -338,14 +338,20 @@ spec:
                   fi
 
                   if [ -n "$NEVER_BACKED_UP" ]; then
-                    echo "never backed up yet, triggering backup-weekly now:$NEVER_BACKED_UP"
+                    echo "never backed up yet, triggering backup-daily now:$NEVER_BACKED_UP"
                     BJOB="volume-backup-policy-firstrun-$(date -u +%Y%m%d%H%M)"
-                    if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-weekly >/dev/null 2>&1; then
-                      # backup-weekly backs up every default-group volume, not
+                    if kubectl create job -n longhorn-system "$BJOB" --from=cronjob/backup-daily >/dev/null 2>&1; then
+                      # backup-daily backs up every default-group volume, not
                       # only the new one -- the same trade this job already
                       # makes elsewhere, favouring one simple, proven trigger
                       # over a volume-scoped one. Budget matches
                       # upgrade-gate-script.yaml's wait_for_job: 600s.
+                      #
+                      # Daily, never weekly. The backups this creates carry the
+                      # tier's label and take its retain slots; created from
+                      # backup-weekly, three of them in two days once left the
+                      # weekly tier holding two days of history
+                      # (backup-retention-config).
                       i=0
                       while [ "$i" -lt 60 ]; do
                         kubectl get job -n longhorn-system "$BJOB" -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q 1 && break

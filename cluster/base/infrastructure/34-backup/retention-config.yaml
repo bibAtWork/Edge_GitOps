@@ -32,12 +32,32 @@ data:
   snapshot_cron: "0 2 * * *"
   snapshot_retain: "7"
 
-  # Longhorn backups to the local SeaweedFS target. The tiers deduplicate against
-  # each other, so 11 retained backups cost far less than 11 full copies.
+  # Longhorn backups to the local SeaweedFS target: 7 daily, 3 weekly, 3 monthly,
+  # the local retention every profile in backup-policy.yaml requires (ADR-011).
+  # scripts/check-backup-policy.py fails the build if a retain count here drops
+  # below a profile's minimum, or if the daily cron stops satisfying the RPO.
+  #
+  # The daily tier is what makes a 24h RPO possible at all. Before it, the only
+  # off-node copy of the photo library and the document archive was weekly -- a
+  # recovery point up to seven days old for the two datasets that matter most.
+  # Backups are block-incremental and the tiers deduplicate against each other,
+  # so a daily tier costs the blocks that changed that day, not another copy.
+  #
+  # Retain counts count BACKUPS, not weeks. An on-demand backup -- the upgrade
+  # gate's pre-upgrade backup, volume-backup-policy's first-run trigger -- is a
+  # Job created from one of these RecurringJobs, carries its label, and takes one
+  # of that tier's slots. Both used to be created from backup-weekly: on
+  # 2026-09-12 the five "weekly" backups on every volume spanned 2026-09-04 to
+  # 2026-09-06, three of them on-demand. Both now use backup-daily, where an
+  # extra backup costs one day of daily history instead of weeks of weekly.
+  #
+  # 02:30: after the 02:00 snapshot, before the 02:40-02:50 database dumps.
+  backup_daily_cron: "30 2 * * *"
+  backup_daily_retain: "7"
   backup_weekly_cron: "0 3 * * 0"
-  backup_weekly_retain: "5"
+  backup_weekly_retain: "3"
   backup_monthly_cron: "0 4 1 * *"
-  backup_monthly_retain: "6"
+  backup_monthly_retain: "3"
 
   # SeaweedFS live-bucket staging (distinct from the Longhorn backup target).
   #

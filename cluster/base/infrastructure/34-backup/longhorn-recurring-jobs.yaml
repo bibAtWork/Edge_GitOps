@@ -30,6 +30,23 @@ spec:
   retain: 0
   concurrency: 1
 ---
+# The tier that satisfies the 24h RPO in backup-policy.yaml, and the one every
+# on-demand backup is created from -- see backup-retention-config for why that
+# must never be backup-weekly again.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-daily
+  namespace: longhorn-system
+spec:
+  cron: "PLACEHOLDER"
+  task: backup
+  groups:
+    - default
+    - daily
+  retain: 0
+  concurrency: 1
+---
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:
