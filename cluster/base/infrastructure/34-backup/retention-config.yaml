@@ -18,8 +18,12 @@
 # being uploaded as if it were good. A retention knob is not worth breaking the
 # integrity guards to get.
 #
-# Schedules are ordered so each stage sees the previous one's output:
-# backups (02-04) -> relay (05) -> restore-test (07) -> reconcile (09).
+# Schedules are ordered so each stage sees the previous one's output, and so
+# nothing is promoted before it has been validated (ADR-011):
+#   02:30-04:00  Longhorn backups       02:40-02:50  database dumps
+#   03:00        database restore test  03:00        staging
+#   04:30        volume restore test    05:00        relay, promoting what passed
+#   08:00        verify                 09:00        reconcile
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -92,18 +96,24 @@ data:
   # shave the remaining ~2h off the dumps would cost a full month of exposure
   # on the monthly tier, which is the worse trade.
   relay_cron: "0 5 * * *"
-  restore_test_cron: "0 7 * * *"
+
+  # 04:30: after every Longhorn tier (02:30 daily, 03:00 weekly, 04:00 monthly)
+  # and before the 05:00 relay, which promotes only what this has restored. It
+  # ran at 07:00, after the relay, so every backup went offsite two hours
+  # before anything had restored it.
+  restore_test_cron: "30 4 * * *"
 
   # The database restore test (ADR-011): 03:00, after the 02:40-02:50 dumps it
   # replays. It reads the newest dump of each dataset straight from the live
-  # buckets, so it does not wait for staging.
+  # buckets, so it does not wait for staging. The relay promotes the staged
+  # snapshot only if this passed, and only what existed when it started.
   db_restore_test_cron: "0 3 * * *"
 
-  # 08:00, after the relay has pushed the day's objects out. The full chain:
-  #   03:00 staging      snapshots the live buckets
-  #   05:00 relay        pushes that snapshot to the vault
-  #   07:00 restore-test restores Longhorn volumes, samples SeaweedFS vs staging
-  #   08:00 verify       reads every object locally, checks the vault matches
+  # 08:00, after the relay has pushed the day's validated objects out:
+  #   03:00        staging        snapshots the live buckets
+  #   03:00, 04:30 restore tests  databases, then Longhorn volumes
+  #   05:00        relay          pushes what those validated to the vault
+  #   08:00        verify         reads every object locally, checks the vault matches
   #
   # Running before the relay would report the day's fresh dumps as having no
   # offsite copy every single morning, which is true but not interesting.

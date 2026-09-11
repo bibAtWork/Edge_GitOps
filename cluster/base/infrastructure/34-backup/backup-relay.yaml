@@ -18,14 +18,20 @@
 # Remote pruning is the reconciler's job (Task 11): it tags objects and an S3
 # Lifecycle rule expires them, so AWS performs the deletion and no cluster
 # credential ever needs the permission.
+#
+# PROMOTE ONLY WHAT WAS VALIDATED (ADR-011). The relay runs after both restore
+# tests and copies only what existed when the last passing one started -- see
+# the gate in the script. Before this it ran two hours before the volume
+# restore test, so every backup went offsite before anything had restored it.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: backup-relay
   namespace: longhorn-system
 spec:
-  # Injected from backup-retention-config by kustomization.yaml. Runs at 05:00,
-  # after staging (01:00) and all Longhorn backup tiers (02:00-04:00).
+  # Injected from backup-retention-config by kustomization.yaml. Runs at 05:00:
+  # after staging (03:00), every Longhorn backup tier (02:30-04:00), and both
+  # restore tests (03:00 databases, 04:30 volumes), whose verdicts gate it.
   schedule: "PLACEHOLDER"
   suspend: false
   concurrencyPolicy: Forbid
@@ -83,14 +89,55 @@ spec:
                   # is permanent -- retrying a dead object just multiplies the wait.
                   RC_LIMITS="--retries 1 --low-level-retries 1 --timeout 60s --contimeout 20s"
 
+                  # PROMOTION GATE (ADR-011). Only what a passing restore test
+                  # has validated leaves the node. Each copy below is gated on
+                  # the test that validates its contents, and promotes only
+                  # what existed when that test STARTED -- anything written
+                  # since has not been tested, and waits for the next run.
+                  #
+                  # A closed gate is not a relay failure. The local recovery
+                  # point stays valid and the vault falls behind: that is
+                  # PROMOTION_PENDING, and BackupRelayStale reports it once it
+                  # has lasted 36h. A failure is something broken; this is
+                  # something waiting.
+                  #
+                  # The verdicts arrive as mounted ConfigMaps, not API reads:
+                  # this pod has no ServiceAccount token and needs none. A
+                  # missing record mounts as an empty directory, which reads as
+                  # a closed gate.
+                  HELD=0
+                  gate() {
+                    # $1: record directory. $2: the key holding when that run
+                    # started. Prints seconds since then; returns 1 if closed.
+                    VERDICT="$(cat "$1/result" 2>/dev/null || true)"
+                    STARTED="$(cat "$1/$2" 2>/dev/null || true)"
+                    [ "$VERDICT" = pass ] || return 1
+                    case "$STARTED" in ''|*[!0-9]*) return 1 ;; esac
+                    AGE=$(( $(date -u +%s) - STARTED ))
+                    [ "$AGE" -ge 0 ] && [ "$AGE" -le "$GATE_MAX_AGE_SECONDS" ] || return 1
+                    echo "$AGE"
+                  }
+
                   # Longhorn backupstore -> longhorn/
                   # The source is the LOCAL SeaweedFS backup target, never
                   # Longhorn itself. Longhorn never learns that AWS exists.
-                  echo "=== relaying longhorn backupstore"
-                  rclone copy s3:longhorn-backups "aws:${AWS_BUCKET}/longhorn" \
-                    --transfers 4 --checkers 8 --stats-one-line --use-server-modtime \
-                    $RC_LIMITS \
-                    || FAILED=$((FAILED + 1))
+                  #
+                  # Gated on backup-restore-test, which restores the newest
+                  # backup of every volume. Older backups of a volume go with
+                  # it: they share its blocks, and existed when it was tested.
+                  if LH_AGE="$(gate /gates/volumes epoch)"; then
+                    LH_GATE=1
+                    echo "=== relaying longhorn backupstore: validated ${LH_AGE}s ago, nothing newer"
+                    rclone copy s3:longhorn-backups "aws:${AWS_BUCKET}/longhorn" \
+                      --min-age "${LH_AGE}s" \
+                      --transfers 4 --checkers 8 --stats-one-line --use-server-modtime \
+                      $RC_LIMITS \
+                      || FAILED=$((FAILED + 1))
+                  else
+                    LH_GATE=0
+                    HELD=$((HELD + 1))
+                    echo "=== PROMOTION PENDING: longhorn backupstore held -- no passing volume restore test in the last ${GATE_MAX_AGE_SECONDS}s"
+                  fi
 
                   # SeaweedFS staging -> seaweedfs/
                   # Only the newest staged snapshot is relayed. The older local
@@ -98,12 +145,24 @@ spec:
                   # multiply remote cost for history the vault's own versioning
                   # already keeps.
                   LATEST="$(ls -1d /staging/20*/ 2>/dev/null | sort | tail -1 || true)"
-                  if [ -n "$LATEST" ]; then
-                    echo "=== relaying staging snapshot"
+                  # Gated on backup-db-restore-test, which replays the newest
+                  # dump of every database. The whole snapshot waits on it,
+                  # Velero's objects included: no test validates those, and
+                  # nothing depends on them reaching the vault a day sooner.
+                  # Staged files keep their objects' modification times
+                  # (rclone sync), so --min-age measures when each was written.
+                  DB_GATE=0
+                  if [ -n "$LATEST" ] && DB_AGE="$(gate /gates/databases started)"; then
+                    DB_GATE=1
+                    echo "=== relaying staging snapshot: validated ${DB_AGE}s ago, nothing newer"
                     rclone copy "$LATEST" "aws:${AWS_BUCKET}/seaweedfs" \
+                      --min-age "${DB_AGE}s" \
                       --transfers 4 --checkers 8 --stats-one-line \
                       $RC_LIMITS \
                       || FAILED=$((FAILED + 1))
+                  elif [ -n "$LATEST" ]; then
+                    HELD=$((HELD + 1))
+                    echo "=== PROMOTION PENDING: staging snapshot held -- no passing database restore test in the last ${GATE_MAX_AGE_SECONDS}s"
                   else
                     echo "ERROR: no staged snapshot to relay" >&2
                     FAILED=$((FAILED + 1))
@@ -166,27 +225,41 @@ spec:
                   OBJECTS="$(wc -l < "$NEW" | tr -d ' ')"
                   BYTES="$(awk -F'\t' '{s+=$2} END{print s+0}' "$NEW")"
                   DURATION=$(( $(date -u +%s) - START ))
-                  echo "relay objects=$OBJECTS bytes=$BYTES duration=${DURATION}s failures=$FAILED"
+                  echo "relay objects=$OBJECTS bytes=$BYTES duration=${DURATION}s failures=$FAILED held=$HELD"
 
                   # Metrics go straight into VictoriaMetrics rather than through a
                   # Pushgateway: vmsingle accepts Prometheus exposition format on
                   # /api/v1/import/prometheus, so a CronJob becomes observable
                   # without adding a component to keep running.
-                  TS=0
-                  [ "$FAILED" -eq 0 ] && TS="$(date -u +%s)"
+                  #
+                  # A held stage is neither a success nor a failure. Pushing 0
+                  # would read as "never succeeded" and fire BackupRelayStale at
+                  # once; pushing now would claim a promotion that did not
+                  # happen. A held run pushes no success timestamp, so the
+                  # stale rule measures from the last promotion that did.
                   {
-                    echo "backup_relay_last_success_timestamp $TS"
+                    if [ "$FAILED" -gt 0 ]; then
+                      echo "backup_relay_last_success_timestamp 0"
+                    elif [ "$HELD" -eq 0 ]; then
+                      echo "backup_relay_last_success_timestamp $(date -u +%s)"
+                    fi
                     echo "backup_relay_objects_total $OBJECTS"
                     echo "backup_relay_bytes_total $BYTES"
                     echo "backup_relay_duration_seconds $DURATION"
                     echo "backup_relay_failures $FAILED"
+                    echo "backup_relay_gate_open{stage=\"longhorn\"} $LH_GATE"
+                    echo "backup_relay_gate_open{stage=\"staging\"} $DB_GATE"
                   } | wget -q -O /dev/null --post-file=- "$VM_IMPORT_URL" || echo "WARN: metric push failed"
 
                   [ "$FAILED" -eq 0 ] || exit 1
-                  echo "RELAY_OK"
+                  if [ "$HELD" -gt 0 ]; then echo "RELAY_PENDING held=$HELD"; else echo "RELAY_OK"; fi
               env:
                 - name: VM_IMPORT_URL
                   value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+                # 26h. Both restore tests run daily, so a verdict older than a
+                # day and a bit means a run was missed, and the gate closes.
+                - name: GATE_MAX_AGE_SECONDS
+                  value: "93600"
                 # Local SeaweedFS (source)
                 - name: RCLONE_CONFIG_S3_TYPE
                   value: s3
@@ -232,6 +305,12 @@ spec:
               volumeMounts:
                 - name: staging
                   mountPath: /staging
+                - name: gate-volumes
+                  mountPath: /gates/volumes
+                  readOnly: true
+                - name: gate-databases
+                  mountPath: /gates/databases
+                  readOnly: true
               resources:
                 requests:
                   cpu: 200m
@@ -249,3 +328,14 @@ spec:
             - name: staging
               persistentVolumeClaim:
                 claimName: seaweedfs-staging
+            # The two restore-test verdicts. optional: a record that does not
+            # exist yet mounts empty and closes its gate, rather than keeping
+            # the pod from starting at all.
+            - name: gate-volumes
+              configMap:
+                name: backup-restore-test-result
+                optional: true
+            - name: gate-databases
+              configMap:
+                name: backup-db-restore-test-result
+                optional: true

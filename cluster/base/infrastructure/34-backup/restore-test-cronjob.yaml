@@ -12,7 +12,7 @@
 # with the backup target on AWS, restoring anything meant paying to read it.
 #
 # Result is written to the backup-restore-test-result ConfigMap, which the
-# reconciler (Task 11) gates on. A stalled or failing restore-test must stop
+# reconciler (Task 11) and the relay (ADR-011) gate on. A stalled or failing restore-test must stop
 # remote pruning rather than permit it.
 apiVersion: batch/v1
 kind: CronJob
@@ -20,8 +20,8 @@ metadata:
   name: backup-restore-test
   namespace: longhorn-system
 spec:
-  # Injected from backup-retention-config. 07:00, after the 05:00 relay, so the
-  # staged snapshot it samples is the same one the relay mirrored.
+  # Injected from backup-retention-config: 04:30, after every Longhorn backup
+  # tier and before the 05:00 relay, which promotes only what this restored.
   schedule: "PLACEHOLDER"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

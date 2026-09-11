@@ -126,6 +126,19 @@ data:
         fail "could not create the pre-upgrade backup job"
       fi
 
+      # Validate before promoting (ADR-011). The relay promotes only what a
+      # passing restore test has already restored, so without this the backup
+      # just taken would wait for tomorrow's test instead of going offsite now.
+      # And a backup that does not restore should not authorise an upgrade.
+      TJOB="upgrade-gate-restore-test-$(date -u +%Y%m%d%H%M)"
+      log "running $TJOB (backup-restore-test, on demand)"
+      if kubectl create job -n longhorn-system "$TJOB" --from=cronjob/backup-restore-test >/dev/null 2>&1; then
+        wait_for_job "$TJOB" 180 && log "fresh backup restore-tested" \
+          || fail "pre-upgrade restore test ($TJOB) did not pass"
+      else
+        fail "could not create the pre-upgrade restore test"
+      fi
+
       # Do not wait for the 05:00 relay schedule -- push this backup offsite
       # now, so a same-day rollback (Scenario E2) also has a vault copy rather
       # than only a local one.
