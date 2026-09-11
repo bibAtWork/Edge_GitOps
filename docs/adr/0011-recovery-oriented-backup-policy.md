@@ -94,6 +94,9 @@ already has.**
 
 8. **Monitoring is per guarantee.** The alert that matters is "this dataset has no validated
    point younger than its RPO", raised per dataset. Job-level alerts stay, as diagnostics.
+   Thresholds come from the policy, published as metrics, so no rule restates an RPO. A point
+   is validated hours after it is taken, so it ages to the RPO plus that lag before the next
+   one replaces it; the rule allows 4 hours for that.
 
 ## What is not adopted, and why
 
@@ -170,12 +173,12 @@ plain-text table parsed by shell, which is less expressive than a CRD, on purpos
 | --- | --- | --- |
 | 1. Policy | `profiles`, `applications` | In place |
 | 2. Datasets | `datasets`, `not-backed-up`; daily Longhorn tier to meet the RPO | In place |
-| 3. Recovery point | Derived from per-point evidence | Follows |
+| 3. Recovery point | Derived from per-point evidence: each restore test records the point it validated, `backup-verify` confirms that point in the vault, alerts compare both against the policy | In place |
 | 4. Restic | — | Not adopted |
 | 5. PostgreSQL | `pg_dump` kept; `backup-db-restore-test` replays every dump into a server of its own major | In place |
 | 6. SQLite | Online-backup API (existing); `integrity_check` and restore checks on the copy | In place |
 | 7. Restore tests | Longhorn volumes (existing); databases (`backup-db-restore-test`) | In place |
-| 8. Promotion and remote verification | Relay gated on both restore tests, promoting only what they validated; per-point vault verification follows | Promotion in place |
+| 8. Promotion and remote verification | Relay gated on both restore tests, promoting only what they validated; each validated point confirmed in the vault from listing hashes | In place |
 | 9. Argo Workflows | — | Not adopted |
 | 10. End-to-end test | Failure cases against the gates | Follows |
 | 11. Reconciler | — | Not needed |
