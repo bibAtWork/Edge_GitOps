@@ -101,7 +101,7 @@ spec:
               # in reconcile.sh against tools the image does have. Running as
               # non-root follows: uid 0 was only ever needed so apk could write
               # to /usr/bin.
-              image: docker.io/amazon/aws-cli:2.36.41
+              image: docker.io/amazon/aws-cli:2.36.42
               command: ["/bin/sh", "/scripts/reconcile.sh"]
               env:
                 - name: VM_IMPORT_URL
