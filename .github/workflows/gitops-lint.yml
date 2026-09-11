@@ -263,6 +263,22 @@ jobs:
               print('All HelmRelease references resolve correctly.')
           PY
 
+  backup-policy-contract:
+    name: Backup policy contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 34-backup/backup-policy.yaml (ADR-011) states what has to be recoverable
+      # and how well, and runs nothing. This binds it to the mechanisms that do
+      # the work: it fails when a producer runs less often than its dataset's
+      # RPO, writes somewhere other than where the dataset says, a retain count
+      # falls below a profile's minimum, or a database has no restore check.
+      # Without it the policy stops being true the first time a schedule is
+      # edited, and nothing says so.
+      - name: Verify the backup mechanisms satisfy the policy
+        run: python3 scripts/check-backup-policy.py
+
   backup-upload-contract:
     name: Backup upload contract
     runs-on: ubuntu-latest

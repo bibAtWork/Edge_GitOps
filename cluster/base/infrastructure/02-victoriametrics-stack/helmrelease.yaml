@@ -105,7 +105,7 @@ spec:
           # requires the datasource that is down.
           #
           # Backups stay off deliberately: all three are listed in
-          # 34-backup/volume-backup-policy.yaml's ephemeral-pvcs, so they carry
+          # 34-backup/backup-policy.yaml's not-backed-up list, so they carry
           # the ephemeral recurring-job group and are excluded from the backup
           # schedule. Metrics, logs and traces are derived data on 3-month,
           # 90-day and short retentions -- losing them costs history, not state.

@@ -20,6 +20,7 @@ resources:
   - reconciler-cronjob.yaml
   - remote-probe-script.yaml
   - remote-probe-cronjob.yaml
+  - backup-policy.yaml
   - volume-backup-policy.yaml
   - backup-auditor-credential.yaml
 

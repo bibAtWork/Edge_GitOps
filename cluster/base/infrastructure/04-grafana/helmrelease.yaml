@@ -1797,7 +1797,7 @@ spec:
                   summary: >-
                     Longhorn backup scope does not match the policy
                   description: >-
-                    The number of volumes in Longhorn's `default` group differs from the number the exclusion list in 34-backup/volume-backup-policy.yaml says should be there. Either an exclusion has stopped taking effect and something is being backed up that should not be, or a volume that should be protected has dropped out of the group. Compare `kubectl get volumes.longhorn.io -n longhorn-system -l recurring-job-group.longhorn.io/default=enabled` against that list, and read the tail of the last volume-backup-policy run, which prints both. Do not judge this from the job's "excluded" lines; those describe what it attempted, not what took effect.
+                    The number of volumes in Longhorn's `default` group differs from the number the not-backed-up list in 34-backup/backup-policy.yaml says should be there. Either an exclusion has stopped taking effect and something is being backed up that should not be, or a volume that should be protected has dropped out of the group. Compare `kubectl get volumes.longhorn.io -n longhorn-system -l recurring-job-group.longhorn.io/default=enabled` against that list, and read the tail of the last volume-backup-policy run, which prints both. Do not judge this from the job's "excluded" lines; those describe what it attempted, not what took effect.
                 labels:
                   severity: critical
                 isPaused: false

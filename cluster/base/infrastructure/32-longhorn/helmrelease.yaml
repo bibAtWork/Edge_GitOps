@@ -154,7 +154,7 @@ spec:
     # a volume now means it is protected rather than silently exposed.
     #
     # The cost of that direction is a reconstructible volume being backed up
-    # until someone excludes it in volume-backup-policy's ephemeral-pvcs list.
+    # until someone excludes it in backup-policy's not-backed-up list.
     # Against a 1.24Gi backed-up baseline that is cheap; the reverse mistake is
     # silent data loss.
     persistence:

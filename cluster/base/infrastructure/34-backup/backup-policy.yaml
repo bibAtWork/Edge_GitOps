@@ -1,0 +1,193 @@
+# The backup policy (ADR-011): what has to be recoverable, and how well.
+#
+# One file on purpose. Everything that decides whether a piece of data is
+# protected is here: the guarantees, which application gets which, the datasets
+# that hold each application's state, how a restore of each is proven, and what
+# is deliberately left unprotected. Before this, those facts were spread over a
+# PVC exclusion list, four CronJob schedules and a retention ConfigMap, and
+# nothing said what any of them was for.
+#
+# It states requirements and runs nothing. The mechanisms stay where they are --
+# Longhorn RecurringJobs, the dump CronJob in each data-owning namespace
+# (ADR-010), backup-retention-config -- and scripts/check-backup-policy.py fails
+# the build when one of them can no longer satisfy what is written here: a
+# schedule slower than its RPO, a retain count below a profile's minimum, a
+# producer that does not write where its dataset says. That check is what makes
+# this a contract rather than a statement of intent.
+#
+# Plain whitespace-separated tables; `#` to end of line is a comment. Not nested
+# YAML: the jobs that read this are busybox shell, and a format they can read
+# with `read` is one they cannot misparse.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-policy
+  namespace: longhorn-system
+data:
+  # Protection profiles turn a criticality into guarantees.
+  #
+  #   rpo           maximum age of the newest VALIDATED recovery point, measured
+  #                 from when the point was taken -- not from when a job last
+  #                 ran. A point is VALIDATED once a restore of it has passed.
+  #   rto           acceptance criterion, not enforced. The evidence is a timed
+  #                 restore drill (docs/disaster-recovery.md), not a timer.
+  #   restore_test  maximum age of the newest passing restore test: the floor a
+  #                 restore test must not fall below, not how often it runs.
+  #   offsite       maximum age of the newest REMOTE_VERIFIED point -- validated
+  #                 locally, promoted to the vault, and confirmed there.
+  #   local         minimum local retention, daily/weekly/monthly.
+  #   remote        minimum vault retention, weekly/monthly. The vault mirrors
+  #                 local state, so it holds at least what local holds; ADR-011
+  #                 explains why it cannot be made to hold less.
+  #
+  # Both RPOs are 24h because both are met by the same nightly producers. A
+  # tighter RPO needs a faster producer, and the build check says so.
+  profiles: |
+    # profile        rpo  rto  restore_test  offsite  local  remote
+    critical         24h  4h   7d            48h      7/3/3  1/3
+    important        24h  8h   31d           48h      7/3/3  1/3
+    reconstructable  -    -    -             -        -      -
+
+  # Criticality says how much an application matters; the profile says what that
+  # obliges. They usually match and need not.
+  #
+  # keycloak is CRITICAL although nothing in it is irreplaceable the way a photo
+  # is. Its realm and clients are declarative (config-cli, from Git); its users
+  # and their credentials are not. It is critical because immich and paperless
+  # both log in through it: nothing behind OIDC can meet a 4h RTO unless keycloak
+  # does first.
+  #
+  # seaweedfs is here for filer-metadata alone. It holds no primary data -- every
+  # bucket is a backup, a cache or empty -- but the filer database is the index of
+  # the local recovery domain: lose it and the local backups are bytes with no
+  # names. The vault does not depend on it.
+  #
+  # RECONSTRUCTABLE means a clean GitOps reconciliation recreates it without any
+  # state that is not backed up. Anything not listed that holds no PVC is
+  # reconstructable by default. A PVC that is neither a dataset below nor in
+  # not-backed-up is unclassified, and reported as such.
+  applications: |
+    # application  criticality      profile
+    immich         critical         critical
+    keycloak       critical         critical
+    paperless      important        important
+    seaweedfs      important        important
+    grafana        reconstructable  reconstructable  # dashboards, datasources, alert rules: all in 04-grafana
+    opa            reconstructable  reconstructable  # policies are ConfigMaps in Git
+    velero         reconstructable  reconstructable  # Kubernetes objects, which GitOps recreates (ADR-011)
+    zot            reconstructable  reconstructable  # a cache; the upstream registries are the source
+    monitoring     reconstructable  reconstructable  # metrics, logs, traces: derived history, see not-backed-up
+
+  # Every dataset that must be recoverable. Each belongs to one application and
+  # is produced by one mechanism.
+  #
+  #   engine    longhorn  Longhorn volume backup, restored block for block
+  #             postgres  pg_dump logical dump, replayed into a scratch server
+  #             sqlite    SQLite online-backup-API copy, opened and checked
+  #   source    pvc:<namespace>/<claim>   or   s3:<bucket>/<prefix>/
+  #   producer  recurringjob:<name>       or   cronjob:<namespace>/<name>
+  #
+  # paperless has two datasets for one database on purpose. paperless-data is
+  # the volume holding db.sqlite3 alongside the search index and task state;
+  # paperless-db is the online-backup copy of the database alone, which is
+  # transactionally consistent where a volume backup of a WAL-mode database is
+  # only crash-consistent.
+  datasets: |
+    # dataset         application  engine    source                            producer
+    immich-library    immich       longhorn  pvc:immich/immich-library-lh      recurringjob:backup-daily
+    immich-db         immich       postgres  s3:db-backups/immich/             cronjob:immich/immich-postgres-backup
+    keycloak-db       keycloak     postgres  s3:db-backups/keycloak/           cronjob:keycloak/keycloak-postgres-backup
+    paperless-media   paperless    longhorn  pvc:paperless/paperless-media-lh  recurringjob:backup-daily
+    paperless-data    paperless    longhorn  pvc:paperless/paperless-data-lh   recurringjob:backup-daily
+    paperless-db      paperless    sqlite    s3:db-backups/paperless/          cronjob:paperless/paperless-sqlite-backup
+    filer-metadata    seaweedfs    postgres  s3:filer-metadata/                cronjob:seaweedfs/seaweedfs-filer-postgres-backup
+
+  # What a restore of each dump must show beyond "it replayed without error". One
+  # read-only query per row, run against the restored copy; the result must be
+  # at least `min`. The floors are deliberately loose: they catch a dump that
+  # restores the schema and none of the data, not growth. Every database dataset
+  # needs at least one row, which the build check enforces.
+  restore-checks: |
+    # dataset         min   query
+    immich-db         50    select count(*) from information_schema.tables where table_schema = 'public'
+    immich-db         1     select count(*) from "user"
+    immich-db         1     select count(*) from asset
+    keycloak-db       90    select count(*) from information_schema.tables where table_schema = 'public'
+    keycloak-db       2     select count(*) from realm
+    keycloak-db       1     select count(*) from user_entity
+    filer-metadata    1000  select count(*) from filemeta
+    paperless-db      60    select count(*) from sqlite_master where type = 'table'
+    paperless-db      1     select count(*) from auth_user
+    paperless-db      1     select count(*) from documents_document
+
+  # What is deliberately NOT backed up: PVCs excluded from Longhorn backups, each
+  # with its reason. Anything not listed here is backed up, so forgetting an entry
+  # costs storage rather than data. volume-backup-policy.yaml enforces this list
+  # on the Longhorn volumes.
+  #
+  # Every entry is a classification, not a convenience. A cache that can hold
+  # unique user state is not a cache for backup purposes.
+  not-backed-up: |
+    # Metrics and logs: 10.8GB of the 14.5GB total, high churn, and expendable.
+    # Losing them costs history, not capability.
+    vlsingle-vmstack-victoria-metrics-k8s-stack
+    vmsingle-vmstack-victoria-metrics-k8s-stack
+    vtsingle-vmstack-victoria-metrics-k8s-stack
+
+    # The staging copy of SeaweedFS. Backing this up is circular -- it would
+    # store a Longhorn backup of a copy of SeaweedFS, inside SeaweedFS.
+    seaweedfs-staging
+
+    # Caches and spools. Reconstructible by the applications that own them:
+    # Immich re-downloads its models, valkey is a cache, and the paperless
+    # consume directory is a transient ingest spool whose contents are moved
+    # into paperless-media almost immediately.
+    immich-ml-cache-lh
+    immich-valkey-lh
+    paperless-valkey-lh
+    paperless-consume-lh
+
+    # Postgres WAL volumes. A WAL backup is only meaningful alongside its data
+    # volume captured at the same instant, which independent volume backups do
+    # not guarantee. The coherent artefact for these databases is the logical
+    # dump -- the keycloak-db and filer-metadata datasets above.
+    keycloak-pg-1-wal
+    filer-meta-pg-1-wal
+
+    # Postgres DATA volumes. Every database here produces a logical dump on its
+    # own schedule, and that dump is the dataset (immich-db, keycloak-db above).
+    # The volume copy was verified by nothing.
+    #
+    # keycloak-pg-1 was never a second path to begin with. CNPG puts its WAL on
+    # a separate volume (excluded just above) and Longhorn snapshots volumes
+    # independently, so what was being kept was a data volume at one instant
+    # paired with a WAL volume at another -- a combination Postgres cannot
+    # replay. Dropping it removes a copy that could not have been restored,
+    # not a copy that could.
+    #
+    # data-immich-postgresql-0 is the honest case: Immich runs a plain
+    # StatefulSet with pg_wal inside the data directory, so a single-volume
+    # snapshot is crash-consistent and genuinely restorable. It is dropped
+    # anyway, to hold one mechanism per database rather than two -- 485MB in
+    # every weekly tier to duplicate what a 247KB dump already covers.
+    #
+    # The cost is real and worth stating: restoring Immich now means creating
+    # the database and replaying a dump rather than attaching a volume, and
+    # the dump excludes the geodata tables, so reverse geocoding stays
+    # degraded until Immich re-imports them. See docs/runbooks/backup-recovery.md.
+    keycloak-pg-1
+    data-immich-postgresql-0
+
+    # zot's local volume. Image blobs live in SeaweedFS S3 (storageDriver s3,
+    # bucket zot-registry); this holds only cache.db, meta.db and zot's
+    # bundled Trivy databases, all of which zot rebuilds or re-downloads.
+    # Listed in the same change that moves it onto Longhorn, so it is never
+    # backed up even once -- it sat on local-path before, where nothing was
+    # backing it up and nothing said so.
+    zot-pvc-zot-0
+
+    # Paperless' document-exporter output, regenerable from paperless-data
+    # and paperless-media, both of which are themselves backed up. It was the
+    # only volume left in `default` whose contents are reconstructible from
+    # other volumes in `default`.
+    paperless-export-lh
