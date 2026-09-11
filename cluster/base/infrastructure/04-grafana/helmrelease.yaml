@@ -1355,7 +1355,7 @@ spec:
                   summary: >-
                     AWS relay has not succeeded in 36 hours
                   description: >-
-                    No new data has reached the off-site vault for over a day. Local backups are unaffected so nothing else will look wrong; this is the only signal that disaster-recovery coverage has stopped advancing. Expected to stay silent until the relay is unsuspended.
+                    No new data has reached the off-site vault for over a day. Local backups are unaffected so nothing else will look wrong; this is the only signal that disaster-recovery coverage has stopped advancing. It also fires when promotion is held: the relay only promotes what a restore test has validated (ADR-011), so a restore test that has not passed for 36h keeps new points off the vault by design. Check backup_relay_gate_open and the restore-test alerts before the relay itself.
                 labels:
                   severity: warning
                 isPaused: false

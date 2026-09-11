@@ -75,7 +75,9 @@ already has.**
 5. **Only validated points are promoted.** The relay runs after the restore tests and copies
    only what existed when the last passing test started. A failed or missing test holds
    promotion: the local point stays valid, the vault falls behind, and that reads as
-   PROMOTION_PENDING rather than as a failure.
+   PROMOTION_PENDING rather than as a failure. The unit is a restore run, not a single
+   backup: older backups of a volume go offsite with the newest one, which was restored and
+   whose blocks they share.
 
 6. **The vault is verified without downloading it.** Each validated point is confirmed in the
    vault by comparing listing metadata — the vault's ETag against the MD5 of the bytes the
@@ -173,7 +175,7 @@ plain-text table parsed by shell, which is less expressive than a CRD, on purpos
 | 5. PostgreSQL | `pg_dump` kept; `backup-db-restore-test` replays every dump into a server of its own major | In place |
 | 6. SQLite | Online-backup API (existing); `integrity_check` and restore checks on the copy | In place |
 | 7. Restore tests | Longhorn volumes (existing); databases (`backup-db-restore-test`) | In place |
-| 8. Promotion and remote verification | Gated relay; per-point verification | Follows |
+| 8. Promotion and remote verification | Relay gated on both restore tests, promoting only what they validated; per-point vault verification follows | Promotion in place |
 | 9. Argo Workflows | — | Not adopted |
 | 10. End-to-end test | Failure cases against the gates | Follows |
 | 11. Reconciler | — | Not needed |
