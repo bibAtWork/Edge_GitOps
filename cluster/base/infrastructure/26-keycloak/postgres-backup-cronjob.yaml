@@ -125,7 +125,7 @@ spec:
               # as env below. If a variable is missing the script refuses
               # before touching the network, rather than uploading to a
               # malformed key and reporting success.
-              image: docker.io/amazon/aws-cli:2.36.41
+              image: docker.io/amazon/aws-cli:2.36.42
               command:
                 - /bin/sh
                 - /scripts/upload.sh
