@@ -94,6 +94,11 @@ data:
   relay_cron: "0 5 * * *"
   restore_test_cron: "0 7 * * *"
 
+  # The database restore test (ADR-011): 03:00, after the 02:40-02:50 dumps it
+  # replays. It reads the newest dump of each dataset straight from the live
+  # buckets, so it does not wait for staging.
+  db_restore_test_cron: "0 3 * * *"
+
   # 08:00, after the relay has pushed the day's objects out. The full chain:
   #   03:00 staging      snapshots the live buckets
   #   05:00 relay        pushes that snapshot to the vault

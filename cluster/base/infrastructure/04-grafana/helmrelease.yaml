@@ -1556,6 +1556,108 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
+              # The database restore test (ADR-011): the newest dump of every
+              # database dataset in backup-policy.yaml, replayed into a
+              # throwaway server nightly and checked. Mirrors the two Longhorn
+              # restore-test rules above.
+              #
+              # Per dataset, so the notification names which database has no
+              # proven backup. backup_db_restore_test_dataset_pass is specific to
+              # this job on purpose: a generic per-dataset pass metric would also
+              # carry Longhorn verdicts, and every volume failure would then
+              # notify twice.
+              - uid: backup-db-restore-test-failing
+                title: BackupDbRestoreTestFailing
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min by (dataset) (last_over_time(backup_db_restore_test_dataset_pass[26h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A database dump failed its restore test
+                  description: >-
+                    backup-db-restore-test replayed the newest dump of this dataset into a throwaway server and it did not come back: the replay stopped on an error, a restore-check in backup-policy.yaml did not hold, or there was no dump to restore. The reason is in `kubectl get cm -n longhorn-system backup-db-restore-test-result -o jsonpath='{.data.failures}'`. Until it passes, the newest validated recovery point for this database is the last one that did.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: backup-db-restore-test-stale
+                title: BackupDbRestoreTestStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'time() - last_over_time(backup_db_restore_test_last_run_timestamp[60h])'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [172800]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The database restore test has not run in 48 hours
+                  description: >-
+                    No database dump has been restore-tested for two days, so no database has a newly validated recovery point. Check `kubectl get cronjob backup-db-restore-test -n longhorn-system` and the last job's report container.
+                labels:
+                  severity: critical
+                isPaused: false
               - uid: backup-reconciler-mass-tagging
                 title: BackupReconcilerMassTagging
                 condition: B

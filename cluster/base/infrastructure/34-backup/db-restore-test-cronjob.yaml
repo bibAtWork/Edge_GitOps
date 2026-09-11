@@ -1,0 +1,215 @@
+# Database restore test (ADR-011). Scripts, and the reasoning behind each stage,
+# are in db-restore-test-script.yaml.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-db-restore-test
+  namespace: longhorn-system
+spec:
+  # Injected from backup-retention-config: after the 02:40-02:50 dumps.
+  schedule: "PLACEHOLDER"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            # backup-jobs-egress: the metrics push to vmsingle.
+            backup.homelab/egress: "true"
+        spec:
+          restartPolicy: Never
+          serviceAccountName: backup-db-restore-test
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            # The postgres stages run as their images' own users; a shared
+            # fsGroup keeps /work writable for every stage.
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: fetch
+              image: docker.io/rclone/rclone:1.75.1
+              command: ["/bin/sh", "/scripts/fetch.sh"]
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: RCLONE_CONFIG_S3_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_S3_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_S3_ENDPOINT
+                  value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+                - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+                  value: "true"
+                - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: longhorn-s3-backup-credential
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: policy
+                  mountPath: /policy
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+            # Matches keycloak-pg and filer-meta-pg's server major, and is the
+            # image their dump jobs already pull.
+            - name: postgres-16
+              image: docker.io/library/postgres:16-alpine
+              command: ["/bin/sh", "/scripts/postgres.sh"]
+              env:
+                - name: PG_MAJOR
+                  value: "16"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: policy
+                  mountPath: /policy
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                runAsUser: 70
+                runAsGroup: 70
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+            # Immich's own server image: its dump needs the vector extensions
+            # it was taken with, preloaded exactly as in production.
+            - name: postgres-17
+              image: ghcr.io/immich-app/postgres:17-vectorchord0.3.0-pgvectors0.3.0
+              command: ["/bin/sh", "/scripts/postgres.sh"]
+              env:
+                - name: PG_MAJOR
+                  value: "17"
+                - name: PG_EXTRA
+                  value: "-c shared_preload_libraries=vchord.so,vectors.so"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: policy
+                  mountPath: /policy
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                runAsUser: 999
+                runAsGroup: 999
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+            - name: sqlite
+              image: docker.io/library/python:3.14-alpine
+              command: ["python3", "/scripts/sqlite.py"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: policy
+                  mountPath: /policy
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: report
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              command: ["/bin/sh", "/scripts/report.sh"]
+              env:
+                - name: VM_IMPORT_URL
+                  value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus # nosonar
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-db-restore-test-script
+            - name: policy
+              configMap:
+                name: backup-policy
+            - name: work
+              emptyDir:
+                sizeLimit: 4Gi
+            - name: tmp
+              emptyDir: {}

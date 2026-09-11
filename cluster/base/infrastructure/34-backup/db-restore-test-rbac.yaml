@@ -1,0 +1,40 @@
+# The database restore test writes one thing through the API: its own result
+# record. It reads the policy and the dumps through mounts and the backup
+# target credential, never through the API, and holds no credential for any
+# production database -- restore-test-rbac.yaml's volume and pod rights are
+# deliberately not reused here.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-db-restore-test
+  namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-db-restore-test
+  namespace: longhorn-system
+rules:
+  # create cannot be narrowed by resourceNames; it is needed once, the first
+  # time the record does not exist yet.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["backup-db-restore-test-result"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-db-restore-test
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: backup-db-restore-test
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backup-db-restore-test
