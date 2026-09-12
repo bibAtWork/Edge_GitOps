@@ -12,7 +12,7 @@ spec:
       # other unconstrained chart in the repo, resolving `*` against a Bitnami
       # repository whose major versions move fast. Pinned to the running
       # version, so nothing changes now and future bumps arrive as PRs.
-      version: 18.9.0
+      version: 18.11.0
       sourceRef:
         kind: HelmRepository
         name: bitnami
