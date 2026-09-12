@@ -14,4 +14,5 @@ resources:
   - workflow-templates/sqlite-dataset.yaml
   - workflow-templates/recovery-point.yaml
   - workflow-templates/promote.yaml
+  - workflow-templates/retention.yaml
   - cronworkflows.yaml

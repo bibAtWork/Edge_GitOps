@@ -1,0 +1,441 @@
+# Retention (ADR-012): thin each repository to its profile's schedule -- local
+# 7 daily / 3 weekly / 3 monthly, AWS 1 weekly / 3 monthly -- without letting a
+# mistake thin it further.
+#
+#   newest   per dataset of the policy: its newest snapshot in this repository,
+#            and the recovery point that made it
+#   gate     VERIFICATION GATE. A dataset is thinned only if that newest snapshot
+#            belongs to a point that passed its restore test (VALIDATED) -- and,
+#            for AWS, was verified there (REMOTE_VERIFIED) within the profile's
+#            offsite RPO. Otherwise the dataset is held. restic's schedule counts
+#            snapshots, not validated ones: a week of bad backups would otherwise
+#            push the last good one out.
+#   thin     DRY-RUN CAP. `restic forget --dry-run` first, and the plan is
+#            refused if, for any dataset, it would not keep the newest snapshot
+#            or would remove more than `forget-max`; or if it would release more
+#            of the repository's data than `forget-loss-percent` (once above
+#            `forget-loss-floor`), measured before anything is deleted. Only then
+#            are exactly the planned snapshots forgotten -- by ID, so the real
+#            run cannot differ from the dry run -- and the repository pruned and
+#            checked.
+#   records  a record describes what its repository can restore: a dataset whose
+#            snapshot was forgotten becomes EXPIRED, and a record with nothing
+#            left to restore is removed along with its evidence
+#
+# Snapshots of datasets no longer in the policy are never touched. On AWS the
+# retention identity's deletes only write delete markers, so every forgotten
+# snapshot and pruned pack stays recoverable by the admin until the bucket's
+# lock and noncurrent-version windows have passed.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: retention
+  namespace: backup-system
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+      - name: repository
+        enum: [local, aws]
+      # "true": plan, gate and cap as usual, then stop -- what would retention do?
+      - name: dry-run
+        value: "false"
+  # The AWS repository is shared with promotion, which holds the same mutex.
+  synchronization:
+    mutexes:
+      - name: "{{workflow.parameters.repository}}-repository"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: policy
+      configMap:
+        name: recovery-policy
+  templates:
+    - name: main
+      steps:
+        - - name: newest
+            template: newest
+        - - name: gate
+            template: gate
+            arguments:
+              parameters:
+                - name: datasets
+                  value: "{{steps.newest.outputs.parameters.datasets}}"
+        - - name: thin
+            template: thin
+            arguments:
+              parameters:
+                - name: eligible
+                  value: "{{steps.gate.outputs.parameters.eligible}}"
+        - - name: records
+            when: "'{{steps.thin.outputs.parameters.removed}}' != ''"
+            template: records
+            arguments:
+              parameters:
+                - name: removed
+                  value: "{{steps.thin.outputs.parameters.removed}}"
+
+    # dataset,application,keep,offsite-hours,snapshot,local-snapshot,recovery-point
+    # per dataset with snapshots here; `;` between datasets. On AWS the snapshot
+    # is the copy, and the local snapshot its `original` -- the ID the records use.
+    - name: newest
+      outputs:
+        parameters:
+          - name: datasets
+            valueFrom:
+              path: /tmp/out/datasets
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            REPO="{{workflow.parameters.repository}}"
+            if [ "$REPO" = aws ]; then
+              export RESTIC_REPOSITORY="$RESTIC_REPOSITORY_AWS"; R="restic"; COL=7
+            else
+              R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"; COL=6
+            fi
+            mkdir -p /tmp/out
+            for T in profiles applications datasets; do sed 's/#.*//' "/policy/$T" > "/tmp/$T"; done
+            # datasets -> application -> profile: its schedule for this
+            # repository (local or remote column) and its offsite RPO.
+            awk -v col="$COL" '
+              FILENAME == "/tmp/profiles" && NF == 7 { keep[$1] = $col; off[$1] = $5; next }
+              FILENAME == "/tmp/applications" && NF == 3 { prof[$1] = $3; next }
+              FILENAME == "/tmp/datasets" && NF == 5 {
+                p = prof[$2]; if (p == "" || keep[p] == "" || keep[p] == "-") next
+                o = off[p]; sub(/h$/, "", o); print $1, $2, keep[p], o }
+            ' /tmp/profiles /tmp/applications /tmp/datasets > /tmp/plan
+            : > /tmp/out/datasets
+            while read -r DS APP KEEP OFF; do
+              # restic lists snapshots oldest first: the last ID is the newest.
+              ID="$($R snapshots --json --no-lock --host "$DS" | grep -oE '"id":"[0-9a-f]{64}"' | tail -n 1 | cut -d'"' -f4)"
+              [ -n "$ID" ] || { echo "$DS: no snapshots in the $REPO repository"; continue; }
+              $R cat snapshot "$ID" --no-lock > /tmp/snap.json
+              RP="$(grep -o '"rp=[^"]*"' /tmp/snap.json | cut -d= -f2 | tr -d '"')"
+              ORIG="$(grep -oE '"original": ?"[0-9a-f]{64}"' /tmp/snap.json | grep -oE '[0-9a-f]{64}')" || true
+              echo "$DS: newest snapshot $(echo "$ID" | cut -c1-8), recovery point ${RP:-none}, schedule $KEEP"
+              printf '%s,%s,%s,%s,%s,%s,%s;' "$DS" "$APP" "$KEEP" "$OFF" "$ID" "${ORIG:-$ID}" "$RP" >> /tmp/out/datasets
+            done < /tmp/plan
+            sed 's/;$//' /tmp/out/datasets > /tmp/d && mv /tmp/d /tmp/out/datasets
+        envFrom:
+          - secretRef:
+              name: "{{=workflow.parameters.repository == 'aws' ? 'recovery-aws-retention' : 'restic-local'}}"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: RESTIC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: RESTIC_PASSWORD
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # The verification gate, against the records in this repository's bucket.
+    - name: gate
+      inputs:
+        parameters:
+          - name: datasets
+      outputs:
+        parameters:
+          - name: eligible
+            valueFrom:
+              path: /tmp/out/eligible
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            REPO="{{workflow.parameters.repository}}"
+            export RCLONE_CONFIG_VAULT_TYPE=s3 RCLONE_CONFIG_VAULT_ENV_AUTH=true
+            if [ "$REPO" = aws ]; then
+              export RCLONE_CONFIG_VAULT_PROVIDER=AWS RCLONE_CONFIG_VAULT_REGION="$AWS_DEFAULT_REGION" RCLONE_CONFIG_VAULT_NO_CHECK_BUCKET=true
+              BUCKET="$AWS_BUCKET"
+            else
+              export RCLONE_CONFIG_VAULT_PROVIDER=Other RCLONE_CONFIG_VAULT_FORCE_PATH_STYLE=true
+              export RCLONE_CONFIG_VAULT_ENDPOINT=http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+              BUCKET=recovery
+            fi
+            NOW="$(date -u +%s)"
+            mkdir -p /tmp/out
+            : > /tmp/out/eligible
+            : > /tmp/metrics
+            for L in $(echo "{{inputs.parameters.datasets}}" | tr ';' ' '); do
+              OLD="$IFS"; IFS=,; set -- $L; IFS="$OLD"
+              DS="$1"; APP="$2"; OFF="$4"; LID="$6"; RP="${7:-}"
+              WHY=""
+              if [ -z "$RP" ]; then
+                WHY="its newest snapshot belongs to no recovery point"
+              elif ! rclone cat "vault:$BUCKET/recovery-points/$APP/$RP.json" > /tmp/r.json 2>/dev/null; then
+                WHY="its newest snapshot's point $RP has no record here"
+              elif ! grep -q "\"$DS\":{\"state\":\"VALIDATED\",\"restic_snapshot\":\"$LID\"" /tmp/r.json; then
+                WHY="its newest snapshot is not a VALIDATED one (point $RP)"
+              elif [ "$REPO" = aws ]; then
+                TAKEN="$(grep -o '"taken":[0-9]*' /tmp/r.json | cut -d: -f2)"
+                if ! grep -q '"remote":{"state":"REMOTE_VERIFIED"' /tmp/r.json; then
+                  WHY="its newest point $RP is not REMOTE_VERIFIED"
+                elif [ $((NOW - TAKEN)) -gt $((OFF * 3600)) ]; then
+                  WHY="its newest verified point $RP is older than the ${OFF}h offsite RPO"
+                fi
+              fi
+              if [ -n "$WHY" ]; then
+                echo "$DS: HELD -- $WHY; not thinned"
+                echo "recovery_retention_held{repository=\"$REPO\",dataset=\"$DS\"} 1" >> /tmp/metrics
+              else
+                echo "$DS: eligible (newest point $RP)"
+                printf '%s;' "$L" >> /tmp/out/eligible
+                echo "recovery_retention_held{repository=\"$REPO\",dataset=\"$DS\"} 0" >> /tmp/metrics
+              fi
+            done
+            sed 's/;$//' /tmp/out/eligible > /tmp/e && mv /tmp/e /tmp/out/eligible
+            wget -q -O /dev/null --post-file=/tmp/metrics http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: metric push failed"
+        envFrom:
+          - secretRef:
+              name: "{{=workflow.parameters.repository == 'aws' ? 'recovery-aws-retention' : 'restic-local'}}"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # The dry-run cap, then exactly that plan. `removed` is
+    # local-snapshot,recovery-point,application,dataset per forgotten snapshot.
+    - name: thin
+      inputs:
+        parameters:
+          - name: eligible
+      outputs:
+        parameters:
+          - name: removed
+            valueFrom:
+              path: /tmp/out/removed
+      activeDeadlineSeconds: 14400
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            REPO="{{workflow.parameters.repository}}"
+            DRY="{{workflow.parameters.dry-run}}"
+            # Exclusive locks wait for a running backup or promotion to finish.
+            if [ "$REPO" = aws ]; then
+              export RESTIC_REPOSITORY="$RESTIC_REPOSITORY_AWS"; R="restic --retry-lock 2h"
+            else
+              R="restic --retry-lock 2h -o s3.bucket-lookup=path -o s3.region=us-east-1"
+            fi
+            PUSH="http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus"
+            mkdir -p /tmp/out
+            : > /tmp/out/removed
+            : > /tmp/remove
+            lim() { sed 's/#.*//' /policy/limits | awk -v k="$1" '
+              function bytes(v,   n, u) { n = v + 0; u = v; sub(/^[0-9.]+/, "", u)
+                if (u == "KiB") return n * 1024; if (u == "MiB") return n * 1048576
+                if (u == "GiB") return n * 1073741824; if (u == "TiB") return n * 1099511627776
+                return n }
+              $1 == k { printf "%.0f", bytes($2); found = 1 } END { if (!found) exit 1 }'; }
+            FMAX="$(lim forget-max)" && LPCT="$(lim forget-loss-percent)" && LFLOOR="$(lim forget-loss-floor)" \
+              || { echo "the policy lacks a forget-* limit; refusing to thin without one"; exit 1; }
+            REFUSE=""
+
+            for L in $(echo "{{inputs.parameters.eligible}}" | tr ';' ' '); do
+              OLD="$IFS"; IFS=,; set -- $L; IFS="$OLD"
+              DS="$1"; APP="$2"; KEEP="$3"; ID="$5"
+              # "7/3/3" is daily/weekly/monthly, "1/3" weekly/monthly.
+              set -- $(echo "$KEEP" | tr '/' ' ')
+              if [ $# -eq 3 ]; then F="--keep-daily $1 --keep-weekly $2 --keep-monthly $3"
+              elif [ $# -eq 2 ]; then F="--keep-weekly $1 --keep-monthly $2"
+              else echo "$DS: cannot read the schedule '$KEEP'"; exit 1; fi
+              # shellcheck disable=SC2086
+              $R forget --dry-run --json --host "$DS" --group-by host $F > /tmp/f.json
+              sed 's/.*"keep"://; s/,"remove":.*//' /tmp/f.json | grep -oE '"id":"[0-9a-f]{64}"' | cut -d'"' -f4 > /tmp/keep || true
+              sed 's/.*"remove"://; s/,"reasons":.*//' /tmp/f.json | grep -oE '"id":"[0-9a-f]{64}"' | cut -d'"' -f4 > /tmp/rm || true
+              N="$(wc -l < /tmp/rm | tr -d ' ')"
+              echo "$DS ($F): keep $(wc -l < /tmp/keep | tr -d ' '), remove $N"
+              grep -qx "$ID" /tmp/keep || REFUSE="$REFUSE; $DS would lose its newest snapshot"
+              [ "$N" -le "$FMAX" ] || REFUSE="$REFUSE; $DS would lose $N snapshots, more than forget-max $FMAX"
+              for S in $(cat /tmp/rm); do
+                $R cat snapshot "$S" --no-lock > /tmp/snap.json
+                RP="$(grep -o '"rp=[^"]*"' /tmp/snap.json | cut -d= -f2 | tr -d '"')"
+                ORIG="$(grep -oE '"original": ?"[0-9a-f]{64}"' /tmp/snap.json | grep -oE '[0-9a-f]{64}')" || true
+                echo "$S ${ORIG:-$S} ${RP:-} $APP $DS" >> /tmp/remove
+              done
+            done
+
+            # What the plan would release for good: the repository's unique data
+            # now, minus what the snapshots it keeps still reference. Measured
+            # before anything is deleted.
+            if [ -s /tmp/remove ]; then
+              TOTAL="$($R stats --mode raw-data --json --no-lock | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
+              $R snapshots --json --no-lock | grep -oE '"id":"[0-9a-f]{64}"' | cut -d'"' -f4 > /tmp/all
+              cut -d' ' -f1 /tmp/remove > /tmp/rmids
+              grep -vxFf /tmp/rmids /tmp/all > /tmp/rest || true
+              # Never measured with no IDs: `restic stats` with none means every
+              # snapshot, and a plan removing all of them would read as no loss.
+              [ -s /tmp/rest ] || { echo "RETENTION REFUSED: the plan would remove every snapshot. Nothing was forgotten."; exit 64; }
+              # shellcheck disable=SC2046
+              AFTER="$($R stats --mode raw-data --json --no-lock $(cat /tmp/rest) | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
+              LOSS=$((TOTAL - AFTER))
+              echo "the plan releases $LOSS of $TOTAL bytes"
+              if awk -v l="$LOSS" -v t="$TOTAL" -v p="$LPCT" -v f="$LFLOOR" 'BEGIN { exit !(l > f && l * 100 > t * p) }'; then
+                REFUSE="$REFUSE; it would release $LOSS of $TOTAL bytes, more than forget-loss-percent $LPCT"
+              fi
+            fi
+
+            if [ -n "$REFUSE" ]; then
+              echo "RETENTION REFUSED${REFUSE}. Nothing was forgotten."
+              echo "recovery_retention_refused{repository=\"$REPO\"} 1" | wget -q -O /dev/null --post-file=- "$PUSH" || true
+              exit 64
+            fi
+            echo "recovery_retention_refused{repository=\"$REPO\"} 0" | wget -q -O /dev/null --post-file=- "$PUSH" || echo "WARN: metric push failed"
+            if [ "$DRY" = true ]; then
+              echo "DRY RUN: would forget $(wc -l < /tmp/remove | tr -d ' ') snapshot(s):"; cat /tmp/remove
+              exit 0
+            fi
+            if [ -s /tmp/remove ]; then
+              # shellcheck disable=SC2046
+              $R forget $(cut -d' ' -f1 /tmp/remove)
+              $R prune
+              $R check
+            fi
+            awk '{ printf "%s%s,%s,%s,%s", (NR > 1 ? ";" : ""), $2, $3, $4, $5 }' /tmp/remove > /tmp/out/removed
+            {
+              echo "recovery_retention_removed_snapshots{repository=\"$REPO\"} $(wc -l < /tmp/remove | tr -d ' ')"
+              echo "recovery_retention_last_success_timestamp{repository=\"$REPO\"} $(date -u +%s)"
+            } | wget -q -O /dev/null --post-file=- "$PUSH" || echo "WARN: metric push failed"
+            if [ -s /tmp/remove ]; then
+              echo "forgot $(wc -l < /tmp/remove | tr -d ' ') snapshot(s); repository pruned and checked"
+            else
+              echo "nothing to forget; the repository is unchanged"
+            fi
+        envFrom:
+          - secretRef:
+              name: "{{=workflow.parameters.repository == 'aws' ? 'recovery-aws-retention' : 'restic-local'}}"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: RESTIC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: RESTIC_PASSWORD
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: records
+      inputs:
+        parameters:
+          - name: removed
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            REPO="{{workflow.parameters.repository}}"
+            export RCLONE_CONFIG_VAULT_TYPE=s3 RCLONE_CONFIG_VAULT_ENV_AUTH=true
+            if [ "$REPO" = aws ]; then
+              export RCLONE_CONFIG_VAULT_PROVIDER=AWS RCLONE_CONFIG_VAULT_REGION="$AWS_DEFAULT_REGION" RCLONE_CONFIG_VAULT_NO_CHECK_BUCKET=true
+              BUCKET="$AWS_BUCKET"
+            else
+              export RCLONE_CONFIG_VAULT_PROVIDER=Other RCLONE_CONFIG_VAULT_FORCE_PATH_STYLE=true
+              export RCLONE_CONFIG_VAULT_ENDPOINT=http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+              BUCKET=recovery
+            fi
+            PREFIX="vault:$BUCKET/recovery-points"
+            echo "{{inputs.parameters.removed}}" | tr ';' '\n' > /tmp/removed
+            for P in $(cut -d, -f2,3 /tmp/removed | sort -u); do
+              RP="${P%%,*}"; APP="${P#*,}"
+              [ -n "$RP" ] || continue
+              F="$PREFIX/$APP/$RP.json"
+              if ! rclone cat "$F" > /tmp/r.json 2>/dev/null; then echo "$RP: no record in this bucket"; continue; fi
+              cp /tmp/r.json /tmp/v.json
+              for E in $(awk -F, -v rp="$RP" '$2 == rp { print $1 "," $4 }' /tmp/removed); do
+                LID="${E%%,*}"; DS="${E#*,}"
+                sed "s/\"$DS\":{\"state\":\"VALIDATED\",\"restic_snapshot\":\"$LID\"/\"$DS\":{\"state\":\"EXPIRED\",\"restic_snapshot\":\"$LID\"/" /tmp/v.json > /tmp/w.json
+                mv /tmp/w.json /tmp/v.json
+              done
+              if grep -q '":{"state":"VALIDATED","restic_snapshot":"' /tmp/v.json; then
+                rclone rcat "$F" < /tmp/v.json
+                rclone cat "$F" | cmp -s - /tmp/v.json || { echo "the record of $RP did not read back"; exit 1; }
+                echo "$RP: some datasets EXPIRED, the rest still restorable"
+              else
+                rclone deletefile "$F"
+                rclone purge "$PREFIX/$APP/$RP" 2>/dev/null || true
+                echo "$RP: nothing left to restore in this repository; record and evidence removed"
+              fi
+            done
+        envFrom:
+          - secretRef:
+              name: "{{=workflow.parameters.repository == 'aws' ? 'recovery-aws-retention' : 'restic-local'}}"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
