@@ -1,0 +1,221 @@
+# SQLite datasets (ADR-012): a consistent copy, and proof it opens and holds
+# the data.
+#
+#   consistent-copy  on the snapshot clone: open the database (SQLite replays
+#                    its WAL, exactly as after a crash), copy it with the
+#                    online backup API into .recovery/ on the clone, and check
+#                    the copy -- integrity_check plus the policy's restore-checks
+#   restore-test     restore that copy from restic into scratch space, open it,
+#                    and run the same checks again
+#
+# The clone is crash-consistent, which is the state SQLite is built to recover
+# from; the backup API then yields one transactionally consistent file. That
+# file is what restic stores -- never db.sqlite3 with a -wal beside it.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: sqlite-dataset
+  namespace: backup-system
+spec:
+  templates:
+    - name: consistent-copy
+      inputs:
+        parameters:
+          - name: dataset
+          - name: claim
+          - name: file
+      outputs:
+        parameters:
+          - name: path
+            valueFrom:
+              path: /tmp/out/path
+      activeDeadlineSeconds: 1800
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: clone
+          persistentVolumeClaim:
+            claimName: "{{inputs.parameters.claim}}"
+        - name: policy
+          configMap:
+            name: recovery-policy
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/library/python:3.14-alpine
+        command: ["python3", "-c"]
+        args:
+          - |
+            import os, sqlite3, sys
+            ds = "{{inputs.parameters.dataset}}"
+            src = "/data/{{inputs.parameters.file}}"
+            rel = ".recovery/" + ds + ".sqlite3"
+            os.makedirs("/data/.recovery", exist_ok=True)
+            os.makedirs("/tmp/out", exist_ok=True)
+            dst = "/data/" + rel
+            if os.path.exists(dst):
+                os.remove(dst)
+            # Read-write on purpose: opening replays the WAL the snapshot caught.
+            s = sqlite3.connect(src)
+            d = sqlite3.connect(dst)
+            s.backup(d)
+            s.close()
+            d.execute("pragma journal_mode=delete")
+            verdict = d.execute("pragma integrity_check").fetchone()[0]
+            if verdict != "ok":
+                sys.exit("integrity_check on the copy said: " + str(verdict))
+            bad = []
+            for line in open("/policy/restore-checks"):
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                name, minimum, query = line.split(None, 2)
+                if name != ds:
+                    continue
+                got = d.execute(query).fetchone()[0]
+                print(query, "->", got, "(at least " + minimum + ")")
+                if not isinstance(got, int) or got < int(minimum):
+                    bad.append(query + " = " + str(got))
+            d.close()
+            if bad:
+                sys.exit("PLAUSIBILITY: " + "; ".join(bad))
+            print("consistent copy at " + rel + ", integrity ok")
+            open("/tmp/out/path", "w").write(rel)
+        volumeMounts:
+          - name: clone
+            mountPath: /data
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: restore-test
+      inputs:
+        parameters:
+          - name: dataset
+          - name: snapshot
+          - name: path
+      outputs:
+        parameters:
+          - name: verified
+            valueFrom:
+              path: /tmp/out/verified
+      activeDeadlineSeconds: 1800
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: policy
+          configMap:
+            name: recovery-policy
+        - name: tmp
+          emptyDir: {}
+        - name: restore
+          emptyDir:
+            sizeLimit: 5Gi
+      initContainers:
+        - name: restore
+          image: docker.io/restic/restic:0.19.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              restic -o s3.bucket-lookup=path -o s3.region=us-east-1 \
+                restore "{{inputs.parameters.snapshot}}" --target /restore --verify --no-lock
+          envFrom:
+            - secretRef:
+                name: restic-local
+          env:
+            - name: RESTIC_CACHE_DIR
+              value: /tmp/cache
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: restore
+              mountPath: /restore
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      container:
+        image: docker.io/library/python:3.14-alpine
+        command: ["python3", "-c"]
+        args:
+          - |
+            import os, sqlite3, sys
+            ds = "{{inputs.parameters.dataset}}"
+            path = "/restore/{{inputs.parameters.path}}"
+            os.makedirs("/tmp/out", exist_ok=True)
+            if not os.path.exists(path):
+                sys.exit("RESTORE TEST: " + path + " was not restored")
+            d = sqlite3.connect(path)
+            verdict = d.execute("pragma integrity_check").fetchone()[0]
+            if verdict != "ok":
+                sys.exit("RESTORE TEST: integrity_check said " + str(verdict))
+            checks = 0
+            for line in open("/policy/restore-checks"):
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                name, minimum, query = line.split(None, 2)
+                if name != ds:
+                    continue
+                got = d.execute(query).fetchone()[0]
+                print(query, "->", got, "(at least " + minimum + ")")
+                if not isinstance(got, int) or got < int(minimum):
+                    sys.exit("RESTORE TEST: " + query + " = " + str(got))
+                checks += 1
+            if checks == 0:
+                sys.exit("RESTORE TEST: the policy has no restore-checks for " + ds)
+            print("restore test: opened, integrity ok, " + str(checks) + " checks hold")
+            open("/tmp/out/verified", "w").write(str(checks))
+        volumeMounts:
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+          - name: restore
+            mountPath: /restore
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL

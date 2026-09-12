@@ -1,0 +1,431 @@
+# One recovery point for one application (ADR-012; the architecture's §22-31).
+#
+#   plan      read the policy: which datasets this application has, and how each
+#             is protected
+#   protect   per dataset, in parallel: clone -> back up -> judge plausibility ->
+#             restore-test -> write evidence. A dataset is VALIDATED only when its
+#             restore test passed; a backup that merely finished is BACKED.
+#   record    write the recovery point -- its state and the evidence behind it --
+#             into the repository bucket, next to the data it describes, and
+#             publish it as metrics
+#   (exit)    remove every clone this run made, whatever happened
+#
+# The order the old pipeline could not guarantee after an outage (ADR-011, Open)
+# is the DAG itself: nothing is validated before it is backed up, and nothing is
+# recorded before both.
+#
+# Evidence and the record live in the bucket, not in the cluster: the cluster is
+# what a recovery point has to outlive, and promotion carries them to AWS with
+# the data. Each validated dataset writes its own evidence object, so the record
+# never depends on how Argo aggregates outputs from a fan-out whose items can
+# fail.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: recovery-point
+  namespace: backup-system
+spec:
+  entrypoint: main
+  onExit: remove-clones
+  arguments:
+    parameters:
+      - name: application
+  volumes:
+    - name: policy
+      configMap:
+        name: recovery-policy
+    - name: tmp
+      emptyDir: {}
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: plan
+            template: plan
+          - name: protect
+            depends: plan
+            template: protect-dataset
+            withParam: "{{tasks.plan.outputs.parameters.datasets}}"
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{item.dataset}}"
+                - name: adapter
+                  value: "{{item.adapter}}"
+                - name: namespace
+                  value: "{{item.namespace}}"
+                - name: pvc
+                  value: "{{item.pvc}}"
+                - name: paths
+                  value: "{{item.paths}}"
+          # Runs whatever the datasets did: one failed dataset must not stop the
+          # record, because an honest FAILED recovery point is the evidence that
+          # something needs attention. (Argo refuses continueOn with depends.)
+          - name: record
+            depends: "protect.Succeeded || protect.Failed || protect.Errored"
+            template: record
+            arguments:
+              parameters:
+                - name: planned
+                  value: "{{tasks.plan.outputs.parameters.datasets}}"
+
+    # The policy's datasets for this application, as JSON for the fan-out. No
+    # backslashes: the quote character comes from sprintf.
+    - name: plan
+      outputs:
+        parameters:
+          - name: datasets
+            valueFrom:
+              path: /tmp/datasets.json
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{workflow.parameters.application}}"
+            sed 's/#.*//' /policy/datasets | awk -v app="$APP" '
+              BEGIN { q = sprintf("%c", 34); n = 0; printf "[" }
+              NF == 5 && $2 == app {
+                split($4, s, ":"); split(s[2], c, "/")
+                if (n++) printf ","
+                printf "{%sdataset%s:%s%s%s,", q, q, q, $1, q
+                printf "%sadapter%s:%s%s%s,", q, q, q, $3, q
+                printf "%snamespace%s:%s%s%s,", q, q, q, c[1], q
+                printf "%spvc%s:%s%s%s,", q, q, q, c[2], q
+                printf "%spaths%s:%s%s%s}", q, q, q, $5, q
+              }
+              END { printf "]"; if (n == 0) exit 1 }
+            ' > /tmp/datasets.json
+            cat /tmp/datasets.json; echo
+        volumeMounts:
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            memory: 64Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: protect-dataset
+      inputs:
+        parameters:
+          - name: dataset
+          - name: adapter
+          - name: namespace
+          - name: pvc
+          - name: paths
+      steps:
+        - - name: clone
+            templateRef:
+              name: volume-clone
+              template: clone
+            arguments:
+              parameters:
+                - name: pvc-namespace
+                  value: "{{inputs.parameters.namespace}}"
+                - name: pvc-name
+                  value: "{{inputs.parameters.pvc}}"
+                - name: clone-name
+                  value: "rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
+        - - name: sqlite-copy
+            when: "'{{inputs.parameters.adapter}}' == 'sqlite-volume'"
+            templateRef:
+              name: sqlite-dataset
+              template: consistent-copy
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: claim
+                  value: "{{steps.clone.outputs.parameters.claim}}"
+                - name: file
+                  value: "{{inputs.parameters.paths}}"
+        - - name: backup
+            templateRef:
+              name: restic-dataset
+              template: backup
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: claim
+                  value: "{{steps.clone.outputs.parameters.claim}}"
+                # A SQLite dataset backs up the consistent copy, never the live
+                # file with its -wal beside it.
+                - name: paths
+                  value: "{{=inputs.parameters.adapter == 'sqlite-volume' ? '.recovery/' + inputs.parameters.dataset + '.sqlite3' : inputs.parameters.paths}}"
+                - name: recovery-point
+                  value: "{{workflow.name}}"
+        - - name: files-restore-test
+            when: "'{{inputs.parameters.adapter}}' == 'restic-volume'"
+            templateRef:
+              name: restic-dataset
+              template: restore-test
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: claim
+                  value: "{{steps.clone.outputs.parameters.claim}}"
+                - name: paths
+                  value: "{{inputs.parameters.paths}}"
+                - name: snapshot
+                  value: "{{steps.backup.outputs.parameters.snapshot}}"
+          - name: sqlite-restore-test
+            when: "'{{inputs.parameters.adapter}}' == 'sqlite-volume'"
+            templateRef:
+              name: sqlite-dataset
+              template: restore-test
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: snapshot
+                  value: "{{steps.backup.outputs.parameters.snapshot}}"
+                - name: path
+                  value: ".recovery/{{inputs.parameters.dataset}}.sqlite3"
+        - - name: evidence
+            template: evidence
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: snapshot
+                  value: "{{steps.backup.outputs.parameters.snapshot}}"
+                - name: files
+                  value: "{{steps.backup.outputs.parameters.files}}"
+                - name: bytes
+                  value: "{{steps.backup.outputs.parameters.bytes}}"
+
+    # Only reached when every step before it passed, so the object it writes is
+    # the proof: a dataset with evidence is VALIDATED.
+    - name: evidence
+      inputs:
+        parameters:
+          - name: dataset
+          - name: snapshot
+          - name: files
+          - name: bytes
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{workflow.parameters.application}}"
+            DS="{{inputs.parameters.dataset}}"
+            printf '{"dataset":"%s","restic_snapshot":"%s","files":%s,"bytes":%s,"validated":%s}\n' \
+              "$DS" "{{inputs.parameters.snapshot}}" "{{inputs.parameters.files}}" \
+              "{{inputs.parameters.bytes}}" "$(date -u +%s)" > /tmp/evidence.json
+            rclone rcat "s3:recovery/recovery-points/$APP/{{workflow.name}}/$DS.json" < /tmp/evidence.json
+            cat /tmp/evidence.json
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_S3_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_S3_PROVIDER
+            value: Other
+          - name: RCLONE_CONFIG_S3_ENV_AUTH
+            value: "true"
+          - name: RCLONE_CONFIG_S3_ENDPOINT
+            value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+          - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+            value: "true"
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # The recovery point: VALIDATED if every planned dataset left evidence,
+    # FAILED otherwise. Remote state is PROMOTION_PENDING until promotion
+    # confirms it offsite.
+    - name: record
+      inputs:
+        parameters:
+          - name: planned
+      # The record, also kept in the Workflow's status: `kubectl get wf` shows
+      # every recovery point without reading the bucket.
+      outputs:
+        parameters:
+          - name: record
+            valueFrom:
+              path: /tmp/record.json
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{workflow.parameters.application}}"
+            RP="{{workflow.name}}"
+            PREFIX="s3:recovery/recovery-points/$APP"
+            TAKEN="$(date -u -D '%Y-%m-%dT%H:%M:%SZ' -d '{{workflow.creationTimestamp}}' +%s)"
+            NOW="$(date -u +%s)"
+            cat > /tmp/planned.json <<'EOF'
+            {{inputs.parameters.planned}}
+            EOF
+            PLANNED="$(grep -o '"dataset":"[^"]*"' /tmp/planned.json | cut -d'"' -f4 | sort -u)"
+            : > /tmp/metrics
+            STATE=VALIDATED
+            DATASETS=""
+            for DS in $PLANNED; do
+              if rclone cat "$PREFIX/$RP/$DS.json" > /tmp/e.json 2>/dev/null && [ -s /tmp/e.json ]; then
+                SNAP="$(grep -o '"restic_snapshot":"[0-9a-f]*"' /tmp/e.json | cut -d'"' -f4)"
+                FILES="$(grep -o '"files":[0-9]*' /tmp/e.json | cut -d: -f2)"
+                DSTATE=VALIDATED
+                echo "recovery_dataset_validated_timestamp{dataset=\"$DS\",application=\"$APP\"} $TAKEN" >> /tmp/metrics
+                echo "recovery_dataset_restore_test_timestamp{dataset=\"$DS\",application=\"$APP\"} $NOW" >> /tmp/metrics
+                echo "recovery_dataset_files{dataset=\"$DS\",application=\"$APP\"} $FILES" >> /tmp/metrics
+              else
+                SNAP=""
+                DSTATE=FAILED
+                STATE=FAILED
+              fi
+              if [ "$DSTATE" = VALIDATED ]; then V=1; else V=0; fi
+              echo "recovery_dataset_validated{dataset=\"$DS\",application=\"$APP\"} $V" >> /tmp/metrics
+              DATASETS="$DATASETS${DATASETS:+,}\"$DS\":{\"state\":\"$DSTATE\",\"restic_snapshot\":\"$SNAP\"}"
+              echo "$DS: $DSTATE ${SNAP:+(restic snapshot $SNAP)}"
+            done
+            printf '{"id":"%s","application":"%s","taken":%s,"recorded":%s,"state":"%s","remote":{"state":"PROMOTION_PENDING"},"datasets":{%s}}\n' \
+              "$RP" "$APP" "$TAKEN" "$NOW" "$STATE" "$DATASETS" > /tmp/record.json
+            cat /tmp/record.json
+            rclone rcat "$PREFIX/$RP.json" < /tmp/record.json
+            rclone cat "$PREFIX/$RP.json" | cmp -s - /tmp/record.json \
+              || { echo "the recovery point record did not read back"; exit 1; }
+            if [ "$STATE" = VALIDATED ]; then V=1; else V=0; fi
+            {
+              cat /tmp/metrics
+              echo "recovery_point_last_run_timestamp{application=\"$APP\"} $NOW"
+              echo "recovery_point_validated{application=\"$APP\"} $V"
+            } | wget -q -O /dev/null --post-file=- http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: metric push failed"
+            echo "recovery point $RP: $STATE"
+            [ "$STATE" = VALIDATED ]
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_S3_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_S3_PROVIDER
+            value: Other
+          - name: RCLONE_CONFIG_S3_ENV_AUTH
+            value: "true"
+          - name: RCLONE_CONFIG_S3_ENDPOINT
+            value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+          - name: RCLONE_CONFIG_S3_FORCE_PATH_STYLE
+            value: "true"
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # Every clone this run made is named after it; remove them all -- claim,
+    # PV, volume, and the snapshot even if its clone never got created --
+    # whether the run passed or not.
+    - name: remove-clones
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -u
+            WF="{{workflow.name}}"
+            WF_UID="{{workflow.uid}}"
+            PREFIX="rpc-{{=sprig.trunc(8, workflow.uid)}}-"
+
+            # podGC keeps a failed pod so its logs can be read -- and a kept pod
+            # that mounts a clone holds the claim open, so the clone could never
+            # be removed. Found on the first negative run: the failed backup
+            # pods pinned their clone behind pvc-protection and cleanup hung.
+            # Keep the logs instead: the last lines of each failed pod go into a
+            # ConfigMap owned by this Workflow, deleted with it when its history
+            # expires. Then the pods can go, and the clones with them.
+            mkdir -p /tmp/logs
+            kubectl get pods -n backup-system -l "workflows.argoproj.io/workflow=$WF" \
+              --field-selector=status.phase=Failed -o name 2>/dev/null | sed 's|.*/||' > /tmp/failed || true
+            while read -r P; do
+              [ -n "$P" ] || continue
+              kubectl logs -n backup-system "$P" -c main --tail=40 > "/tmp/logs/$P.log" 2>/dev/null || true
+            done < /tmp/failed
+            if [ -s /tmp/failed ]; then
+              kubectl create configmap "logs-$WF" -n backup-system --from-file=/tmp/logs \
+                --dry-run=client -o yaml | kubectl apply -f - > /dev/null
+              kubectl patch configmap "logs-$WF" -n backup-system --type merge \
+                -p '{"metadata":{"ownerReferences":[{"apiVersion":"argoproj.io/v1alpha1","kind":"Workflow","name":"'"$WF"'","uid":"'"$WF_UID"'"}]}}' > /dev/null
+              echo "kept the logs of $(wc -l < /tmp/failed | tr -d ' ') failed pod(s) in configmap logs-$WF"
+              xargs -r kubectl delete pod -n backup-system --wait=true --timeout=120s < /tmp/failed
+            fi
+
+            { kubectl get pvc -n backup-system -o name
+              kubectl get volumes.longhorn.io -n longhorn-system -o name
+              kubectl get snapshots.longhorn.io -n longhorn-system -o name
+            } 2>/dev/null | sed 's|.*/||' | grep "^$PREFIX" | sort -u > /tmp/clones || true
+            FAILED=0
+            while read -r C; do
+              [ -n "$C" ] || continue
+              kubectl delete pvc -n backup-system "$C" --ignore-not-found --timeout=180s
+              kubectl delete pv "$C" --ignore-not-found --timeout=180s
+              kubectl delete volumes.longhorn.io -n longhorn-system "$C" --ignore-not-found --timeout=300s || FAILED=1
+              # Requested, not awaited: see volume-clone's cleanup.
+              kubectl delete snapshots.longhorn.io -n longhorn-system "$C" --ignore-not-found --wait=false
+            done < /tmp/clones
+            echo "removed $(wc -l < /tmp/clones | tr -d ' ') clone(s) of this run"
+            exit "$FAILED"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
