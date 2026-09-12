@@ -5,6 +5,8 @@ resources:
   - networkpolicy.yaml
   - argo-workflows.yaml
   - restic-secret.yaml
+  - recovery-aws-promoter.yaml
+  - recovery-aws-retention.yaml
   - rbac.yaml
   - workflow-templates/volume-clone.yaml
   - recovery-policy.yaml

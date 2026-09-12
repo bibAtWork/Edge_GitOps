@@ -1,0 +1,29 @@
+# recovery-aws-retention: see scripts/make-recovery-credentials.sh and ADR-012. SOPS-encrypted;
+# regenerate with that script after rotating the key in Terraform.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: recovery-aws-retention
+    namespace: backup-system
+type: Opaque
+stringData:
+    AWS_ACCESS_KEY_ID: ENC[AES256_GCM,data:y97uVvs473/r/D8sIVsoEFxMoCU=,iv:l7iyRdcxYICjJ7PM2XWJ1Fqrf5cqiQuN/Zga+v+AIhA=,tag:EcMq2pGEwP6lmagaOUk9Ig==,type:str]
+    AWS_SECRET_ACCESS_KEY: ENC[AES256_GCM,data:13XtJOu9hHRcViKkAn85KMymCyMEzTSXeszGXpT7I/UP6c522bPQsw==,iv:oFs2rHam09XaXChjeMSRbLQYtkufqVmm4yxlx7Z/do8=,tag:w1fWXwUpNXuMecRBuCU9WQ==,type:str]
+    AWS_BUCKET: ENC[AES256_GCM,data:Fe6ky3UEFuqrBMiWhu8mdmPFBeyNlA==,iv:dj/LwkMUfb+DubTTQfzw8EMsWVgS1fJ1UGsNxyWC1ho=,tag:mz4S3df6fKStlCzibEropg==,type:str]
+    AWS_DEFAULT_REGION: ENC[AES256_GCM,data:TvqhWtHaVnLSsRt0,iv:utZAiMy0ka08Y6yeoSt7TIf4q1nwzTA2UQUkpKQvsek=,tag:766nhdO01tnu/jULaJw3vg==,type:str]
+    RESTIC_REPOSITORY_AWS: ENC[AES256_GCM,data:RVQmhBq2DKHSznb68W1hrFdMcATTYrEoHedVu+DW34UET1JnoKs2fWsTN+nkvgRot4HWOFv1Yv/k/x+w/bw=,iv:lXIVeKJuMecESNpwVAZOkjum1mAUogDMH0dgGFeic+k=,tag:8wao5sgtjgqAtNqIOSlY6Q==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAxa2tab1cvV01sdWtjVkw4
+            cGFROGZWTTY1cXNQRzZLeVlEaXRIVlM0YlFNCnU3ZDhwN0dZZmhxcUtxMnpLV0sx
+            VXB1SGdWU2hIQXVTQkgrZUhsd3FFTU0KLS0tIGlvMjhmdUhSVHVQaE1pVzhWMVlD
+            Q1k4NUxPc3YwM2VOS1pzcVVONmNZc0EKHI3AQ/5n3sWGKOerZOwhx5I8tfRJ9JjU
+            rutSgZNPBKpqAuyoruDmV5WE2Gc0r46M+oYxjO/MQwKwYRwSsfMFaA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1wgk7g6rwkm2xjq08vj66aa53rxhdxvzjldrurkukcfuacxxxj34svculzn
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-09-12T19:51:39Z"
+    mac: ENC[AES256_GCM,data:EuY6zYrhSO3cMEmZhmQ5A9k3gji9qB3KUvhaKNMIC9ZyT+vyqdxXTPpXC/v1cFqKFdmVuU7S+0i13HhXECH0KCck8A33Ek+TE2OsfKWYWD47WOdFAEHbXoHt+jfEwR0anlpHFWRwKMVHue1AczPttk/sHsokrcXCLwoGZvLIafE=,iv:EHmMGO0ZovEJxwkBhEABYCYvf8E4F1GKFN+WbILcvL8=,tag:ZkSzJoCuBZkAWVMej+CpjQ==,type:str]
+    version: 3.13.3
