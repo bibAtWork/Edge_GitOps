@@ -2154,6 +2154,207 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # ── Recovery system guarantees (ADR-012) ────────────────────
+              # One rule per guarantee in recovery-policy's `profiles`: a
+              # validated point every 24h, one offsite within 48h, and the two
+              # ways the chain can stop short of those without a job failing
+              # loudly -- a point recorded FAILED, and a promotion refused by
+              # the vault's cap. Ages come from the points' own records (the
+              # time the point was taken), so a late run still counts from
+              # when the data was captured.
+              #
+              # The staleness rules look back further than their threshold, as
+              # above: the value comparison fires first, and absence (NoData,
+              # Alerting) only takes over once no point at all is left in the
+              # window.
+              - uid: recovery-point-stale
+                title: RecoveryPointStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      # Hours since each dataset's newest validated point was
+                      # taken. 26 = the 24h RPO plus the run itself.
+                      expr: '(time() - max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d]))) / 3600'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [26]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A dataset has no validated recovery point within its RPO
+                  description: >-
+                    The newest recovery point in which this dataset passed its restore test is older than the 24-hour RPO. Backups may still be running and finishing -- a point only counts once its restore test has passed. Look at the latest recovery-point-<application> Workflow in backup-system: a FAILED point keeps the logs of its failed steps in the configmap logs-<workflow>.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: recovery-offsite-stale
+                title: RecoveryOffsiteStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      # Hours since each dataset's newest REMOTE_VERIFIED point
+                      # was taken; the profile's offsite RPO is 48h.
+                      expr: '(time() - max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d]))) / 3600'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [48]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A dataset has no verified offsite copy within 48 hours
+                  description: >-
+                    No recovery point of this dataset has been promoted to the AWS vault and verified there for more than 48 hours, so losing the house now would lose more than the offsite RPO allows. Either there was no validated point to promote (see RecoveryPointStale), or promotion failed or was refused (see RecoveryPromotionRefused). Look at the latest promote-<application> Workflow in backup-system. Pending points stay pending and are promoted by the next successful run.
+                labels:
+                  severity: critical
+                isPaused: false
+              - uid: recovery-point-failed
+                title: RecoveryPointFailed
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min by (application) (last_over_time(recovery_point_validated[26h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The latest recovery point of an application FAILED
+                  description: >-
+                    At least one of this application's datasets did not reach VALIDATED in its latest recovery point: its backup, plausibility check or restore test failed. The other datasets of the point are still valid, and the previous validated point is still the recovery point for the failed one. The Workflow's record says which dataset failed, and the configmap logs-<workflow> in backup-system holds the failed steps' last log lines.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: recovery-promotion-refused
+                title: RecoveryPromotionRefused
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max by (application) (last_over_time(recovery_promotion_refused[26h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Promotion to AWS was refused by the vault's cap
+                  description: >-
+                    Copying this application's pending recovery points would push the AWS repository past recovery-policy's aws-repository limit, so nothing was uploaded. The cap exists to bound the bill: raise it deliberately if the growth is real, or find what grew (RecoveryBackupUnusualGrowth, recovery_dataset_data_added_bytes). Until then the points stay PROMOTION_PENDING and RecoveryOffsiteStale follows after 48 hours.
+                labels:
+                  severity: warning
+                isPaused: false
               # ── Talos advisories ────────────────────────────────────────
               # Fed by the talos-cve-watch CronJob, which compares the version
               # actually running on each node -- read from kube_node_info's
