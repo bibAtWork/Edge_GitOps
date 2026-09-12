@@ -1,0 +1,99 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: backup-system-clone-scope
+  annotations:
+    policies.kyverno.io/title: Recovery clones only
+    policies.kyverno.io/category: Backup
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      The recovery system reads data by snapshotting a production volume and
+      mounting a clone of the snapshot (ADR-012). Its RBAC has to allow creating
+      and deleting Longhorn Volumes and PersistentVolumes, and RBAC cannot tell
+      a clone from the real thing. This policy can: for the recovery system's
+      workflow identity only, every Volume, Snapshot and PV it creates, changes
+      or deletes must be named rpc-*, a PV it creates must mount an rpc-*
+      volume, and a Volume it creates must be a clone of a snapshot. Taking a
+      snapshot of a production volume stays allowed -- it changes nothing.
+      Restore tests never modify production state (the architecture's
+      invariant 9); this is where that is enforced rather than promised.
+spec:
+  validationFailureAction: Enforce
+  # Admission only: it judges requests by who makes them, which has no meaning
+  # for a background scan of existing objects.
+  background: false
+  rules:
+    - name: recovery-clones-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - longhorn.io/v1beta2/Volume
+                - longhorn.io/v1beta2/Snapshot
+                - PersistentVolume
+              operations:
+                - CREATE
+                - UPDATE
+                - DELETE
+            subjects:
+              - kind: ServiceAccount
+                name: backup-workflow
+                namespace: backup-system
+      validate:
+        message: >-
+          The recovery system may only create, change or delete recovery clones
+          (named rpc-*), never a production volume, snapshot or PV.
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.name }}"
+                operator: AnyNotIn
+                value:
+                  - "rpc-*"
+    - name: clone-pvs-mount-clones
+      match:
+        any:
+          - resources:
+              kinds:
+                - PersistentVolume
+              operations:
+                - CREATE
+            subjects:
+              - kind: ServiceAccount
+                name: backup-workflow
+                namespace: backup-system
+      validate:
+        message: >-
+          A PersistentVolume created by the recovery system must mount a
+          recovery clone (volumeHandle rpc-*). A PV naming a production volume
+          would mount the production data itself.
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.csi.volumeHandle || '' }}"
+                operator: AnyNotIn
+                value:
+                  - "rpc-*"
+    - name: clone-volumes-are-clones
+      match:
+        any:
+          - resources:
+              kinds:
+                - longhorn.io/v1beta2/Volume
+              operations:
+                - CREATE
+            subjects:
+              - kind: ServiceAccount
+                name: backup-workflow
+                namespace: backup-system
+      validate:
+        message: >-
+          A Longhorn Volume created by the recovery system must be a clone of a
+          snapshot (spec.dataSource snap://...).
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.dataSource || '' }}"
+                operator: AnyNotIn
+                value:
+                  - "snap://*"

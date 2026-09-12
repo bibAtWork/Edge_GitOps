@@ -1,0 +1,81 @@
+# What the workflow identity may do outside running workflows (ADR-012):
+# take a snapshot of a production volume, clone it, and mount the clone here.
+#
+# RBAC cannot tell a clone from a production volume -- both are Volumes in
+# longhorn-system -- so these grants alone would let this identity delete a
+# real volume. 19-kyverno/policies/backup-system-clone-scope.yaml is the other
+# half: for this identity only, every Volume, Snapshot and PV it creates,
+# changes or deletes must be a recovery clone, named rpc-*. Neither file is
+# safe without the other.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-clones
+  namespace: longhorn-system
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["snapshots", "volumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-clones
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-clones
+---
+# PersistentVolumes are cluster-scoped, so this cannot be a Role. A PV names the
+# Longhorn volume it mounts, which is why the Kyverno policy also pins a created
+# PV's volumeHandle to rpc-*: otherwise this grant alone could mount any volume.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-system-recovery-clone-pvs
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backup-system-recovery-clone-pvs
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backup-system-recovery-clone-pvs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-clone-claims
+  namespace: backup-system
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-clone-claims
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-clone-claims

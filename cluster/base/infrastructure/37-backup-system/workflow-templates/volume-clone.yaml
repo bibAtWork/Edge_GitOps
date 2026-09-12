@@ -1,0 +1,240 @@
+# Read a production volume without touching it (ADR-012).
+#
+#   clone    snapshot the volume behind a PVC, clone the snapshot into a new
+#            Longhorn volume, and bind it to a PVC in backup-system
+#   cleanup  delete the clone's PVC, PV, volume and snapshot
+#
+# The snapshot is atomic, so the clone is crash-consistent: exactly what the
+# disk held at one instant, which is what a filesystem or a database is built
+# to recover from. The application is never paused, its namespace never
+# touched, and it holds no backup credential.
+#
+# Every object this creates is named after the clone, rpc-<...>, which is what
+# 19-kyverno/policies/backup-system-clone-scope.yaml requires of this identity.
+# Callers run cleanup from an exit handler, so a failed run still removes its
+# clone; cleanup ignores anything already gone.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: volume-clone
+  namespace: backup-system
+spec:
+  templates:
+    - name: clone
+      inputs:
+        parameters:
+          - name: pvc-namespace
+          - name: pvc-name
+          - name: clone-name
+      outputs:
+        parameters:
+          - name: claim
+            valueFrom:
+              path: /tmp/claim
+      activeDeadlineSeconds: 1800
+      retryStrategy:
+        limit: 1
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            NS="{{inputs.parameters.pvc-namespace}}"
+            PVC="{{inputs.parameters.pvc-name}}"
+            C="{{inputs.parameters.clone-name}}"
+            L=longhorn-system
+            log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+
+            case "$C" in rpc-*) ;; *) echo "clone names must start with rpc-: $C"; exit 1 ;; esac
+
+            # The Longhorn volume behind the claim, found through Longhorn's own
+            # record of which PVC it serves -- no read access to the
+            # application's namespace needed.
+            kubectl get volumes.longhorn.io -n "$L" --no-headers \
+              -o custom-columns=V:.metadata.name,P:.status.kubernetesStatus.pvcName,N:.status.kubernetesStatus.namespace,S:.spec.size \
+              > /tmp/vols
+            VOL="$(awk -v p="$PVC" -v n="$NS" '$2 == p && $3 == n {print $1; exit}' /tmp/vols)"
+            SIZE="$(awk -v p="$PVC" -v n="$NS" '$2 == p && $3 == n {print $4; exit}' /tmp/vols)"
+            [ -n "$VOL" ] || { echo "no Longhorn volume serves $NS/$PVC"; exit 1; }
+            log "source: $NS/$PVC is $VOL ($SIZE bytes)"
+
+            # Idempotent: a retry after a partial run finds its own objects and
+            # carries on rather than failing on AlreadyExists.
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: longhorn.io/v1beta2
+            kind: Snapshot
+            metadata:
+              name: $C
+              namespace: $L
+              labels:
+                backup.homelab/recovery-clone: "true"
+            spec:
+              volume: $VOL
+              createSnapshot: true
+            EOF
+            i=0
+            until [ "$(kubectl get snapshots.longhorn.io -n "$L" "$C" -o jsonpath='{.status.readyToUse}' 2>/dev/null)" = true ]; do
+              i=$((i + 1)); [ "$i" -gt 60 ] && { echo "snapshot $C not ready after 300s"; exit 1; }
+              sleep 5
+            done
+            log "snapshot $C taken"
+
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: longhorn.io/v1beta2
+            kind: Volume
+            metadata:
+              name: $C
+              namespace: $L
+              labels:
+                backup.homelab/recovery-clone: "true"
+            spec:
+              size: "$SIZE"
+              numberOfReplicas: 1
+              frontend: blockdev
+              dataEngine: v1
+              accessMode: rwo
+              dataSource: "snap://$VOL/$C"
+            EOF
+            i=0
+            while :; do
+              CS="$(kubectl get volumes.longhorn.io -n "$L" "$C" -o jsonpath='{.status.cloneStatus.state}' 2>/dev/null)"
+              ST="$(kubectl get volumes.longhorn.io -n "$L" "$C" -o jsonpath='{.status.state}' 2>/dev/null)"
+              [ "$CS" = completed ] && [ "$ST" = detached ] && break
+              [ "$CS" = failed ] && { echo "clone of $VOL failed"; exit 1; }
+              i=$((i + 1)); [ "$i" -gt 240 ] && { echo "clone $C not complete after 1200s (clone=$CS state=$ST)"; exit 1; }
+              sleep 5
+            done
+            log "clone $C complete"
+
+            # Static PV and claim, the pattern backup-restore-test already uses
+            # for restored volumes. Retain, not Delete: cleanup removes the
+            # Longhorn volume itself, in order, rather than racing the CSI
+            # driver for it.
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: v1
+            kind: PersistentVolume
+            metadata:
+              name: $C
+              labels:
+                backup.homelab/recovery-clone: "true"
+            spec:
+              capacity:
+                storage: "$SIZE"
+              accessModes: [ReadWriteOnce]
+              volumeMode: Filesystem
+              persistentVolumeReclaimPolicy: Retain
+              storageClassName: longhorn-static
+              claimRef:
+                namespace: backup-system
+                name: $C
+              csi:
+                driver: driver.longhorn.io
+                volumeHandle: $C
+                fsType: ext4
+            ---
+            apiVersion: v1
+            kind: PersistentVolumeClaim
+            metadata:
+              name: $C
+              namespace: backup-system
+              labels:
+                backup.homelab/recovery-clone: "true"
+            spec:
+              accessModes: [ReadWriteOnce]
+              volumeMode: Filesystem
+              storageClassName: longhorn-static
+              volumeName: $C
+              resources:
+                requests:
+                  storage: "$SIZE"
+            EOF
+            i=0
+            until [ "$(kubectl get pvc -n backup-system "$C" -o jsonpath='{.status.phase}' 2>/dev/null)" = Bound ]; do
+              i=$((i + 1)); [ "$i" -gt 60 ] && { echo "claim $C not bound after 300s"; exit 1; }
+              sleep 5
+            done
+            log "claim backup-system/$C bound"
+            echo "$C" > /tmp/claim
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+    - name: cleanup
+      inputs:
+        parameters:
+          - name: clone-name
+      activeDeadlineSeconds: 600
+      retryStrategy:
+        limit: 2
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -u
+            C="{{inputs.parameters.clone-name}}"
+            case "$C" in rpc-*) ;; *) echo "refusing to clean up a non-clone name: $C"; exit 1 ;; esac
+            # Claim first, then the PV it released, then the Longhorn volume,
+            # then the snapshot it was cloned from.
+            kubectl delete pvc -n backup-system "$C" --ignore-not-found --timeout=180s
+            kubectl delete pv "$C" --ignore-not-found --timeout=180s
+            kubectl delete volumes.longhorn.io -n longhorn-system "$C" --ignore-not-found --timeout=300s
+            LEFT="$( { kubectl get pvc -n backup-system "$C" -o name; kubectl get pv "$C" -o name;
+                       kubectl get volumes.longhorn.io -n longhorn-system "$C" -o name; } 2>/dev/null | wc -l)"
+            [ "$LEFT" -eq 0 ] || { echo "$LEFT object(s) of $C still present"; exit 1; }
+
+            # The snapshot is requested, not awaited. It sits on the PRODUCTION
+            # volume, directly under the live head, and Longhorn cannot merge a
+            # snapshot into a head that is still being written: it marks it
+            # removed and purges it with the volume's next snapshot -- the 02:00
+            # recurring one at the latest. Waiting for it to vanish timed out on
+            # the first live run while nothing was wrong. What must hold is that
+            # Longhorn accepted the removal.
+            kubectl delete snapshots.longhorn.io -n longhorn-system "$C" --ignore-not-found --wait=false
+            i=0
+            while kubectl get snapshots.longhorn.io -n longhorn-system "$C" > /dev/null 2>&1; do
+              [ "$(kubectl get snapshots.longhorn.io -n longhorn-system "$C" -o jsonpath='{.status.markRemoved}')" = true ] && break
+              i=$((i + 1)); [ "$i" -gt 36 ] && { echo "snapshot $C not marked removed after 180s"; exit 1; }
+              sleep 5
+            done
+            echo "clone $C removed; its snapshot is gone or marked for Longhorn's next purge"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+      volumes:
+        - name: tmp
+          emptyDir: {}
