@@ -2057,6 +2057,103 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # ── Recovery system limits (ADR-012) ────────────────────────
+              # Alerts only, by decision: neither ever fails a backup. The
+              # thresholds are recovery-policy's `limits`, evaluated where the
+              # data is (the backup step) and published as 0/1, so no rule here
+              # restates a number.
+              - uid: recovery-backup-unusual-growth
+                title: RecoveryBackupUnusualGrowth
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max by (dataset) (last_over_time(recovery_dataset_growth_unusual[26h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A backup added far more data than usual
+                  description: >-
+                    One backup of this dataset added more than recovery-policy's growth limits allow. A bulk import explains it and needs nothing. Every file being rewritten at once -- which is what ransomware looks like to a backup -- also explains it, and does. The backup itself succeeded; this alert blocks nothing. Compare recovery_dataset_data_added_bytes with recovery_dataset_bytes, and look at the application before the next promotion carries the data offsite.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: recovery-local-repository-over-cap
+                title: RecoveryLocalRepositoryOverCap
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max(last_over_time(recovery_repository_over_cap{repository="local"}[26h]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    The local restic repository is over its cap
+                  description: >-
+                    The local repository has grown past recovery-policy's local-repository limit. Backups continue -- a full local repository must never mean no backups -- but it shares its disk with the production volumes. Check recovery_repository_bytes against the retention settings and the disk-space alert, and either raise the limit deliberately or find what grew.
+                labels:
+                  severity: warning
+                isPaused: false
               # ── Talos advisories ────────────────────────────────────────
               # Fed by the talos-cve-watch CronJob, which compares the version
               # actually running on each node -- read from kube_node_info's

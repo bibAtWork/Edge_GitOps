@@ -54,6 +54,9 @@ spec:
             claimName: "{{inputs.parameters.claim}}"
         - name: tmp
           emptyDir: {}
+        - name: policy
+          configMap:
+            name: recovery-policy
       container:
         image: docker.io/restic/restic:0.19.1
         command: ["/bin/sh", "-c"]
@@ -86,16 +89,53 @@ spec:
             # this dataset is the yardstick -- a collapse to under half its file
             # count, or to nothing, fails here, before the point can be called
             # validated. Growth is never suspicious.
-            PREV="$($R snapshots --host "$DS" --json --no-lock \
-              | grep -o '"total_files_processed":[0-9]*' | tail -n 2 | head -n 1 | cut -d: -f2)"
+            $R snapshots --host "$DS" --json --no-lock > /tmp/snapshots.json
+            # Counted, not inferred: on a dataset's first backup there is no
+            # previous snapshot, and "the second-to-last" is the new one itself.
+            COUNT="$(grep -o '"short_id"' /tmp/snapshots.json | wc -l | tr -d ' ')"
+            PREV=""
+            if [ "$COUNT" -ge 2 ]; then
+              PREV="$(grep -o '"total_files_processed":[0-9]*' /tmp/snapshots.json | tail -n 2 | head -n 1 | cut -d: -f2)"
+            fi
             [ "${FILES:-0}" -gt 0 ] || { echo "PLAUSIBILITY: no files at all"; exit 1; }
-            if [ -n "$PREV" ] && [ "$PREV" != "$FILES" ] && [ "$PREV" -ge 10 ] && [ "$FILES" -lt $((PREV / 2)) ]; then
+            if [ -n "$PREV" ] && [ "$PREV" -ge 10 ] && [ "$FILES" -lt $((PREV / 2)) ]; then
               echo "PLAUSIBILITY: $FILES files, down from $PREV in the previous snapshot"
               exit 1
             fi
             echo "$SNAP" > /tmp/out/snapshot
             echo "$FILES" > /tmp/out/files
             echo "$BYTES" > /tmp/out/bytes
+
+            # Growth and size against the policy's limits -- alerts, never a
+            # failed backup. A backup that grew too much is still a backup.
+            lim() { sed 's/#.*//' /policy/limits | awk -v k="$1" '
+              function bytes(v,   n, u) { n = v + 0; u = v; sub(/^[0-9.]+/, "", u)
+                if (u == "KiB") return n * 1024; if (u == "MiB") return n * 1048576
+                if (u == "GiB") return n * 1073741824; if (u == "TiB") return n * 1099511627776
+                return n }
+              $1 == k { printf "%.0f", bytes($2); found = 1 } END { if (!found) exit 1 }'; }
+            ADDED="$(grep -o '"data_added":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            UNUSUAL=0
+            if awk -v a="${ADDED:-0}" -v t="${BYTES:-0}" -v c="$COUNT" -v b="$(lim growth-bytes)" \
+                   -v r="$(lim growth-percent)" -v f="$(lim growth-floor)" \
+                   'BEGIN { if (c < 2) exit 1; if (a > b) exit 0; if (a > f && a * 100 > t * r) exit 0; exit 1 }'; then
+              UNUSUAL=1
+              echo "GROWTH: this backup added $ADDED bytes to a $BYTES-byte dataset -- alerting, not failing"
+            fi
+            REPO="$($R stats --mode raw-data --json --no-lock | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
+            CAP="$(lim local-repository)"
+            OVER=0
+            [ -n "$REPO" ] && [ "$REPO" -gt "$CAP" ] && OVER=1
+            echo "local repository: $REPO bytes of a $CAP-byte cap"
+            {
+              echo "recovery_dataset_data_added_bytes{dataset=\"$DS\"} ${ADDED:-0}"
+              echo "recovery_dataset_bytes{dataset=\"$DS\"} ${BYTES:-0}"
+              echo "recovery_dataset_growth_unusual{dataset=\"$DS\"} $UNUSUAL"
+              echo "recovery_repository_bytes{repository=\"local\"} ${REPO:-0}"
+              echo "recovery_repository_cap_bytes{repository=\"local\"} $CAP"
+              echo "recovery_repository_over_cap{repository=\"local\"} $OVER"
+            } | wget -q -O /dev/null --post-file=- http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: metric push failed"
         envFrom:
           - secretRef:
               name: restic-local
@@ -109,6 +149,9 @@ spec:
             mountPath: /data
           - name: tmp
             mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
         resources:
           requests:
             cpu: 100m
