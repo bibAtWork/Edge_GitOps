@@ -2355,6 +2355,100 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              # Retention's two safeties, each of which stops it on purpose.
+              # 8-day windows: the AWS repository is thinned weekly.
+              - uid: recovery-retention-held
+                title: RecoveryRetentionHeld
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max by (repository, dataset) (last_over_time(recovery_retention_held[8d]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Retention's verification gate is holding a dataset
+                  description: >-
+                    Retention did not thin this dataset in this repository, because its newest snapshot there does not belong to a VALIDATED recovery point -- or, on AWS, to one verified there within the offsite RPO. Nothing is lost; the repository only grows until a validated point arrives. The latest retention-<repository> Workflow in backup-system gives the reason; RecoveryPointFailed or RecoveryOffsiteStale usually names the cause.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: recovery-retention-refused
+                title: RecoveryRetentionRefused
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max by (repository) (last_over_time(recovery_retention_refused[8d]))'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    Retention refused its own plan
+                  description: >-
+                    Retention's dry run would have removed more than recovery-policy's forget-* limits allow, so nothing was forgotten. The latest retention-<repository> Workflow in backup-system lists the plan and the limit it broke. If the plan is intended -- photos deleted months ago finally leaving the last monthly snapshot, for example -- raise the limit in the policy for that run, as a reviewed change.
+                labels:
+                  severity: warning
+                isPaused: false
               # ── Talos advisories ────────────────────────────────────────
               # Fed by the talos-cve-watch CronJob, which compares the version
               # actually running on each node -- read from kube_node_info's
