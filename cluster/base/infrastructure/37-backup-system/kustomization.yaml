@@ -5,3 +5,5 @@ resources:
   - networkpolicy.yaml
   - argo-workflows.yaml
   - restic-secret.yaml
+  - rbac.yaml
+  - workflow-templates/volume-clone.yaml
