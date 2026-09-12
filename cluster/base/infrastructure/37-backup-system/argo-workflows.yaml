@@ -1,0 +1,147 @@
+# Argo Workflows: the recovery system's execution engine (ADR-012).
+#
+# Argo executes; it does not decide. What should be protected and how well is
+# the policy's job, and what a backup is made of is the adapters'. Argo supplies
+# what CronJobs could not: order (validate after the backup, promote after the
+# validation), retries, timeouts and a history of every run.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: argo
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://argoproj.github.io/argo-helm
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: argo-workflows
+  namespace: backup-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: argo-workflows
+      version: "2.0.6"
+      sourceRef:
+        kind: HelmRepository
+        name: argo
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # One controller, one namespace. singleNamespace swaps every ClusterRole for
+    # a Role in backup-system and starts the controller with --namespaced, so
+    # the engine that runs backups can touch nothing outside the namespace that
+    # holds them. It is not a general-purpose workflow platform for the
+    # cluster, and should not quietly become one.
+    singleNamespace: true
+    crds:
+      install: true
+      # Deleting the CRDs deletes every Workflow and its history with them.
+      keep: true
+    createAggregateRoles: false
+    images:
+      pullPolicy: IfNotPresent
+
+    # The identity workflow pods run as. Its permissions beyond running
+    # workflows (snapshots, clones) are granted where they are needed, next to
+    # the templates that use them, so each grant sits beside its reason.
+    workflow:
+      serviceAccount:
+        create: true
+        name: backup-workflow
+      rbac:
+        create: true
+
+    controller:
+      clusterWorkflowTemplates:
+        enabled: false
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      # Applied to every Workflow unless it says otherwise. The namespace
+      # enforces the restricted pod-security level; these defaults are what
+      # let workflow pods pass it without every template repeating them.
+      workflowDefaults:
+        spec:
+          serviceAccountName: backup-workflow
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          # Successful pods go at once; failed ones stay so their logs can be
+          # read. The Workflow objects -- the run history -- go after a week,
+          # two if they failed.
+          podGC:
+            strategy: OnPodSuccess
+          ttlStrategy:
+            secondsAfterSuccess: 604800
+            secondsAfterFailure: 1209600
+
+    # The init and wait containers Argo injects into every workflow pod. 128Mi
+    # OOM-killed the init container on the first run; 256Mi is what it needs.
+    executor:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+    mainContainer:
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+
+    # The UI and API, for reading run history. ClusterIP only and not routed:
+    # reached by `kubectl port-forward -n backup-system svc/argo-workflows-server
+    # 2746`, which already requires cluster access. "server" auth mode means the
+    # UI acts with the server's own namespaced permissions.
+    server:
+      enabled: true
+      authModes:
+        - server
+      # On by default, and the one grant singleNamespace does not scope: a
+      # ClusterRoleBinding for cluster-wide workflow templates, which this
+      # namespace-bound engine does not use.
+      clusterWorkflowTemplates:
+        enabled: false
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          memory: 256Mi

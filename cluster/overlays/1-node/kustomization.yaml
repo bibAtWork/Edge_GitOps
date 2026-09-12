@@ -43,6 +43,7 @@ resources:
   - ../../base/infrastructure/32-longhorn
   - ../../base/infrastructure/33-cloudnative-pg
   - ../../base/infrastructure/34-backup
+  - ../../base/infrastructure/37-backup-system
   - seaweedfs-collection-routing-job.yaml
   # Flux Kustomization that applies all CRD-dependent config after operators are deployed
   - flux-kustomizations/config.yaml

@@ -93,7 +93,7 @@ spec:
               # Confirmed empty before removal, on 2026-08-17 when this was first proposed
               # and again on 2026-08-25 -- the 64MB it briefly held in between was debris
               # from a SeaweedFS round-trip integrity test, since cleared.
-              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups longhorn-backups seaweedfs-staging; do
+              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups longhorn-backups seaweedfs-staging recovery; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else
