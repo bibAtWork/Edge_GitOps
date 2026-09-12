@@ -49,3 +49,49 @@ spec:
       parameters:
         - name: application
           value: paperless
+---
+# Promotion to AWS, daily at 03:00, two hours after the recovery points. It only
+# takes points that are already VALIDATED, so a recovery point still running at
+# 03:00 is promoted the next day. Both applications start together; the promote
+# template's mutex runs them one after the other.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: promote-immich
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 3 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: promote
+    arguments:
+      parameters:
+        - name: application
+          value: immich
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: promote-paperless
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 3 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: promote
+    arguments:
+      parameters:
+        - name: application
+          value: paperless

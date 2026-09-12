@@ -1,0 +1,524 @@
+# Promotion to the AWS repository (ADR-012; the architecture's §17-19, 29-31).
+#
+#   find     the application's recovery points that are VALIDATED and still
+#            PROMOTION_PENDING -- only validated points are ever promoted -- and
+#            how much the AWS repository holds now
+#   copy     refuse if the copy could push the AWS repository past its cap;
+#            otherwise `restic copy` exactly those points' snapshots, then
+#            verify: every snapshot is there as the `original` of its copy, and
+#            `restic check` passes. check reads indexes, snapshots and trees, not
+#            data blobs -- the architecture's "verify without downloading the
+#            complete backup"
+#   record   REMOTE_VERIFIED, with each point's evidence, first in the AWS bucket
+#            (the copy a total-loss recovery reads) and then in the local one
+#
+# Idempotent: restic copy skips snapshots the AWS repository already holds, so a
+# run cut off by a power loss resumes where it stopped. A failed run leaves the
+# points PROMOTION_PENDING and the local recovery points valid; the next run
+# tries again. A copy keeps its snapshot's tags, so a recovery from AWS finds a
+# point's snapshots with `--tag rp=<recovery point>`.
+#
+# restic never holds the SeaweedFS key: it reads the local repository over
+# localhost from an rclone sidecar, append-only. It holds only the promoter key,
+# which can delete nothing but restic's own lock files.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: promote
+  namespace: backup-system
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+      - name: application
+  # One promotion at a time: two running together would each measure the vault
+  # before the other's copy, and pass the cap check together.
+  synchronization:
+    mutexes:
+      - name: aws-repository
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: policy
+      configMap:
+        name: recovery-policy
+  templates:
+    - name: main
+      steps:
+        - - name: find
+            template: find
+        - - name: copy
+            when: "'{{steps.find.outputs.parameters.snapshots}}' != ''"
+            template: copy
+            arguments:
+              parameters:
+                - name: snapshots
+                  value: "{{steps.find.outputs.parameters.snapshots}}"
+                - name: aws-bytes
+                  value: "{{steps.find.outputs.parameters.aws-bytes}}"
+        - - name: record
+            when: "'{{steps.find.outputs.parameters.snapshots}}' != ''"
+            template: record
+            arguments:
+              parameters:
+                - name: records
+                  value: "{{steps.find.outputs.parameters.records}}"
+                - name: copied
+                  value: "{{steps.copy.outputs.parameters.copied}}"
+                - name: missing
+                  value: "{{steps.copy.outputs.parameters.missing}}"
+
+    - name: find
+      outputs:
+        parameters:
+          - name: records
+            valueFrom:
+              path: /tmp/out/records
+          - name: snapshots
+            valueFrom:
+              path: /tmp/out/snapshots
+          - name: aws-bytes
+            valueFrom:
+              path: /tmp/out/aws-bytes
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{workflow.parameters.application}}"
+            mkdir -p /tmp/out
+            # A listing that fails fails the run: an unreadable bucket is not
+            # "nothing pending". Exit 3 is a prefix that does not exist yet.
+            rclone lsf "local:recovery/recovery-points/$APP/" --files-only --include "*.json" > /tmp/list || [ $? -eq 3 ]
+            : > /tmp/records
+            : > /tmp/snapshots
+            while read -r R; do
+              [ -n "$R" ] || continue
+              rclone cat "local:recovery/recovery-points/$APP/$R" > /tmp/r.json
+              # The point's own state, which follows "recorded" -- not one of its
+              # datasets', which a FAILED point can also carry.
+              grep -q '"recorded":[0-9]*,"state":"VALIDATED"' /tmp/r.json || continue
+              grep -q '"remote":{"state":"PROMOTION_PENDING"}' /tmp/r.json || continue
+              echo "${R%.json}" >> /tmp/records
+              grep -o '"restic_snapshot":"[0-9a-f]*"' /tmp/r.json | cut -d'"' -f4 >> /tmp/snapshots
+            done < /tmp/list
+            PENDING="$(wc -l < /tmp/records | tr -d ' ')"
+            # Argo parameters are strings: comma-separated, empty when nothing is pending.
+            tr '\n' ',' < /tmp/records | sed 's/,$//' > /tmp/out/records
+            sort -u /tmp/snapshots | tr '\n' ',' | sed 's/,$//' > /tmp/out/snapshots
+
+            # What the vault holds now, as S3 counts it for the bill: every
+            # current object under the repository prefix.
+            rclone size "aws:$AWS_BUCKET/restic" --json > /tmp/size.json || [ $? -eq 3 ]
+            HAVE="$(grep -o '"bytes":[0-9]*' /tmp/size.json | cut -d: -f2)"
+            echo "${HAVE:-0}" > /tmp/out/aws-bytes
+            echo "pending: $PENDING point(s) [$(cat /tmp/out/records)]"
+            echo "their snapshots: [$(cat /tmp/out/snapshots)]"
+            echo "AWS repository: ${HAVE:-0} bytes"
+            {
+              echo "recovery_promotion_pending{application=\"$APP\"} $PENDING"
+              echo "recovery_repository_bytes{repository=\"aws\"} ${HAVE:-0}"
+            } | wget -q -O /dev/null --post-file=- http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: metric push failed"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_LOCAL_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_LOCAL_PROVIDER
+            value: Other
+          - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+            value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+          - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+            value: "true"
+          - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_SECRET_ACCESS_KEY
+          - name: RCLONE_CONFIG_AWS_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_AWS_PROVIDER
+            value: AWS
+          # The promoter may not create buckets; do not let rclone try.
+          - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
+            value: "true"
+          - name: RCLONE_CONFIG_AWS_REGION
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_DEFAULT_REGION
+          - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_SECRET_ACCESS_KEY
+          - name: AWS_BUCKET
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_BUCKET
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: copy
+      inputs:
+        parameters:
+          - name: snapshots
+          - name: aws-bytes
+      outputs:
+        parameters:
+          - name: copied
+            valueFrom:
+              path: /tmp/out/copied
+          - name: missing
+            valueFrom:
+              path: /tmp/out/missing
+      activeDeadlineSeconds: 21600
+      # Network trouble is worth another try; a refusal (exit 64) is not -- the
+      # vault is still full a minute later.
+      retryStrategy:
+        limit: 2
+        expression: "lastRetry.exitCode != '64'"
+      # The local repository, served over localhost only. --append-only: this
+      # path can add to the repository and never remove from it.
+      sidecars:
+        - name: local-repository
+          image: docker.io/rclone/rclone:1.75.1
+          # Argo stops the sidecar with SIGTERM once the copy is done. rclone
+          # would exit 143 on it, which marks the pod Failed and keeps it past
+          # podGC; the stop is expected, so it exits 0. A crash still fails.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              rclone serve restic local:recovery/restic --addr 127.0.0.1:8000 --append-only &
+              trap 'kill $!; wait $!; exit 0' TERM
+              wait $!
+          env:
+            - name: HOME
+              value: /tmp
+            - name: RCLONE_CONFIG_LOCAL_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_LOCAL_PROVIDER
+              value: Other
+            - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+              value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+            - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+              value: "true"
+            - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: AWS_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{workflow.parameters.application}}"
+            FROM="rest:http://127.0.0.1:8000/"
+            AWS="$RESTIC_REPOSITORY_AWS"
+            R="restic --retry-lock 30m"
+            PUSH="http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus"
+            mkdir -p /tmp/out
+            : > /tmp/out/copied
+            : > /tmp/out/missing
+            i=0; until wget -q -O /dev/null "http://127.0.0.1:8000/config" 2>/dev/null; do
+              i=$((i + 1)); [ "$i" -gt 30 ] && { echo "local repository not served"; exit 1; }; sleep 2
+            done
+
+            # First promotion ever (exit 10: no repository there): the AWS
+            # repository takes the local one's chunker parameters, so the same
+            # data splits into the same blobs and copies deduplicate instead of
+            # re-uploading. Any other failure is not "empty" and stops here.
+            RC=0; $R -r "$AWS" cat config > /dev/null || RC=$?
+            if [ "$RC" -eq 10 ]; then
+              $R -r "$AWS" init --from-repo "$FROM" --copy-chunker-params
+            elif [ "$RC" -ne 0 ]; then
+              echo "the AWS repository is unreadable (restic exit $RC)"; exit 1
+            fi
+
+            $R -r "$FROM" snapshots --json --no-lock > /tmp/local.json
+            $R -r "$AWS" snapshots --json --no-lock > /tmp/aws.json
+            # A pending point whose snapshots local retention has already removed
+            # can never be promoted. Reported, so its record says so, rather than
+            # failing every promotion after it.
+            SNAPS=""
+            for S in $(echo "{{inputs.parameters.snapshots}}" | tr ',' ' '); do
+              if grep -q "\"id\":\"$S\"" /tmp/local.json; then
+                SNAPS="$SNAPS $S"
+              else
+                echo "$S is no longer in the local repository"; echo "$S" >> /tmp/out/missing
+              fi
+            done
+            # The local snapshots the vault already holds copies of.
+            PROMOTED=""
+            for O in $(grep -o '"original":"[0-9a-f]*"' /tmp/aws.json | cut -d'"' -f4 | sort -u); do
+              grep -q "\"id\":\"$O\"" /tmp/local.json && PROMOTED="$PROMOTED $O"
+            done
+
+            if [ -n "$SNAPS" ]; then
+              # The AWS cap (recovery-policy `limits`, aws-repository), ENFORCED.
+              # What this copy uploads is at most the data its snapshots hold
+              # that the already promoted ones do not: measured locally, as the
+              # unique data of both sets together minus that of the promoted set
+              # alone. Deduplication against anything else in the vault only
+              # makes the real upload smaller, so a copy that passes never
+              # overshoots. (The new snapshots measured alone would count all the
+              # data the vault already has, and refuse every promotion once the
+              # vault is half full.)
+              lim() { sed 's/#.*//' /policy/limits | awk -v k="$1" '
+                function bytes(v,   n, u) { n = v + 0; u = v; sub(/^[0-9.]+/, "", u)
+                  if (u == "KiB") return n * 1024; if (u == "MiB") return n * 1048576
+                  if (u == "GiB") return n * 1073741824; if (u == "TiB") return n * 1099511627776
+                  return n }
+                $1 == k { printf "%.0f", bytes($2); found = 1 } END { if (!found) exit 1 }'; }
+              # Never called without IDs: `restic stats` with none means every snapshot.
+              unique() { [ $# -gt 0 ] || { echo 0; return; }
+                $R -r "$FROM" stats --mode raw-data --json --no-lock "$@" | grep -o '"total_size":[0-9]*' | cut -d: -f2; }
+              CAP="$(lim aws-repository)" || { echo "no aws-repository limit in the policy; refusing to promote without one"; exit 1; }
+              HAVE="{{inputs.parameters.aws-bytes}}"
+              # shellcheck disable=SC2086
+              BASE="$(unique $PROMOTED)"
+              # shellcheck disable=SC2086
+              AFTER="$(unique $PROMOTED $SNAPS)"
+              ADD=$((AFTER - BASE))
+              echo "vault holds $HAVE bytes; this promotion adds at most $ADD; cap $CAP"
+              if [ $((HAVE + ADD)) -gt "$CAP" ]; then
+                echo "PROMOTION REFUSED: the vault would exceed its cap. The points stay PROMOTION_PENDING."
+                {
+                  echo "recovery_promotion_refused{application=\"$APP\"} 1"
+                  echo "recovery_repository_cap_bytes{repository=\"aws\"} $CAP"
+                } | wget -q -O /dev/null --post-file=- "$PUSH" || true
+                exit 64
+              fi
+              {
+                echo "recovery_promotion_refused{application=\"$APP\"} 0"
+                echo "recovery_repository_cap_bytes{repository=\"aws\"} $CAP"
+              } | wget -q -O /dev/null --post-file=- "$PUSH" || echo "WARN: metric push failed"
+
+              # shellcheck disable=SC2086
+              $R -r "$AWS" copy --from-repo "$FROM" $SNAPS
+
+              # Remote verification: each snapshot is in the vault as the
+              # `original` of a copy, and the repository's own check passes.
+              $R -r "$AWS" snapshots --json --no-lock > /tmp/aws.json
+              for S in $SNAPS; do
+                grep -q "\"original\":\"$S\"" /tmp/aws.json || { echo "REMOTE VERIFY: $S is not in the AWS repository"; exit 1; }
+                echo "$S" >> /tmp/out/copied
+              done
+              $R -r "$AWS" check
+            fi
+            tr '\n' ',' < /tmp/out/copied | sed 's/,$//' > /tmp/c && mv /tmp/c /tmp/out/copied
+            tr '\n' ',' < /tmp/out/missing | sed 's/,$//' > /tmp/m && mv /tmp/m /tmp/out/missing
+            echo "promoted and verified: [$(cat /tmp/out/copied)]; gone locally: [$(cat /tmp/out/missing)]"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: RESTIC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: RESTIC_PASSWORD
+          - name: RESTIC_FROM_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: RESTIC_PASSWORD
+        envFrom:
+          - secretRef:
+              name: recovery-aws-promoter
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # A point is REMOTE_VERIFIED only when every one of its snapshots was copied
+    # and verified. Written to AWS first: if the local write is then lost, the
+    # next run finds the point pending again, and restic copy has nothing to do.
+    - name: record
+      inputs:
+        parameters:
+          - name: records
+          - name: copied
+          - name: missing
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{workflow.parameters.application}}"
+            LOCAL="local:recovery/recovery-points/$APP"
+            REMOTE="aws:$AWS_BUCKET/recovery-points/$APP"
+            COPIED=",{{inputs.parameters.copied}},"
+            MISSING=",{{inputs.parameters.missing}},"
+            NOW="$(date -u +%s)"
+            : > /tmp/verified
+            LEFT=0
+            for R in $(echo "{{inputs.parameters.records}}" | tr ',' ' '); do
+              rclone cat "$LOCAL/$R.json" > /tmp/r.json
+              ALL=1; GONE=0
+              for S in $(grep -o '"restic_snapshot":"[0-9a-f]*"' /tmp/r.json | cut -d'"' -f4); do
+                case "$COPIED" in *",$S,"*) ;; *) ALL=0 ;; esac
+                case "$MISSING" in *",$S,"*) GONE=1 ;; esac
+              done
+              if [ "$ALL" = 1 ]; then
+                REMOTE_STATE="{\"state\":\"REMOTE_VERIFIED\",\"verified\":$NOW}"
+              elif [ "$GONE" = 1 ]; then
+                REMOTE_STATE='{"state":"NOT_PROMOTED","reason":"removed locally before promotion"}'
+              else
+                echo "$R: not every snapshot was copied; stays PROMOTION_PENDING"
+                LEFT=$((LEFT + 1)); continue
+              fi
+              sed "s/\"remote\":{\"state\":\"PROMOTION_PENDING\"}/\"remote\":$REMOTE_STATE/" /tmp/r.json > /tmp/v.json
+              cmp -s /tmp/r.json /tmp/v.json && { echo "could not mark $R"; exit 1; }
+              if [ "$ALL" = 1 ]; then
+                rclone copy "$LOCAL/$R/" "$REMOTE/$R/"
+                rclone rcat "$REMOTE/$R.json" < /tmp/v.json
+                rclone cat "$REMOTE/$R.json" | cmp -s - /tmp/v.json \
+                  || { echo "the record of $R did not read back from AWS"; exit 1; }
+                TAKEN="$(grep -o '"taken":[0-9]*' /tmp/v.json | cut -d: -f2)"
+                grep -o '"[a-z0-9-]*":{"state":"VALIDATED"' /tmp/v.json | cut -d'"' -f2 \
+                  | sed "s/\$/ $TAKEN/" >> /tmp/verified
+              fi
+              rclone rcat "$LOCAL/$R.json" < /tmp/v.json
+              echo "$R: $(echo "$REMOTE_STATE" | cut -d'"' -f4)"
+            done
+
+            rclone size "aws:$AWS_BUCKET/restic" --json > /tmp/size.json
+            HAVE="$(grep -o '"bytes":[0-9]*' /tmp/size.json | cut -d: -f2)"
+            {
+              # Per dataset, the newest point now offsite: the offsite RPO.
+              awk -v app="$APP" '$2 > m[$1] { m[$1] = $2 }
+                END { for (d in m) printf "recovery_dataset_remote_verified_timestamp{dataset=\"%s\",application=\"%s\"} %s\n", d, app, m[d] }' /tmp/verified
+              echo "recovery_promotion_pending{application=\"$APP\"} $LEFT"
+              echo "recovery_repository_bytes{repository=\"aws\"} ${HAVE:-0}"
+              [ "$LEFT" -gt 0 ] || echo "recovery_promotion_last_success_timestamp{application=\"$APP\"} $NOW"
+            } | wget -q -O /dev/null --post-file=- http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: metric push failed"
+            echo "AWS repository now: ${HAVE:-0} bytes"
+            [ "$LEFT" -eq 0 ]
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_LOCAL_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_LOCAL_PROVIDER
+            value: Other
+          - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+            value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+          - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+            value: "true"
+          - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_SECRET_ACCESS_KEY
+          - name: RCLONE_CONFIG_AWS_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_AWS_PROVIDER
+            value: AWS
+          - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
+            value: "true"
+          - name: RCLONE_CONFIG_AWS_REGION
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_DEFAULT_REGION
+          - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_SECRET_ACCESS_KEY
+          - name: AWS_BUCKET
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_BUCKET
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
