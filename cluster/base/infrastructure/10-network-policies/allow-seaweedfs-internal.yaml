@@ -42,6 +42,11 @@ spec:
         # that present as a storage fault rather than a policy drop.
         - matchLabels:
             io.kubernetes.pod.namespace: longhorn-system
+        # The recovery system (ADR-012). Its local repository is the
+        # `recovery` bucket; every backup-store credential lives in this one
+        # namespace, and application namespaces hold none.
+        - matchLabels:
+            io.kubernetes.pod.namespace: backup-system
         # Database backup CronJobs. Each dumps its own database and uploads the
         # artifact to the db-backups bucket; they need nothing from SeaweedFS
         # beyond S3 on 8333. Added 2026-08-18 alongside the jobs themselves --

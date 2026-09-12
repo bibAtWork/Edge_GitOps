@@ -1,0 +1,14 @@
+# The recovery system (ADR-012). Everything that holds a backup-store
+# credential lives here and nowhere else: application namespaces hold none.
+#
+# restricted, like every namespace that runs no privileged workload. Nothing
+# here needs more: data is read from Longhorn snapshot clones mounted as
+# ordinary PVCs, and workflow pods run as a non-root user.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backup-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
