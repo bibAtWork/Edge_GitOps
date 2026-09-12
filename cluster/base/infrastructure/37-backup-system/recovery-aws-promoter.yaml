@@ -1,0 +1,29 @@
+# recovery-aws-promoter: see scripts/make-recovery-credentials.sh and ADR-012. SOPS-encrypted;
+# regenerate with that script after rotating the key in Terraform.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: recovery-aws-promoter
+    namespace: backup-system
+type: Opaque
+stringData:
+    AWS_ACCESS_KEY_ID: ENC[AES256_GCM,data:AclYuiEUFwvtMvaNFMh56g68Y3s=,iv:EzQ9dajrKZKXZEKP8iWWuLxnZ+d/J8PzGPfosMQTI4g=,tag:+y5P6pcWatOzwBan3nQ8gg==,type:str]
+    AWS_SECRET_ACCESS_KEY: ENC[AES256_GCM,data:RuYy49IOjjYhGImmN6Bq1xnKDtsJ2t+SiZa1OghUE28s0CnWZAx5Mw==,iv:3RUQ0SrG8tBk1oZRcvTEARqo2Sp7dqzcgmu7sFgT/cg=,tag:wMFm4MOSwCavi+ddTeLnSQ==,type:str]
+    AWS_BUCKET: ENC[AES256_GCM,data:j8wBIyZ/QfoipH5Q9WgxM8G1iOoLWw==,iv:1HzkYt5GSiJh36OkM8ADTll3aiyFmcI57vEbePyzoFE=,tag:d2kShaJ0BmWmX3iAAfFNUA==,type:str]
+    AWS_DEFAULT_REGION: ENC[AES256_GCM,data:pRbh1Z6lctMKvoW7,iv:xwxmFpWZ1VsZU5151u1HBrF4nkhc7xCGfitwn1gnFLs=,tag:yfzFnbXdYy/8fUV84rFqNw==,type:str]
+    RESTIC_REPOSITORY_AWS: ENC[AES256_GCM,data:F00h91UsjIYKJTf/kq8lgIJtwPIYAbRAH+mq8Jj85FyWvAoDuh4N7nFXXQ2wLE89O+g68Qwx4yedgoGYw6U=,iv:L3HoqBPv6x3c5S52vpWe/yByyges6ZcTRWbze9s+6Qk=,tag:50RnGICD/uf6fSi7smBdew==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBTMC9yVTJyVWhqd3FNR0VH
+            N3BLL25jU1p5anhFRUFhYnRYQkVnMWFwc0ZzClFjZmRLclhieGVEaUFxV2QyakdC
+            QmhoMU5EZm1GQzdmZm1LemVWbEllTG8KLS0tIFViMDltUlptdThoR1FqNHFqbG5z
+            aG5hYk5pU0tIVGdKaGtkNG9zTUZWMGcKtrCuN6vl0WVbpEyCuKnrV+pMSwX2Skdx
+            2K3ngVu/KfNhC6x4XY291OpgplMuta7G45XX80Cpbja0f1NBH60yJw==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1wgk7g6rwkm2xjq08vj66aa53rxhdxvzjldrurkukcfuacxxxj34svculzn
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-09-12T19:51:38Z"
+    mac: ENC[AES256_GCM,data:Rbvy+ihN7pRbTd8F9Ci07rNDXTQ9y7HK/OVEIyMfLQ2Ya5GTv2Asc0aoas8vyeSzD3Hh25IyQDmohTWpvD+IF3bQMKqk3AlJlyHGVNp1RjQ/dqY0nPyP195Lye+UsAQkZYDOuhhf1uBxLk6HrI+jUbIDpFK+rM8ySHI1CAadJYA=,iv:85BupbUX0WehYGUpsRFWWNCJJMxLA3kCVMt5QGyrDoI=,tag:uSHFslAr5VJDr7kkw8mA7g==,type:str]
+    version: 3.13.3
