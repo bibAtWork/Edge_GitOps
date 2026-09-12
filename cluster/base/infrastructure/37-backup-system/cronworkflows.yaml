@@ -95,3 +95,51 @@ spec:
       parameters:
         - name: application
           value: paperless
+---
+# Retention. Local daily at 04:00, after the recovery points (01:00) and their
+# promotion (03:00), so a point is offered to AWS before local retention can
+# touch it. AWS weekly, Sundays at 04:30: every prune there leaves the replaced
+# packs behind as noncurrent versions for 45 days, so thinning less often costs
+# less. Each run waits for a promotion or backup still running, by mutex and by
+# restic's lock.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: retention-local
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 4 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: retention
+    arguments:
+      parameters:
+        - name: repository
+          value: local
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: retention-aws
+  namespace: backup-system
+spec:
+  schedules:
+    - "30 4 * * 0"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: retention
+    arguments:
+      parameters:
+        - name: repository
+          value: aws
