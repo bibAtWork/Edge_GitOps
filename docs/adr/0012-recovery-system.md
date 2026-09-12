@@ -34,11 +34,11 @@ replace the current one with it.
 | Photo library, documents | **restic**, file-level, read from a Longhorn **snapshot clone** mounted in `backup-system`. That gives a crash-consistent point in time without touching the application's namespace. |
 | Paperless' SQLite | The same clone. SQLite's online backup API runs on the clone, and restic stores the consistent copy. |
 | PostgreSQL | **CNPG barman-cloud plugin**: continuous WAL archiving and base backups to the local object store. Immich's database moves onto a CNPG cluster using the vectorchord image. |
-| Recovery Point | A JSON record per point, stored in the repository next to the data it describes and promoted with it, so it survives the loss of the cluster. It carries the state machine (REQUESTED … REMOTE_VERIFIED) and its evidence. Metrics are derived from it. |
+| Recovery Point | A JSON record per point, stored in the repository bucket next to the data it describes and promoted with it, so it survives the loss of the cluster. It carries the point's state (VALIDATED, or FAILED if any dataset failed), each dataset's state and restic snapshot, and the remote state: PROMOTION_PENDING, then REMOTE_VERIFIED, or NOT_PROMOTED if local retention removed the data first. Each validated dataset leaves an evidence object beside it. Metrics are derived from the record. |
 | Local repository | SeaweedFS bucket `recovery`. |
 | AWS repository | A **new** versioned Object-Lock bucket with two identities. The *promoter* may put, get and list, and delete only restic's own lock files. *Retention* may delete, which on a versioned bucket creates delete markers only. Anything else needs the admin, with MFA. |
 | Retention | Local 7 daily / 3 weekly / 3 monthly, AWS 1 weekly / 3 monthly, applied per repository by `restic forget` and per object store by barman. |
-| Credentials | Every backup-store credential lives in `backup-system`. Application namespaces hold none. |
+| Credentials | Every AWS credential lives in `backup-system`, and so does the local store's credential for file and SQLite data. **The exception is PostgreSQL:** the barman-cloud plugin reads its object-store credential from the database's own namespace, so each namespace with a CNPG cluster holds the local store's credential. It never holds an AWS one; only promotion, in `backup-system`, reaches AWS. |
 | Velero | Removed at cutover. GitOps recreates cluster state. |
 | Reconciler | Decided after the end-to-end tests, as the architecture's phase 11 says. Ordered catch-up after an outage is the known requirement. |
 
@@ -52,8 +52,10 @@ credential. This design needs neither:
 - File data is read from clones.
 - PostgreSQL is archived by CNPG from inside the database pods.
 
-The central namespace holds backup-store credentials and nothing that opens an application. The
-namespaces running application code lose the credentials they hold today.
+The central namespace holds the backup-store credentials and nothing that opens an application.
+Namespaces with only file data lose the credentials they hold today. A namespace with a CNPG
+database keeps one local-store credential, now read by the database's own archiver instead of a
+dump job. No application namespace ever holds an AWS credential.
 
 ## Consequences
 
@@ -62,7 +64,8 @@ namespaces running application code lose the credentials they hold today.
 - The architecture's guarantees are reachable, including a shallower vault and point-in-time
   recovery for PostgreSQL.
 - Every dataset follows one validation and promotion path.
-- Backup credentials leave application namespaces.
+- Backup credentials leave application namespaces, except the local-store credential each
+  PostgreSQL namespace keeps.
 
 **Negative.**
 
@@ -73,19 +76,23 @@ namespaces running application code lose the credentials they hold today.
   sizes (under 1 GiB per volume); revisit near 50 GiB.
 - **Immich's database is migrated,** a dump and restore with a short downtime.
 - **Two pipelines run in parallel until cutover,** which doubles the backup load for that period.
+- **PostgreSQL namespaces keep a local-store credential** (see Credentials). That is the plugin's
+  design, not a choice made here. The Cilium policy on SeaweedFS remains the boundary for it, as
+  for every S3 client in the cluster.
 
 ## Phases
 
 | Architecture phase | Here | Status |
 | --- | --- | --- |
-| Foundation | `backup-system` namespace and network reach, Argo Workflows, `recovery` bucket, local restic repository | This change |
-| 1–2. Policy, datasets | Policy ConfigMap for the new system | Follows |
-| 3. Recovery point | JSON record per point, state machine, metrics | Follows |
-| 4, 6. Restic, SQLite | Snapshot clone → restic; SQLite online backup on the clone | Follows |
-| 5. PostgreSQL | barman-cloud plugin; Immich onto CNPG | Follows |
-| 7. Restore tests | restic restore with checksums; CNPG recovery clusters with the restore checks | Follows |
-| 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Follows |
-| 9. Argo | Namespaced controller | This change |
+| Foundation | `backup-system` namespace and network reach, Argo Workflows, `recovery` bucket, local restic repository | Done (#588) |
+| 1–2. Policy, datasets | Policy ConfigMap for the new system | Done (#591); cost and growth limits (#595) |
+| 3. Recovery point | JSON record per point, state machine, metrics | Done (#591) |
+| 4, 6. Restic, SQLite | Snapshot clone → restic; SQLite online backup on the clone | Done: clones and their guardrail (#590), adapters (#591) |
+| 5. PostgreSQL | barman-cloud plugin; Immich onto CNPG | Next. Needs brief database restarts and Immich's migration downtime |
+| 7. Restore tests | restic restore with checksums; CNPG recovery clusters with the restore checks | Files and SQLite done (#591); PostgreSQL follows with phase 5 |
+| 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Done: vault (#592), promotion and remote verification (#596), guarantee alerts (#597) |
+| Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Follows |
+| 9. Argo | Namespaced controller | Done (#588) |
 | 10. End-to-end | Including power loss and partial promotion | Follows |
 | 11. Reconciler | Decided after phase 10 | Open |
 | Cutover | Old pipeline, relay, reconciler and Velero removed | Follows |
