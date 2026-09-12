@@ -304,6 +304,57 @@ variable "recovery_vault_noncurrent_expiration_days" {
   default     = 45
 }
 
+# ---- cost ceiling ------------------------------------------------------------
+#
+# An email when S3 spending approaches the ceiling (about EUR 10 a month). It
+# alerts and never blocks: the hard limit is the recovery system's own
+# repository cap (250 GiB, recovery-policy's `limits`), which promotion refuses
+# to exceed -- and it acts within hours, where AWS billing arrives a day late.
+#
+# The address is a variable without a default, supplied at apply time
+#   TF_VAR_budget_alert_email=you@example.org terraform apply
+# and never written to the repository: *.tfvars is not gitignored here, and
+# this repository is public. It ends up only in the local, gitignored state.
+variable "budget_alert_email" {
+  description = "Where AWS Budgets sends the backup-cost warnings. Supply via TF_VAR_budget_alert_email; never commit it."
+  type        = string
+  sensitive   = true
+}
+
+variable "backup_monthly_budget_usd" {
+  description = "Monthly S3 spending that triggers the warning, in USD (AWS Budgets bills in USD). About EUR 10."
+  default     = 11
+}
+
+resource "aws_budgets_budget" "backup_storage" {
+  name         = "${var.cluster_name}-backup-storage"
+  budget_type  = "COST"
+  limit_amount = var.backup_monthly_budget_usd
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  cost_filter {
+    name   = "Service"
+    values = ["Amazon Simple Storage Service"]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.budget_alert_email]
+  }
+}
+
 output "recovery_vault_bucket" {
   description = "ADR-012 recovery vault bucket name"
   value       = aws_s3_bucket.recovery_vault.bucket
