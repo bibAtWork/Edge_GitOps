@@ -1,0 +1,207 @@
+# File datasets into restic, and proof they come back (ADR-012).
+#
+#   backup        back up the policy's paths from a snapshot clone, then judge
+#                 the result plausible or not
+#   restore-test  restore that snapshot and compare every file's SHA-256 with the
+#                 clone it was taken from
+#
+# Both read the clone as uid 1000 with NO fsGroup. With an fsGroup, kubelet
+# re-owns and re-modes every file on mount, and restic would record the damage.
+# Every file on these volumes is readable by uid 1000 as it is (checked
+# 2026-09-12). If that ever stops being true, restic exits 3 ("some files could
+# not be read"), and that fails the backup rather than passing as partial.
+#
+# restic is always given an explicit region: without one it asks SeaweedFS for
+# the bucket's location, is told the bucket does not exist, and retries for
+# about fifteen minutes.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: restic-dataset
+  namespace: backup-system
+spec:
+  templates:
+    - name: backup
+      inputs:
+        parameters:
+          - name: dataset
+          - name: claim
+          - name: paths
+          - name: recovery-point
+      outputs:
+        parameters:
+          - name: snapshot
+            valueFrom:
+              path: /tmp/out/snapshot
+          - name: files
+            valueFrom:
+              path: /tmp/out/files
+          - name: bytes
+            valueFrom:
+              path: /tmp/out/bytes
+      activeDeadlineSeconds: 7200
+      retryStrategy:
+        limit: 1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: clone
+          persistentVolumeClaim:
+            claimName: "{{inputs.parameters.claim}}"
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            DS="{{inputs.parameters.dataset}}"
+            RP="{{inputs.parameters.recovery-point}}"
+            R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
+            mkdir -p /tmp/out
+            cd /data
+            set --
+            for P in $(echo "{{inputs.parameters.paths}}" | tr ',' ' '); do
+              [ -e "$P" ] || { echo "path $P is missing on the volume"; exit 1; }
+              set -- "$@" "$P"
+            done
+
+            # --host groups a dataset's snapshots for retention; the tags tie
+            # each one to its dataset and recovery point.
+            $R backup --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json "$@" > /tmp/backup.json
+            SNAP="$(grep -o '"snapshot_id":"[0-9a-f]*"' /tmp/backup.json | tail -n 1 | cut -d'"' -f4)"
+            FILES="$(grep -o '"total_files_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            BYTES="$(grep -o '"total_bytes_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            [ -n "$SNAP" ] || { echo "restic reported no snapshot"; exit 1; }
+            echo "snapshot $SNAP: $FILES files, $BYTES bytes"
+
+            # Plausibility. A backup that succeeds is not yet a backup that is
+            # right: an empty mount, a wiped directory or a clone of the wrong
+            # volume all back up without complaint. The previous snapshot of
+            # this dataset is the yardstick -- a collapse to under half its file
+            # count, or to nothing, fails here, before the point can be called
+            # validated. Growth is never suspicious.
+            PREV="$($R snapshots --host "$DS" --json --no-lock \
+              | grep -o '"total_files_processed":[0-9]*' | tail -n 2 | head -n 1 | cut -d: -f2)"
+            [ "${FILES:-0}" -gt 0 ] || { echo "PLAUSIBILITY: no files at all"; exit 1; }
+            if [ -n "$PREV" ] && [ "$PREV" != "$FILES" ] && [ "$PREV" -ge 10 ] && [ "$FILES" -lt $((PREV / 2)) ]; then
+              echo "PLAUSIBILITY: $FILES files, down from $PREV in the previous snapshot"
+              exit 1
+            fi
+            echo "$SNAP" > /tmp/out/snapshot
+            echo "$FILES" > /tmp/out/files
+            echo "$BYTES" > /tmp/out/bytes
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: clone
+            mountPath: /data
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: restore-test
+      inputs:
+        parameters:
+          - name: dataset
+          - name: claim
+          - name: paths
+          - name: snapshot
+      outputs:
+        parameters:
+          - name: verified
+            valueFrom:
+              path: /tmp/out/verified
+      activeDeadlineSeconds: 7200
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: clone
+          persistentVolumeClaim:
+            claimName: "{{inputs.parameters.claim}}"
+        - name: tmp
+          emptyDir: {}
+        - name: restore
+          emptyDir:
+            sizeLimit: 20Gi
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            SNAP="{{inputs.parameters.snapshot}}"
+            R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
+            mkdir -p /tmp/out
+            PATHS="$(echo "{{inputs.parameters.paths}}" | tr ',' ' ')"
+
+            # --verify re-reads every restored file against the blob hashes in
+            # the repository: the restore itself proves the stored data intact.
+            $R restore "$SNAP" --target /restore --verify --no-lock
+
+            # And the restored data must be the data: every file's SHA-256 against
+            # the clone it was taken from, which has not changed since.
+            ( cd /data && find $PATHS -type f -exec sha256sum {} + | sort -k 2 ) > /tmp/source.sha
+            ( cd /restore && find $PATHS -type f -exec sha256sum {} + | sort -k 2 ) > /tmp/restored.sha
+            N="$(wc -l < /tmp/source.sha | tr -d ' ')"
+            if ! cmp -s /tmp/source.sha /tmp/restored.sha; then
+              echo "RESTORE TEST: restored files differ from the source"
+              diff /tmp/source.sha /tmp/restored.sha | head -n 20
+              exit 1
+            fi
+            [ "$N" -gt 0 ] || { echo "RESTORE TEST: nothing restored"; exit 1; }
+            echo "restore test: $N files restored, every SHA-256 matches the source"
+            echo "$N" > /tmp/out/verified
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: clone
+            mountPath: /data
+          - name: tmp
+            mountPath: /tmp
+          - name: restore
+            mountPath: /restore
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL

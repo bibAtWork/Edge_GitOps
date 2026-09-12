@@ -1,0 +1,51 @@
+# A recovery point per application, daily (ADR-012).
+#
+# 01:00, clear of the current pipeline's 02:00-09:00 chain while both run side
+# by side.
+#
+# startingDeadlineSeconds is what makes "offline is not failure" true here: when
+# the node comes back after missing the slot, the run happens once, then, and
+# missed slots are not replayed. Unlike the old pipeline's independent CronJobs,
+# a late run is still in order -- clone, back up, restore-test and record are
+# one DAG.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: recovery-point-immich
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 1 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: recovery-point
+    arguments:
+      parameters:
+        - name: application
+          value: immich
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: recovery-point-paperless
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 1 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: recovery-point
+    arguments:
+      parameters:
+        - name: application
+          value: paperless

@@ -7,3 +7,8 @@ resources:
   - restic-secret.yaml
   - rbac.yaml
   - workflow-templates/volume-clone.yaml
+  - recovery-policy.yaml
+  - workflow-templates/restic-dataset.yaml
+  - workflow-templates/sqlite-dataset.yaml
+  - workflow-templates/recovery-point.yaml
+  - cronworkflows.yaml
