@@ -12,15 +12,9 @@
 # mis-specified. This form is easier to reason about and to read back.
 #
 # S3 Lifecycle is unaffected by bucket policy -- it executes as the S3 service,
-# not as a principal. That is exactly what makes the tag-gated prune rule keep
-# working under a blanket delete deny, which is the pivot the whole design turns
-# on. Inventory delivery is likewise a service principal, and PutObject is not in
-# the denied set below, so it is unaffected too.
+# not as a principal. That is what lets the decommissioning rules in
+# backup-vault-lifecycle.tf empty the bucket under a blanket delete deny.
 data "aws_iam_policy_document" "vault_deny_destructive" {
-  # Combined with the Inventory delivery grant: a bucket has exactly one policy,
-  # so both statements must be rendered together.
-  source_policy_documents = [data.aws_iam_policy_document.vault_inventory_delivery.json]
-
   statement {
     sid    = "DenyDestructiveExceptAdminAndRoot"
     effect = "Deny"
