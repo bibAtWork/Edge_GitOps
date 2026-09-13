@@ -1,0 +1,38 @@
+# Where keycloak-pg's WAL and base backups go (ADR-012): the local object
+# store's `recovery` bucket, under postgres/keycloak-pg/ -- barman keeps each
+# cluster under its own server name, so every database can share the prefix.
+# The plugin's sidecar runs inside the database pod, and reads this object and
+# its credential from this namespace.
+#
+# retentionPolicy is a RECOVERY WINDOW, not a count: every base backup and all
+# WAL of the last 90 days are kept, so any moment in that window can be
+# restored. That covers the profile's 3 monthly and adds point-in-time recovery
+# on top; at this database's size it costs little.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: recovery
+  namespace: keycloak
+spec:
+  retentionPolicy: "90d"
+  configuration:
+    destinationPath: s3://recovery/postgres/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: recovery-object-store
+        key: admin_access_key_id
+      secretAccessKey:
+        name: recovery-object-store
+        key: admin_secret_access_key
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

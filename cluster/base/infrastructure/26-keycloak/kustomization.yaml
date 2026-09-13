@@ -16,6 +16,9 @@ resources:
   - cilium-policy.yaml
   - postgres-backup-cronjob.yaml
   - postgres-cluster.yaml
+  - objectstore.yaml
+  - recovery-object-store.yaml
+  - archive-netpol.yaml
   - backup-s3-secret.yaml
   - backup-netpol.yaml
 

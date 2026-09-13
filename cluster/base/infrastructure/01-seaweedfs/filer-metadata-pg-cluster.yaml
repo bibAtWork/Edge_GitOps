@@ -95,6 +95,21 @@ spec:
   # data. This bounds the worst case at 5 minutes instead of 30.
   stopDelay: 300
 
+  # Continuous WAL archiving and base backups (ADR-012), through CNPG's
+  # barman-cloud plugin into the local object store -- see objectstore.yaml.
+  # Enabling it injects the plugin's sidecar into the pod, which restarts the
+  # database once; so does every bump of the sidecar image.
+  #
+  # The archive lives in SeaweedFS, which this very database indexes, so it
+  # cannot bring back a lost filer on its own. Its offsite copy is the one that
+  # can: each recovery point stages the base backup into restic, and promotion
+  # carries it to AWS (ADR-012).
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: recovery
+
   bootstrap:
     initdb:
       # Names carried over from the existing deployment so the filer's
