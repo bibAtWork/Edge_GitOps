@@ -1,7 +1,7 @@
 # ADR-005: Two-Stage Backup — Local Longhorn Target with One-Way Relay to an Immutable Vault
 
 **Date:** 2026-08-24
-**Status:** Accepted
+**Status:** Superseded by [ADR-012](0012-recovery-system.md) (cutover, 2026-09-13)
 **Supersedes:** [ADR-003](0003-backup-immutability-versioning-only.md) on the Object Lock question
 **Related:** [ADR-001](0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md), [ADR-004](0004-longhorn-v1-storage-engine.md)
 

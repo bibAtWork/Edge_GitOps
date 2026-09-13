@@ -1,7 +1,9 @@
 # ADR-011: Recovery-Oriented Backup Policy
 
 **Date:** 2026-09-12
-**Status:** Accepted
+**Status:** Accepted in part. Its model -- policy, validated recovery points, promotion,
+per-guarantee alerts -- continues in [ADR-012](0012-recovery-system.md); the mechanisms it ran on
+were removed at the ADR-012 cutover (2026-09-13).
 **Related:** [ADR-003](0003-backup-immutability-versioning-only.md), [ADR-005](0005-two-stage-backup-relay.md), [ADR-008](0008-storage-mechanisms.md), [ADR-010](0010-backup-topology.md)
 
 ## Context

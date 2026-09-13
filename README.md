@@ -16,13 +16,13 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 - **OS**: Talos Linux (immutable, no SSH, API-driven)
 - **CNI**: Cilium (Gateway API, Hubble, kube-proxy replacement, WireGuard configured)
 - **GitOps**: FluxCD v2 + SOPS/Age encrypted secrets
-- **Storage**: Longhorn (block storage for application PVCs, and the default StorageClass) + SeaweedFS (S3-compatible object storage: Velero backup target, database dumps, Zot registry, Longhorn backup target). local-path is retained for exactly one volume that can use neither — the SeaweedFS filer metadata database — see [ADR-008](./docs/adr/0008-storage-mechanisms.md)
+- **Storage**: Longhorn (block storage for application PVCs, and the default StorageClass) + SeaweedFS (S3-compatible object storage: the recovery system's local repository and PostgreSQL WAL archives, and the Zot registry). local-path is retained for exactly one volume that can use neither — the SeaweedFS filer metadata database — see [ADR-008](./docs/adr/0008-storage-mechanisms.md)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
-- **Backup**: Longhorn snapshots/backups to local SeaweedFS, relayed one-way to an immutable AWS S3 vault ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md)) + Velero for Kubernetes objects + per-database logical dumps
+- **Backup**: the recovery system ([ADR-012](./docs/adr/0012-recovery-system.md)): restore-tested recovery points in restic, from Longhorn snapshot clones and CloudNativePG base backups, promoted to an Object-Lock AWS vault and orchestrated by Argo Workflows
 - **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with a Trivy/Renovate bridge that reports images carrying critical CVEs
 - **Ingress**: Envoy Gateway (Gateway API), fronting every application ([ADR-001](./docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md))
 - **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)), enforced at the Gateway: Envoy performs the OIDC flow, and OPA authorizes the resulting request via `ext_authz` ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md))
-- **Databases**: CloudNativePG operator (Keycloak, SeaweedFS filer metadata)
+- **Databases**: CloudNativePG operator (Keycloak, Immich, SeaweedFS filer metadata), with WAL archiving by the barman-cloud plugin
 - **Policy & runtime security**: Kyverno (admission policy) and OPA (request authorization) split by layer rather than by function ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md)), Falco (runtime detection), Kubescape (NSA/MITRE posture scanning)
 - **VPN**: Tailscale Kubernetes Operator
 - **Certs**: cert-manager + Let's Encrypt DNS-01 via Cloudflare
@@ -34,7 +34,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 cluster/
 ├── base/                    # Shared by both profiles
 │   ├── 00-bootstrap/        # Namespaces, LimitRanges, SOPS
-│   └── infrastructure/      # Components 00-34
+│   └── infrastructure/      # Components 00-37
 ├── overlays/
 │   ├── 3-node/              # ← Flux path for HA cluster
 │   └── 1-node/              # ← Flux path for single node
@@ -42,7 +42,7 @@ bootstrap/
 ├── config.json.template     # ← fill this in once; bootstrap reads it
 ├── ansible/                 # Ansible orchestrator + tool installer roles
 ├── scripts/                 # Bootstrap, config apply, secret rotation, DR
-└── terraform/               # AWS S3 + IAM for the offsite backup vault
+└── terraform/               # AWS S3 + IAM for the recovery vault
 docs/                        # Architecture decisions, disaster recovery
 ```
 
@@ -98,7 +98,7 @@ Also add the device tag (e.g. `tag:k8s`) to your tailnet ACL `tagOwners` before 
 
 #### AWS (for offsite backups)
 
-Ensure you have an AWS account with permissions to create S3 buckets, KMS keys, and IAM users. Bootstrap will run Terraform to provision these automatically.
+Ensure you have an AWS account with permissions to create S3 buckets, IAM users and a budget. Bootstrap runs Terraform to provision the recovery vault ([ADR-012](./docs/adr/0012-recovery-system.md)); export `TF_VAR_budget_alert_email`, the address for its cost alerts, before running it.
 
 ---
 
@@ -176,7 +176,7 @@ The bootstrap handles end-to-end:
 3. **Talos machine config** generation, apply, etcd bootstrap, kubeconfig retrieval
 4. **talosconfig** injected into the system-upgrade-controller secret automatically
 5. **Flux bootstrap** from the GitHub repo
-6. **Terraform** (AWS S3 + IAM) — Velero IAM credentials captured from output and written to `cluster/base/infrastructure/07-velero/aws-secret.yaml` automatically
+6. **Terraform** (AWS S3 + IAM) — the recovery vault, then its two AWS credentials, written SOPS-encrypted by `scripts/make-recovery-credentials.sh`
 
 After the script completes, commit and push the encrypted secrets Flux needs:
 
@@ -188,16 +188,16 @@ git push
 
 ---
 
-### 6. Run post-deploy tasks (SeaweedFS)
+### 6. Run post-deploy checks
 
-After Flux has reconciled SeaweedFS (check: `kubectl get helmrelease -n seaweedfs`):
+After Flux has reconciled (check: `flux get kustomizations`):
 
 ```bash
 PROFILE=1-node ./bootstrap/scripts/post-deploy.sh
 # or: PROFILE=3-node ./bootstrap/scripts/post-deploy.sh
 ```
 
-This creates the SeaweedFS S3 buckets (`etcd-backups`, `velero-backups`, `zot-registry`) and the `velero-seaweedfs-credentials` Kubernetes secret that Velero uses to authenticate against the local SeaweedFS S3 endpoint. On 1-node it also pins each bucket to a SeaweedFS volume collection for disk isolation.
+Flux creates the SeaweedFS buckets itself (`01-seaweedfs/bucket-init-job.yaml`); this waits for SeaweedFS, then lists the buckets and the recovery system's schedules.
 
 ---
 
@@ -208,20 +208,15 @@ If you need to rotate or add a credential without re-running the full bootstrap,
 ```bash
 # Re-apply everything (e.g. after rotating the Cloudflare token)
 python3 bootstrap/scripts/apply-config.py
-
-# Re-apply only the Velero IAM credentials (after Terraform re-run)
-python3 bootstrap/scripts/apply-config.py \
-  --velero-access-key <key> \
-  --velero-secret-key <secret>
 ```
 
 Then commit and push the re-encrypted files.
 
 ---
 
-### AWS offsite backup targets
+### AWS offsite backup target
 
-AWS resources (S3 buckets, KMS key, IAM users) are provisioned automatically by the bootstrap script (step 5, `terraform apply`). Velero IAM credentials are captured from Terraform output and written to the encrypted secret without any manual copy-paste.
+The recovery vault, its two in-cluster identities and a cost budget are provisioned by the bootstrap script (step 5, `terraform apply`), and `scripts/make-recovery-credentials.sh` writes the two credentials as SOPS-encrypted Secrets without any manual copy-paste.
 
 To re-run Terraform independently (e.g. to add a second cluster):
 
@@ -240,8 +235,7 @@ export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 | Same-node pod traffic | No pod-to-pod encryption (SPIRE mTLS disabled — races with Cilium bootstrap) |
 | Internet-bound egress | HTTPS-only enforced via `CiliumClusterwideNetworkPolicy` |
 | Git secrets at rest | SOPS + Age (SOPS keypair) |
-| AWS S3 — backup vault | SSE-S3 ([ADR-005](./docs/adr/0005-two-stage-backup-relay.md) — SSE-KMS was declined here: a KMS outage or key-policy error makes the vault unreadable exactly when it is needed) |
-| AWS S3 — Velero offsite bucket | SSE-KMS (managed key, auto-rotation) |
+| AWS S3 — recovery vault | SSE-S3, and restic encrypts every blob client-side with the escrowed repository password ([ADR-012](./docs/adr/0012-recovery-system.md)) |
 
 ### Storage encryption (at rest)
 
@@ -250,7 +244,7 @@ export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 | Node disks (STATE, EPHEMERAL, both NVMe user volumes) | **None** — plaintext at rest by decision ([ADR-007](./docs/adr/0007-no-disk-encryption.md)) |
 | Kubernetes `Secret` objects in etcd | secretbox via Talos `cluster.secretboxEncryptionSecret`, scoped to `resources: [secrets]` |
 | Everything else in etcd (ConfigMaps, object metadata) | Not encrypted — outside the provider scope |
-| Offsite etcd snapshots | age-encrypted, private key held offline |
+| Offsite recovery points | restic, client-side; the repository password is escrowed offline |
 
 Disk encryption and Secret encryption are separate mechanisms and are easy to conflate. Only
 the former protects against physical possession of a drive, and it is deliberately not enabled;
@@ -265,7 +259,7 @@ Default deny-all ingress/egress with explicit allow rules:
 
 - **Cluster-internal**: all pod-to-pod and pod-to-service traffic within the cluster (required for DNS, Flux controllers, and service mesh)
 - DNS (port 53)
-- Velero egress (AWS S3)
+- Recovery system egress to AWS S3, from `backup-system` only
 - SeaweedFS internal cluster traffic
 - Monitoring scrape
 - **Internet egress: HTTPS (port 443) only** — pods needing plain HTTP must add an explicit per-namespace policy
@@ -326,10 +320,8 @@ See [`docs/disaster-recovery.md`](./docs/disaster-recovery.md) for the full inst
 Quick reference:
 
 ```bash
-# Restore a single namespace from Velero backup
-python3 bootstrap/scripts/dr.py namespace
-
-# Full cluster recovery from etcd snapshot + Velero
+# Full cluster rebuild from Git; application data is then restored by hand
+# from the recovery system (docs/runbooks/backup-recovery.md, A7)
 python3 bootstrap/scripts/dr.py full
 
 # Add a new node to an existing cluster
@@ -338,23 +330,22 @@ python3 bootstrap/scripts/dr.py add-node
 
 ## Backup Strategy (3-2-1)
 
-| Copy | Storage | Retention | Tool |
+The recovery system ([ADR-012](./docs/adr/0012-recovery-system.md)), run by Argo Workflows in
+`backup-system`:
+
+| Copy | Storage | Retention | Mechanism |
 |---|---|---|---|
 | Primary (live data) | Longhorn (local NVMe, ext4 block devices) | — | — |
-| Local snapshots | Longhorn, same replica disk | 7 daily | Longhorn RecurringJob |
-| Local backups | SeaweedFS `longhorn-backups` bucket | 5 weekly + 6 monthly | Longhorn RecurringJob |
-| Local object copy | SeaweedFS buckets staged onto Longhorn | 14 daily | staging CronJob |
-| Off-site | AWS S3 `homelab-backup-vault`, Object Lock 21d | matches local | relay CronJob |
-| Databases | SeaweedFS `db-backups` bucket | hourly/daily dumps | per-app CronJob |
+| PostgreSQL point-in-time | SeaweedFS, one WAL archive per database | 7 days | CNPG barman-cloud plugin, continuous |
+| Local recovery points | SeaweedFS `recovery` bucket, restic | 7 daily, 3 weekly, 3 monthly | recovery-point workflows, 01:00 |
+| Off-site | AWS S3 recovery vault, Object Lock (Governance) | 1 weekly, 3 monthly | promotion, 03:00 |
 
-Velero backs up PVCs through its node-agent DaemonSet (Kopia file-system backup), **not**
-CSI VolumeSnapshots — no CSI driver or VolumeSnapshotClass is registered on this cluster.
-
-Longhorn never talks to AWS. Its backup target is the local SeaweedFS endpoint, where it
-holds full delete rights and runs retention normally; a separate relay mirrors that
-backupstore one-way to a vault whose credentials hold no delete permission of any kind.
-See [ADR-005](./docs/adr/0005-two-stage-backup-relay.md) for why, and
-[the recovery runbook](./docs/runbooks/backup-recovery.md) for restore order.
+A recovery point counts only once every dataset in it passed its restore test. Files are restored
+and checked against their hashes, SQLite is integrity-checked, and each PostgreSQL copy is
+recovered into a scratch cluster and queried. Promotion copies only validated points, and verifies
+each one in AWS. Alerts fire on a missed RPO or a missing offsite copy, and an hourly reconciler
+submits the run a missed guarantee needs. Restore procedures are in
+[the recovery runbook](./docs/runbooks/backup-recovery.md).
 
 ## Architecture
 

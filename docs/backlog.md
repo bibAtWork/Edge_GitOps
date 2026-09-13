@@ -1383,3 +1383,34 @@ raise before.
 - a restic upgrade that changes `copy` or the pack format;
 - a restore from AWS that turns up damage;
 - the quarterly drills lapsing.
+
+## Scheduled: delete the old backup buckets once they are empty
+
+Recorded 2026-09-13, at the ADR-012 cutover. #620 removed the old pipeline's AWS identities and set
+lifecycle rules that expire every version in its three buckets: the ADR-005 vault, and the older
+etcd and Velero buckets. The etcd and Velero buckets empty within days. The vault keeps each version
+under Object Lock until its 21-day retention ends; its last objects were written on 2026-09-13, so
+it is empty a few days after 2026-10-04.
+
+**After 2026-10-07**, confirm that all three are empty, for example with
+`aws s3api list-object-versions --bucket <bucket> --max-items 1`. Then, in `bootstrap/terraform`:
+
+- move `data.aws_caller_identity.current` and `aws_iam_user.backup_admin` into
+  `recovery-vault.tf`, without renaming them, since the recovery vault uses both;
+- delete the following, with their outputs and `vault_object_lock_days`:
+  - `backup-vault.tf`, `backup-vault-policy.tf` and `backup-vault-lifecycle.tf`;
+  - the rest of `backup-vault-iam.tf`, which is the admin's policy for the old vault;
+  - `s3-buckets.tf`, `lifecycle.tf` and `kms.tf`;
+- plan, expecting only the buckets, the KMS key and alias, and that admin policy to be destroyed;
+  then apply. The KMS key then waits out its 14-day deletion window.
+
+## Open: a new volume is not backed up until it is added to the recovery policy
+
+Recorded 2026-09-13, at the ADR-012 cutover. Longhorn's recurring jobs used to back up every volume
+by default: a new volume was protected before anyone classified it, and `BackupDatasetUnclassified`
+flagged the ones nobody had. Both went with the old pipeline. A volume is now protected only once it
+is a dataset in `37-backup-system/recovery-policy.yaml`, and nothing reports a PVC holding real data
+that is not.
+
+Worth an alert of the same shape: fire on a Longhorn-backed PVC that is neither a dataset in the
+policy nor listed as deliberately unprotected (metrics, logs, caches).
