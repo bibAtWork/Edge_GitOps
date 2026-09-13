@@ -59,6 +59,33 @@ roleRef:
   kind: Role
   name: recovery-base-backups
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-base-backups
+  namespace: immich
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["backups"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-base-backups
+  namespace: immich
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-base-backups
+---
 # In backup-system: the scratch clusters restore tests recover into, and remove
 # afterwards. Their superuser password reaches the check step through the
 # pod's own secretKeyRef, read by the kubelet; this identity reads no secret.

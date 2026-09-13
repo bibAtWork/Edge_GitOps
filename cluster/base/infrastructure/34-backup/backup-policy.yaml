@@ -156,6 +156,7 @@ data:
     # dump -- the keycloak-db and filer-metadata datasets above.
     keycloak-pg-1-wal
     filer-meta-pg-1-wal
+    immich-pg-1-wal
 
     # Postgres DATA volumes. Every database here produces a logical dump on its
     # own schedule, and that dump is the dataset (immich-db, keycloak-db above).
@@ -179,6 +180,10 @@ data:
     # the dump excludes the geodata tables, so reverse geocoding stays
     # degraded until Immich re-imports them. See docs/runbooks/backup-recovery.md.
     keycloak-pg-1
+    # immich-pg-1 is keycloak-pg-1's case exactly: CNPG, WAL on its own volume,
+    # so a volume snapshot is no coherent copy. Its protection is the logical
+    # dump here and, in the recovery system (ADR-012), barman.
+    immich-pg-1
     data-immich-postgresql-0
 
     # zot's local volume. Image blobs live in SeaweedFS S3 (storageDriver s3,

@@ -1,0 +1,23 @@
+# immich-pg's WAL archiver (ADR-012). The barman-cloud plugin's sidecar runs
+# inside the database pod and writes WAL segments and base backups to the local
+# object store, so the pod itself needs S3 on the filer. The matching ingress
+# side is in 10-network-policies/allow-seaweedfs-internal.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-cnpg-archive-s3-egress
+  namespace: immich
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: immich-pg
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            app.kubernetes.io/component: filer
+            io.kubernetes.pod.namespace: seaweedfs
+      toPorts:
+        - ports:
+            - port: "8333"
+              protocol: TCP
