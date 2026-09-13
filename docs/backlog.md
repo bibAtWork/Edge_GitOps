@@ -1339,3 +1339,47 @@ Also considered and rejected as answers to the same question: **KubeStash/Stash*
 coverage is broadest but whose database addons are largely commercial, and **restic or kopia
 used directly**, which replaces only the upload half and still needs a dump command per database --
 roughly today's shape with a better store.
+
+## Deferred: read the AWS vault's data back, not only its metadata
+
+Recorded 2026-09-13, from finding F3 of [ADR-012](adr/0012-recovery-system.md)'s end-to-end tests.
+Deferred, not rejected.
+
+**The gap.** Promotion verifies the vault with `restic check`. That reads the indexes, snapshots
+and trees, and confirms every pack exists at its recorded size. It never downloads file data, so
+it passes a pack whose bytes are corrupt (test E6b in `docs/recovery-system-tests.md`). Locally,
+every recovery point's restore test reads the data back; offsite, nothing does.
+
+**The proposal.** A last step in the weekly AWS retention run, `restic check
+--read-data-subset=5G`. restic picks packs at random up to 5 GiB, downloads them, and checks each
+pack's hash and each blob's decryption and hash. The step pushes a success timestamp and a failure
+flag, and an alert fires if the last check failed or none succeeded for 8 days.
+
+**Cost.** Nothing measurable today: the vault holds 89 MiB and would be read in full every week.
+At the 250 GiB cap, it would download about 22 GiB a month. That is free within AWS's 100 GB of
+monthly transfer out, and about $2 a month without it. The vault is S3 Standard, so there is no
+retrieval fee.
+
+**Why it was deferred.**
+
+- **The damage it catches is rare on S3.** A pack with the right size and the wrong bytes needs a
+  software fault in restic's write or copy path. Missing packs, truncated uploads and a wrong
+  password are already caught every night.
+- **It weakens as the vault grows.** At the cap it samples 2% a week, so a single bad pack takes
+  about a year to find on average.
+- **It checks bytes, not meaning.** A network failure mid-download fails it the same way
+  corruption does.
+- **A real finding has no repair procedure yet.** That procedure would be `restic repair packs`
+  with the retention identity, then promoting the affected points again, in a versioned Object
+  Lock bucket. It needs writing and drilling first.
+
+The quarterly restore drills from AWS (runbook A9) remain the check that the offsite data
+restores. The part of the proposal that cost nothing was built: RecoveryRetentionStale fires when
+a repository's retention has not completed on schedule, which a failing retention run did not
+raise before.
+
+**When this flips.** Any of:
+
+- a restic upgrade that changes `copy` or the pack format;
+- a restore from AWS that turns up damage;
+- the quarterly drills lapsing.
