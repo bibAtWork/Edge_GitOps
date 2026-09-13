@@ -32,7 +32,7 @@ The architecture's matrix (§71), each row with the test that answered it.
 | Home server power loss | the next reconciliation restores the RPO | the controller killed during an Immich point (E4); the controller down across two scheduled slots (E5b) | E4: the run resumed and VALIDATED, clones removed, repository check clean. E5b: exactly one late run when the controller returned, for the most recent slot; the earlier slot not replayed. A night that FAILED is only retried at the next schedule -- F4, phase 11 | pass |
 | Network interruption | retry | covered by the rows either side: a lost pod (E4b, V1-V3) and an unreachable AWS (E2) | the run fails safe and the next run completes; a step that loses its pod is retried after F1 | pass |
 | AWS unavailable | the local point stays VALIDATED | a Cilium egress-deny to the internet on the promotion's pods (E2) | promotion failed at its first AWS call (`i/o timeout`); the record stayed VALIDATED + PROMOTION_PENDING; nothing written to the vault | pass |
-| AWS promotion interrupted | promotion resumes | one of an Immich point's two snapshots copied to the vault by hand, the record left pending (E3a); the copy pod killed mid-run (V3) | E3a: only the missing snapshot was copied, both verified, REMOTE_VERIFIED. V3: PENDING-V3 | pass |
+| AWS promotion interrupted | promotion resumes | one of an Immich point's two snapshots copied to the vault by hand, the record left pending (E3a); the copy pod killed mid-run (V3) | E3a: only the missing snapshot was copied, both verified, REMOTE_VERIFIED. V3, after the fixes: the copy pod killed as its copy began -- a 100 KB copy had already finished, and the promotion completed with no lock left behind | pass |
 | Remote verification fails | the remote copy stays untrusted | promotion's record step given an empty verification result (E8) | "not every snapshot was copied; stays PROMOTION_PENDING", exit 1; record unchanged, nothing in the vault | pass |
 | PostgreSQL restore fails | the point is not VALIDATED | a Keycloak restore check no restore can pass, via a test policy (E7) | the scratch cluster recovered, the check failed: dataset and point FAILED, never promoted | pass |
 | Object restore fails | the point is not VALIDATED | 64 bytes overwritten inside a data pack of a scratch repository (E6b); a restore step killed (E4b) | `restore --verify` -- what every file restore test runs -- failed with "ciphertext verification failed"; `check --read-data` failed too. A metadata-only `check` passed (F3) | pass |
@@ -65,6 +65,9 @@ until someone ran `unlock`. During the tests a killed promotion left such a lock
 repository; that night's retention would have waited two hours on it and failed. Fixed:
 backups, promotion and retention remove stale locks first and wait up to 40 minutes for a live
 one; `unlock` only removes locks no running process has refreshed for 30 minutes.
+Confirmed on a scratch repository: a lock 32 minutes old still failed a backup with
+`--retry-lock` ("lock was created ... 32m ago"); `restic unlock` removed it and the next backup
+succeeded.
 
 **F3 -- remote verification reads metadata, not bytes.** Promotion's `restic check` confirms the
 vault's indexes, snapshots and trees; E6b shows it passes over a corrupted data pack that
@@ -84,6 +87,14 @@ run kubectl had a 256Mi limit. The kernel OOM-killed them five times on the test
 first such kills since its log began three days earlier -- and a retry of a killed step died
 the same way. Found by reading the node's kernel log after retries kept failing: the exit 137
 that looked like a test's kill was the OOM killer's. Fixed: 512Mi (#610).
+
+**F7 -- a step that creates objects could not run twice.** After a kill, Argo runs the step
+again -- and every step that creates Kubernetes objects failed on the second run: `kubectl
+apply` found the object the first run made, admission defaulting turned the re-apply into a
+patch, and the workflow identity may create but never patch ("cannot patch resource
+clusters"). Found when a killed scratch-cluster recovery was re-run. Fixed without granting
+patch: those steps create what is missing and keep what exists, tolerating only
+AlreadyExists.
 
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
