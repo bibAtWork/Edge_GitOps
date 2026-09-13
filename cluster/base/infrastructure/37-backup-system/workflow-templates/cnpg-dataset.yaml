@@ -338,8 +338,6 @@ spec:
               parameters:
                 - name: dataset
                   value: "{{inputs.parameters.dataset}}"
-                - name: image
-                  value: "{{steps.recover.outputs.parameters.image}}"
                 - name: database
                   value: "{{steps.recover.outputs.parameters.database}}"
 
@@ -498,9 +496,13 @@ spec:
               enableSuperuserAccess: true
               postgresql:
                 shared_preload_libraries: ${PRELOAD:-[]}
+              # local-path, not longhorn: this cluster's longhorn classes are
+              # all Retain, so every scratch cluster left its volume behind
+              # (four leaked in testing, 2026-09-13). local-path is Delete,
+              # and a scratch database is small and lives for minutes.
               storage:
                 size: $SIZE
-                storageClass: longhorn
+                storageClass: local-path
               resources:
                 requests:
                   cpu: 50m
@@ -547,14 +549,15 @@ spec:
             drop:
               - ALL
 
-    # The policy's restore-checks against the recovered database, with the
-    # source's own psql. Beyond "it started": each query must return at least
-    # its minimum, so an empty or half-restored database fails here.
+    # The policy's restore-checks against the recovered database. Beyond "it
+    # started": each query must return at least its minimum, so an empty or
+    # half-restored database fails here. psql comes from a pinned client image,
+    # not the source's: a newer psql reads every older server, the checks are
+    # plain counts, and an image computed at run time is one no gate can see.
     - name: restore-checks
       inputs:
         parameters:
           - name: dataset
-          - name: image
           - name: database
       outputs:
         parameters:
@@ -566,7 +569,7 @@ spec:
         - name: tmp
           emptyDir: {}
       container:
-        image: "{{inputs.parameters.image}}"
+        image: docker.io/library/postgres:17-alpine
         command: ["/bin/sh", "-c"]
         args:
           - |
