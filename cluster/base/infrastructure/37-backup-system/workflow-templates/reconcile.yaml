@@ -5,7 +5,7 @@
 # that the plan held -- against the recovery guarantee, not the clock:
 #
 #   recovery point  the newest VALIDATED point is older than the profile's RPO
-#                   plus an hour: a night that failed or never ran
+#                   plus grace-hours: a night that failed or never ran
 #   promotion       a VALIDATED point has waited for AWS longer than
 #                   promote-after-hours: a 03:00 promotion that failed
 #
@@ -32,6 +32,10 @@ spec:
       # waiting after this long missed it.
       - name: promote-after-hours
         value: "6"
+      # How far past its RPO the newest point may be before this acts: the
+      # 01:00 run needs time to finish before its absence counts.
+      - name: grace-hours
+        value: "1"
   volumes:
     - name: tmp
       emptyDir: {}
@@ -99,7 +103,7 @@ spec:
                 fi
               done < /tmp/list
               AGE=$(( (NOW - NEWEST) / 3600 ))
-              if [ $((NOW - NEWEST)) -gt $(( (RPO + 1) * 3600 )) ]; then
+              if [ $((NOW - NEWEST)) -gt $(( (RPO + {{workflow.parameters.grace-hours}}) * 3600 )) ]; then
                 echo "$APP: newest validated point ${AGE}h old, RPO ${RPO}h -> a recovery point is needed"
                 echo "recovery-point:$APP" >> /tmp/out/needed
               else
