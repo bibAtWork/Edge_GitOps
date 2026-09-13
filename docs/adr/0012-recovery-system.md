@@ -40,7 +40,7 @@ replace the current one with it.
 | Retention | Local 7 daily / 3 weekly / 3 monthly, AWS 1 weekly / 3 monthly, applied per repository by `restic forget` behind a verification gate and a dry-run cap. Each barman archive keeps a 7-day point-in-time window; a database's longer history is its base backups in restic. |
 | Credentials | Every AWS credential lives in `backup-system`, and so does the local store's credential for file and SQLite data. **The exception is PostgreSQL:** the barman-cloud plugin reads its object-store credential from the database's own namespace, so each namespace with a CNPG cluster holds the local store's credential. It never holds an AWS one; only promotion, in `backup-system`, reaches AWS. |
 | Velero | Removed at cutover. GitOps recreates cluster state. |
-| Reconciler | Decided after the end-to-end tests, as the architecture's phase 11 says. Ordered catch-up after an outage is the known requirement. |
+| Reconciler | The smallest one, built from Argo itself: an hourly CronWorkflow that submits the recovery point or promotion a missed guarantee needs (phase 11, below). Ordered catch-up after an outage needs nothing more: each run is one DAG. |
 
 ## Why this reverses ADR-010
 
@@ -94,6 +94,40 @@ dump job. No application namespace ever holds an AWS credential.
 | 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Done: vault (#592), promotion and remote verification (#596), guarantee alerts (#597) |
 | Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Done (#599) |
 | 9. Argo | Namespaced controller | Done (#588) |
-| 10. End-to-end | Including power loss and partial promotion | Follows |
-| 11. Reconciler | Decided after phase 10 | Open |
+| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Two gaps found and fixed: interrupted steps were not retried, and a dead restic process's lock blocked the repository |
+| 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below) |
 | Cutover | Old pipeline, relay, reconciler and Velero removed; the old Immich StatefulSet kept as rollback until then | Follows |
+
+## Phase 11: the reconciler decision
+
+Once the workflow works, the architecture asks one question: can Argo Workflows, Kubernetes
+resources and GitOps express the desired-state behaviour sufficiently? If yes, build no
+reconciler; if no, build the smallest possible one. The end-to-end tests
+([recovery-system-tests.md](../recovery-system-tests.md)) answered it behaviour by behaviour:
+
+| Behaviour the architecture requires | Expressed by | Phase 10 |
+| --- | --- | --- |
+| Order: validate after the backup, promote after the validation | the recovery-point DAG; promotion takes only VALIDATED points | the happy path; FAILED points never promoted |
+| Retry an interrupted step | Argo's `retryStrategy`, once it also covers interruptions (F1) | a killed pod retried |
+| Resume after a power loss mid-run | the controller resumes a Workflow from its stored state; every step is idempotent | controller killed mid-run |
+| Resume an interrupted promotion | `restic copy` skips what the vault holds; records are written AWS-first | partial promotion |
+| Offline across the schedule: one late run, no replay | CronWorkflow `startingDeadlineSeconds`, for a CronWorkflow that has run before | one run for the latest missed slot, none replayed |
+| One writer at a time | Argo mutexes; restic's locks, which a dead process no longer holds forever (F2) | a backup meeting a dead lock |
+| **A failed or missed point retried before the next night** | **nothing** | a FAILED point waited for the next 01:00 (F4) |
+
+Every row but the last is expressed by what already runs. The last is the reconciliation the
+architecture itself defines: act on the recovery guarantee, not on the clock -- "the newest
+validated point is 27 h old, RPO 24 h: a new point is required", and "a failure is retryable;
+the next reconciliation retries it". A schedule cannot say that.
+
+**Decision: the smallest possible reconciler, built from Argo itself.** One CronWorkflow,
+hourly, compares the policy's RPO with the newest VALIDATED record of each application, and
+the age of a point waiting for AWS with a limit, and submits the one workflow that is missing
+-- a recovery point or a promotion -- unless that workflow is running or was started within a
+back-off (3 hours). It decides and submits; Argo executes, retries, orders and locks exactly as
+for the scheduled runs. It has its own identity, which can list and create workflows and
+nothing else. No CRD, no controller, no leader election, no queue, no state of its own: the
+records are the observed state and the policy the desired one.
+
+The guardrail stands: if it ever needs more than evaluating and submitting, stop and revisit --
+"do not accidentally build a backup operator".
