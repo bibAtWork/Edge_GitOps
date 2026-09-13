@@ -56,7 +56,7 @@ The phase's own list, where the matrix does not already cover it:
 lost with its node ends in Error, or exits 137/143 when its container is killed. So even the
 steps that had a retryStrategy gave up on the first interruption, and most steps had none.
 Fixed: every leaf step retries interruptions -- the ones that already retried now also on errors,
-the rest only on errors and kills, so a real failure still stands.
+the rest only on errors and kills, so a real failure still stands (#611).
 
 **F2 -- a dead restic process blocked the repository.** restic never passes a stale lock by
 itself: `checkForOtherLocks` does not consult `Stale()`, and only `restic unlock` removes a stale
@@ -64,7 +64,7 @@ lock. A backup that met a lock left by a killed prune failed at once, and waitin
 until someone ran `unlock`. During the tests a killed promotion left such a lock in the local
 repository; that night's retention would have waited two hours on it and failed. Fixed:
 backups, promotion and retention remove stale locks first and wait up to 40 minutes for a live
-one; `unlock` only removes locks no running process has refreshed for 30 minutes.
+one; `unlock` only removes locks no running process has refreshed for 30 minutes (#611).
 Confirmed on a scratch repository: a lock 32 minutes old still failed a backup with
 `--retry-lock` ("lock was created ... 32m ago"); `restic unlock` removed it and the next backup
 succeeded.
@@ -98,14 +98,14 @@ apply` found the object the first run made, admission defaulting turned the re-a
 patch, and the workflow identity may create but never patch ("cannot patch resource
 clusters"). Found when a killed scratch-cluster recovery was re-run. Fixed without granting
 patch: those steps create what is missing and keep what exists, tolerating only
-AlreadyExists.
+AlreadyExists (#611).
 
 **F8 -- the exit handler left base-backup requests behind.** It removes every clone, scratch
 cluster and scratch archive its run made, but not the CNPG Backup objects the run created in
 the databases' namespaces. The backup step removes its own once read, so this showed only when
 that step was cut off in between: an OOM-killed backup step left one in `immich`. Fixed: the
 handler deletes the Backup objects labelled with its run in every namespace the policy's cnpg
-datasets name -- verified by planting one and running the handler.
+datasets name -- verified by planting one and running the handler (#611).
 
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
