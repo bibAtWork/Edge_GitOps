@@ -5,9 +5,6 @@ metadata:
   namespace: immich
 spec:
   interval: 30m
-  dependsOn:
-    - name: immich-postgresql
-      namespace: immich
   chart:
     spec:
       chart: immich
@@ -46,7 +43,9 @@ spec:
         containers:
           main:
             env:
-              DB_HOSTNAME: immich-postgresql
+              # The CloudNativePG cluster (postgres-cluster.yaml), since the
+              # migration; immich-postgresql is only the rollback copy now.
+              DB_HOSTNAME: immich-pg-rw
               DB_PORT: "5432"
               DB_DATABASE_NAME: immich
               DB_USERNAME: immich
