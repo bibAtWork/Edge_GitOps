@@ -34,6 +34,7 @@ spec:
       activeDeadlineSeconds: 1800
       retryStrategy:
         limit: 1
+        retryPolicy: Always
       container:
         image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
@@ -59,9 +60,10 @@ spec:
             [ -n "$VOL" ] || { echo "no Longhorn volume serves $NS/$PVC"; exit 1; }
             log "source: $NS/$PVC is $VOL ($SIZE bytes)"
 
-            # Idempotent: a retry after a partial run finds its own objects and
-            # carries on rather than failing on AlreadyExists.
-            kubectl apply -f - > /dev/null <<EOF
+            # Safe to run again: create what is missing, keep what a partial run left.
+            # Not `kubectl apply`: this identity may create but never patch, and
+            # admission defaults turn a re-apply into a patch (2026-09-13).
+            kubectl create -f - > /dev/null 2> /tmp/create.err <<EOF || { grep -v AlreadyExists /tmp/create.err | grep -q . && { cat /tmp/create.err; exit 1; }; true; }
             apiVersion: longhorn.io/v1beta2
             kind: Snapshot
             metadata:
@@ -80,7 +82,7 @@ spec:
             done
             log "snapshot $C taken"
 
-            kubectl apply -f - > /dev/null <<EOF
+            kubectl create -f - > /dev/null 2> /tmp/create.err <<EOF || { grep -v AlreadyExists /tmp/create.err | grep -q . && { cat /tmp/create.err; exit 1; }; true; }
             apiVersion: longhorn.io/v1beta2
             kind: Volume
             metadata:
@@ -111,7 +113,7 @@ spec:
             # for restored volumes. Retain, not Delete: cleanup removes the
             # Longhorn volume itself, in order, rather than racing the CSI
             # driver for it.
-            kubectl apply -f - > /dev/null <<EOF
+            kubectl create -f - > /dev/null 2> /tmp/create.err <<EOF || { grep -v AlreadyExists /tmp/create.err | grep -q . && { cat /tmp/create.err; exit 1; }; true; }
             apiVersion: v1
             kind: PersistentVolume
             metadata:
@@ -187,6 +189,7 @@ spec:
       activeDeadlineSeconds: 600
       retryStrategy:
         limit: 2
+        retryPolicy: Always
       container:
         image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]

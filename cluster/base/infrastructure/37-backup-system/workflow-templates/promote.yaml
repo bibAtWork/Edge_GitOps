@@ -69,6 +69,16 @@ spec:
                   value: "{{steps.copy.outputs.parameters.missing}}"
 
     - name: find
+      # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
+      # is gone) or exits 137/143 (killed). Only those are retried: this step is
+      # safe to run again, and any other exit is a real failure that must stand.
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       outputs:
         parameters:
           - name: records
@@ -203,6 +213,7 @@ spec:
       # vault is still full a minute later.
       retryStrategy:
         limit: 2
+        retryPolicy: Always
         expression: "lastRetry.exitCode != '64'"
       # The local repository, served over localhost only. --append-only: this
       # path can add to the repository and never remove from it.
@@ -263,7 +274,7 @@ spec:
             APP="{{workflow.parameters.application}}"
             FROM="rest:http://127.0.0.1:8000/"
             AWS="$RESTIC_REPOSITORY_AWS"
-            R="restic --retry-lock 30m"
+            R="restic --retry-lock 40m"
             PUSH="http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus"
             mkdir -p /tmp/out
             : > /tmp/out/copied
@@ -271,6 +282,11 @@ spec:
             i=0; until wget -q -O /dev/null "http://127.0.0.1:8000/config" 2>/dev/null; do
               i=$((i + 1)); [ "$i" -gt 30 ] && { echo "local repository not served"; exit 1; }; sleep 2
             done
+            # A run that died left its locks behind, and restic never passes a stale
+            # lock by itself. unlock removes only locks no live process has refreshed
+            # for 30 minutes; a live one is waited for (--retry-lock).
+            $R -r "$FROM" unlock > /dev/null 2>&1 || true
+            $R -r "$AWS" unlock > /dev/null 2>&1 || true
 
             # First promotion ever (exit 10: no repository there): the AWS
             # repository takes the local one's chunker parameters, so the same
@@ -398,6 +414,13 @@ spec:
     # and verified. Written to AWS first: if the local write is then lost, the
     # next run finds the point pending again, and restic copy has nothing to do.
     - name: record
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: records
