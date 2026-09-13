@@ -96,6 +96,13 @@ clusters"). Found when a killed scratch-cluster recovery was re-run. Fixed witho
 patch: those steps create what is missing and keep what exists, tolerating only
 AlreadyExists.
 
+**F8 -- the exit handler left base-backup requests behind.** It removes every clone, scratch
+cluster and scratch archive its run made, but not the CNPG Backup objects the run created in
+the databases' namespaces. The backup step removes its own once read, so this showed only when
+that step was cut off in between: an OOM-killed backup step left one in `immich`. Fixed: the
+handler deletes the Backup objects labelled with its run in every namespace the policy's cnpg
+datasets name -- verified by planting one and running the handler.
+
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
 until a forced reconcile. Objects Flux applies itself are healed within its interval. Two of the
