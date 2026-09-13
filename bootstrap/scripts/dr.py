@@ -4,15 +4,15 @@ dr.py — Disaster recovery orchestrator for the Talos + Flux home lab.
 
 Scenarios
 ---------
-  namespace   Restore one namespace from a Velero backup (cluster must be running)
-  full        Full cluster rebuild: re-provision Talos → recover etcd from snapshot
-              → re-bootstrap Flux → restore apps from Velero
+  full        Full cluster rebuild: re-provision Talos → bootstrap a fresh etcd
+              → re-bootstrap Flux → pause the recovery system's schedules, so that
+              application data can be restored by hand from the AWS recovery vault
+              (docs/runbooks/backup-recovery.md, Part A, A7)
   add-node    Attach a replacement node to an existing 3-node cluster without
               bootstrapping a new etcd cluster (requires etcd quorum on surviving nodes)
 
 Usage
 -----
-  python3 scripts/dr.py namespace
   python3 scripts/dr.py full --profile 3-node --dry-run
   python3 scripts/dr.py add-node --existing-node-ip 192.168.1.10 --new-node-ip 192.168.1.13
 """
@@ -20,7 +20,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -145,8 +144,7 @@ class Runner:
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 
 REQUIRED_TOOLS = {
-    "namespace": ["kubectl", "velero"],
-    "full":      ["talosctl", "kubectl", "flux", "age", "velero", "aws"],
+    "full":      ["talosctl", "kubectl", "flux"],
     "add-node":  ["talosctl", "kubectl"],
 }
 
@@ -170,7 +168,7 @@ def preflight_age_key(age_key: Path) -> None:
         abort(
             f"Age key not found at: {age_key}\n"
             "  This key must be retrieved from your offline storage (password manager).\n"
-            "  Without it you cannot decrypt the etcd snapshot."
+            "  Without it Flux cannot decrypt the cluster's secrets."
         )
     ok(f"Age key found: {age_key}")
 
@@ -196,75 +194,6 @@ def preflight_cluster_reachable(runner: Runner, node_ip: str) -> None:
         warn("kubectl cannot reach cluster — expected for full rebuild scenario")
 
 
-# ── Velero helpers ────────────────────────────────────────────────────────────
-
-def list_velero_backups(runner: Runner) -> List[str]:
-    result = runner.run(
-        ["velero", "backup", "get", "-o", "json"],
-        capture=True, check=False,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        return []
-    try:
-        data = json.loads(result.stdout)
-        items = data.get("items", [])
-        return [
-            item["metadata"]["name"]
-            for item in items
-            if item.get("status", {}).get("phase") == "Completed"
-        ]
-    except (json.JSONDecodeError, KeyError):
-        return []
-
-def list_s3_backups(runner: Runner, bucket: str, prefix: str = "") -> List[str]:
-    result = runner.run(
-        ["aws", "s3", "ls", f"s3://{bucket}/{prefix}"],
-        capture=True, check=False,
-    )
-    if result.returncode != 0:
-        return []
-    lines = [l.strip().split()[-1] for l in result.stdout.strip().splitlines() if l.strip()]
-    return sorted(lines, reverse=True)
-
-
-# ── Scenario: namespace restore ───────────────────────────────────────────────
-
-def scenario_namespace(runner: Runner, args: argparse.Namespace) -> None:
-    phase("Scenario: Namespace Restore")
-
-    preflight_tools("namespace")
-    preflight_cluster_reachable(runner, "")
-
-    step("Listing completed Velero backups")
-    backups = list_velero_backups(runner)
-    if not backups:
-        abort("No completed Velero backups found. Is Velero running?")
-    for b in backups[:10]:
-        info(b)
-
-    backup_name = args.backup_name or choose("Select backup to restore from", backups[:10])
-    namespace   = args.namespace or ask("Namespace to restore")
-    restore_name = f"dr-{namespace}-{int(time.time())}"
-
-    if not confirm(f"Restore namespace '{namespace}' from backup '{backup_name}'?"):
-        abort("Cancelled.")
-
-    step(f"Creating Velero restore: {restore_name}")
-    runner.run([
-        "velero", "restore", "create", restore_name,
-        "--from-backup", backup_name,
-        "--include-namespaces", namespace,
-        "--restore-volumes=true",
-        "--wait",
-    ])
-
-    step("Verifying restore")
-    runner.run(["velero", "restore", "describe", restore_name])
-    runner.run(["kubectl", "get", "pods", "-n", namespace])
-
-    ok(f"Namespace '{namespace}' restored from '{backup_name}'.")
-
-
 # ── Scenario: full cluster rebuild ────────────────────────────────────────────
 
 def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
@@ -275,9 +204,7 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
 
     # ── Gather required inputs ────────────────────────────────────────────────
 
-    age_key     = Path(args.age_key     or ask("Path to age private key (from offline storage)"))
     secrets     = Path(args.secrets     or ask("Path to Talos secrets.yaml (from offline storage)"))
-    etcd_bucket = args.etcd_bucket      or ask("AWS S3 bucket for etcd backups", "homelab-etcd-backups-offsite")
     github_owner = args.github_owner    or ask("GitHub owner")
     github_repo  = args.github_repo     or ask("GitHub repo", "Edge_GitOps")
     github_token = args.github_token    or os.environ.get("GITHUB_TOKEN") or ask("GitHub token")
@@ -299,7 +226,6 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         machineconfig = repo_root / "cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml"
 
     preflight_tools("full")
-    preflight_age_key(age_key)
     preflight_secrets_bundle(secrets)
 
     print(f"""
@@ -307,7 +233,6 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
   Profile   : {profile}
   Nodes     : {', '.join(nodes)}
   Endpoint  : {endpoint}
-  etcd S3   : s3://{etcd_bucket}
   Flux path : {overlay_path}
   GitHub    : {github_owner}/{github_repo}
     """)
@@ -349,55 +274,24 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         if not runner.dry_run:
             time.sleep(90)
 
-        # ── Phase 3: Fetch and decrypt etcd snapshot ──────────────────────────
-
-        phase("Phase 3: Fetch and decrypt etcd snapshot from S3")
-        step(f"Listing snapshots in s3://{etcd_bucket}/")
-        snapshots = list_s3_backups(runner, etcd_bucket)
-        if not snapshots:
-            abort(f"No snapshots found in s3://{etcd_bucket}/")
-
-        latest_encrypted = snapshots[0]
-        info(f"Latest: {latest_encrypted}")
-        if len(snapshots) > 1 and confirm("Use latest snapshot? (No to choose manually)", default=True):
-            chosen_snapshot = latest_encrypted
-        elif len(snapshots) > 1:
-            chosen_snapshot = choose("Select snapshot", snapshots[:10])
-        else:
-            chosen_snapshot = latest_encrypted
-
-        encrypted_path = tmp / "etcd.snapshot.age"
-        decrypted_path = tmp / "etcd.snapshot"
-
-        step(f"Downloading s3://{etcd_bucket}/{chosen_snapshot}")
-        runner.run(["aws", "s3", "cp", f"s3://{etcd_bucket}/{chosen_snapshot}", str(encrypted_path)])
-
-        step("Decrypting snapshot with age key")
-        runner.run([
-            "age", "--decrypt",
-            "-i", str(age_key),
-            "-o", str(decrypted_path),
-            str(encrypted_path),
-        ])
-        ok("Snapshot decrypted")
-
-        # ── Phase 4: Bootstrap etcd from snapshot ─────────────────────────────
-
-        phase("Phase 4: Bootstrap etcd from snapshot")
+        # ── Phase 3: Bootstrap etcd ───────────────────────────────────────────
+        # A fresh etcd: everything in it is declared in Git and rebuilt by
+        # Flux. Application data comes back from the recovery system instead
+        # (phase 7).
+        phase("Phase 3: Bootstrap etcd")
         runner.run([
             "talosctl", "bootstrap",
             "--nodes", nodes[0],
             "--talosconfig", str(talosconfig),
-            f"--recover-from={decrypted_path}",
         ])
 
         step("Waiting 120s for cluster to form")
         if not runner.dry_run:
             time.sleep(120)
 
-        # ── Phase 5: Get kubeconfig ───────────────────────────────────────────
+        # ── Phase 4: Get kubeconfig ───────────────────────────────────────────
 
-        phase("Phase 5: Retrieve kubeconfig")
+        phase("Phase 4: Retrieve kubeconfig")
         runner.run([
             "talosctl", "kubeconfig",
             "--nodes", nodes[0],
@@ -409,9 +303,9 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         # Verify nodes are visible
         runner.run(["kubectl", "get", "nodes"])
 
-        # ── Phase 6: Re-bootstrap Flux ────────────────────────────────────────
+        # ── Phase 5: Re-bootstrap Flux ────────────────────────────────────────
 
-        phase("Phase 6: Re-bootstrap Flux")
+        phase("Phase 5: Re-bootstrap Flux")
         sops_age_key = Path(args.sops_age_key) if args.sops_age_key else None
         if sops_age_key is None:
             warn("SOPS age key path not provided — Flux will reconcile but cannot decrypt secrets.")
@@ -442,94 +336,42 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
             "--components-extra=image-reflector-controller,image-automation-controller",
         ], env={"GITHUB_TOKEN": github_token})
 
-        # ── Phase 7: Wait for SeaweedFS ───────────────────────────────────────
-
-        phase("Phase 7: Wait for SeaweedFS and recreate buckets")
-        step("Waiting for SeaweedFS filer to become ready (up to 10 min)")
+        # ── Phase 6: Pause the recovery system ────────────────────────────────
+        # Before any data is restored: a rebuilt, still-empty application passes
+        # its restore checks as readily as a real one, and the next scheduled
+        # point would promote it to AWS (runbook A7). Git does not set
+        # `suspend`, so the patch holds until it is lifted by hand.
+        phase("Phase 6: Pause the recovery system's schedules")
+        step("Waiting for the Argo Workflows controller (up to 15 min)")
         runner.run([
-            "kubectl", "wait",
-            "--for=condition=ready", "pod",
-            "-l", "app.kubernetes.io/component=filer",
-            "-n", "seaweedfs",
-            "--timeout=600s",
+            "kubectl", "wait", "--for=condition=available", "deployment",
+            "argo-workflows-workflow-controller", "-n", "backup-system", "--timeout=900s",
         ])
-
-        s3_key    = runner.output(["kubectl", "get", "secret", "seaweedfs-s3-secret",
-                                   "-n", "seaweedfs", "-o",
-                                   "jsonpath={.data.admin_access_key_id}"]).strip()
-        s3_secret = runner.output(["kubectl", "get", "secret", "seaweedfs-s3-secret",
-                                   "-n", "seaweedfs", "-o",
-                                   "jsonpath={.data.admin_secret_access_key}"]).strip()
-        if s3_key:
-            import base64
-            s3_key    = base64.b64decode(s3_key).decode()
-            s3_secret = base64.b64decode(s3_secret).decode()
-
-        step("Creating SeaweedFS S3 buckets")
-        bucket_cmd = (
-            "aws s3 mb s3://etcd-backups   --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 && "
-            "aws s3 mb s3://velero-backups --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 && "
-            "aws s3 mb s3://zot-registry   --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 || true"
-        )
-        runner.run([
-            "kubectl", "run", "dr-bucket-init", "--rm", "-it",
-            "--image=amazon/aws-cli", "--restart=Never",
-            f"--env=AWS_ACCESS_KEY_ID={s3_key}",
-            f"--env=AWS_SECRET_ACCESS_KEY={s3_secret}",
-            "--", "sh", "-c", bucket_cmd,
-        ])
-
-        if profile == "1-node":
-            step("Configuring 1-node bucket-to-collection routing")
-            weed_cmds = (
-                "s3.bucket.create -name pvs            -collection primary\n"
-                "s3.bucket.create -name zot-registry   -collection primary\n"
-                "s3.bucket.create -name etcd-backups   -collection backup\n"
-                "s3.bucket.create -name velero-backups -collection backup\n"
-            )
+        crons = runner.output([
+            "kubectl", "get", "cronworkflows", "-n", "backup-system", "-o", "name",
+        ]).split()
+        for cron in crons:
             runner.run([
-                "kubectl", "exec", "-n", "seaweedfs", "seaweedfs-master-0",
-                "--", "weed", "shell",
-            ], input=weed_cmds)
+                "kubectl", "patch", "-n", "backup-system", cron,
+                "--type", "merge", "-p", '{"spec":{"suspend":true}}',
+            ])
+        ok(f"{len(crons)} CronWorkflow(s) suspended")
 
-        # ── Phase 8: Velero restore ───────────────────────────────────────────
+    # ── Phase 7: Restore application data ────────────────────────────────────
 
-        phase("Phase 8: Restore applications from Velero")
-        step("Waiting for Velero to become ready")
-        runner.run([
-            "kubectl", "wait",
-            "--for=condition=ready", "pod",
-            "-l", "app.kubernetes.io/name=velero",
-            "-n", "velero",
-            "--timeout=300s",
-        ])
+    phase("Phase 7: Restore application data")
+    info("Application data is restored by hand from the AWS recovery vault, in the")
+    info("order and with the checks in docs/runbooks/backup-recovery.md, Part A, A7.")
+    info("Resume the CronWorkflows (the same patch with suspend:false) once every")
+    info("application is back and verified.")
 
-        backups = list_velero_backups(runner)
-        if not backups:
-            warn("No Velero backups found yet — Velero may still be syncing from S3.")
-            warn("Run `velero restore create` manually once backups appear.")
-        else:
-            backup_name  = choose("Select Velero backup to restore from", backups[:10])
-            restore_name = f"dr-full-{int(time.time())}"
+    # ── Phase 8: Verification ─────────────────────────────────────────────────
 
-            if confirm(f"Restore all namespaces from '{backup_name}'?", default=True):
-                runner.run([
-                    "velero", "restore", "create", restore_name,
-                    "--from-backup", backup_name,
-                    "--restore-volumes=true",
-                    "--wait",
-                ])
-                runner.run(["velero", "restore", "describe", restore_name])
-                ok("Application restore complete")
-
-    # ── Phase 9: Verification ─────────────────────────────────────────────────
-
-    phase("Phase 9: Verification")
+    phase("Phase 8: Verification")
     runner.run(["kubectl", "get", "nodes"])
     runner.run(["kubectl", "get", "pods", "-A", "--field-selector=status.phase!=Running",
                 "--field-selector=status.phase!=Succeeded"])
     runner.run(["flux", "get", "all"])
-    runner.run(["velero", "backup-location", "get"])
 
     phase("Recovery Complete")
     ok("Full cluster rebuild finished.")
@@ -638,18 +480,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="scenario", required=True)
 
-    # ── namespace ──────────────────────────────────────────────────────────────
-    ns = sub.add_parser("namespace", help="Restore a single namespace from Velero")
-    ns.add_argument("--namespace",    help="Namespace to restore")
-    ns.add_argument("--backup-name",  dest="backup_name", help="Velero backup name")
-
     # ── full ───────────────────────────────────────────────────────────────────
-    fl = sub.add_parser("full", help="Full cluster rebuild from etcd snapshot + Velero")
+    fl = sub.add_parser("full", help="Full cluster rebuild from Git; application data restored by hand from the recovery system")
     fl.add_argument("--profile",       choices=["3-node", "1-node"], default="3-node")
-    fl.add_argument("--age-key",       help="Path to talos-backup age private key")
     fl.add_argument("--sops-age-key",  help="Path to SOPS age private key (for Flux decryption)")
     fl.add_argument("--secrets",       help="Path to Talos secrets.yaml bundle")
-    fl.add_argument("--etcd-bucket",   help="AWS S3 bucket containing etcd snapshots")
     fl.add_argument("--github-owner",  help="GitHub repository owner")
     fl.add_argument("--github-repo",   help="GitHub repository name")
     fl.add_argument("--github-token",  help="GitHub token (default: $GITHUB_TOKEN)")
@@ -677,9 +512,7 @@ def main() -> None:
         warn("DRY-RUN mode — no commands will be executed\n")
 
     try:
-        if args.scenario == "namespace":
-            scenario_namespace(runner, args)
-        elif args.scenario == "full":
+        if args.scenario == "full":
             scenario_full(runner, args)
         elif args.scenario == "add-node":
             scenario_add_node(runner, args)
