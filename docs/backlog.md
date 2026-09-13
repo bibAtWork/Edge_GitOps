@@ -261,9 +261,14 @@ the same as a component doing its job. This one reported `Complete` for 45 days.
 
 ---
 
-## Backup restore drill has never been performed
+## Closed: backup restore drill had never been performed
 
-**Status (2026-08-19): open. The "0" of 3-2-1-1-0.**
+**Status (2026-09-13): closed.** Every database dump has been replayed nightly since 2026-09-12
+("F1 closed", below). Since 2026-09-13, every recovery point of the recovery system
+([ADR-012](adr/0012-recovery-system.md)) is restore-tested before it counts as VALIDATED. The
+restore playbook in `docs/runbooks/backup-recovery.md` was drilled too, including restores from
+the AWS copy and a point-in-time recovery. Restoring into a live volume or database is still
+undrilled. The entry as opened on 2026-08-19 follows.
 
 Backups now exist and their artifacts are checked -- the database dump jobs refuse to upload
 an implausibly small file, both PostgreSQL dumps were confirmed to carry valid dump headers,
@@ -486,6 +491,10 @@ the upgrade Plans can fire.
 | 5. roll back Talos | **no mechanism** | no |
 | 6. update Kubernetes | yes | **never executed** |
 
+**Update 2026-09-13:** for the recovery system ([ADR-012](adr/0012-recovery-system.md)), (1) runs
+nightly with a restore test for every point, and (2) and (3) have a restore playbook, drilled from
+both repositories (`docs/runbooks/backup-recovery.md`). The playbook keeps them manual too.
+
 **(2) and (3) are deliberately manual and should stay that way.** `backup-repair`
 ships suspended for the reason in its own file: restoring on a schedule hides the
 rate at which objects go bad. What is missing is not automation but a rehearsal --
@@ -576,6 +585,11 @@ to read off album names and dates if that context has any value -- not worth res
   now be swept into the regular Sunday `backup-weekly` run going forward -- but that has not
   yet been observed to happen on its own. Worth confirming after this Sunday's run rather than
   assuming today's one-off manual trigger will repeat.
+
+**Since 2026-09-13** the library is dataset `immich-media` of the recovery system
+([ADR-012](adr/0012-recovery-system.md)): backed up every night from a snapshot clone and
+restore-tested before the point counts. Both questions above concern the Longhorn backup
+pipeline, which is removed at cutover.
 
 ---
 
@@ -1102,19 +1116,23 @@ of them was written down anywhere.
 
 ### What is still open
 
-**This is not automated, so it will decay.** It is a single point-in-time result. The Longhorn
-restore-test CronJob (`longhorn-system/backup-restore-test`, daily 07:00) is the shape to copy --
-the databases need the same treatment, and the reason they do not have it yet is that a permanent
-restore job needs its own entry in `allow-seaweedfs-internal` rather than borrowing the backup
-job's label, which is a policy change rather than a manifest addition.
-
 **Replaying into a live database has still never been exercised.** The drill restores into a
 throwaway server and throws it away. Bringing a real database back means stopping the application,
 replaying into the live instance and restarting it -- untested, and the step that actually matters
-in an emergency.
+in an emergency. The restore playbook (`docs/runbooks/backup-recovery.md`) now writes that
+procedure down for the recovery system, and marks it as not drilled.
 
+## Closed: continuous WAL archiving instead of periodic logical dumps
 
-## Evaluate: continuous WAL archiving instead of periodic logical dumps
+**Status (2026-09-13): adopted by [ADR-012](adr/0012-recovery-system.md), in a different shape
+from the one suggested below.** The CNPG barman-cloud plugin archives WAL continuously for all
+three PostgreSQL databases, to the local store, with a 7-day point-in-time window. Immich's
+database moved onto a CNPG cluster using the vectorchord image. Paperless' SQLite is copied with
+SQLite's online backup API instead of Litestream. The retention conflict below was avoided by
+never sending the archive offsite: each recovery point stages a base backup, with the WAL that
+makes it consistent, into restic. Only the restic repository is promoted to AWS and thinned
+there, and the retention identity's deletes are only delete markers. The evaluation as written on
+2026-09-09 follows.
 
 All four databases are backed up by a periodic logical dump -- hourly for the filer, nightly for
 the rest. The alternative is continuous archiving with point-in-time recovery. Raised 2026-09-09
@@ -1164,7 +1182,13 @@ database where an hour of lost metadata is genuinely expensive. Turning on `spec
 one cluster, against the local SeaweedFS target, tests every question above at the smallest scale
 and leaves the other three untouched.
 
-## Evaluate: k8up as one backup mechanism for all four databases
+## Closed: k8up as one backup mechanism for all four databases
+
+**Status (2026-09-13): not adopted.** [ADR-012](adr/0012-recovery-system.md) runs restic directly
+from Argo Workflows instead. File data and SQLite are read from Longhorn snapshot clones, and
+PostgreSQL is staged from barman base backups, so no dump command runs in an application's pod.
+There is one restic repository locally and one in AWS, and each is thinned by `restic forget`, so
+the Archive shape below was not needed. The evaluation as written on 2026-09-09 follows.
 
 Asked 2026-09-09: is there an open-source tool that does what
 `_shared/backup-upload.sh` does, but for every database at once? Yes -- k8up (https://k8up.io),

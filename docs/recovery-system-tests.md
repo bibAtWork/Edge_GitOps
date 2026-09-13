@@ -77,8 +77,8 @@ second -- and the point completed and VALIDATED 102 s after the lock was removed
 vault's indexes, snapshots and trees; E6b shows it passes over a corrupted data pack that
 `restore --verify` and `check --read-data` catch. That is the architecture's own choice --
 "verify without downloading the complete backup" -- and every local point's data is read back by
-its restore test. A periodic `check --read-data-subset` against the vault would sample the
-offsite bytes at a small egress cost; not added.
+its restore test. A weekly `check --read-data-subset` against the vault would sample the offsite
+bytes at a small egress cost. ADR-012 proposes it (Open).
 
 **F4 -- a failed or missed night waited a day.** Nothing retried a FAILED point before the next
 01:00, so the RPO was missed by up to a day. This is the one behaviour the schedules cannot
@@ -112,9 +112,9 @@ datasets name -- verified by planting one and running the handler (#611).
 
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
-until a forced reconcile. Objects Flux applies itself are healed within its interval. Two of the
-cluster's 36 HelmReleases enable drift detection; whether to enable it more widely is a
-cluster-wide decision, not made here.
+until a forced reconcile. Objects Flux applies itself are healed within its interval. Only one of
+the cluster's 24 HelmReleases, Longhorn's, enables drift detection. ADR-012 proposes enabling it
+for the recovery path (Open).
 
 ## Observations
 

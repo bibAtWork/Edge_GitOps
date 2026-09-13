@@ -1,8 +1,8 @@
 # ADR-012: The Recovery System
 
 **Date:** 2026-09-12
-**Status:** Accepted — under construction. The current pipeline (ADR-005, ADR-010, ADR-011) stays
-authoritative until cutover, and is removed then.
+**Status:** Accepted — built and tested end to end (phases 1–11); cutover follows. The current
+pipeline (ADR-005, ADR-010, ADR-011) stays authoritative until cutover, and is removed then.
 **Supersedes at cutover:** [ADR-005](0005-two-stage-backup-relay.md), [ADR-010](0010-backup-topology.md),
 the mechanism half of [ADR-011](0011-recovery-oriented-backup-policy.md)
 **Related:** [ADR-003](0003-backup-immutability-versioning-only.md)
@@ -94,7 +94,7 @@ dump job. No application namespace ever holds an AWS credential.
 | 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Done: vault (#592), promotion and remote verification (#596), guarantee alerts (#597) |
 | Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Done (#599) |
 | 9. Argo | Namespaced controller | Done (#588) |
-| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind |
+| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Two proposals are open (below) |
 | 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below; #612) |
 | Cutover | Old pipeline, relay, reconciler and Velero removed; the old Immich StatefulSet kept as rollback until then | Follows |
 
@@ -137,3 +137,46 @@ run at once declined to submit them again ("not now -- running").
 
 The guardrail stands: if it ever needs more than evaluating and submitting, stop and revisit --
 "do not accidentally build a backup operator".
+
+## Open
+
+Two findings of phase 10 are proposals, not yet decided. Neither blocks cutover.
+
+**Remote verification reads metadata only (F3).** Promotion ends with `restic check` on the vault.
+That loads every index, confirms that each pack the indexes name exists at its recorded size, and
+reads every snapshot and tree to confirm that each blob they reference is indexed. It never
+downloads a data blob, so it passes a pack whose bytes are corrupt (E6b). What it proves is that
+the vault is complete and consistent, not that its data is readable. Locally, every point's
+restore test closes that gap. Offsite, nothing does.
+
+Proposal: the weekly AWS retention run gains a last step, `restic check --read-data-subset=5G`,
+which runs whether or not anything was thinned. restic picks packs at random up to 5 GiB,
+downloads them, and checks each pack's hash and each blob's decryption and hash. Until the vault
+holds 5 GiB, that reads all of it every week (89 MiB today). At the 250 GiB cap it samples 2% a
+week: enough to catch damage to many packs within a week, and isolated damage eventually. The
+vault is S3 Standard, so there is no retrieval fee. About 22 GiB of egress a month fits within
+AWS's free 100 GB of monthly transfer out, and costs about $2 a month without it. The
+alternative, `--read-data-subset=n/12` rotated by week, reads the whole vault every quarter, but
+its cost grows with the vault: close to 100 GB a month at the cap.
+
+It needs one more thing: an alert on `recovery_retention_last_success_timestamp`, which nothing
+reads today. A retention run that fails, rather than refusing or holding, alerts nobody; the
+repository only grows until it reaches a cap.
+
+**A deleted Helm-rendered object is not healed (F5).** helm-controller acts on a change of chart or
+values. Without drift detection, a deleted Deployment of a HelmRelease stays gone until a
+reconcile is forced (E10b).
+
+Proposal: `driftDetection: {mode: enabled}` on the four releases the recovery path runs on --
+Argo Workflows, the CNPG operator, the barman-cloud plugin and SeaweedFS -- as Longhorn already
+has it. No ignore rules are needed:
+
+- The restore playbook suspends a HelmRelease before scaling its workload down (A6), and a
+  suspended release is not corrected.
+- Fields that controllers fill in and the charts do not render are not compared, such as the
+  CNPG webhooks' CA bundles.
+
+A dry run as helm-controller of the four releases' stored manifests (2026-09-13) found no
+difference beyond Helm's own metadata, so enabling it would change nothing on the day. Enabling
+it for the other releases is a cluster-wide decision. Changes to cilium, longhorn and tailscale
+stay reviewed before they merge.
