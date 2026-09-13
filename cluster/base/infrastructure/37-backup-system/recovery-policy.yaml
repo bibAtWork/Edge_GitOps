@@ -28,16 +28,22 @@ data:
   # adapter
   #   restic-volume  snapshot clone of the volume -> restic, file level
   #   sqlite-volume  snapshot clone -> SQLite online backup of one file -> restic
-  #   cnpg           CNPG barman-cloud: WAL archiving + base backups (follows)
+  #   cnpg           a CNPG cluster's base backup and the WAL that makes it
+  #                  consistent, from its barman archive into restic
+  # source
+  #   pvc:<namespace>/<claim> for the volume adapters, cnpg:<namespace>/<cluster>
   # paths
   #   restic-volume  comma-separated directories on the volume; everything else
   #                  on it is derived and deliberately left out (see below)
   #   sqlite-volume  the database file
+  #   cnpg           - (the whole database)
   datasets: |
     # dataset          application  adapter        source                            paths
     immich-media       immich       restic-volume  pvc:immich/immich-library-lh      upload,library,profile
     paperless-media    paperless    restic-volume  pvc:paperless/paperless-media-lh  documents/originals,documents/archive
     paperless-db       paperless    sqlite-volume  pvc:paperless/paperless-data-lh   db.sqlite3
+    keycloak-db        keycloak     cnpg           cnpg:keycloak/keycloak-pg         -
+    filer-db           seaweedfs    cnpg           cnpg:seaweedfs/filer-meta-pg      -
 
   # Ceilings, so no mistake -- a bug that re-uploads, a backup pointed at the
   # wrong volume, files rewritten wholesale -- turns into an unbounded bill or a
@@ -87,6 +93,10 @@ data:
     paperless-db      60    select count(*) from sqlite_master where type = 'table'
     paperless-db      1     select count(*) from auth_user
     paperless-db      1     select count(*) from documents_document
+    keycloak-db       2     select count(*) from realm
+    keycloak-db       1     select count(*) from user_entity
+    keycloak-db       10    select count(*) from client
+    filer-db          1000  select count(*) from filemeta
 
   # Derived data inside the datasets' volumes, left out on purpose. A cache that
   # can hold unique user state is not a cache; these cannot.

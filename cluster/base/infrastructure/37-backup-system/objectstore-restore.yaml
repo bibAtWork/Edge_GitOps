@@ -1,0 +1,28 @@
+# The read side of PostgreSQL restore tests (ADR-012). A scratch cluster in
+# backup-system recovers from a scratch archive under restore-test/<server>/,
+# which the restore test uploads from restic -- the offsite path, exercised
+# every night. It never archives, so it has no retention; the recovery point's
+# exit handler removes each scratch archive.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: recovery-restore
+  namespace: backup-system
+spec:
+  configuration:
+    destinationPath: s3://recovery/restore-test/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: restic-local
+        key: AWS_ACCESS_KEY_ID
+      secretAccessKey:
+        name: restic-local
+        key: AWS_SECRET_ACCESS_KEY
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

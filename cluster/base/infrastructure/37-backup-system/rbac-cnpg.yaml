@@ -1,0 +1,87 @@
+# What the workflow identity may do for PostgreSQL datasets (ADR-012).
+#
+# In each database namespace: request a base backup, remove the request once
+# read, and read the Cluster (its image, database, size and preload libraries,
+# which the restore test copies). A Backup object reads no data itself -- the
+# operator and the plugin's sidecar do the work -- so none of this is a path to
+# the database.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-base-backups
+  namespace: keycloak
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["backups"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-base-backups
+  namespace: keycloak
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-base-backups
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-base-backups
+  namespace: seaweedfs
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["backups"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-base-backups
+  namespace: seaweedfs
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-base-backups
+---
+# In backup-system: the scratch clusters restore tests recover into, and remove
+# afterwards. Their superuser password reaches the check step through the
+# pod's own secretKeyRef, read by the kubelet; this identity reads no secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-scratch-clusters
+  namespace: backup-system
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-scratch-clusters
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: backup-workflow
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-scratch-clusters

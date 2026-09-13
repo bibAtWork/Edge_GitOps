@@ -1,0 +1,618 @@
+# PostgreSQL datasets on CNPG (ADR-012).
+#
+#   backup           ask the operator for a base backup through the barman-cloud
+#                    plugin and wait for it. The Backup object is the only thing
+#                    created in the database's namespace; it reads nothing itself.
+#   stage            copy exactly that base backup, and the WAL that makes it
+#                    consistent, out of the archive and into restic. The recovery
+#                    point is then self-contained, and promotion carries PostgreSQL
+#                    offsite like every other dataset.
+#   restore-test     restore that restic snapshot, upload it as a scratch archive,
+#                    recover a scratch cluster from it on the source's own image,
+#                    and run the policy's restore-checks against it. This is the
+#                    path a total-loss recovery takes: from restic outward.
+#
+# Scratch clusters and scratch archives are named after the run (rpc-<uid8>-*)
+# and removed by the recovery point's exit handler, whatever happened.
+#
+# The `policy` volume comes from the calling workflow (recovery-point), not from
+# these templates: a dataset is judged by the policy of the recovery point that
+# protects it.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: cnpg-dataset
+  namespace: backup-system
+spec:
+  templates:
+    - name: backup
+      inputs:
+        parameters:
+          - name: dataset
+          - name: namespace
+          - name: cluster
+          - name: recovery-point
+      outputs:
+        parameters:
+          - name: backup-id
+            valueFrom:
+              path: /tmp/out/backup-id
+          - name: begin-wal
+            valueFrom:
+              path: /tmp/out/begin-wal
+          - name: end-wal
+            valueFrom:
+              path: /tmp/out/end-wal
+      activeDeadlineSeconds: 3600
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            NS="{{inputs.parameters.namespace}}"
+            CL="{{inputs.parameters.cluster}}"
+            B="rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
+            mkdir -p /tmp/out
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Backup
+            metadata:
+              name: $B
+              namespace: $NS
+              labels:
+                recovery.homelab/recovery-point: "{{inputs.parameters.recovery-point}}"
+            spec:
+              method: plugin
+              cluster:
+                name: $CL
+              pluginConfiguration:
+                name: barman-cloud.cloudnative-pg.io
+            EOF
+            i=0
+            while :; do
+              PH="$(kubectl get backups.postgresql.cnpg.io -n "$NS" "$B" -o jsonpath='{.status.phase}')"
+              [ "$PH" = completed ] && break
+              if [ "$PH" = failed ]; then
+                echo "base backup failed: $(kubectl get backups.postgresql.cnpg.io -n "$NS" "$B" -o jsonpath='{.status.error}')"; exit 1
+              fi
+              i=$((i + 1)); [ "$i" -gt 360 ] && { echo "base backup not complete after 30 minutes (phase ${PH:-none})"; exit 1; }
+              sleep 5
+            done
+            set -- $(kubectl get backups.postgresql.cnpg.io -n "$NS" "$B" -o jsonpath='{.status.backupId} {.status.beginWal} {.status.endWal}')
+            [ $# -eq 3 ] || { echo "the backup's status lacks its ID or WAL range"; exit 1; }
+            echo "$1" > /tmp/out/backup-id
+            echo "$2" > /tmp/out/begin-wal
+            echo "$3" > /tmp/out/end-wal
+            echo "base backup $1 of $NS/$CL: WAL $2 .. $3"
+            # The Backup object only asked for the backup. The data lives in the
+            # archive and stays when the object goes (verified 2026-09-13), so it
+            # is removed rather than left to pile up, one a day, in the
+            # database's namespace.
+            kubectl delete backups.postgresql.cnpg.io -n "$NS" "$B" --wait=false > /dev/null
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # The archive's layout is barman's: <server>/base/<backup-id>/ and
+    # <server>/wals/<timeline+log>/<segment>. The staged copy keeps it, so a
+    # restore puts back something barman -- and so CNPG -- can recover from.
+    - name: stage
+      inputs:
+        parameters:
+          - name: dataset
+          - name: cluster
+          - name: backup-id
+          - name: begin-wal
+          - name: end-wal
+          - name: recovery-point
+      outputs:
+        parameters:
+          - name: snapshot
+            valueFrom:
+              path: /tmp/out/snapshot
+          - name: files
+            valueFrom:
+              path: /tmp/out/files
+          - name: bytes
+            valueFrom:
+              path: /tmp/out/bytes
+      activeDeadlineSeconds: 7200
+      retryStrategy:
+        limit: 1
+      volumes:
+        - name: stage
+          emptyDir:
+            sizeLimit: 20Gi
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        - name: fetch
+          image: docker.io/rclone/rclone:1.75.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              SRV="{{inputs.parameters.cluster}}"
+              ID="{{inputs.parameters.backup-id}}"
+              BEGIN="{{inputs.parameters.begin-wal}}"
+              END="{{inputs.parameters.end-wal}}"
+              SRC="local:recovery/postgres/$SRV"
+              mkdir -p "/stage/$SRV"
+              rclone copy "$SRC/base/$ID" "/stage/$SRV/base/$ID"
+              [ -s "/stage/$SRV/base/$ID/backup.info" ] || { echo "base backup $ID has no backup.info in the archive"; exit 1; }
+              ls "/stage/$SRV/base/$ID" | grep -q '^data\.tar' || { echo "base backup $ID has no data tar in the archive"; exit 1; }
+              # The WAL that makes the base backup consistent: every segment from
+              # its first to its last, its backup label, and the timeline
+              # histories. Segment names are fixed-width hex, so within a
+              # timeline they sort as they number; the "x" keeps awk comparing
+              # them as strings rather than as imprecise numbers.
+              rclone lsf -R --files-only "$SRC/wals/" > /tmp/wals
+              awk -v b="$BEGIN" -v e="$END" '
+                { n = $0; sub(/^.*\//, "", n); sub(/\.(gz|bz2|xz|snappy|zst|lz4)$/, "", n) }
+                n ~ /\.history$/ { print "wals/" $0; next }
+                n ~ /\.backup$/ { if (substr(n, 1, 24) == b) print "wals/" $0; next }
+                length(n) == 24 && ("x" n) >= ("x" b) && ("x" n) <= ("x" e) { print "wals/" $0 }
+              ' /tmp/wals > /tmp/files
+              N="$(grep -c -v -e history -e backup /tmp/files || true)"
+              [ "$N" -ge 1 ] || { echo "no WAL between $BEGIN and $END in the archive"; exit 1; }
+              rclone copy --files-from /tmp/files "$SRC" "/stage/$SRV"
+              echo "staged base backup $ID and $N WAL segment(s) from $BEGIN to $END"
+          env:
+            - name: HOME
+              value: /tmp
+            - name: RCLONE_CONFIG_LOCAL_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_LOCAL_PROVIDER
+              value: Other
+            - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+              value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+            - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+              value: "true"
+            - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: AWS_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - name: stage
+              mountPath: /stage
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            DS="{{inputs.parameters.dataset}}"
+            RP="{{inputs.parameters.recovery-point}}"
+            SRV="{{inputs.parameters.cluster}}"
+            R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
+            mkdir -p /tmp/out
+            cd /stage
+            $R backup --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json "$SRV" > /tmp/backup.json
+            SNAP="$(grep -o '"snapshot_id":"[0-9a-f]*"' /tmp/backup.json | tail -n 1 | cut -d'"' -f4)"
+            FILES="$(grep -o '"total_files_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            BYTES="$(grep -o '"total_bytes_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            ADDED="$(grep -o '"data_added":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            [ -n "$SNAP" ] || { echo "restic reported no snapshot"; exit 1; }
+            echo "$SNAP" > /tmp/out/snapshot
+            echo "$FILES" > /tmp/out/files
+            echo "$BYTES" > /tmp/out/bytes
+            echo "snapshot $SNAP: $FILES files, $BYTES bytes, $ADDED new"
+
+            # Growth and size against the policy's limits, as for file datasets:
+            # alerts, never a failed backup.
+            lim() { sed 's/#.*//' /policy/limits | awk -v k="$1" '
+              function bytes(v,   n, u) { n = v + 0; u = v; sub(/^[0-9.]+/, "", u)
+                if (u == "KiB") return n * 1024; if (u == "MiB") return n * 1048576
+                if (u == "GiB") return n * 1073741824; if (u == "TiB") return n * 1099511627776
+                return n }
+              $1 == k { printf "%.0f", bytes($2); found = 1 } END { if (!found) exit 1 }'; }
+            COUNT="$($R snapshots --host "$DS" --json --no-lock | grep -o '"short_id"' | wc -l | tr -d ' ')"
+            UNUSUAL=0
+            if awk -v a="${ADDED:-0}" -v t="${BYTES:-0}" -v c="$COUNT" -v b="$(lim growth-bytes)" \
+                   -v r="$(lim growth-percent)" -v f="$(lim growth-floor)" \
+                   'BEGIN { if (c < 2) exit 1; if (a > b) exit 0; if (a > f && a * 100 > t * r) exit 0; exit 1 }'; then
+              UNUSUAL=1
+              echo "GROWTH: this backup added $ADDED bytes to a $BYTES-byte dataset -- alerting, not failing"
+            fi
+            REPO="$($R stats --mode raw-data --json --no-lock | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
+            CAP="$(lim local-repository)"
+            OVER=0
+            [ -n "$REPO" ] && [ "$REPO" -gt "$CAP" ] && OVER=1
+            {
+              echo "recovery_dataset_data_added_bytes{dataset=\"$DS\"} ${ADDED:-0}"
+              echo "recovery_dataset_bytes{dataset=\"$DS\"} ${BYTES:-0}"
+              echo "recovery_dataset_growth_unusual{dataset=\"$DS\"} $UNUSUAL"
+              echo "recovery_repository_bytes{repository=\"local\"} ${REPO:-0}"
+              echo "recovery_repository_cap_bytes{repository=\"local\"} $CAP"
+              echo "recovery_repository_over_cap{repository=\"local\"} $OVER"
+            } | wget -q -O /dev/null --post-file=- http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: metric push failed"
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: stage
+            mountPath: /stage
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: restore-test
+      inputs:
+        parameters:
+          - name: dataset
+          - name: namespace
+          - name: cluster
+          - name: backup-id
+          - name: snapshot
+      outputs:
+        parameters:
+          - name: verified
+            valueFrom:
+              parameter: "{{steps.checks.outputs.parameters.verified}}"
+      steps:
+        - - name: upload
+            template: upload-scratch-archive
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: cluster
+                  value: "{{inputs.parameters.cluster}}"
+                - name: snapshot
+                  value: "{{inputs.parameters.snapshot}}"
+        - - name: recover
+            template: recover-scratch-cluster
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: namespace
+                  value: "{{inputs.parameters.namespace}}"
+                - name: cluster
+                  value: "{{inputs.parameters.cluster}}"
+                - name: backup-id
+                  value: "{{inputs.parameters.backup-id}}"
+        - - name: checks
+            template: restore-checks
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: database
+                  value: "{{steps.recover.outputs.parameters.database}}"
+
+    # restic -> a scratch archive in the local bucket, where the scratch cluster's
+    # recovery reads it. --verify re-reads every restored file against its blob
+    # hashes, so what is uploaded is exactly what was backed up.
+    - name: upload-scratch-archive
+      inputs:
+        parameters:
+          - name: dataset
+          - name: cluster
+          - name: snapshot
+      activeDeadlineSeconds: 7200
+      volumes:
+        - name: restore
+          emptyDir:
+            sizeLimit: 20Gi
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        - name: restore
+          image: docker.io/restic/restic:0.19.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              SRV="{{inputs.parameters.cluster}}"
+              restic -o s3.bucket-lookup=path -o s3.region=us-east-1 restore "{{inputs.parameters.snapshot}}" --target /restore --verify --no-lock
+              [ -d "/restore/$SRV/base" ] && [ -d "/restore/$SRV/wals" ] || { echo "the snapshot holds no barman archive for $SRV"; exit 1; }
+          envFrom:
+            - secretRef:
+                name: restic-local
+          env:
+            - name: RESTIC_CACHE_DIR
+              value: /tmp/cache
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: restore
+              mountPath: /restore
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            SRV="{{inputs.parameters.cluster}}"
+            S="rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
+            rclone copy "/restore/$SRV" "local:recovery/restore-test/$S"
+            echo "scratch archive restore-test/$S: $(rclone lsf -R --files-only "local:recovery/restore-test/$S" | wc -l | tr -d ' ') files"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_LOCAL_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_LOCAL_PROVIDER
+            value: Other
+          - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+            value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+          - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+            value: "true"
+          - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+          - name: restore
+            mountPath: /restore
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # A scratch cluster in backup-system, recovered from the scratch archive at
+    # the first consistent point after the base backup (targetImmediate): what is
+    # proven is that backup, not whatever WAL came later. Same image and preload
+    # libraries as the source, so extensions that need them load as they do there.
+    - name: recover-scratch-cluster
+      inputs:
+        parameters:
+          - name: dataset
+          - name: namespace
+          - name: cluster
+          - name: backup-id
+      outputs:
+        parameters:
+          - name: image
+            valueFrom:
+              path: /tmp/out/image
+          - name: database
+            valueFrom:
+              path: /tmp/out/database
+      activeDeadlineSeconds: 2400
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            NS="{{inputs.parameters.namespace}}"
+            CL="{{inputs.parameters.cluster}}"
+            ID="{{inputs.parameters.backup-id}}"
+            S="rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
+            mkdir -p /tmp/out
+            get() { kubectl get clusters.postgresql.cnpg.io -n "$NS" "$CL" -o jsonpath="$1"; }
+            IMAGE="$(get '{.spec.imageName}')"
+            DB="$(get '{.spec.bootstrap.initdb.database}')"
+            SIZE="$(get '{.spec.storage.size}')"
+            PRELOAD="$(get '{.spec.postgresql.shared_preload_libraries}')"
+            [ -n "$IMAGE" ] && [ -n "$DB" ] && [ -n "$SIZE" ] || { echo "cannot read image, database or size of $NS/$CL"; exit 1; }
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              name: $S
+              namespace: backup-system
+            spec:
+              imageName: $IMAGE
+              instances: 1
+              enablePDB: false
+              stopDelay: 30
+              enableSuperuserAccess: true
+              postgresql:
+                shared_preload_libraries: ${PRELOAD:-[]}
+              # local-path, not longhorn: this cluster's longhorn classes are
+              # all Retain, so every scratch cluster left its volume behind
+              # (four leaked in testing, 2026-09-13). local-path is Delete,
+              # and a scratch database is small and lives for minutes.
+              storage:
+                size: $SIZE
+                storageClass: local-path
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi
+              bootstrap:
+                recovery:
+                  source: origin
+                  recoveryTarget:
+                    backupID: "$ID"
+                    targetImmediate: true
+              externalClusters:
+                - name: origin
+                  plugin:
+                    name: barman-cloud.cloudnative-pg.io
+                    parameters:
+                      barmanObjectName: recovery-restore
+                      serverName: $S
+            EOF
+            if ! kubectl wait clusters.postgresql.cnpg.io -n backup-system "$S" --for=condition=Ready --timeout=1800s; then
+              echo "RESTORE TEST: the scratch cluster did not come up: $(kubectl get clusters.postgresql.cnpg.io -n backup-system "$S" -o jsonpath='{.status.phase} {.status.phaseReason}')"
+              exit 1
+            fi
+            echo "$IMAGE" > /tmp/out/image
+            echo "$DB" > /tmp/out/database
+            echo "scratch cluster $S recovered base backup $ID of $NS/$CL on $IMAGE"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # The policy's restore-checks against the recovered database. Beyond "it
+    # started": each query must return at least its minimum, so an empty or
+    # half-restored database fails here. psql comes from a pinned client image,
+    # not the source's: a newer psql reads every older server, the checks are
+    # plain counts, and an image computed at run time is one no gate can see.
+    - name: restore-checks
+      inputs:
+        parameters:
+          - name: dataset
+          - name: database
+      outputs:
+        parameters:
+          - name: verified
+            valueFrom:
+              path: /tmp/out/verified
+      activeDeadlineSeconds: 600
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/library/postgres:17-alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            DS="{{inputs.parameters.dataset}}"
+            DB="{{inputs.parameters.database}}"
+            S="rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
+            mkdir -p /tmp/out
+            sed 's/#.*//' /policy/restore-checks | awk -v ds="$DS" '$1 == ds' > /tmp/checks
+            [ -s /tmp/checks ] || { echo "no restore-checks for $DS in the policy; refusing to call the restore proven"; exit 1; }
+            N=0
+            while read -r _ MIN QUERY; do
+              GOT="$(psql -h "$S-rw" -U postgres -d "$DB" -tA -v ON_ERROR_STOP=1 -c "$QUERY" < /dev/null)"
+              case "$GOT" in ''|*[!0-9]*) echo "RESTORE CHECK FAILED: $QUERY returned '$GOT'"; exit 1;; esac
+              [ "$GOT" -ge "$MIN" ] || { echo "RESTORE CHECK FAILED: $QUERY returned $GOT, expected at least $MIN"; exit 1; }
+              echo "$QUERY -> $GOT (at least $MIN)"
+              N=$((N + 1))
+            done < /tmp/checks
+            echo "$N" > /tmp/out/verified
+            echo "restore test: $N check(s) passed against the recovered $DB"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}-superuser"
+                key: password
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
