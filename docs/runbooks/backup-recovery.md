@@ -238,17 +238,19 @@ Create an empty cluster, then replay.
 
 | Database | Dump | Written by | Restore into |
 |---|---|---|---|
-| Immich | `s3://db-backups/immich/immich-<ts>.sql.gz` | `immich-postgres-backup`, 02:40 | `immich-postgresql` StatefulSet |
+| Immich | `s3://db-backups/immich/immich-<ts>.sql.gz` | `immich-postgres-backup`, 02:40 | `immich-pg` CNPG cluster (since 2026-09-13) |
 | Keycloak | `s3://db-backups/keycloak/keycloak-<ts>.sql.gz` | `keycloak-postgres-backup`, 02:50 | `keycloak-pg` CNPG cluster |
 | Paperless | `s3://db-backups/paperless/paperless-db-<ts>.sqlite3.gz` | `paperless-sqlite-backup`, 02:45 | the Paperless data volume |
 | SeaweedFS filer | `s3://filer-metadata/filer-<ts>.sql.gz` | `seaweedfs-filer-postgres-backup`, hourly | `filer-meta-pg` CNPG cluster |
 
 The Postgres dumps are taken with `--clean --if-exists`, so they drop and recreate their own
-objects and can be replayed into a database that already has content:
+objects and can be replayed into a database that already has content. Replay as `postgres` over
+the pod's local socket, where CNPG authenticates by peer; the dump's ownership statements hand
+every object back to the application's role:
 
 ```bash
 gzip -dc immich-<ts>.sql.gz \
-  | kubectl exec -i -n immich immich-postgresql-0 -- psql -U immich -d immich
+  | kubectl exec -i -n immich immich-pg-1 -c postgres -- psql -U postgres -d immich
 ```
 
 **Immich carries one caveat, and it is not an error when you see it.** The dump excludes

@@ -44,7 +44,7 @@ spec:
           main:
             env:
               # The CloudNativePG cluster (postgres-cluster.yaml), since the
-              # migration; immich-postgresql is only the rollback copy now.
+              # migration of 2026-09-13.
               DB_HOSTNAME: immich-pg-rw
               DB_PORT: "5432"
               DB_DATABASE_NAME: immich

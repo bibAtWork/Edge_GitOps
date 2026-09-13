@@ -4431,9 +4431,11 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
-              # The ONLY protection these three databases have.
+              # The current pipeline's protection of these three databases. Since
+              # ADR-012 each also has barman WAL archiving and a validated
+              # recovery point every night; these dumps stay until cutover.
               #
-              # volume-backup-policy deliberately excludes data-immich-postgresql-0
+              # volume-backup-policy deliberately excludes immich-pg-1
               # and keycloak-pg-1 from Longhorn backups, on the reasoning that
               # "every database here already produces a logical dump, and that dump
               # is the artefact the restore-test actually replays". That reasoning

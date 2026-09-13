@@ -120,8 +120,8 @@ flowchart TD
   merging it reverts the base. The CVE test cannot catch this, because a rollback's scores
   are equal or better by construction
 - an `appVersion` that cannot be resolved, or a pin that cannot be ordered against it —
-  `immich-postgresql` pins `17-vectorchord0.3.0-pgvectors0.3.0`, which is reported as
-  unorderable rather than guessed at
+  the old `immich-postgresql` release pinned `17-vectorchord0.3.0-pgvectors0.3.0`, which was
+  reported as unorderable rather than guessed at
 - the `manual-review` label (bootstrap-critical components), regardless of CVE posture
 
 A genuinely chart-only update — the chart version moved and no image reference changed at

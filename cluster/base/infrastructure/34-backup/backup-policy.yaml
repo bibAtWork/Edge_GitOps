@@ -169,22 +169,16 @@ data:
     # replay. Dropping it removes a copy that could not have been restored,
     # not a copy that could.
     #
-    # data-immich-postgresql-0 is the honest case: Immich runs a plain
-    # StatefulSet with pg_wal inside the data directory, so a single-volume
-    # snapshot is crash-consistent and genuinely restorable. It is dropped
-    # anyway, to hold one mechanism per database rather than two -- 485MB in
-    # every weekly tier to duplicate what a 247KB dump already covers.
-    #
-    # The cost is real and worth stating: restoring Immich now means creating
-    # the database and replaying a dump rather than attaching a volume, and
-    # the dump excludes the geodata tables, so reverse geocoding stays
-    # degraded until Immich re-imports them. See docs/runbooks/backup-recovery.md.
+    # The cost is real and worth stating: restoring a database means creating
+    # it and replaying a dump rather than attaching a volume, and Immich's dump
+    # excludes the geodata tables, so reverse geocoding stays degraded until
+    # Immich re-imports them. See docs/runbooks/backup-recovery.md.
     keycloak-pg-1
     # immich-pg-1 is keycloak-pg-1's case exactly: CNPG, WAL on its own volume,
     # so a volume snapshot is no coherent copy. Its protection is the logical
-    # dump here and, in the recovery system (ADR-012), barman.
+    # dump here and, in the recovery system (ADR-012), barman. (It replaced the
+    # bitnami StatefulSet's data-immich-postgresql-0 on 2026-09-13.)
     immich-pg-1
-    data-immich-postgresql-0
 
     # zot's local volume. Image blobs live in SeaweedFS S3 (storageDriver s3,
     # bucket zot-registry); this holds only cache.db, meta.db and zot's
