@@ -113,8 +113,9 @@ datasets name -- verified by planting one and running the handler (#611).
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
 until a forced reconcile. Objects Flux applies itself are healed within its interval. Only one of
-the cluster's 24 HelmReleases, Longhorn's, enables drift detection. ADR-012 proposes enabling it
-for the recovery path (Open).
+the cluster's 24 HelmReleases, Longhorn's, had drift detection. Fixed: it is enabled on the four
+releases the recovery path runs on (ADR-012). Afterwards, a deleted Deployment of the Argo release
+was reported as drift and recreated by the next reconcile.
 
 ## Observations
 
@@ -145,7 +146,9 @@ Enough to repeat any row:
   outage failed in seconds rather than half an hour.
 - **Power loss**: force-deleting the workflow's running pods and the controller's pod together;
   for missed schedules, the controller Deployment scaled to 0 across a slot of a CronWorkflow that
-  had already run once (Argo only catches up a CronWorkflow with a `lastScheduledTime`).
+  had already run once (Argo only catches up a CronWorkflow with a `lastScheduledTime`). Since the
+  Argo release has drift detection, suspend it first (`flux suspend hr -n backup-system
+  argo-workflows`), or its next reconcile scales the controller back up.
 - **A dead lock**: `restic prune` killed with `-9` the moment its lock existed, and the backup run
   from another pod -- restic treats a dead process's lock on its own host as stale.
 - **Verification that yields nothing**: the promote template with `entrypoint: record` and an
