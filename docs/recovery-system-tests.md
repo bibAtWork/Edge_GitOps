@@ -83,7 +83,7 @@ group before it applies anything; with the ~200 CRDs this cluster serves, that i
 run kubectl had a 256Mi limit. The kernel OOM-killed them five times on the test day -- the
 first such kills since its log began three days earlier -- and a retry of a killed step died
 the same way. Found by reading the node's kernel log after retries kept failing: the exit 137
-that looked like a test's kill was the OOM killer's. Fixed: 512Mi.
+that looked like a test's kill was the OOM killer's. Fixed: 512Mi (#610).
 
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
