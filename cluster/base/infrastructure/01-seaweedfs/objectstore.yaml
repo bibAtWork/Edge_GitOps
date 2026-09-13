@@ -4,15 +4,20 @@
 # this namespace -- here the canonical seaweedfs-s3-secret itself (CLAUDE.md).
 #
 # retentionPolicy is a RECOVERY WINDOW, not a count: every base backup and all
-# WAL of the last 90 days are kept, so any moment in that window can be
-# restored.
+# WAL of the last 7 days are kept, so any moment of the last week can be
+# restored. The longer history is each recovery point's base backup, staged
+# into restic -- and it is the restic copy, promoted to AWS, that can bring the
+# filer back when SeaweedFS itself is gone.
+#
+# Base backups are stored uncompressed so restic can deduplicate them day to
+# day; WAL segments stay gzip-compressed.
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata:
   name: recovery
   namespace: seaweedfs
 spec:
-  retentionPolicy: "90d"
+  retentionPolicy: "7d"
   configuration:
     destinationPath: s3://recovery/postgres/
     endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
@@ -24,8 +29,6 @@ spec:
         name: seaweedfs-s3-secret
         key: admin_secret_access_key
     wal:
-      compression: gzip
-    data:
       compression: gzip
   instanceSidecarConfiguration:
     resources:
