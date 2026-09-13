@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# Provision AWS S3 + KMS + IAM resources for offsite backups.
+# Provision the AWS resources in bootstrap/terraform.
 #
-# Run once after bootstrap. Creates:
-#   - Two S3 buckets (etcd-backups-offsite, velero-backups-offsite)
-#   - KMS key for SSE encryption with automatic rotation
-#   - IAM users: velero (S3 + KMS on velero bucket), talos-backup (S3 + KMS on etcd bucket)
-#   - S3 Intelligent Tiering → DEEP_ARCHIVE_ACCESS at 180 days (cost saving)
+# Run once after bootstrap. Creates the recovery system's AWS side (ADR-012):
+#   - the recovery vault: a versioned S3 bucket under Object Lock (Governance)
+#   - two in-cluster identities: the promoter (writes, and deletes only restic's
+#     own lock files) and retention (deletes, which only write delete markers)
+#   - an interactive MFA admin identity, with no access key
+#   - a monthly S3 cost budget with email alerts
 #
-# Prerequisites (all in ansible/group_vars/all.yml):
+# The older backup buckets (etcd, Velero and the ADR-005 vault) are being
+# emptied and are removed once empty; see docs/backlog.md.
+#
+# Prerequisites:
 #   terraform >= 1.6
-#   AWS credentials in environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+#   AWS credentials in the environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+#   TF_VAR_budget_alert_email: the address the budget alerts go to
 #
 # Usage:
 #   export AWS_REGION=eu-central-1
 #   export CLUSTER_NAME=homelab
-#   ./scripts/setup-aws.sh
+#   export TF_VAR_budget_alert_email=<address>
+#   ./bootstrap/scripts/setup-aws.sh
 
 set -euo pipefail
 
@@ -23,7 +29,7 @@ TERRAFORM_DIR="${SCRIPT_DIR}/../terraform"
 
 # --- Validate environment ---
 
-required_env=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION)
+required_env=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION TF_VAR_budget_alert_email)
 missing=()
 for var in "${required_env[@]}"; do
   [[ -z "${!var:-}" ]] && missing+=("$var")
@@ -85,22 +91,13 @@ echo "==================================================="
 echo " Next steps"
 echo "==================================================="
 echo ""
-echo "1. Encrypt and store IAM credentials as Kubernetes secrets:"
-echo "   For Velero (key 'cloud' must be an AWS credentials file, not key:secret):"
-echo "     kubectl create secret generic velero-aws-credentials \\"
-echo "       --from-literal=cloud=\$'[default]\\naws_access_key_id = <id>\\naws_secret_access_key = <secret>\\n' \\"
-echo "       -n velero --dry-run=client -o yaml | kubectl apply -f -"
+echo "1. Write the recovery system's two AWS credentials as SOPS-encrypted Secrets:"
+echo "     ./scripts/make-recovery-credentials.sh"
 echo ""
-echo "   For talos-backup:"
-echo "     Add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to"
-echo "     cluster/base/00-bootstrap/talos-backup/cronjob.yaml env vars"
-echo "     (SOPS-encrypted in the secret referenced by the CronJob)."
+echo "2. Commit and push the two files it writes:"
+echo "     git add cluster/base/infrastructure/37-backup-system/"
+echo "     git commit -m 'feat(backup-system): recovery vault credentials'"
+echo "     git push"
 echo ""
-echo "2. Update bucket names in:"
-echo "   - cluster/base/infrastructure/07-velero/helmrelease.yaml (BSL aws-s3)"
-echo "   - cluster/base/00-bootstrap/talos-backup/cronjob.yaml (S3_BUCKET env var)"
-echo ""
-echo "3. Commit and push the updated secret files:"
-echo "   git add cluster/"
-echo "   git commit -m 'chore: configure AWS offsite backup targets'"
-echo "   git push"
+echo "3. Create the admin identity's access key and MFA device by hand, and keep"
+echo "   them with the age key -- see docs/runbooks/backup-recovery.md, Part A."

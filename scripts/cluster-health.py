@@ -2,16 +2,16 @@
 """
 cluster-health.py — Functional verification suite for the Edge_GitOps cluster.
 
-Tests backup integrity, storage health, core components, and application
+Tests the recovery system, storage health, core components, and application
 readiness. Use for continuous monitoring and as a pre-update gate.
 
 Usage:
   python3 scripts/cluster-health.py                     # monitoring checks (all groups)
-  python3 scripts/cluster-health.py --mode pre-update   # stricter; triggers fresh backup if needed
-  python3 scripts/cluster-health.py --group backup etcd # run specific group(s) only
+  python3 scripts/cluster-health.py --mode pre-update   # stricter: verified in AWS within 26h
+  python3 scripts/cluster-health.py --group backup certs # run specific group(s) only
   python3 scripts/cluster-health.py --json              # machine-readable output
 
-Requirements: kubectl (and velero CLI for the backup trigger in pre-update mode).
+Requirements: kubectl.
 Run from any machine that has a working kubeconfig for the cluster.
 """
 
@@ -21,7 +21,6 @@ import json
 import re
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -42,7 +41,7 @@ class Result:
 # ── Kubectl wrapper ─────────────────────────────────────────────────────────────
 
 class Cluster:
-    """Thin wrapper around kubectl. All calls are read-only except trigger_backup()."""
+    """Thin wrapper around kubectl. All calls are read-only."""
 
     def __init__(self, kubeconfig: Optional[str] = None, timeout: int = 30):
         self._base = ["kubectl"]
@@ -248,194 +247,95 @@ def check_storage(cl: Cluster) -> List[Result]:
 
 
 def check_backup(cl: Cluster, *, pre_update: bool = False) -> List[Result]:
+    """The recovery system (ADR-012).
+
+    Every application with a recovery-point CronWorkflow must have a recent
+    point that passed its restore test, with a verified copy in AWS. The
+    evidence is the Workflows in backup-system, as for the pre-upgrade gate: a
+    recovery-point Workflow succeeds only once its point is recorded VALIDATED,
+    and a promote Workflow only once its copy is verified in AWS.
+    """
     results: List[Result] = []
+    ns = "backup-system"
 
-    # ── Velero pods ───────────────────────────────────────────────────────────
+    def age(ts: Optional[str]) -> float:
+        t = parse_time(ts)
+        return hours_since(t) if t else float("inf")
+
     try:
-        pods = cl.items("pods", "-n", "velero")
-        velero_main = [p for p in pods if "node-agent" not in p["metadata"]["name"] and "velero" in p["metadata"]["name"]]
-        node_agents = [p for p in pods if "node-agent" in p["metadata"]["name"]]
-
-        v_running = sum(1 for p in velero_main if p.get("status", {}).get("phase") == "Running")
-        results.append(Result(
-            "backup", "velero/server",
-            v_running >= 1, "critical",
-            f"velero server: {v_running}/{len(velero_main)} pods running",
-        ))
-
-        na_running = sum(1 for p in node_agents if p.get("status", {}).get("phase") == "Running")
-        results.append(Result(
-            "backup", "velero/node-agent",
-            na_running >= 1, "warning",
-            f"velero node-agent: {na_running}/{len(node_agents)} pods running",
-        ))
+        ctl = cl.get_json("deployments", "argo-workflows-workflow-controller", "-n", ns)
+        ready = ctl.get("status", {}).get("readyReplicas", 0) or 0
+        results.append(Result("backup", "argo/controller", ready >= 1, "critical",
+                              f"Argo Workflows controller: {ready} replica(s) ready"))
     except Exception as exc:
-        results.append(Result("backup", "velero/pods", False, "critical", f"Cannot list velero pods: {exc}"))
+        results.append(Result("backup", "argo/controller", False, "critical",
+                              f"Cannot read the Argo Workflows controller: {exc}"))
 
-    # ── Backup Storage Locations ──────────────────────────────────────────────
     try:
-        bsls = cl.items("backupstoragelocations", "-n", "velero")
-        expected_bsls = {"seaweedfs-local": "critical", "aws-s3": "warning"}
-        found = {b["metadata"]["name"]: b for b in bsls}
-
-        for bsl_name, severity in expected_bsls.items():
-            if bsl_name not in found:
-                results.append(Result(
-                    "backup", f"bsl/{bsl_name}", False, severity,
-                    f"BSL {bsl_name} not found",
-                ))
-                continue
-            bsl = found[bsl_name]
-            phase = bsl.get("status", {}).get("phase", "Unknown")
-            last_validated = parse_time(bsl.get("status", {}).get("lastValidationTime"))
-            age_str = f" (validated {hours_since(last_validated):.1f}h ago)" if last_validated else ""
-            results.append(Result(
-                "backup", f"bsl/{bsl_name}",
-                phase == "Available", severity,
-                f"BSL {bsl_name}: {phase}{age_str}",
-            ))
+        crons = cl.items("cronworkflows", "-n", ns)
+        workflows = cl.items("workflows", "-n", ns)
     except Exception as exc:
-        results.append(Result("backup", "bsl", False, "critical", f"Cannot list BSLs: {exc}"))
-
-    # ── Velero schedules ──────────────────────────────────────────────────────
-    try:
-        schedules = cl.items("schedules", "-n", "velero")
-        sched_map = {s["metadata"]["name"]: s for s in schedules}
-        required = ["daily-local", "weekly-offsite", "monthly-offsite"]
-
-        for sched_name in required:
-            if sched_name not in sched_map:
-                results.append(Result(
-                    "backup", f"schedule/{sched_name}", False, "critical",
-                    f"Velero schedule '{sched_name}' not found",
-                ))
-                continue
-            sched = sched_map[sched_name]
-            paused = sched.get("spec", {}).get("paused", False)
-            last_run = parse_time(sched.get("status", {}).get("lastBackupTime"))
-            last_str = f", last ran {hours_since(last_run):.1f}h ago" if last_run else ", never ran"
-            results.append(Result(
-                "backup", f"schedule/{sched_name}",
-                not paused, "critical",
-                f"Schedule '{sched_name}': {'PAUSED' if paused else 'active'}{last_str}",
-            ))
-    except Exception as exc:
-        results.append(Result("backup", "schedules", False, "critical", f"Cannot list schedules: {exc}"))
-
-    # ── Recent backup: status and age ─────────────────────────────────────────
-    try:
-        backups = cl.items("backups", "-n", "velero")
-        backups.sort(
-            key=lambda b: b.get("metadata", {}).get("creationTimestamp", ""),
-            reverse=True,
-        )
-        completed = [b for b in backups if b.get("status", {}).get("phase") in ("Completed", "PartiallyFailed")]
-        failed_recent = [b for b in backups[:5] if b.get("status", {}).get("phase") == "Failed"]
-
-        if not completed:
-            results.append(Result(
-                "backup", "recent-backup/exists", False, "critical",
-                "No completed backups found in Velero",
-            ))
-        else:
-            latest = completed[0]
-            latest_name = latest["metadata"]["name"]
-            phase = latest.get("status", {}).get("phase", "Unknown")
-            created = parse_time(latest.get("metadata", {}).get("creationTimestamp"))
-            age_h = hours_since(created)
-
-            results.append(Result(
-                "backup", "recent-backup/status",
-                phase == "Completed", "critical",
-                f"Latest backup '{latest_name}': {phase}",
-            ))
-
-            # Threshold: 26 h for monitoring (daily schedule + 2 h slack), 2 h for pre-update
-            threshold_h = 2.0 if pre_update else 26.0
-            threshold_label = "2h" if pre_update else "26h (daily + 2h slack)"
-            results.append(Result(
-                "backup", "recent-backup/age",
-                age_h <= threshold_h, "critical",
-                f"Latest backup is {age_h:.1f}h old — threshold: {threshold_label}",
-                detail=latest_name,
-            ))
-
-        if failed_recent:
-            names = ", ".join(b["metadata"]["name"] for b in failed_recent)
-            results.append(Result(
-                "backup", "recent-backup/no-failures",
-                False, "warning",
-                f"{len(failed_recent)} failed backup(s) among the 5 most recent",
-                detail=names,
-            ))
-    except Exception as exc:
-        results.append(Result("backup", "recent-backup", False, "critical", f"Cannot list backups: {exc}"))
-
-    return results
-
-
-def check_etcd(cl: Cluster) -> List[Result]:
-    results: List[Result] = []
-    ns = "talos-backup"
-
-    # ── CronJob exists and is not suspended ───────────────────────────────────
-    try:
-        cj = cl.get_json("cronjob", "talos-backup", "-n", ns)
-    except Exception as exc:
-        results.append(Result(
-            "etcd", "cronjob/exists", False, "critical",
-            f"CronJob talos-backup not found in namespace '{ns}': {exc}",
-        ))
+        results.append(Result("backup", "recovery/list", False, "critical",
+                              f"Cannot list the recovery system's workflows: {exc}"))
         return results
 
-    suspended = cj.get("spec", {}).get("suspend", False)
-    results.append(Result(
-        "etcd", "cronjob/not-suspended",
-        not suspended, "critical",
-        f"talos-backup CronJob: {'SUSPENDED — etcd snapshots will not be taken!' if suspended else 'active'}",
-    ))
+    for c in crons:
+        name = c["metadata"]["name"]
+        if c.get("spec", {}).get("suspend"):
+            severity = "critical" if name.startswith(("recovery-point-", "promote-")) else "warning"
+            results.append(Result("backup", f"schedule/{name}", False, severity,
+                                  f"CronWorkflow {name} is SUSPENDED"))
 
-    last_scheduled = parse_time(cj.get("status", {}).get("lastScheduleTime"))
-    # Schedule is every 6 h; allow 7 h before warning
-    results.append(Result(
-        "etcd", "cronjob/schedule-recent",
-        hours_since(last_scheduled) <= 7.0, "warning",
-        f"Last scheduled: {hours_since(last_scheduled):.1f}h ago (schedule: every 6h)",
-    ))
+    apps = sorted(c["metadata"]["name"][len("recovery-point-"):]
+                  for c in crons if c["metadata"]["name"].startswith("recovery-point-"))
+    if not apps:
+        results.append(Result("backup", "recovery/applications", False, "critical",
+                              "No recovery-point CronWorkflows in backup-system"))
+        return results
 
-    # ── Last Job: succeeded and age ───────────────────────────────────────────
-    try:
-        jobs = cl.items("jobs", "-n", ns)
-        jobs.sort(
-            key=lambda j: parse_time(j.get("status", {}).get("startTime")) or datetime.min.replace(tzinfo=timezone.utc),
-            reverse=True,
-        )
-        if not jobs:
-            results.append(Result("etcd", "last-job/exists", False, "warning",
-                                  "No talos-backup jobs found yet (CronJob may not have fired)"))
-            return results
+    def runs(template: str, app: str) -> List[dict]:
+        found = []
+        for w in workflows:
+            spec = w.get("spec", {})
+            if (spec.get("workflowTemplateRef") or {}).get("name") != template:
+                continue
+            params = {prm.get("name"): prm.get("value")
+                      for prm in (spec.get("arguments") or {}).get("parameters", [])}
+            if params.get("application") == app:
+                found.append(w)
+        return found
 
-        latest = jobs[0]
-        succeeded = latest.get("status", {}).get("succeeded", 0) >= 1
-        job_failed = latest.get("status", {}).get("failed", 0)
-        completion = parse_time(latest.get("status", {}).get("completionTime"))
-        start = parse_time(latest.get("status", {}).get("startTime"))
-        age_h = hours_since(completion or start)
-
-        results.append(Result(
-            "etcd", "last-job/succeeded",
-            succeeded, "critical",
-            f"Last talos-backup job: {'succeeded' if succeeded else f'FAILED (failure count: {job_failed})'}",
-        ))
-
-        # Allow 8 h (6 h schedule + 2 h slack)
-        results.append(Result(
-            "etcd", "last-job/age",
-            age_h <= 8.0, "warning",
-            f"Last etcd backup completed {age_h:.1f}h ago (threshold: 8h)",
-        ))
-    except Exception as exc:
-        results.append(Result("etcd", "last-job", False, "warning", f"Cannot inspect talos-backup jobs: {exc}"))
+    # The offsite bound is the pre-upgrade gate's (26h) before an update, and
+    # RecoveryOffsiteStale's (48h) otherwise.
+    offsite_h = 26.0 if pre_update else 48.0
+    for app in apps:
+        points = runs("recovery-point", app)
+        done = sorted(w["status"]["finishedAt"] for w in points
+                      if w.get("status", {}).get("phase") == "Succeeded" and w["status"].get("finishedAt"))
+        promoted = [w["status"]["startedAt"] for w in runs("promote", app)
+                    if w.get("status", {}).get("phase") == "Succeeded" and w["status"].get("startedAt")]
+        if not done:
+            results.append(Result("backup", f"{app}/validated", False, "critical",
+                                  f"{app}: no validated recovery point"))
+            continue
+        results.append(Result("backup", f"{app}/validated", age(done[-1]) <= 26.0, "critical",
+                              f"{app}: newest validated point finished {age(done[-1]):.1f}h ago (threshold 26h)"))
+        # A promotion that started after a point finished, and succeeded, took it.
+        verified = [ts for ts in done if any(p >= ts for p in promoted)]
+        if verified:
+            results.append(Result("backup", f"{app}/offsite", age(verified[-1]) <= offsite_h, "critical",
+                                  f"{app}: newest point verified in AWS finished {age(verified[-1]):.1f}h ago "
+                                  f"(threshold {offsite_h:.0f}h)"))
+        else:
+            results.append(Result("backup", f"{app}/offsite", False, "critical",
+                                  f"{app}: no validated point has a verified copy in AWS"))
+        recent = sorted(points, key=lambda w: w.get("metadata", {}).get("creationTimestamp", ""))[-5:]
+        failed = [w["metadata"]["name"] for w in recent
+                  if w.get("status", {}).get("phase") in ("Failed", "Error")]
+        if failed:
+            results.append(Result("backup", f"{app}/recent-failures", False, "warning",
+                                  f"{app}: {len(failed)} of the last {len(recent)} recovery points failed",
+                                  detail=", ".join(failed)))
 
     return results
 
@@ -632,7 +532,6 @@ def check_apps(cl: Cluster) -> List[Result]:
         ("Grafana",            "monitoring",    "deployments",   "grafana",                                     "warning"),
         ("OTel agent",         "monitoring",    "daemonsets",    "otel-agent",                                  "warning"),
         ("OTel gateway",       "monitoring",    "deployments",   "otel-collector-gateway",                      "warning"),
-        ("Velero",             "velero",        "deployments",   "velero",                                      "critical"),
         ("cert-manager",       "cert-manager",  "deployments",   "cert-manager",                                "critical"),
         ("cert-manager-cainjector", "cert-manager", "deployments", "cert-manager-cainjector",                  "warning"),
         ("external-dns",       "external-dns",  "deployments",   "external-dns",                               "warning"),
@@ -689,52 +588,6 @@ def check_apps(cl: Cluster) -> List[Result]:
             ))
 
     return results
-
-
-# ── Pre-update: trigger a fresh backup ──────────────────────────────────────────
-
-def trigger_backup(cl: Cluster) -> Result:
-    """Create a Velero backup in the seaweedfs-local BSL and wait up to 10 min."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    backup_name = f"pre-update-{ts}"
-
-    manifest = json.dumps({
-        "apiVersion": "velero.io/v1",
-        "kind": "Backup",
-        "metadata": {"name": backup_name, "namespace": "velero"},
-        "spec": {
-            "storageLocation": "seaweedfs-local",
-            "ttl": "24h0m0s",
-            "defaultVolumesToFsBackup": True,
-            "snapshotVolumes": False,
-        },
-    })
-
-    try:
-        cl._run(["create", "-f", "-"], input=manifest)
-    except Exception as exc:
-        return Result("backup", "pre-update/trigger", False, "critical",
-                      f"Failed to create pre-update backup: {exc}")
-
-    print(f"  → Created backup '{backup_name}', waiting up to 10 min for completion...")
-    deadline = time.monotonic() + 600
-    while time.monotonic() < deadline:
-        time.sleep(15)
-        try:
-            b = cl.get_json("backup", backup_name, "-n", "velero")
-            phase = b.get("status", {}).get("phase", "")
-            if phase == "Completed":
-                return Result("backup", "pre-update/trigger", True, "critical",
-                              f"Pre-update backup '{backup_name}' completed successfully")
-            if phase in ("Failed", "PartiallyFailed"):
-                errors = b.get("status", {}).get("errors", 0)
-                return Result("backup", "pre-update/trigger", False, "critical",
-                              f"Pre-update backup '{backup_name}' {phase} (errors: {errors})")
-        except Exception:
-            pass
-
-    return Result("backup", "pre-update/trigger", False, "critical",
-                  f"Pre-update backup '{backup_name}' timed out after 10 min")
 
 
 # ── Output ──────────────────────────────────────────────────────────────────────
@@ -943,7 +796,6 @@ GROUPS: Dict[str, Callable] = {
     "flux":       check_flux,
     "storage":    check_storage,
     "backup":     check_backup,
-    "etcd":       check_etcd,
     "certs":      check_certs,
     "network":    check_network,
     "apps":       check_apps,
@@ -953,14 +805,14 @@ GROUPS: Dict[str, Callable] = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Edge GitOps cluster health and backup verification suite",
+        description="Edge GitOps cluster health and recovery verification suite",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
     parser.add_argument(
         "--mode", choices=["monitor", "pre-update"], default="monitor",
         help="monitor: continuous health check (default). "
-             "pre-update: stricter age thresholds; triggers a fresh backup if the most recent is >2h old.",
+             "pre-update: stricter thresholds -- every application needs a point verified in AWS within 26h, as the upgrade gate requires.",
     )
     parser.add_argument(
         "--group", nargs="+", choices=list(GROUPS),
@@ -995,14 +847,6 @@ def main() -> int:
             all_results.append(Result(group, "_fail-fast", False, "info",
                                       "Stopped after first critical failure (--fail-fast)"))
             break
-
-    # ── Pre-update: trigger backup if too old ─────────────────────────────────
-    if is_pre_update and "backup" in groups_to_run:
-        age_ok = any(r.name == "recent-backup/age" and r.passed for r in all_results)
-        if not age_ok:
-            print("  → Most recent backup is older than 2h; triggering pre-update backup...")
-            trigger_result = trigger_backup(cl)
-            all_results.append(trigger_result)
 
     if args.json:
         print(json.dumps([dataclasses.asdict(r) for r in all_results], indent=2))

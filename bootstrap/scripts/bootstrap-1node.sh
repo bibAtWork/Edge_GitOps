@@ -285,19 +285,9 @@ else
   echo "SOPS age key already exists — skipping"
 fi
 
-if [[ ! -f "${REPO_ROOT}/.talos-backup-age.key" ]]; then
-  age-keygen -o "${REPO_ROOT}/.talos-backup-age.key"
-  echo "talos-backup age key generated — store OFFLINE (needed to decrypt etcd snapshots)"
-else
-  echo "talos-backup age key already exists — skipping"
-fi
-
-TALOS_BACKUP_PUBLIC_KEY=$(grep 'public key' "${REPO_ROOT}/.talos-backup-age.key" | awk '{print $4}')
-
 echo ""
 echo "=== Applying config.json to cluster files ==="
 python3 "${REPO_ROOT}/bootstrap/scripts/apply-config.py" \
-  --age-public-key "${TALOS_BACKUP_PUBLIC_KEY}" \
   --no-encrypt
 
 # Encrypt all secrets that have been filled in
@@ -423,11 +413,6 @@ kubectl create secret generic sops-age \
   --namespace=flux-system \
   --from-file=age.agekey="${REPO_ROOT}/.age.key" \
   --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace talos-backup --dry-run=client -o yaml | kubectl apply -f -
-kubectl create secret generic talos-backup-age \
-  --namespace=talos-backup \
-  --from-literal="public-key=${TALOS_BACKUP_PUBLIC_KEY}" \
-  --dry-run=client -o yaml | kubectl apply -f -
 
 if [[ "${_state}" == "flux-ready" ]]; then
   echo "Flux already bootstrapped — skipping"
@@ -452,74 +437,46 @@ else
     --components-extra=image-reflector-controller,image-automation-controller
 fi
 
-# ── Phase 5: AWS S3 Setup ─────────────────────────────────────────────────────
+# ── Phase 5: AWS Setup ────────────────────────────────────────────────────────
 echo ""
-echo "=== Phase 5: AWS S3 Setup ==="
+echo "=== Phase 5: AWS Setup ==="
 
-_cluster_name="$(_cfg 'cluster.name')"
-_etcd_bucket="${_cluster_name}-etcd-backups-offsite"
-_velero_bucket="${_cluster_name}-velero-backups-offsite"
-
-_existing_buckets=()
-if aws s3api head-bucket --bucket "${_etcd_bucket}" 2>/dev/null; then
-  _existing_buckets+=("${_etcd_bucket}")
-fi
-if aws s3api head-bucket --bucket "${_velero_bucket}" 2>/dev/null; then
-  _existing_buckets+=("${_velero_bucket}")
-fi
-
-if [[ ${#_existing_buckets[@]} -gt 0 ]]; then
+# The recovery system's AWS repository (ADR-012). If it already exists, this is
+# a rebuild: its data is restored by hand once Flux is up, following
+# docs/runbooks/backup-recovery.md, Part A (A7). Terraform reconciles only the
+# bucket's configuration, never its contents.
+_recovery_vault="$(_cfg 'cluster.name')-recovery-vault"
+if aws s3api head-bucket --bucket "${_recovery_vault}" 2>/dev/null; then
   echo ""
-  echo "The following S3 buckets already exist and may contain backup data:"
-  for _b in "${_existing_buckets[@]}"; do echo "  - ${_b}"; done
+  echo "The recovery vault ${_recovery_vault} already exists and may hold recovery points."
+  echo "If this is a rebuild, restore application data by hand once Flux is up:"
+  echo "  docs/runbooks/backup-recovery.md, Part A (A7)"
   echo ""
-  echo "  1) Restore cluster from existing backups  (disaster recovery)"
-  echo "  2) Continue with fresh install            (new backups will overwrite old ones over time)"
-  echo ""
-  read -rp "Choice [1/2]: " _s3_choice
-  case "${_s3_choice}" in
-    1)
-      echo ""
-      python3 "${REPO_ROOT}/bootstrap/scripts/dr.py" full --profile 1-node
-      exit 0
-      ;;
-    2)
-      echo "  Proceeding — existing bucket data preserved; terraform reconciles configuration only."
-      ;;
-    *)
-      echo "ERROR: Invalid choice."
-      exit 1
-      ;;
-  esac
 fi
 
+: "${TF_VAR_budget_alert_email:?export TF_VAR_budget_alert_email (the address for the AWS budget alerts) before Phase 5}"
 cd "${REPO_ROOT}/bootstrap/terraform"
 terraform init -input=false
 terraform apply -auto-approve \
   -var="cluster_name=$(_cfg 'cluster.name')" \
   -var="aws_region=$(_cfg 'aws.region')"
-
-# Capture IAM credentials from Terraform output and fill Velero secret
-VELERO_KEY=$(terraform output -raw velero_access_key_id)
-VELERO_SECRET=$(terraform output -raw velero_secret_access_key)
 cd "${REPO_ROOT}"
 
-python3 "${REPO_ROOT}/bootstrap/scripts/apply-config.py" \
-  --velero-access-key "${VELERO_KEY}" \
-  --velero-secret-key "${VELERO_SECRET}" \
-  --no-encrypt
-"${REPO_ROOT}/bootstrap/scripts/encrypt-secrets.sh"
+# The recovery system's two AWS credentials, written SOPS-encrypted from the
+# Terraform outputs.
+"${REPO_ROOT}/scripts/make-recovery-credentials.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Bootstrap Complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Run ./bootstrap/scripts/post-deploy.sh --profile=1-node to create SeaweedFS buckets"
+echo "  1. Run PROFILE=1-node ./bootstrap/scripts/post-deploy.sh to check the deployment"
 echo "  2. Update overlays/1-node/patches/seaweedfs-single.yaml with disk paths:"
 echo "     PRIMARY_DISK=${PRIMARY_DISK}"
 echo "     BACKUP_DISK=${BACKUP_DISK}"
-echo "  3. Add SOPS-encrypted secrets for Cloudflare, Tailscale, Velero AWS creds"
+echo "  3. Add SOPS-encrypted secrets for Cloudflare and Tailscale, and commit the"
+echo "     recovery system's AWS credentials written by make-recovery-credentials.sh"
 echo ""
 if [[ -n "${TALOS_VERSION}" ]]; then
   _client_ver=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}')
@@ -528,4 +485,4 @@ if [[ -n "${TALOS_VERSION}" ]]; then
   echo ""
 fi
 echo "IMPORTANT: Delete local key files after storing offline:"
-echo "  rm .age.key .talos-backup-age.key"
+echo "  rm .age.key"

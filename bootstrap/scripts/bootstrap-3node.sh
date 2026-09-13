@@ -30,15 +30,6 @@ if [[ ! -f "${REPO_ROOT}/.age.key" ]]; then
   echo "  -> Store the PRIVATE key offline (password manager)"
 fi
 
-if [[ ! -f "${REPO_ROOT}/.talos-backup-age.key" ]]; then
-  age-keygen -o "${REPO_ROOT}/.talos-backup-age.key"
-  echo "talos-backup age key generated: .talos-backup-age.key"
-  echo "  -> Store the PRIVATE key offline — needed to decrypt etcd snapshots"
-fi
-
-TALOS_BACKUP_PUBLIC_KEY=$(grep 'public key' "${REPO_ROOT}/.talos-backup-age.key" | awk '{print $4}')
-echo "talos-backup public key: ${TALOS_BACKUP_PUBLIC_KEY}"
-
 echo ""
 echo "=== Phase 2: Talos Config Generation ==="
 
@@ -91,13 +82,6 @@ kubectl create secret generic sops-age \
   --from-file=age.agekey="${REPO_ROOT}/.age.key" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl create namespace talos-backup --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl create secret generic talos-backup-age \
-  --namespace=talos-backup \
-  --from-literal="public-key=${TALOS_BACKUP_PUBLIC_KEY}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
 flux bootstrap github \
   --owner="${GITHUB_OWNER}" \
   --repository="${GITHUB_REPO}" \
@@ -117,11 +101,12 @@ echo ""
 echo "=== Bootstrap Complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Run ./bootstrap/scripts/post-deploy.sh to create SeaweedFS buckets"
-echo "  2. Add SOPS-encrypted secrets for Cloudflare, Tailscale, Velero AWS creds"
+echo "  1. Run ./bootstrap/scripts/post-deploy.sh to check the deployment"
+echo "  2. Add SOPS-encrypted secrets for Cloudflare and Tailscale, and the recovery"
+echo "     system's AWS credentials: ./scripts/make-recovery-credentials.sh"
 echo "  3. Watch Flux reconcile: flux get all --watch"
 echo "  4. Check cluster: kubectl get nodes && kubectl get pods -A"
 echo ""
 echo "IMPORTANT: Delete local key files after storing offline:"
-echo "  rm .age.key .talos-backup-age.key"
+echo "  rm .age.key"
 echo "  (keep .talos/secrets.yaml in password manager, then delete local copy too)"

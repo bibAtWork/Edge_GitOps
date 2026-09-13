@@ -20,7 +20,7 @@ on:
         type: choice
         options: [monitor, pre-update]
       group:
-        description: 'Limit to group(s): flux storage backup etcd certs network apps (space-separated, empty = all)'
+        description: 'Limit to group(s): flux storage backup certs network apps (space-separated, empty = all)'
         required: false
         default: ''
 

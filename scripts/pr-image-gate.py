@@ -139,8 +139,8 @@ def _walk(node: Any, path: str, out: Dict[str, str], tags: Dict[str, str]) -> No
 
         for k, v in node.items():
             child = f"{path}.{k}" if path else str(k)
-            # `image: repo:tag` as a scalar -- plain manifests, and two
-            # HelmRelease values (velero's plugin, kubeopencode).
+            # `image: repo:tag` as a scalar -- plain manifests, and one
+            # HelmRelease value (kubeopencode).
             if k == "image" and _is_set(v) and ("/" in v or ":" in v):
                 out[child] = v.strip()
             else:
