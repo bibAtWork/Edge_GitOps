@@ -68,6 +68,10 @@ one; `unlock` only removes locks no running process has refreshed for 30 minutes
 Confirmed on a scratch repository: a lock 32 minutes old still failed a backup with
 `--retry-lock` ("lock was created ... 32m ago"); `restic unlock` removed it and the next backup
 succeeded.
+After the fix, live: a `restic check --read-data` killed while it held its lock left a dead
+exclusive lock in the production local repository. Both backups of the next recovery point
+waited on it -- still alive after three minutes, where before the fix they failed within a
+second -- and the point completed and VALIDATED 102 s after the lock was removed.
 
 **F3 -- remote verification reads metadata, not bytes.** Promotion's `restic check` confirms the
 vault's indexes, snapshots and trees; E6b shows it passes over a corrupted data pack that
