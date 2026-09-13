@@ -624,9 +624,14 @@ that pin is raised.
 
 For `keycloak-pg`, `immich-pg` and `filer-meta-pg`, an hourly/nightly `pg_dump` to S3 is the
 current pipeline's recovery path. Longhorn's backup policy excludes these volumes and Velero stores
-no volume bytes for them. Since ADR-012 each database is also archived by barman and gets a
-validated recovery point every night, restore-tested from its restic copy by the recovery system;
-until cutover, the dumps below remain the documented path.
+no volume bytes for them.
+
+**Prefer the recovery system** ([ADR-012](adr/0012-recovery-system.md)): each database is archived
+by barman, with point-in-time recovery over the last 7 days, and has a validated recovery point
+every night, promoted to AWS. Its restore procedures — point-in-time, from a recovery point, and
+after total loss from AWS alone — are in
+[`runbooks/backup-recovery.md`, Part A](runbooks/backup-recovery.md), drilled on 2026-09-13. The
+dumps below remain the fallback until cutover.
 
 That path was first exercised end-to-end on **2026-09-09**. It works — and it has three
 prerequisites that are not obvious and are not in any manifest. A restore attempted without them

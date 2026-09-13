@@ -1,0 +1,401 @@
+# Drill 2: the SeaweedFS filer database, restored from AWS with SeaweedFS
+# treated as gone -- the first database a total-loss recovery needs, and the
+# one whose own archive lives in the store it indexes.
+#
+# restic (AWS) -> the barman archive staged into the AWS vault itself
+# (restore-drill/<scratch>/) -> a scratch CNPG cluster recovering from there
+# (ObjectStore restore-aws) -> the policy's filemeta check.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: drill-filer-aws-
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  entrypoint: main
+  onExit: cleanup
+  podGC:
+    strategy: OnPodSuccess
+    deleteDelayDuration: 30m
+  volumes:
+    - name: tmp
+      emptyDir: {}
+  templates:
+    - name: main
+      steps:
+        - - name: find
+            template: find
+        - - name: stage
+            template: stage
+            arguments:
+              parameters:
+                - name: rp
+                  value: "{{steps.find.outputs.parameters.rp}}"
+        - - name: recover
+            template: recover
+            arguments:
+              parameters:
+                - name: backup-id
+                  value: "{{steps.stage.outputs.parameters.backup-id}}"
+        - - name: checks
+            template: checks
+
+    - name: find
+      outputs:
+        parameters:
+          - name: rp
+            valueFrom:
+              path: /tmp/rp
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP=seaweedfs
+            BEST=""; BT=0
+            for F in $(rclone lsf "aws:$AWS_BUCKET/recovery-points/$APP/" --files-only --include "*.json"); do
+              rclone cat "aws:$AWS_BUCKET/recovery-points/$APP/$F" > /tmp/r.json
+              grep -q '"recorded":[0-9]*,"state":"VALIDATED"' /tmp/r.json || continue
+              grep -q '"remote":{"state":"REMOTE_VERIFIED"' /tmp/r.json || continue
+              T="$(grep -o '"taken":[0-9]*' /tmp/r.json | cut -d: -f2)"
+              [ "$T" -gt "$BT" ] && { BT=$T; BEST="${F%.json}"; }
+            done
+            [ -n "$BEST" ] || { echo "no REMOTE_VERIFIED point for $APP in AWS"; exit 1; }
+            echo "$BEST" > /tmp/rp
+            echo "newest REMOTE_VERIFIED point of $APP in AWS: $BEST (taken $(date -u -d @"$BT" +%FT%TZ))"
+        env: &aws-rclone
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_AWS_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_AWS_PROVIDER
+            value: AWS
+          - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
+            value: "true"
+          - name: RCLONE_CONFIG_AWS_REGION
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_DEFAULT_REGION
+          - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_SECRET_ACCESS_KEY
+          - name: AWS_BUCKET
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_BUCKET
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # restic restore from AWS, then the barman archive into the AWS vault under
+    # restore-drill/<scratch>/, where the scratch cluster's recovery reads it.
+    - name: stage
+      inputs:
+        parameters:
+          - name: rp
+      outputs:
+        parameters:
+          - name: backup-id
+            valueFrom:
+              path: /tmp/backup-id
+      volumes:
+        - name: restore
+          emptyDir:
+            sizeLimit: 20Gi
+      initContainers:
+        - name: restore
+          image: docker.io/restic/restic:0.19.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              RP="{{inputs.parameters.rp}}"
+              R="restic -r $RESTIC_REPOSITORY_AWS"
+              $R snapshots --json --no-lock --tag "rp=$RP" --host filer-db > /tmp/s.json
+              ID="$(grep -oE '"id":"[0-9a-f]{64}"' /tmp/s.json | tail -n 1 | cut -d'"' -f4)"
+              [ -n "$ID" ] || { echo "no filer-db snapshot tagged rp=$RP in AWS"; exit 1; }
+              echo "AWS snapshot $ID (tagged rp=$RP)"
+              $R restore "$ID" --target /restore --verify --no-lock
+              ls /restore/filer-meta-pg/base
+          envFrom:
+            - secretRef:
+                name: recovery-aws-promoter
+          env:
+            - name: HOME
+              value: /tmp
+            - name: RESTIC_CACHE_DIR
+              value: /tmp/cache
+            - name: RESTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: RESTIC_PASSWORD
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: restore
+              mountPath: /restore
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-filer"
+            BID="$(ls /restore/filer-meta-pg/base | head -n 1)"
+            [ -n "$BID" ] || { echo "no base backup in the restored archive"; exit 1; }
+            rclone copy /restore/filer-meta-pg "aws:$AWS_BUCKET/restore-drill/$S"
+            echo "$BID" > /tmp/backup-id
+            echo "staged base backup $BID as restore-drill/$S in AWS: $(rclone lsf -R --files-only "aws:$AWS_BUCKET/restore-drill/$S" | wc -l) files"
+        env: *aws-rclone
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: restore
+            mountPath: /restore
+            readOnly: true
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: recover
+      inputs:
+        parameters:
+          - name: backup-id
+      activeDeadlineSeconds: 2400
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-filer"
+            ID="{{inputs.parameters.backup-id}}"
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              name: $S
+              namespace: backup-system
+              labels:
+                recovery-scratch: "true"
+            spec:
+              imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+              instances: 1
+              enablePDB: false
+              stopDelay: 30
+              enableSuperuserAccess: true
+              storage:
+                size: 5Gi
+                storageClass: local-path
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi
+              bootstrap:
+                recovery:
+                  source: origin
+                  recoveryTarget:
+                    backupID: "$ID"
+                    targetImmediate: true
+              externalClusters:
+                - name: origin
+                  plugin:
+                    name: barman-cloud.cloudnative-pg.io
+                    parameters:
+                      barmanObjectName: restore-aws
+                      serverName: $S
+            EOF
+            if ! kubectl wait clusters.postgresql.cnpg.io -n backup-system "$S" --for=condition=Ready --timeout=1800s; then
+              echo "DRILL: $S did not come up: $(kubectl get clusters.postgresql.cnpg.io -n backup-system "$S" -o jsonpath='{.status.phase} {.status.phaseReason}')"
+              exit 1
+            fi
+            echo "scratch cluster $S recovered base backup $ID from the AWS vault"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: checks
+      container:
+        image: docker.io/library/postgres:17-alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-filer"
+            N="$(psql -h "$S-rw" -U postgres -d seaweedfs_filer -tA -v ON_ERROR_STOP=1 -c 'select count(*) from filemeta' < /dev/null)"
+            echo "filemeta rows in the database recovered from AWS: $N (policy minimum 1000)"
+            [ "$N" -ge 1000 ]
+        env:
+          - name: HOME
+            value: /tmp
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "drill-{{=sprig.trunc(8, workflow.uid)}}-filer-superuser"
+                key: password
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: cleanup
+      steps:
+        - - name: cluster
+            template: delete-cluster
+          - name: aws-prefix
+            template: purge-aws-prefix
+
+    - name: delete-cluster
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - kubectl delete clusters.postgresql.cnpg.io -n backup-system "drill-{{=sprig.trunc(8, workflow.uid)}}-filer" --ignore-not-found --timeout=300s
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # The staged archive, removed with the retention key: on this versioned,
+    # locked bucket that writes delete markers, and Lifecycle expires the rest.
+    - name: purge-aws-prefix
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -u
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-filer"
+            rclone purge "aws:$AWS_BUCKET/restore-drill/$S" 2>&1 | tail -2
+            echo "restore-drill/$S objects left: $(rclone lsf -R --files-only "aws:$AWS_BUCKET/restore-drill/$S" 2>/dev/null | wc -l)"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_AWS_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_AWS_PROVIDER
+            value: AWS
+          - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
+            value: "true"
+          - name: RCLONE_CONFIG_AWS_REGION
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-retention
+                key: AWS_DEFAULT_REGION
+          - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-retention
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-retention
+                key: AWS_SECRET_ACCESS_KEY
+          - name: AWS_BUCKET
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-retention
+                key: AWS_BUCKET
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL

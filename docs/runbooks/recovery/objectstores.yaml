@@ -1,0 +1,68 @@
+# Scratch ObjectStores for restores into a new CNPG cluster in backup-system
+# (runbooks/backup-recovery.md, A5). Apply for a restore, delete afterwards:
+#
+#   kubectl apply  -f docs/runbooks/recovery/objectstores.yaml
+#   kubectl delete -f docs/runbooks/recovery/objectstores.yaml
+#
+# restore-archive  the LIVE barman archive, s3://recovery/postgres/, for point-in-time
+#                  recovery (route A). Only ever read: a restore cluster names no
+#                  WAL archiver, so nothing is written back into it.
+# restore-aws      a base backup staged from the AWS restic repository into the
+#                  vault itself, under restore-drill/<name>/ (route C) -- after total
+#                  loss, when SeaweedFS is not there to hold it. Promoter key.
+#
+# Route B (the local restic copy) needs neither: it stages into
+# s3://recovery/restore-test/, which the ObjectStore recovery-restore already reads.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: restore-archive
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  configuration:
+    destinationPath: s3://recovery/postgres/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: restic-local
+        key: AWS_ACCESS_KEY_ID
+      secretAccessKey:
+        name: restic-local
+        key: AWS_SECRET_ACCESS_KEY
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: restore-aws
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  configuration:
+    destinationPath: s3://homelab-recovery-vault/restore-drill/
+    s3Credentials:
+      accessKeyId:
+        name: recovery-aws-promoter
+        key: AWS_ACCESS_KEY_ID
+      secretAccessKey:
+        name: recovery-aws-promoter
+        key: AWS_SECRET_ACCESS_KEY
+      region:
+        name: recovery-aws-promoter
+        key: AWS_DEFAULT_REGION
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

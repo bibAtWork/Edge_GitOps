@@ -1,0 +1,183 @@
+# The recovery shell (runbooks/backup-recovery.md, Part A): restic for both
+# repositories and rclone for both buckets, with their credentials already in
+# place, so no key is typed, copied out of the cluster, or left in a shell history.
+#
+#   kubectl apply -f docs/runbooks/recovery/recovery-shell.yaml
+#   kubectl exec -n backup-system recovery-shell -c restic     -- restic snapshots --no-lock
+#   kubectl exec -n backup-system recovery-shell -c restic-aws -- restic snapshots --no-lock
+#   kubectl exec -n backup-system recovery-shell -c rclone     -- rclone lsf aws:homelab-recovery-vault/recovery-points/
+#   kubectl delete -f docs/runbooks/recovery/recovery-shell.yaml
+#
+#   restic      the local repository on SeaweedFS (restic-local)
+#   restic-aws  the AWS repository, with the promoter key: read and write, never delete
+#   rclone      local: (SeaweedFS), aws: (the vault, promoter key), and retention:
+#               (the vault, retention key), only to remove a copy staged under
+#               restore-drill/
+#
+# All three share /restore (20Gi), so what restic restores rclone can stage. The
+# pod stops itself after a day. Not applied by Flux: it lives under docs/.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: recovery-shell
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 86400
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  # The namespace enforces PodSecurity "restricted"; same identity as the workflows.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: restore
+      emptyDir:
+        sizeLimit: 20Gi
+  containers:
+    - name: restic
+      image: docker.io/restic/restic:0.19.1
+      command: ["sleep", "86400"]
+      envFrom:
+        - secretRef:
+            name: restic-local
+      env:
+        - name: HOME
+          value: /tmp
+        - name: RESTIC_CACHE_DIR
+          value: /tmp/cache-local
+      volumeMounts: &mounts
+        - name: tmp
+          mountPath: /tmp
+        - name: restore
+          mountPath: /restore
+      resources: &restic-resources
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 1Gi
+      securityContext: &hardened
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+
+    - name: restic-aws
+      image: docker.io/restic/restic:0.19.1
+      command: ["sleep", "86400"]
+      envFrom:
+        - secretRef:
+            name: recovery-aws-promoter
+      env:
+        - name: HOME
+          value: /tmp
+        - name: RESTIC_CACHE_DIR
+          value: /tmp/cache-aws
+        - name: RESTIC_REPOSITORY
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-promoter
+              key: RESTIC_REPOSITORY_AWS
+        # One password opens both repositories.
+        - name: RESTIC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: restic-local
+              key: RESTIC_PASSWORD
+      volumeMounts: *mounts
+      resources: *restic-resources
+      securityContext: *hardened
+
+    - name: rclone
+      image: docker.io/rclone/rclone:1.75.1
+      command: ["sleep", "86400"]
+      env:
+        - name: HOME
+          value: /tmp
+        - name: RCLONE_CONFIG_LOCAL_TYPE
+          value: s3
+        - name: RCLONE_CONFIG_LOCAL_PROVIDER
+          value: Other
+        - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+          value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+        - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+          value: "true"
+        - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: restic-local
+              key: AWS_ACCESS_KEY_ID
+        - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: restic-local
+              key: AWS_SECRET_ACCESS_KEY
+        - name: RCLONE_CONFIG_AWS_TYPE
+          value: s3
+        - name: RCLONE_CONFIG_AWS_PROVIDER
+          value: AWS
+        # The promoter may not create buckets; do not let rclone try.
+        - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
+          value: "true"
+        - name: RCLONE_CONFIG_AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-promoter
+              key: AWS_DEFAULT_REGION
+        - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-promoter
+              key: AWS_ACCESS_KEY_ID
+        - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-promoter
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-promoter
+              key: AWS_BUCKET
+        # retention: the same vault with the retention key, for one job only:
+        # removing a copy staged under restore-drill/ (A5, route C). A delete there
+        # writes a delete marker; the locked versions stay, and Lifecycle reclaims them.
+        - name: RCLONE_CONFIG_RETENTION_TYPE
+          value: s3
+        - name: RCLONE_CONFIG_RETENTION_PROVIDER
+          value: AWS
+        - name: RCLONE_CONFIG_RETENTION_NO_CHECK_BUCKET
+          value: "true"
+        - name: RCLONE_CONFIG_RETENTION_REGION
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-retention
+              key: AWS_DEFAULT_REGION
+        - name: RCLONE_CONFIG_RETENTION_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-retention
+              key: AWS_ACCESS_KEY_ID
+        - name: RCLONE_CONFIG_RETENTION_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: recovery-aws-retention
+              key: AWS_SECRET_ACCESS_KEY
+      volumeMounts: *mounts
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          memory: 512Mi
+      securityContext: *hardened

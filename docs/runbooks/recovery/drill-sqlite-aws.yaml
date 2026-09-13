@@ -1,0 +1,194 @@
+# Drill 4: Paperless' SQLite database, restored from AWS alone, then opened and
+# checked: integrity_check plus the policy's restore-checks.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: drill-sqlite-aws-
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  entrypoint: main
+  podGC:
+    strategy: OnPodSuccess
+    deleteDelayDuration: 30m
+  volumes:
+    - name: tmp
+      emptyDir: {}
+  templates:
+    - name: main
+      steps:
+        - - name: find
+            template: find
+        - - name: restore
+            template: restore
+            arguments:
+              parameters:
+                - name: rp
+                  value: "{{steps.find.outputs.parameters.rp}}"
+
+    - name: find
+      outputs:
+        parameters:
+          - name: rp
+            valueFrom:
+              path: /tmp/rp
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP=paperless
+            BEST=""; BT=0
+            for F in $(rclone lsf "aws:$AWS_BUCKET/recovery-points/$APP/" --files-only --include "*.json"); do
+              rclone cat "aws:$AWS_BUCKET/recovery-points/$APP/$F" > /tmp/r.json
+              grep -q '"recorded":[0-9]*,"state":"VALIDATED"' /tmp/r.json || continue
+              grep -q '"remote":{"state":"REMOTE_VERIFIED"' /tmp/r.json || continue
+              T="$(grep -o '"taken":[0-9]*' /tmp/r.json | cut -d: -f2)"
+              [ "$T" -gt "$BT" ] && { BT=$T; BEST="${F%.json}"; }
+            done
+            [ -n "$BEST" ] || { echo "no REMOTE_VERIFIED point for $APP in AWS"; exit 1; }
+            echo "$BEST" > /tmp/rp
+            echo "newest REMOTE_VERIFIED point of $APP in AWS: $BEST (taken $(date -u -d @"$BT" +%FT%TZ))"
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_AWS_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_AWS_PROVIDER
+            value: AWS
+          - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
+            value: "true"
+          - name: RCLONE_CONFIG_AWS_REGION
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_DEFAULT_REGION
+          - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_SECRET_ACCESS_KEY
+          - name: AWS_BUCKET
+            valueFrom:
+              secretKeyRef:
+                name: recovery-aws-promoter
+                key: AWS_BUCKET
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: restore
+      inputs:
+        parameters:
+          - name: rp
+      volumes:
+        - name: restore
+          emptyDir:
+            sizeLimit: 2Gi
+      initContainers:
+        - name: restore
+          image: docker.io/restic/restic:0.19.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              RP="{{inputs.parameters.rp}}"
+              R="restic -r $RESTIC_REPOSITORY_AWS"
+              $R snapshots --json --no-lock --tag "rp=$RP" --host paperless-db > /tmp/s.json
+              ID="$(grep -oE '"id":"[0-9a-f]{64}"' /tmp/s.json | tail -n 1 | cut -d'"' -f4)"
+              [ -n "$ID" ] || { echo "no paperless-db snapshot tagged rp=$RP in AWS"; exit 1; }
+              echo "AWS snapshot $ID (tagged rp=$RP)"
+              $R restore "$ID" --target /restore --verify --no-lock
+              find /restore -type f
+          envFrom:
+            - secretRef:
+                name: recovery-aws-promoter
+          env:
+            - name: HOME
+              value: /tmp
+            - name: RESTIC_CACHE_DIR
+              value: /tmp/cache
+            - name: RESTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: RESTIC_PASSWORD
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: restore
+              mountPath: /restore
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      container:
+        image: docker.io/library/python:3.14-alpine
+        command: ["python3", "-c"]
+        args:
+          - |
+            import os, shutil, sqlite3, sys
+            # restic restores the file under .recovery/, which glob's ** skips
+            src = [os.path.join(d, f) for d, _, fs in os.walk("/restore") for f in fs if f.endswith(".sqlite3")]
+            if len(src) != 1:
+                sys.exit(f"expected exactly one restored database, found {src}")
+            shutil.copy(src[0], "/tmp/db.sqlite3")
+            con = sqlite3.connect("file:/tmp/db.sqlite3?mode=ro", uri=True)
+            integrity = con.execute("pragma integrity_check").fetchone()[0]
+            checks = [
+                (60, "select count(*) from sqlite_master where type = 'table'"),
+                (1, "select count(*) from auth_user"),
+                (1, "select count(*) from documents_document"),
+            ]
+            ok = integrity == "ok"
+            print(f"restored {src[0][len('/restore'):]} from AWS; integrity_check: {integrity}")
+            for minimum, query in checks:
+                got = con.execute(query).fetchone()[0]
+                print(f"  {query} -> {got} (at least {minimum})")
+                ok &= got >= minimum
+            sys.exit(0 if ok else 1)
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: restore
+            mountPath: /restore
+            readOnly: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
