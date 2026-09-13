@@ -208,8 +208,10 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
+          # kubectl needs about 260 MB here, as in the other kubectl steps (#610);
+          # at 128Mi it was OOM-killed.
           limits:
-            memory: 128Mi
+            memory: 512Mi
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
