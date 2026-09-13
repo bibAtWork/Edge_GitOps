@@ -402,6 +402,31 @@ def better_candidate(image: str, proposed_cvss: float, trivy: str,
     return False, f"WAIT: {best} (CVSS {best_cvss}) is better than proposed (CVSS {proposed_cvss})"
 
 
+def appversion_blocks(a: Dict[str, Any]) -> bool:
+    """Does a pin/appVersion divergence need a human, or does it heal itself?
+
+    A pin only ever falls behind within the pin's own major, or across one.
+    Within the major, the pin is independently tracked by Renovate (it is an
+    ordinary docker dependency in values) and gets its own proposal to the
+    newest matching tag on its own schedule -- blocking the *chart* bump on
+    that is holding back a change that is already safe for a gap the image
+    side closes by itself. ADR-009's actual policy line is the major: "any
+    major version step ... is already never auto-merged." A divergence that
+    crosses one is exactly that case arriving by a different path (the chart
+    ships a new major application, the pin does not), so it still needs a
+    person -- the same reason a direct major image bump would.
+
+    An unorderable or unresolved pin cannot be classified either way, so it
+    fails closed rather than being guessed at.
+    """
+    if a["verdict"] in ("unorderable", "unresolved"):
+        return True
+    if a["verdict"] != "behind":
+        return False
+    pv, avv = semver(a["pin"]), semver(a["appVersion"])
+    return not (pv and avv and pv[0] == avv[0])
+
+
 def evaluate(result: Dict[str, Any], trivy: str, crane: str,
              labels: List[str]) -> Dict[str, Any]:
     """Scan every changed pair and decide whether the PR may auto-merge."""
@@ -413,13 +438,14 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
 
     # ADR-009: a chart bump that moves appVersion past a static pin turns that
     # pin into a downgrade. It produces no image diff, so without this it is
-    # the change the gate waves through fastest.
+    # the change the gate waves through fastest. Only a divergence that
+    # crosses a major blocks -- see appversion_blocks.
     for a in result.get("appversion", []):
-        if a["verdict"] == "behind":
+        if a["verdict"] == "behind" and appversion_blocks(a):
             verdict["blockers"].append(
                 f"{a['release']}: chart {a['from']} -> {a['to']} moves appVersion to "
                 f"{a['appVersion']}, past the pin {a['pin']} at {a['path']} - "
-                f"the pin is now a downgrade (ADR-009)")
+                f"the pin is now a downgrade across a major version (ADR-009)")
         elif a["verdict"] in ("unorderable", "unresolved"):
             verdict["blockers"].append(
                 f"{a['release']}: cannot compare pin {a['pin']} with appVersion "
@@ -517,10 +543,15 @@ def markdown(result: Dict[str, Any], verdict: Dict[str, Any]) -> str:
         out += ["_No image reference changed at either revision._", ""]
 
     for a in result.get("appversion", []):
-        icon = {"behind": "❌", "ahead": "✅", "equal": "✅"}.get(a["verdict"], "⚠️")
+        if a["verdict"] == "behind":
+            icon = "❌" if appversion_blocks(a) else "⚠️"
+            note = "" if appversion_blocks(a) else " (same major - the pin's own update closes this, not blocking)"
+        else:
+            icon = {"ahead": "✅", "equal": "✅"}.get(a["verdict"], "⚠️")
+            note = ""
         out.append(f"{icon} **appVersion** `{a['release']}` chart `{a['from']}` → `{a['to']}` "
                    f"ships appVersion `{a['appVersion']}`; pin `{a['pin']}` at "
-                   f"`{a['path']}` is **{a['verdict']}**.")
+                   f"`{a['path']}` is **{a['verdict']}**{note}.")
     if result.get("appversion"):
         out.append("")
 
