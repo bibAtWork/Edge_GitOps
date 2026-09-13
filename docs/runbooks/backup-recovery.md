@@ -1,14 +1,14 @@
 # Backup recovery runbook
 
-Two backup systems run side by side until cutover, and this runbook covers both:
-
 - **Part A — the recovery system** ([ADR-012](../adr/0012-recovery-system.md)): validated
   recovery points in restic, locally and in the AWS vault `homelab-recovery-vault`, plus barman
   point-in-time recovery for PostgreSQL. **Restore from this system first.** Its procedures were
   drilled against the real repositories (A9).
-- **Part B — the current pipeline** ([ADR-005](../adr/0005-two-stage-backup-relay.md)): Longhorn
-  backups and logical dumps, relayed to the vault `homelab-backup-vault`. It stays until cutover,
-  and Part B is deleted with it.
+- **Part B — the old pipeline** ([ADR-005](../adr/0005-two-stage-backup-relay.md)): Longhorn
+  backups and logical dumps, relayed to the vault `homelab-backup-vault`. Retired at the
+  ADR-012 cutover (#617) -- nothing writes to it any more, and its identities are gone
+  (#620) -- but its restore procedures stay here until the bucket itself is emptied and
+  removed in a follow-up (`docs/backlog.md`), in case data still in it is ever needed.
 
 Everything here is deliberately manual: these are the steps that need a human, either because they
 require MFA or because they are the ones you want to have practised before you need them.
@@ -468,7 +468,7 @@ What the first run found, each fixed in the procedures above:
 
 ---
 
-# Part B — The current pipeline (ADR-005), until cutover
+# Part B — The old pipeline (ADR-005), retired
 
 ADR-005 records the design and the invariants these procedures exist to protect; read it
 first if you need to know *why* a step is shaped the way it is. It deliberately carries no
@@ -532,66 +532,18 @@ working one — which is the worst possible moment to start debugging IAM.
 
 ## 3. Enabling the AWS vault
 
-The vault is written as Terraform but not applied. To bring it up:
+DECOMMISSIONED (#620). This section documented standing the relay back up from scratch:
+applying its Terraform identities, generating its credential with
+`scripts/make-relay-credential.sh`, and unsuspending its CronJob to resume writes. The
+relay and auditor identities that made writing and verifying possible no longer exist --
+removed from the cluster at the ADR-012 cutover (#617) and from Terraform in #620 -- so
+there is no path back to writing new data into this vault, and the script is deleted with
+this change.
 
-```bash
-cd bootstrap/terraform
-terraform plan          # with admin credentials
-terraform apply
-```
-
-Then verify what AWS is actually enforcing, rather than what Terraform believes it applied —
-a console edit or a partially-failed apply leaves those disagreeing:
-
-```bash
-./scripts/verify-backup-vault.sh homelab-backup-vault
-```
-
-Set `RELAY_ACCESS_KEY_ID` / `RELAY_SECRET_ACCESS_KEY` and the `AUDITOR_*` pair before running
-it to additionally confirm that `DeleteObject` is denied for both. ADR-005 requires this to be
-*attempted*, not inferred — a policy that reads correctly and evaluates differently is the
-entire reason the test exists.
-
-Create the relay credential:
-
-```bash
-./scripts/make-relay-credential.sh
-```
-
-This reads the Terraform outputs directly and writes
-`cluster/base/infrastructure/34-backup/backup-relay-credential.yaml`, already
-SOPS-encrypted, and adds it to the kustomization. The relay's AWS secret key never
-appears in a terminal, a shell history, or a chat window -- it goes from
-`terraform output` into a file that is encrypted before it is ever placed inside the
-repository. Encryption needs only the age *public* key, which is committed in
-`.sops.yaml`, so no private key material is required to run it.
-
-It fails closed. Plaintext is written to a temp file outside the working tree and
-shredded on every exit path, and the script refuses to place anything in the repo
-unless it can confirm both that the output contains ciphertext and that the
-plaintext secret does not appear in it. `sops` exiting 0 is not by itself proof the
-values were encrypted -- a `path_regex` that does not match produces a passthrough
-copy with no error.
-
-Commit and merge that, and let Flux apply the secret **before** unsuspending. Then
-unsuspend as a separate change:
-
-```
-cluster/base/infrastructure/34-backup/backup-relay.yaml  ->  suspend: false
-```
-
-The order is not cosmetic. Unsuspending first leaves the CronJob firing against a
-missing secret, which presents as `CreateContainerConfigError` rather than anything
-naming the real cause.
-
-Trigger the first run by hand rather than waiting for 05:00, and confirm objects
-actually arrive in the vault rather than trusting the exit code:
-
-```bash
-kubectl create job -n longhorn-system relay-test --from=cronjob/backup-relay
-kubectl logs -n longhorn-system -l job-name=relay-test --tail=40
-aws s3 ls s3://homelab-backup-vault/longhorn/ --recursive | head
-```
+What is still possible, and still documented below, is restoring data already sitting in
+the vault (sections 1, 4, 6, 7, 8) for as long as the bucket exists -- it empties on its
+own Lifecycle schedule and is removed, with its KMS key, in a follow-up once empty
+(`docs/backlog.md`).
 
 ---
 
