@@ -68,21 +68,21 @@ spec:
   # whenever a version pin changes.
   #
   # Sunday midday, because it is a cadence that misses every backup job. The
-  # daily schedules cluster in the small hours -- staging 01:00, snapshot
-  # 02:00, the three database dumps 02:40-02:50, the weekly tier Sunday 03:00,
-  # monthly 04:00, relay 05:00, probe 06:00, restore-test 07:00, reconciler
-  # 09:00 -- plus three hourly jobs at :17, :25 and :40. Nothing at all runs
-  # between 09:00 and 01:00 except those hourly three, so anywhere in that gap
-  # works; 12:00 is chosen within it rather than the evening end, so the whole
-  # Sunday maintenance sequence (control-plane, worker, then the Kubernetes
-  # upgrade -- see plans/talos-kubernetes-upgrade.yaml) finishes by mid
-  # afternoon instead of running up against midnight. Rebooting mid-backup
-  # leaves a partial artefact that restore-test then has to catch.
+  # recovery system's schedules (ADR-012) cluster in the small hours --
+  # recovery points 01:00, promotion 03:00, retention 04:00 and, on Sundays,
+  # AWS retention 04:30 -- plus the reconciler at :30 every hour, which submits
+  # work only when a point is missing. No backup work is scheduled between
+  # 05:00 and 01:00, so anywhere in that gap works; 12:00 is chosen within it
+  # rather than the evening end, so the whole Sunday maintenance sequence
+  # (control-plane, worker, then the Kubernetes upgrade -- see
+  # plans/talos-kubernetes-upgrade.yaml) finishes by mid afternoon instead of
+  # running up against midnight. A reboot mid-run would leave a run for Argo
+  # to resume, but there is no reason to invite one.
   #
   # The cost of weekly is latency: a merged version bump waits until the next
   # Sunday before it is eligible. That is the accepted trade -- an unattended
-  # reboot landing on top of a database dump is worse than an upgrade applying
-  # a few days later.
+  # reboot landing on top of a backup is worse than an upgrade applying a few
+  # days later.
   #
   # timeZone is UTC, not Europe/Berlin as it was originally. Every CronJob in
   # this cluster schedules in UTC (none sets spec.timeZone), so a Berlin window
@@ -96,19 +96,20 @@ spec:
     startTime: "12:00"
     endTime: "14:00"
     timeZone: UTC
-  # Requires the pre-upgrade backup gate.
+  # Requires the pre-upgrade gate.
   #
-  # upgrade-backup-gate (11:00 Sunday, longhorn-system) proves the Longhorn
-  # backups are recent AND that every SeaweedFS backup object actually reads,
-  # then sets this label. It removes it whenever it cannot establish both, so
-  # an absent label means "not proven this week", never "not checked".
+  # upgrade-backup-gate (11:00 Sunday, longhorn-system) proves that every
+  # application has a recovery point under 26h old that passed its restore test
+  # and has a verified copy in AWS (ADR-012), then sets this label. It removes
+  # it whenever it cannot establish that, so an absent label means "not proven
+  # this week", never "not checked".
   #
   # Fails closed by construction: no label, no matching node, no upgrade. That
   # is the intended behaviour on a single-node cluster that reboots to apply
-  # this -- a missed window costs a week, an upgrade with no working backup can
-  # cost the cluster. "There is a backup" was true for four days here while 584
-  # backup objects were unreadable, which is why the gate reads them rather
-  # than counting them.
+  # this -- a missed window costs a week, an upgrade with no working recovery
+  # point can cost the cluster. "There is a backup" was true for four days here
+  # while 584 backup objects were unreadable, which is why the gate requires
+  # restore-tested points rather than counting backups.
   #
   # The manual override is talos-on-demand, which is label-triggered and
   # deliberately NOT gated -- see that file.
