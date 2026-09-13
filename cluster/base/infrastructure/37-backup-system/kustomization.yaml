@@ -9,6 +9,7 @@ resources:
   - recovery-aws-retention.yaml
   - rbac.yaml
   - rbac-cnpg.yaml
+  - rbac-reconciler.yaml
   - objectstore-restore.yaml
   - workflow-templates/volume-clone.yaml
   - recovery-policy.yaml
@@ -18,4 +19,5 @@ resources:
   - workflow-templates/recovery-point.yaml
   - workflow-templates/promote.yaml
   - workflow-templates/retention.yaml
+  - workflow-templates/reconcile.yaml
   - cronworkflows.yaml
