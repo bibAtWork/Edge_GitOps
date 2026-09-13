@@ -34,6 +34,7 @@ spec:
       activeDeadlineSeconds: 1800
       retryStrategy:
         limit: 1
+        retryPolicy: Always
       container:
         image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
@@ -187,6 +188,7 @@ spec:
       activeDeadlineSeconds: 600
       retryStrategy:
         limit: 2
+        retryPolicy: Always
       container:
         image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]

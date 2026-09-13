@@ -19,6 +19,16 @@ metadata:
 spec:
   templates:
     - name: consistent-copy
+      # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
+      # is gone) or exits 137/143 (killed). Only those are retried: this step is
+      # safe to run again, and any other exit is a real failure that must stand.
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset
@@ -107,6 +117,13 @@ spec:
               - ALL
 
     - name: restore-test
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset

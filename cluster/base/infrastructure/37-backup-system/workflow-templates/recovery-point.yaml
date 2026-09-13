@@ -80,6 +80,16 @@ spec:
     # pvc:<namespace>/<claim> or cnpg:<namespace>/<cluster>; either way the
     # second part lands in `pvc`.
     - name: plan
+      # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
+      # is gone) or exits 137/143 (killed). Only those are retried: this step is
+      # safe to run again, and any other exit is a real failure that must stand.
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       outputs:
         parameters:
           - name: datasets
@@ -324,6 +334,13 @@ spec:
     # Only reached when every step before it passed, so the object it writes is
     # the proof: a dataset with evidence is VALIDATED.
     - name: evidence
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset
@@ -379,6 +396,13 @@ spec:
     # FAILED otherwise. Remote state is PROMOTION_PENDING until promotion
     # confirms it offsite.
     - name: record
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: planned
@@ -483,6 +507,13 @@ spec:
     # them all -- scratch cluster, claim, PV, volume, and the snapshot even if its
     # clone never got created -- whether the run passed or not.
     - name: remove-clones
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       container:
         image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
@@ -566,6 +597,13 @@ spec:
     # restore-test/<this run's prefix>: a full copy of a database each, which
     # must not outlive the test that needed it.
     - name: purge-restore-archives
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       container:
         image: docker.io/rclone/rclone:1.75.1
         command: ["/bin/sh", "-c"]

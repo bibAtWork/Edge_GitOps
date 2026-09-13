@@ -79,6 +79,16 @@ spec:
     # per dataset with snapshots here; `;` between datasets. On AWS the snapshot
     # is the copy, and the local snapshot its `original` -- the ID the records use.
     - name: newest
+      # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
+      # is gone) or exits 137/143 (killed). Only those are retried: this step is
+      # safe to run again, and any other exit is a real failure that must stand.
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       outputs:
         parameters:
           - name: datasets
@@ -153,6 +163,13 @@ spec:
 
     # The verification gate, against the records in this repository's bucket.
     - name: gate
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: datasets
@@ -236,6 +253,13 @@ spec:
     # The dry-run cap, then exactly that plan. `removed` is
     # local-snapshot,recovery-point,application,dataset per forgotten snapshot.
     - name: thin
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: eligible
@@ -259,6 +283,11 @@ spec:
             else
               R="restic --retry-lock 2h -o s3.bucket-lookup=path -o s3.region=us-east-1"
             fi
+            # ...but a lock left by a run that died is never passed: restic only
+            # removes it on unlock, once no live process has refreshed it for 30
+            # minutes. Without this, one killed backup or promotion holds every
+            # retention run until someone runs `restic unlock` by hand.
+            $R unlock > /dev/null 2>&1 || true
             PUSH="http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus"
             mkdir -p /tmp/out
             : > /tmp/out/removed
@@ -376,6 +405,13 @@ spec:
               - ALL
 
     - name: records
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: removed

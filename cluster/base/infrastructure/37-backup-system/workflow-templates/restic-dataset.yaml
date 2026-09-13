@@ -42,6 +42,7 @@ spec:
       activeDeadlineSeconds: 7200
       retryStrategy:
         limit: 1
+        retryPolicy: Always
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -76,7 +77,14 @@ spec:
 
             # --host groups a dataset's snapshots for retention; the tags tie
             # each one to its dataset and recovery point.
-            $R backup --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json "$@" > /tmp/backup.json
+            # restic never passes a stale lock by itself: a lock left by a process that
+            # died -- a prune cut off by a power loss -- fails every later backup until
+            # `restic unlock` removes it, which it does once the lock is 30 minutes old.
+            # So: clear stale locks, wait up to 40 minutes for a live one, and if a dead
+            # one went stale meanwhile, clear it and try once more.
+            bk() { $R backup --retry-lock 40m --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json "$@" > /tmp/backup.json; }
+            $R unlock > /dev/null 2>&1 || true
+            bk "$@" || { $R unlock && bk "$@"; }
             SNAP="$(grep -o '"snapshot_id":"[0-9a-f]*"' /tmp/backup.json | tail -n 1 | cut -d'"' -f4)"
             FILES="$(grep -o '"total_files_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
             BYTES="$(grep -o '"total_bytes_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
@@ -166,6 +174,16 @@ spec:
               - ALL
 
     - name: restore-test
+      # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
+      # is gone) or exits 137/143 (killed). Only those are retried: this step is
+      # safe to run again, and any other exit is a real failure that must stand.
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset

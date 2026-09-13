@@ -26,6 +26,16 @@ metadata:
 spec:
   templates:
     - name: backup
+      # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
+      # is gone) or exits 137/143 (killed). Only those are retried: this step is
+      # safe to run again, and any other exit is a real failure that must stand.
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset
@@ -140,6 +150,7 @@ spec:
       activeDeadlineSeconds: 7200
       retryStrategy:
         limit: 1
+        retryPolicy: Always
       volumes:
         - name: stage
           emptyDir:
@@ -228,7 +239,14 @@ spec:
             R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
             mkdir -p /tmp/out
             cd /stage
-            $R backup --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json "$SRV" > /tmp/backup.json
+            # restic never passes a stale lock by itself: a lock left by a process that
+            # died -- a prune cut off by a power loss -- fails every later backup until
+            # `restic unlock` removes it, which it does once the lock is 30 minutes old.
+            # So: clear stale locks, wait up to 40 minutes for a live one, and if a dead
+            # one went stale meanwhile, clear it and try once more.
+            bk() { $R backup --retry-lock 40m --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json "$@" > /tmp/backup.json; }
+            $R unlock > /dev/null 2>&1 || true
+            bk "$SRV" || { $R unlock && bk "$SRV"; }
             SNAP="$(grep -o '"snapshot_id":"[0-9a-f]*"' /tmp/backup.json | tail -n 1 | cut -d'"' -f4)"
             FILES="$(grep -o '"total_files_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
             BYTES="$(grep -o '"total_bytes_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
@@ -347,6 +365,13 @@ spec:
     # recovery reads it. --verify re-reads every restored file against its blob
     # hashes, so what is uploaded is exactly what was backed up.
     - name: upload-scratch-archive
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset
@@ -449,6 +474,13 @@ spec:
     # proven is that backup, not whatever WAL came later. Same image and preload
     # libraries as the source, so extensions that need them load as they do there.
     - name: recover-scratch-cluster
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset
@@ -559,6 +591,13 @@ spec:
     # not the source's: a newer psql reads every older server, the checks are
     # plain counts, and an image computed at run time is one no gate can see.
     - name: restore-checks
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        expression: "lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'"
+        backoff:
+          duration: 30s
+          factor: "2"
       inputs:
         parameters:
           - name: dataset
