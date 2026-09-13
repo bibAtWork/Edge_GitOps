@@ -1,9 +1,9 @@
 # ADR-012: The Recovery System
 
 **Date:** 2026-09-12
-**Status:** Accepted — built and tested end to end (phases 1–11); cutover follows. The current
-pipeline (ADR-005, ADR-010, ADR-011) stays authoritative until cutover, and is removed then.
-**Supersedes at cutover:** [ADR-005](0005-two-stage-backup-relay.md), [ADR-010](0010-backup-topology.md),
+**Status:** Accepted — in production. The cutover on 2026-09-13 (#617) removed the pipeline it
+replaces (ADR-005, ADR-010, and ADR-011's mechanisms).
+**Supersedes:** [ADR-005](0005-two-stage-backup-relay.md), [ADR-010](0010-backup-topology.md),
 the mechanism half of [ADR-011](0011-recovery-oriented-backup-policy.md)
 **Related:** [ADR-003](0003-backup-immutability-versioning-only.md)
 
@@ -39,7 +39,7 @@ replace the current one with it.
 | AWS repository | A **new** versioned Object-Lock bucket with two identities. The *promoter* may put, get and list, and delete only restic's own lock files. *Retention* may delete, which on a versioned bucket creates delete markers only. Anything else needs the admin, with MFA. |
 | Retention | Local 7 daily / 3 weekly / 3 monthly, AWS 1 weekly / 3 monthly, applied per repository by `restic forget` behind a verification gate and a dry-run cap. Each barman archive keeps a 7-day point-in-time window; a database's longer history is its base backups in restic. |
 | Credentials | Every AWS credential lives in `backup-system`, and so does the local store's credential for file and SQLite data. **The exception is PostgreSQL:** the barman-cloud plugin reads its object-store credential from the database's own namespace, so each namespace with a CNPG cluster holds the local store's credential. It never holds an AWS one; only promotion, in `backup-system`, reaches AWS. |
-| Velero | Removed at cutover. GitOps recreates cluster state. |
+| Velero | Removed at the cutover (#617). GitOps recreates cluster state. |
 | Reconciler | The smallest one, built from Argo itself: an hourly CronWorkflow that submits the recovery point or promotion a missed guarantee needs (phase 11, below). Ordered catch-up after an outage needs nothing more: each run is one DAG. |
 
 ## Why this reverses ADR-010
@@ -76,7 +76,8 @@ dump job. No application namespace ever holds an AWS credential.
   sizes (under 1 GiB per volume); revisit near 50 GiB.
 - **Immich's database was migrated,** a dump and restore with a short downtime (138 s on
   2026-09-13).
-- **Two pipelines run in parallel until cutover,** which doubles the backup load for that period.
+- **Two pipelines ran in parallel until the cutover** (2026-09-13), which doubled the backup load
+  for that period.
 - **PostgreSQL namespaces keep a local-store credential** (see Credentials). That is the plugin's
   design, not a choice made here. The Cilium policy on SeaweedFS remains the boundary for it, as
   for every S3 client in the cluster.
@@ -96,7 +97,7 @@ dump job. No application namespace ever holds an AWS credential.
 | 9. Argo | Namespaced controller | Done (#588) |
 | 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Drift detection on the recovery path's releases followed (F5, below); the vault data check is deferred to the backlog, and its retention alert was built (F3, below) |
 | 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below; #612) |
-| Cutover | Old pipeline, relay, reconciler and Velero removed | Follows. The old Immich database release, first kept as rollback, was already removed (#606) |
+| Cutover | Old pipeline, relay, reconciler and Velero removed | Done 2026-09-13 (#617); the old AWS buckets are marked for deletion (#620). The old Immich database release, first kept as rollback, was removed earlier (#606) |
 
 ## Phase 11: the reconciler decision
 
@@ -162,6 +163,34 @@ Verified live on 2026-09-13:
 A deleted or hand-edited object of these releases is now back within their 30-minute interval,
 or at once with `flux reconcile hr`. Enabling drift detection for the other releases is a
 cluster-wide decision. Changes to cilium, longhorn and tailscale stay reviewed before they merge.
+
+## Cutover (2026-09-13)
+
+The recovery system has been the only backup system since #617:
+
+- **Removed from the cluster:**
+  - the old pipeline in `34-backup`: relay, reconciler, verify, repair, remote probe, both restore
+    tests, staging, and the volume backup policy;
+  - Longhorn's recurring snapshot and backup jobs;
+  - the four per-namespace database dumps, with their credentials;
+  - Velero.
+
+  The old pipeline's SeaweedFS buckets, Velero's CRDs and the recurring jobs' Longhorn snapshots
+  were deleted by hand, since Flux does not own them.
+- **Kept, but empty:** Longhorn's default BackupTarget. Longhorn refuses to delete it, so it stays
+  in Git with an empty URL, and Longhorn makes no backups.
+- **The pre-upgrade gate moved over.** It proved the old pipeline. It now reads the recovery
+  system's Workflows: every application needs a point under 26 hours old that passed its restore
+  test and has a verified copy in AWS. Verified live before the merge: it passed for all four
+  applications. The gate's account can read Workflows and cannot create them.
+- **AWS (#620):** the four identities that wrote to the old buckets are removed, and lifecycle
+  rules empty the three buckets. The ADR-005 vault keeps each version under Object Lock until its
+  21-day retention ends, so it is empty shortly after 2026-10-04. The buckets, their KMS key and
+  the rest of the old vault's Terraform are removed after that (docs/backlog.md).
+
+**One behaviour changed on purpose.** Longhorn's recurring jobs backed up every new volume by
+default. Now a volume is protected only once it is a dataset in the recovery policy, and nothing
+yet reports one that is not (docs/backlog.md).
 
 ## Open
 

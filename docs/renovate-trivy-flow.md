@@ -218,7 +218,8 @@ it has no way to act, and historically nothing downstream of it ever did.
 The gap only ever matters for images whose deployed tag comes from a chart's own bundled
 default rather than an explicit override — Renovate has no string to bump, so no PR is
 ever possible for them, no matter how long a Critical CVE sits open. Confirmed live
-2026-08-17 for exactly two images in this repo: `grafana/grafana` and `velero/velero`.
+2026-08-17 for exactly two images in this repo: `grafana/grafana` and `velero/velero`. (Velero
+was removed at the ADR-012 cutover, 2026-09-13.)
 
 > **Superseded in part, 2026-09-09.** Both of those images now carry explicit pins, along
 > with 35 others: [ADR-009](adr/0009-explicit-image-pins.md) made pinning the rule rather
