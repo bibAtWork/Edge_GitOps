@@ -47,6 +47,12 @@ spec:
         # namespace, and application namespaces hold none.
         - matchLabels:
             io.kubernetes.pod.namespace: backup-system
+        # CNPG's WAL archivers (ADR-012): the barman-cloud plugin's sidecar,
+        # running inside each database pod. filer-meta-pg needs no entry here;
+        # it lives in this namespace.
+        - matchLabels:
+            cnpg.io/cluster: keycloak-pg
+            io.kubernetes.pod.namespace: keycloak
         # Database backup CronJobs. Each dumps its own database and uploads the
         # artifact to the db-backups bucket; they need nothing from SeaweedFS
         # beyond S3 on 8333. Added 2026-08-18 alongside the jobs themselves --

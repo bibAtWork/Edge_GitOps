@@ -68,6 +68,16 @@ spec:
   # data. This bounds the worst case at 5 minutes instead of 30.
   stopDelay: 300
 
+  # Continuous WAL archiving and base backups (ADR-012), through CNPG's
+  # barman-cloud plugin into the local object store -- see objectstore.yaml.
+  # Enabling it injects the plugin's sidecar into the pod, which restarts the
+  # database once; so does every bump of the sidecar image.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: recovery
+
   # Name the database and owner explicitly. CNPG otherwise creates a database
   # called "app" owned by a role called "app", which is functional but obscures
   # what the cluster actually holds -- and this is one of three, so the ambiguity

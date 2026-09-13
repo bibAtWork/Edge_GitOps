@@ -1,0 +1,50 @@
+# CNPG's barman-cloud plugin (ADR-012): continuous WAL archiving and base
+# backups for every CNPG cluster, to an ObjectStore in the cluster's namespace.
+#
+# Installed next to the operator, in cnpg-system, because the operator is what
+# calls it (gRPC over TLS, certificates from the chart's own cert-manager
+# issuer). The part that touches data is a sidecar the plugin injects into each
+# database pod: it archives from where the WAL is written, so no backup job
+# ever connects to a database.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: plugin-barman-cloud
+  namespace: cnpg-system
+spec:
+  interval: 30m
+  dependsOn:
+    - name: cloudnative-pg
+  chart:
+    spec:
+      chart: plugin-barman-cloud
+      version: "0.8.0"
+      sourceRef:
+        kind: HelmRepository
+        name: cloudnative-pg
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+  values:
+    # Both images pinned explicitly per ADR-009, to the chart's appVersion. The
+    # sidecar is what runs inside every database pod, so a bump to it restarts
+    # each database once: move both tags together, in a reviewed PR.
+    image:
+      tag: v0.15.0
+    sidecarImage:
+      tag: v0.15.0
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

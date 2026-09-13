@@ -73,3 +73,43 @@ spec:
     - fromEndpoints:
         - matchLabels:
             cnpg.io/podRole: instance
+---
+# Operator -> barman-cloud plugin (ADR-012). The operator calls the plugin over
+# gRPC/TLS on 9090 to reconcile archiving and to run backups; without this the
+# operator's egress above admits only instances, the API server and DNS, and a
+# Cluster that names the plugin never reconciles.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-operator-to-barman-plugin
+  namespace: cnpg-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: plugin-barman-cloud
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-barman-plugin-from-operator
+  namespace: cnpg-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: plugin-barman-cloud
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: cloudnative-pg
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
