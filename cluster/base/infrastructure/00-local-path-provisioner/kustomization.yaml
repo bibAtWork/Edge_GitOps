@@ -2,3 +2,36 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - local-path-provisioner.yaml
+
+# The provisioner's configuration, generated twice from the same files in
+# config/ so the two can never drift:
+#
+#   local-path-config      the one the provisioner reads, looked up BY NAME
+#                          (--configmap-name), so its name must not carry a
+#                          hash
+#   local-path-config-rev  a content-hashed copy the Deployment mounts and
+#                          never reads. Its name changes with the content,
+#                          which changes the pod template and rolls the
+#                          provisioner -- the only way a change here reaches
+#                          it, since it reads helperPod.yaml only at start.
+#
+# A single hashed ConfigMap plus a `replacements` rule copying its name into
+# --configmap-name does not work: replacements see the name before kustomize
+# appends the hash (checked 2026-09-13).
+configMapGenerator:
+  - name: local-path-config
+    namespace: local-path-storage
+    files:
+      - config/config.json
+      - config/setup
+      - config/teardown
+      - config/helperPod.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: local-path-config-rev
+    namespace: local-path-storage
+    files:
+      - config/config.json
+      - config/setup
+      - config/teardown
+      - config/helperPod.yaml
