@@ -498,17 +498,7 @@ terraform init -input=false
 terraform apply -auto-approve \
   -var="cluster_name=$(_cfg 'cluster.name')" \
   -var="aws_region=$(_cfg 'aws.region')"
-
-# Capture IAM credentials from Terraform output and fill Velero secret
-VELERO_KEY=$(terraform output -raw velero_access_key_id)
-VELERO_SECRET=$(terraform output -raw velero_secret_access_key)
 cd "${REPO_ROOT}"
-
-python3 "${REPO_ROOT}/bootstrap/scripts/apply-config.py" \
-  --velero-access-key "${VELERO_KEY}" \
-  --velero-secret-key "${VELERO_SECRET}" \
-  --no-encrypt
-"${REPO_ROOT}/bootstrap/scripts/encrypt-secrets.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
@@ -519,7 +509,7 @@ echo "  1. Run ./bootstrap/scripts/post-deploy.sh --profile=1-node to create Sea
 echo "  2. Update overlays/1-node/patches/seaweedfs-single.yaml with disk paths:"
 echo "     PRIMARY_DISK=${PRIMARY_DISK}"
 echo "     BACKUP_DISK=${BACKUP_DISK}"
-echo "  3. Add SOPS-encrypted secrets for Cloudflare, Tailscale, Velero AWS creds"
+echo "  3. Add SOPS-encrypted secrets for Cloudflare and Tailscale"
 echo ""
 if [[ -n "${TALOS_VERSION}" ]]; then
   _client_ver=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}')
