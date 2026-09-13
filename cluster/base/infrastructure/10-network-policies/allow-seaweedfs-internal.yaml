@@ -53,6 +53,9 @@ spec:
         - matchLabels:
             cnpg.io/cluster: keycloak-pg
             io.kubernetes.pod.namespace: keycloak
+        - matchLabels:
+            cnpg.io/cluster: immich-pg
+            io.kubernetes.pod.namespace: immich
         # Database backup CronJobs. Each dumps its own database and uploads the
         # artifact to the db-backups bucket; they need nothing from SeaweedFS
         # beyond S3 on 8333. Added 2026-08-18 alongside the jobs themselves --

@@ -1,0 +1,28 @@
+# The local object store's credential for this namespace's CNPG archiver
+# (ADR-012). The barman-cloud plugin's sidecar runs inside the database pod
+# and can only read a Secret in its own namespace. The same single SeaweedFS
+# credential as 01-seaweedfs/s3-secret.yaml (CLAUDE.md); rotate both together.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: recovery-object-store
+    namespace: immich
+type: Opaque
+stringData:
+    admin_access_key_id: ENC[AES256_GCM,data:u+WVlHc=,iv:x0NXXG5fX+aMvvtXJcuZdbT5EQ72bTAB3UKZMB0aXkk=,tag:By3UdscVLyAIQumalFfGzw==,type:str]
+    admin_secret_access_key: ENC[AES256_GCM,data:L0fjtMf/45RTF7s=,iv:DbkvSsJfMW0CEPk/sAPK4Vk5+kA0o62ukSG3JPO71oc=,tag:b1IrpHK6eyo6s1Prfu5htg==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBlaENGNWltWnZmNElmM1ps
+            WEVpa2tMeFBUajlQOU1MNEp5RnNZYjFqZ0FrCnZKbmVVTmt3Rk5nRkJqUlJuQTVD
+            dTBLMWNxMDVxTkdaMnJkcjBESmhtRGcKLS0tIEdJTExkQk5tRkJrMWttWkMrWW4y
+            eHpRQVViT2ozaEllTnpIVm9lRkRCU2cKUSbRKv4edLU8APioK2u/NnvVuNbm/xK1
+            l9KoBYkcUJJzxmhuhhmC2bg2V4Es4MJMxeM3dMEJtUKCnU7deTiQSA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1wgk7g6rwkm2xjq08vj66aa53rxhdxvzjldrurkukcfuacxxxj34svculzn
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-09-13T07:03:28Z"
+    mac: ENC[AES256_GCM,data:BV+0Hr21qAqbO3zQG1poKMvULWvTL+jPt38OvyZU8dIzwp0s+qcsodaOPfat0Dimh//zUU7BHCorJ9sa6Ulhie6y3lDkEjBExp2/ueasT5/8VqyB1HcKtojzHLbQjHzLFlis8f1Za3Qk/n+S6kRiQEypm/eKrfDa4gRkGmNqhSg=,iv:UeNWOZYiHwx7iYiipHQYdwUCMNfNisRCuNmY3oaRr2k=,tag:O3MIMK3K5EHYXdnywh3w1w==,type:str]
+    version: 3.13.3
