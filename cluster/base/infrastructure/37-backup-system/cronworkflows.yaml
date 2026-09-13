@@ -143,3 +143,91 @@ spec:
       parameters:
         - name: repository
           value: aws
+---
+# The PostgreSQL applications (ADR-012): a recovery point and its promotion on
+# the same schedule as the others. Keycloak's point is its database; the
+# SeaweedFS point is the filer's metadata database, without which every object
+# in the store is an anonymous chunk.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: recovery-point-keycloak
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 1 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: recovery-point
+    arguments:
+      parameters:
+        - name: application
+          value: keycloak
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: recovery-point-seaweedfs
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 1 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: recovery-point
+    arguments:
+      parameters:
+        - name: application
+          value: seaweedfs
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: promote-keycloak
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 3 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: promote
+    arguments:
+      parameters:
+        - name: application
+          value: keycloak
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: promote-seaweedfs
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 3 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: promote
+    arguments:
+      parameters:
+        - name: application
+          value: seaweedfs

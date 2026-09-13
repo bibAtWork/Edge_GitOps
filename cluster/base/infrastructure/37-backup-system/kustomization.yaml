@@ -8,10 +8,13 @@ resources:
   - recovery-aws-promoter.yaml
   - recovery-aws-retention.yaml
   - rbac.yaml
+  - rbac-cnpg.yaml
+  - objectstore-restore.yaml
   - workflow-templates/volume-clone.yaml
   - recovery-policy.yaml
   - workflow-templates/restic-dataset.yaml
   - workflow-templates/sqlite-dataset.yaml
+  - workflow-templates/cnpg-dataset.yaml
   - workflow-templates/recovery-point.yaml
   - workflow-templates/promote.yaml
   - workflow-templates/retention.yaml
