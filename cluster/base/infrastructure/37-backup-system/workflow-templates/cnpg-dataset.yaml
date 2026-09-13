@@ -103,8 +103,10 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+          # kubectl needs about 260 MB here: it loads the discovery data of ~200 CRDs. At
+          # 256Mi it was OOM-killed intermittently (kernel log, 2026-09-13).
           limits:
-            memory: 256Mi
+            memory: 512Mi
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
@@ -540,8 +542,10 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+          # kubectl needs about 260 MB here: it loads the discovery data of ~200 CRDs. At
+          # 256Mi it was OOM-killed intermittently (kernel log, 2026-09-13).
           limits:
-            memory: 256Mi
+            memory: 512Mi
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
