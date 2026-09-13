@@ -54,11 +54,9 @@ jobs:
           # Build the full rendered manifest, then strip SOPS-encrypted documents
           # before feeding to kubeconform — SOPS adds a root-level `sops:` key
           # that would trigger strict-mode failures on every secret.
-          # LoadRestrictionsNone: the backup CronJobs generate their upload-script
-          # ConfigMap from the single shared file in _shared/, which sits outside
-          # their own component directory. Flux renders that fine -- the
-          # 1-node-config overlay has relied on the same thing for a while -- but
-          # plain kubectl kustomize refuses it.
+          # LoadRestrictionsNone: the 1-node-config overlay's 19-kyverno/config
+          # reads its policies from outside its own component directory. Flux
+          # renders that fine, but plain kubectl kustomize refuses it.
           kubectl kustomize --load-restrictor LoadRestrictionsNone cluster/overlays/${{ matrix.overlay }} \
             | yq 'select(.sops == null)' \
             | kubeconform \

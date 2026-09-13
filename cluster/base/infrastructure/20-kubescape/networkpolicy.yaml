@@ -6,8 +6,8 @@
 # default-deny.yaml) and threw its report away. Pushing a metric is the one new
 # outbound path.
 #
-# Scoped to the backup.homelab/egress label rather than the whole namespace,
-# matching 34-backup/networkpolicy.yaml. The scan ServiceAccount holds a
+# Scoped to the backup.homelab/egress label rather than the whole namespace, as
+# the upgrade gate's policy is. The scan ServiceAccount holds a
 # cluster-wide read of every resource in the cluster, so this is precisely the
 # workload where a blanket egress grant would be worth the least and cost the
 # most: it would turn a read-everything credential into a read-everything

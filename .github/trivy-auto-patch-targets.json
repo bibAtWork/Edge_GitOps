@@ -5,11 +5,5 @@
     "yq_path": ".spec.values.image.tag",
     "baseline_tag": "12.3.1",
     "baseline_recorded": "2026-08-17"
-  },
-  "velero/velero": {
-    "file": "cluster/base/infrastructure/07-velero/helmrelease.yaml",
-    "yq_path": ".spec.values.image.tag",
-    "baseline_tag": "v1.18.1",
-    "baseline_recorded": "2026-08-17"
   }
 }

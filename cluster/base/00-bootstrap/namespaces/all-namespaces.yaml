@@ -51,16 +51,6 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: velero
-  labels:
-    # velero-node-agent DaemonSet runs as root (UID 0) with privileged: true to
-    # traverse /var/lib/kubelet/pods and read PV data for Kopia file system backup.
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: baseline
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: cert-manager
   labels:
     pod-security.kubernetes.io/enforce: restricted

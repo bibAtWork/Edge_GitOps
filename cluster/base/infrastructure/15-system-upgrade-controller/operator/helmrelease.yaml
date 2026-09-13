@@ -63,8 +63,7 @@ spec:
         systemDefaultRegistry: ""
   # The chart writes its controller settings into a ConfigMap consumed via
   # envFrom, and exposes no values for them, so they are patched post-render --
-  # the same approach 05-cilium and 07-velero use for chart fields with no
-  # values path.
+  # the same approach 05-cilium uses for chart fields with no values path.
   postRenderers:
     - kustomize:
         patches:

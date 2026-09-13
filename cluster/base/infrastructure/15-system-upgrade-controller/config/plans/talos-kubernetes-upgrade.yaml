@@ -97,26 +97,27 @@ spec:
     startTime: "16:00"
     endTime: "17:00"
     timeZone: UTC
-  # Requires the pre-upgrade backup gate.
+  # Requires the pre-upgrade gate.
   #
-  # upgrade-backup-gate (11:00 Sunday, longhorn-system) proves the Longhorn
-  # backups are recent AND that every SeaweedFS backup object actually reads,
-  # then sets this label. It removes it whenever it cannot establish both, so
-  # an absent label means "not proven this week", never "not checked".
+  # upgrade-backup-gate (11:00 Sunday, longhorn-system) proves that every
+  # application has a recovery point under 26h old that passed its restore test
+  # and has a verified copy in AWS (ADR-012), then sets this label. It removes
+  # it whenever it cannot establish that, so an absent label means "not proven
+  # this week", never "not checked".
   #
   # Fails closed by construction: no label, no matching node, no upgrade. That
   # is the intended behaviour on a single-node cluster that reboots to apply
-  # this -- a missed window costs a week, an upgrade with no working backup can
-  # cost the cluster. "There is a backup" was true for four days here while 584
-  # backup objects were unreadable, which is why the gate reads them rather
-  # than counting them.
+  # this -- a missed window costs a week, an upgrade with no working recovery
+  # point can cost the cluster. "There is a backup" was true for four days here
+  # while 584 backup objects were unreadable, which is why the gate requires
+  # restore-tested points rather than counting backups.
   #
   # The manual override is talos-on-demand, which is label-triggered and
   # deliberately NOT gated -- see that file.
   # Requires talos.homelab/talos-version-ready in addition to
   # talos.homelab/upgrade-ready.
   #
-  # upgrade-ready proves the backups are good; it says nothing about whether
+  # upgrade-ready proves the recovery points are good; it says nothing about whether
   # Talos itself reached its target version. The three scheduled Plans are
   # independently time-windowed (12:00/14:00/16:00) with no dependency between
   # them -- confirmed against the Plan CRD directly, which has no such field --

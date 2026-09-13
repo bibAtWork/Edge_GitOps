@@ -31,7 +31,5 @@ resources:
   # kubeopencode: HTTPRoute (gateway.networking.k8s.io) + Agent (kubeopencode.io CRD
   # installed by the bootstrap-layer HelmRelease)
   - ../../base/infrastructure/27-kubeopencode/config
-  # velero Schedules (velero.io) — 1-node specific retention
-  - velero-schedules.yaml
   # Cilium LB IPAM: assigns a dedicated LAN IP to the gateway + announces it via ARP
   - lb-ipam.yaml

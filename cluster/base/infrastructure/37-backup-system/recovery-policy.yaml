@@ -1,9 +1,8 @@
 # The recovery system's policy (ADR-012): what has to be recoverable, how well,
 # and how each dataset is protected.
 #
-# Same shape as 34-backup/backup-policy.yaml, which describes the current
-# pipeline and is removed with it at cutover. Plain whitespace tables, `#` to end
-# of line is a comment; read by busybox shell in the workflows.
+# Plain whitespace tables, `#` to end of line is a comment; read by busybox
+# shell in the workflows.
 apiVersion: v1
 kind: ConfigMap
 metadata:

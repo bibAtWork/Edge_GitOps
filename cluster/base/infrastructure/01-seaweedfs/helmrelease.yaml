@@ -61,8 +61,8 @@ spec:
     # Efficiency review 2026-08-17: none of the three seaweedfs components had any
     # resources set, making all of them BestEffort QoS — the first pods the kubelet
     # evicts under node memory pressure. That ordering is backwards here: seaweedfs
-    # is the storage backbone (Zot's registry, Velero's backup target, talos-backup's
-    # etcd snapshots), so evicting it takes the backup/restore path down with it.
+    # is the storage backbone (Zot's registry and the recovery system's local
+    # repository), so evicting it takes the backup/restore path down with it.
     # Requests sized from measured 24h peaks (filer 748Mi, master/volume ~110Mi
     # each), set as a steady-state floor rather than the peak — a request is a
     # reservation, not a cap. Limits are deliberately generous: the point is QoS

@@ -1,0 +1,54 @@
+# The upgrade gate's metrics push, both halves.
+#
+# Moved here from 34-backup/ when the old backup pipeline was removed (ADR-012
+# cutover). Cilium is default-deny in both directions, and longhorn-restrict
+# (32-longhorn/) already covers what the gate needs besides this: DNS and the
+# kube-apiserver. The gate reaches nothing outside the cluster.
+#
+# The selector label is `backup.homelab/egress`, which the kubescape scan's pods
+# also carry for the same push; renaming it would have to change both at once.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: upgrade-gate-egress
+  namespace: longhorn-system
+spec:
+  endpointSelector:
+    matchLabels:
+      backup.homelab/egress: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: vmsingle
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
+---
+# vmsingle's own ingress is restricted to an explicit allowlist, so the egress
+# rule above is only half the path.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-backup-jobs-to-vmsingle
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vmsingle
+  ingress:
+    - fromEndpoints:
+        # The upgrade gate (upgrade-gate-cronjob.yaml).
+        - matchLabels:
+            io.kubernetes.pod.namespace: longhorn-system
+            backup.homelab/egress: "true"
+        # kubescape-scan (20-kubescape/cronjob.yaml) pushes its posture metrics
+        # from the kubescape namespace.
+        - matchLabels:
+            io.kubernetes.pod.namespace: kubescape
+            backup.homelab/egress: "true"
+      toPorts:
+        - ports:
+            - port: "8428"
+              protocol: TCP
