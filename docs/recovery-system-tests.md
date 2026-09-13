@@ -28,7 +28,7 @@ The architecture's matrix (§71), each row with the test that answered it.
 
 | Failure | Expected | How it was provoked | Observed | Verdict |
 | --- | --- | --- | --- | --- |
-| Backup pod restart | the workflow retries or resumes | a clone pod, and later a scratch-cluster recovery pod, force-deleted mid-run, each together with the Argo controller (E4b) | **neither retried**: the clone ended `Error: pod deleted`, the recovery pod `exit 137`; the point was honestly recorded FAILED and every clone removed. Fixed (F1); after the fix: PENDING-V1 | fixed |
+| Backup pod restart | the workflow retries or resumes | a clone pod, and later a scratch-cluster recovery pod, force-deleted mid-run, each together with the Argo controller (E4b) | **not retried**: the killed clone ended `Error: pod deleted` and was not tried again (F1). The recovery pod's `exit 137` turned out to be the kernel's, a second before the kill: kubectl had run out of memory (F6). The point was honestly recorded FAILED and every clone removed. After both fixes: PENDING-V1 | fixed |
 | Home server power loss | the next reconciliation restores the RPO | the controller killed during an Immich point (E4); the controller down across two scheduled slots (E5b) | E4: the run resumed and VALIDATED, clones removed, repository check clean. E5b: exactly one late run when the controller returned, for the most recent slot; the earlier slot not replayed. A night that FAILED is only retried at the next schedule -- F4, phase 11 | pass |
 | Network interruption | retry | covered by the rows either side: a lost pod (E4b, V1-V3) and an unreachable AWS (E2) | the run fails safe and the next run completes; a step that loses its pod is retried after F1 | pass |
 | AWS unavailable | the local point stays VALIDATED | a Cilium egress-deny to the internet on the promotion's pods (E2) | promotion failed at its first AWS call (`i/o timeout`); the record stayed VALIDATED + PROMOTION_PENDING; nothing written to the vault | pass |
@@ -76,6 +76,14 @@ offsite bytes at a small egress cost; not added.
 **F4 -- a failed or missed night waited a day.** Nothing retried a FAILED point before the next
 01:00, so the RPO was missed by up to a day. This is the one behaviour the schedules cannot
 express; phase 11 answers it (ADR-012).
+
+**F6 -- the kubectl steps ran out of memory.** kubectl loads the discovery data of every API
+group before it applies anything; with the ~200 CRDs this cluster serves, that is about
+260 MB (224 MB anonymous + 35 MB file RSS in the kernel's OOM reports), and the five steps that
+run kubectl had a 256Mi limit. The kernel OOM-killed them five times on the test day -- the
+first such kills since its log began three days earlier -- and a retry of a killed step died
+the same way. Found by reading the node's kernel log after retries kept failing: the exit 137
+that looked like a test's kill was the OOM killer's. Fixed: 512Mi.
 
 **F5 -- a deleted Helm-rendered object is not healed.** Without drift detection, helm-controller
 only acts on a change of chart or values, so a deleted Deployment of the Argo release stayed gone
