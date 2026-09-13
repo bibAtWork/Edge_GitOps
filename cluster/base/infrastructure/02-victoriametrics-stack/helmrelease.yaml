@@ -104,11 +104,10 @@ spec:
           # one thing that cannot be silent, because detecting it no longer
           # requires the datasource that is down.
           #
-          # Backups stay off deliberately: all three are listed in
-          # 34-backup/backup-policy.yaml's not-backed-up list, so they carry
-          # the ephemeral recurring-job group and are excluded from the backup
-          # schedule. Metrics, logs and traces are derived data on 3-month,
-          # 90-day and short retentions -- losing them costs history, not state.
+          # Backups stay off deliberately: none of the three is a dataset in
+          # 37-backup-system/recovery-policy.yaml. Metrics, logs and traces are
+          # derived data on 3-month, 90-day and short retentions -- losing them
+          # costs history, not state.
           storageClassName: longhorn
           resources:
             requests:

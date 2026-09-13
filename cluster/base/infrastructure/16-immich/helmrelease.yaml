@@ -72,9 +72,6 @@ spec:
     # The chart auto-sets REDIS_HOSTNAME=immich-valkey; enable the bundled Valkey.
     valkey:
       enabled: true
-      defaultPodOptions:
-        annotations:
-          backup.velero.io/excluded-volumes: data
       persistence:
         data:
           # Pure cache, so a loss costs a warm-up rather than data -- which is
@@ -135,9 +132,6 @@ spec:
 
     machine-learning:
       enabled: true
-      defaultPodOptions:
-        annotations:
-          backup.velero.io/excluded-volumes: cache
       controllers:
         main:
           containers:

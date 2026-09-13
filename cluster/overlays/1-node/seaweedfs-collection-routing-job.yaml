@@ -61,7 +61,7 @@ spec:
             - -c
             - |
               S3="http://seaweedfs-s3.seaweedfs.svc:8333"
-              for bucket in etcd-backups velero-backups zot-registry pvs; do
+              for bucket in zot-registry pvs; do
                 until aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; do
                   echo "Waiting for bucket: $bucket"
                   sleep 5
@@ -92,9 +92,10 @@ spec:
               run_shell_cmd "s3.configure -buckets pvs -collection primary -apply"
               run_shell_cmd "s3.configure -buckets zot-registry -collection primary -apply"
 
-              # backup collection: volumes on the dedicated backup disk
-              run_shell_cmd "s3.configure -buckets etcd-backups -collection backup -apply"
-              run_shell_cmd "s3.configure -buckets velero-backups -collection backup -apply"
+              # The backup collection (the dedicated backup disk) held the etcd and
+              # Velero buckets, both removed at the ADR-012 cutover. The recovery
+              # bucket is not routed to it, as db-backups and longhorn-backups were
+              # not before it.
 
               echo "Collection routing configured."
           securityContext:

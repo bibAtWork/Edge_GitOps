@@ -7,11 +7,10 @@
 # on a local disk.
 #
 # Staying on local-path had two costs that are now gone. A hostPath volume
-# cannot be captured by anything -- Velero's file-system backup silently skips
-# them, creating no PodVolumeBackup and reporting no error -- so the SQLite
-# dump in sqlite-backup-cronjob.yaml was the database's only protection. And a
-# hostPath volume pins the pod to one node, which matters the moment this
-# cluster has more than one.
+# cannot be captured by anything that reads volumes -- the recovery system
+# (ADR-012) backs these up from Longhorn snapshot clones, which a hostPath volume
+# does not have. And a hostPath volume pins the pod to one node, which matters
+# the moment this cluster has more than one.
 #
 # On longhorn-db rather than longhorn: Retain reclaim, so a pruned or renamed
 # claim cannot take the database with it, and strict-local data locality, so
@@ -21,8 +20,6 @@ kind: PersistentVolumeClaim
 metadata:
   name: paperless-data-lh
   namespace: paperless
-  labels:
-    velero.io/backup: "true"
 spec:
   storageClassName: longhorn-db
   accessModes:
@@ -47,8 +44,6 @@ kind: PersistentVolumeClaim
 metadata:
   name: paperless-media-lh
   namespace: paperless
-  labels:
-    velero.io/backup: "true"
 spec:
   storageClassName: longhorn
   accessModes:
@@ -62,8 +57,6 @@ kind: PersistentVolumeClaim
 metadata:
   name: paperless-export-lh
   namespace: paperless
-  labels:
-    velero.io/backup: "true"
 spec:
   storageClassName: longhorn
   accessModes:
@@ -78,8 +71,6 @@ kind: PersistentVolumeClaim
 metadata:
   name: paperless-consume-lh
   namespace: paperless
-  labels:
-    velero.io/backup: "true"
 spec:
   storageClassName: longhorn
   accessModes:

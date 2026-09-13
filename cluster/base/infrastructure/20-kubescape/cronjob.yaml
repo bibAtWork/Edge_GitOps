@@ -15,9 +15,10 @@ spec:
       template:
         metadata:
           labels:
-            # Selected by networkpolicy.yaml in this directory, and by
-            # 34-backup/networkpolicy.yaml on vmsingle's ingress side. Without
-            # it the metric push is denied by default-deny.
+            # Selected by networkpolicy.yaml in this directory, and on
+            # vmsingle's ingress side by 15-system-upgrade-controller/config/
+            # upgrade-gate-netpol.yaml. Without it the metric push is denied by
+            # default-deny.
             backup.homelab/egress: "true"
         spec:
           serviceAccountName: kubescape

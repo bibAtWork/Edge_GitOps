@@ -14,13 +14,10 @@ resources:
   - google-idp-secret.yaml
   - edge-client-secret.yaml
   - cilium-policy.yaml
-  - postgres-backup-cronjob.yaml
   - postgres-cluster.yaml
   - objectstore.yaml
   - recovery-object-store.yaml
   - archive-netpol.yaml
-  - backup-s3-secret.yaml
-  - backup-netpol.yaml
 
 configMapGenerator:
   # Standalone ConfigMap (not folded into keycloak-setup-script) so
@@ -51,20 +48,5 @@ configMapGenerator:
     files:
       - realm-config/homelab.yaml
       - realm-config/master.yaml
-    options:
-      disableNameSuffixHash: true
-  # The upload half of this namespace's database backup. Generated from the
-  # single shared script rather than copied: cluster/base/infrastructure/
-  # _shared/backup-upload.sh is the only implementation, and all four backup
-  # jobs generate their own namespaced ConfigMap from that one file.
-  #
-  # disableNameSuffixHash for the reason already recorded above -- kustomize's
-  # nameReference rewrite does not reach into a Job's
-  # spec.template.spec.volumes[].configMap.name, so a hashed name would 404 at
-  # apply time.
-  - name: backup-upload-script
-    namespace: keycloak
-    files:
-      - upload.sh=../_shared/backup-upload.sh
     options:
       disableNameSuffixHash: true

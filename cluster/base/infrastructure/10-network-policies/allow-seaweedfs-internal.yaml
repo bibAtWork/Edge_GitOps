@@ -2,12 +2,13 @@
 # (fromEndpoints: [{}]), which is what CLAUDE.md's SeaweedFS architecture note assumed was
 # "the primary auth boundary" for S3 access but wasn't actually enforcing anything -- see
 # docs/network-architecture.md section 3. Replaced with the explicit, confirmed-live caller
-# list: velero (allow-velero-egress) and zot (allow-zot-egress), which already egress to
-# this port today. talos-backup was on this list until 2026-08-25, when its CronJob was
-# removed for never having uploaded anything. The kube-system grant is dropped entirely:
-# it was written for a SeaweedFS CSI driver (allow-csi-seaweedfs-egress's own comment)
-# that a live audit confirmed does not exist in this cluster -- `kubectl get csidrivers`
-# returns nothing.
+# list. The kube-system grant is dropped entirely: it was written for a SeaweedFS CSI driver
+# (allow-csi-seaweedfs-egress's own comment) that a live audit confirmed does not exist in
+# this cluster -- `kubectl get csidrivers` returns nothing.
+#
+# The ADR-012 cutover (2026-09-13) removed the old backup pipeline's callers: Velero,
+# Longhorn's backup target in longhorn-system, and the per-namespace database dump jobs.
+# What remains is Zot, the recovery system, and the CNPG WAL archivers.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -31,17 +32,8 @@ spec:
             io.kubernetes.pod.namespace: seaweedfs
     - fromEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: velero
-        - matchLabels:
             app.kubernetes.io/name: zot
             io.kubernetes.pod.namespace: zot
-        # Longhorn's backup target is this endpoint (ADR-002 Task 1). Whole
-        # namespace rather than a pod selector: the backup data path is the
-        # instance-manager pods, while backup-target polling and validation come
-        # from longhorn-manager, and both must reach S3 or backups fail in ways
-        # that present as a storage fault rather than a policy drop.
-        - matchLabels:
-            io.kubernetes.pod.namespace: longhorn-system
         # The recovery system (ADR-012). Its local repository is the
         # `recovery` bucket; every backup-store credential lives in this one
         # namespace, and application namespaces hold none.
@@ -56,25 +48,6 @@ spec:
         - matchLabels:
             cnpg.io/cluster: immich-pg
             io.kubernetes.pod.namespace: immich
-        # Database backup CronJobs. Each dumps its own database and uploads the
-        # artifact to the db-backups bucket; they need nothing from SeaweedFS
-        # beyond S3 on 8333. Added 2026-08-18 alongside the jobs themselves --
-        # without an entry here the upload hangs and the job eventually fails,
-        # since the drop is on SeaweedFS's ingress side, not the caller's
-        # egress (confirmed via hubble: "policy-verdict:none INGRESS DENIED").
-        #
-        # Selected by an explicit app.kubernetes.io/name label set on each
-        # CronJob's pod template: Job pods otherwise only carry job-name and
-        # controller-uid, which change every run and cannot be matched here.
-        - matchLabels:
-            app.kubernetes.io/name: immich-postgres-backup
-            io.kubernetes.pod.namespace: immich
-        - matchLabels:
-            app.kubernetes.io/name: keycloak-postgres-backup
-            io.kubernetes.pod.namespace: keycloak
-        - matchLabels:
-            app.kubernetes.io/name: paperless-sqlite-backup
-            io.kubernetes.pod.namespace: paperless
       toPorts:
         - ports:
             - port: "8333"

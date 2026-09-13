@@ -39,17 +39,6 @@ apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: allow-intra-namespace-egress
-  namespace: velero
-spec:
-  endpointSelector: {}
-  egress:
-    - toEndpoints:
-        - {}
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-intra-namespace-egress
   namespace: kube-system
 spec:
   endpointSelector: {}
