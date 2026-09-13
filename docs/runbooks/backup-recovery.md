@@ -429,7 +429,8 @@ The recovery system adds one item that is **unrecoverable if lost**, to be kept 
 ## A9. Drills
 
 The drills are Argo Workflows in [`recovery/`](recovery/). Each restores into scratch targets and
-removes what it made.
+removes what it made. The end-to-end tests of the whole system, failures included, are in
+[`recovery-system-tests.md`](../recovery-system-tests.md).
 
 | Drill | Proves |
 |---|---|
