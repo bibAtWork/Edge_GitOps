@@ -622,10 +622,11 @@ that pin is raised.
 
 ## Scenario F — Restore a Postgres database from its dump
 
-For `keycloak-pg`, `immich-postgresql` and `filer-meta-pg`, an hourly/nightly `pg_dump` to S3 is
-the **only** recovery path. Longhorn's backup policy excludes these volumes, Velero stores no
-volume bytes for them, and CNPG runs without barman. If the dump cannot be replayed, the data is
-gone.
+For `keycloak-pg`, `immich-pg` and `filer-meta-pg`, an hourly/nightly `pg_dump` to S3 is the
+current pipeline's recovery path. Longhorn's backup policy excludes these volumes and Velero stores
+no volume bytes for them. Since ADR-012 each database is also archived by barman and gets a
+validated recovery point every night, restore-tested from its restic copy by the recovery system;
+until cutover, the dumps below remain the documented path.
 
 That path was first exercised end-to-end on **2026-09-09**. It works — and it has three
 prerequisites that are not obvious and are not in any manifest. A restore attempted without them
@@ -635,7 +636,7 @@ fails, which in an emergency reads as "the backup is corrupt" when it is not.
 | --- | --- | --- | --- |
 | `filer-meta-pg` / `seaweedfs_filer` | `s3://filer-metadata/filer-<TS>.sql.gz` | hourly, :17 | `postgres:16-alpine` |
 | `keycloak-pg` / `keycloak` | `s3://db-backups/keycloak/keycloak-<TS>.sql.gz` | daily, 02:50 | `postgres:16-alpine` |
-| `immich-postgresql` / `immich` | `s3://db-backups/immich/immich-<TS>.sql.gz` | daily, 02:40 | `ghcr.io/immich-app/postgres:17-vectorchord…` |
+| `immich-pg` / `immich` | `s3://db-backups/immich/immich-<TS>.sql.gz` | daily, 02:40 | `ghcr.io/tensorchord/cloudnative-vectorchord:17-0.3.0` |
 
 ### The three prerequisites
 

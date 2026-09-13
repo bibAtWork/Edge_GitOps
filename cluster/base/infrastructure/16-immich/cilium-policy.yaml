@@ -39,7 +39,8 @@ spec:
             - port: "10443"
               protocol: TCP
 ---
-# Hub-and-spoke migration (2026-08-17): immich-server -> immich-postgresql (DB_HOSTNAME),
+# Hub-and-spoke migration (2026-08-17): immich-server -> immich-pg-rw (DB_HOSTNAME; the
+# bitnami immich-postgresql until 2026-09-13),
 # -> immich-valkey (REDIS_HOSTNAME, chart default), -> immich-machine-learning (chart
 # default URL) -- all same-namespace, previously covered only by allow-cluster-internal.
 apiVersion: cilium.io/v2

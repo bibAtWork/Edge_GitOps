@@ -49,13 +49,13 @@ spec:
               type: RuntimeDefault
           initContainers:
             - name: dump
-              # Must match the server's major version. immich-postgresql runs
-              # 17.6, unlike the keycloak and seaweedfs-filer databases which
-              # are both on 16 -- pg_dump refuses to dump from a server newer
-              # than itself, so a 16 client here produced a 20-byte file and
-              # the size guard below rejected it. Bump this in step with the
-              # postgresql chart, not independently.
-              # MUST match immich-postgresql's server major (17). pg_dump emits SQL
+              # Must match the server's major version. immich-pg runs
+              # PostgreSQL 17, unlike the keycloak and seaweedfs-filer databases
+              # which are both on 16 -- pg_dump refuses to dump from a server
+              # newer than itself, so a 16 client here produced a 20-byte file
+              # and the size guard below rejected it. Bump this in step with
+              # immich-pg's image (postgres-cluster.yaml), not independently.
+              # MUST match immich-pg's server major (17). pg_dump emits SQL
               # for its OWN version -- there is no target-version flag and no
               # down-conversion -- so a dump taken by a newer client can fail
               # to replay into an older server on syntax or catalog constructs

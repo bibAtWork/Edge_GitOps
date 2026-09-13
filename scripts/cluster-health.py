@@ -666,14 +666,18 @@ def check_apps(cl: Cluster) -> List[Result]:
             else:
                 results.append(Result("apps", f"{ns}/{name}", False, severity, f"{display}: {err[:120]}"))
 
-    # Immich: check both server and postgresql
-    for name, display in [("immich-server", "Immich server"), ("immich-postgresql", "Immich PostgreSQL")]:
+    # Immich: its server (a Deployment) and its database, the CloudNativePG
+    # cluster immich-pg (instances/readyInstances rather than replicas).
+    for name, display in [("immich-server", "Immich server"), ("immich-pg", "Immich PostgreSQL")]:
         try:
-            # Immich server is a Deployment, postgresql is a StatefulSet
-            kind = "deployments" if "server" in name else "statefulsets"
-            obj = cl.get_json(kind, name, "-n", "immich")
-            desired = obj.get("spec", {}).get("replicas", 1)
-            ready = obj.get("status", {}).get("readyReplicas", 0)
+            if name == "immich-server":
+                obj = cl.get_json("deployments", name, "-n", "immich")
+                desired = obj.get("spec", {}).get("replicas", 1)
+                ready = obj.get("status", {}).get("readyReplicas", 0)
+            else:
+                obj = cl.get_json("clusters.postgresql.cnpg.io", name, "-n", "immich")
+                desired = obj.get("spec", {}).get("instances", 1)
+                ready = obj.get("status", {}).get("readyInstances", 0)
             ok = ready >= desired > 0
             results.append(Result("apps", f"immich/{name}", ok, "warning", f"{display}: {ready}/{desired} ready"))
         except RuntimeError as exc:
