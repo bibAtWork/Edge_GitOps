@@ -44,6 +44,7 @@ data:
     paperless-db       paperless    sqlite-volume  pvc:paperless/paperless-data-lh   db.sqlite3
     keycloak-db        keycloak     cnpg           cnpg:keycloak/keycloak-pg         -
     filer-db           seaweedfs    cnpg           cnpg:seaweedfs/filer-meta-pg      -
+    immich-db          immich       cnpg           cnpg:immich/immich-pg             -
 
   # Ceilings, so no mistake -- a bug that re-uploads, a backup pointed at the
   # wrong volume, files rewritten wholesale -- turns into an unbounded bill or a
@@ -97,6 +98,9 @@ data:
     keycloak-db       1     select count(*) from user_entity
     keycloak-db       10    select count(*) from client
     filer-db          1000  select count(*) from filemeta
+    immich-db         1     select count(*) from asset
+    immich-db         1     select count(*) from "user"
+    immich-db         1     select count(*) from smart_search
 
   # Derived data inside the datasets' volumes, left out on purpose. A cache that
   # can hold unique user state is not a cache; these cannot.

@@ -86,7 +86,9 @@ spec:
                   # empty table that Immich repopulates rather than a missing one that breaks
                   # its migrations. Reverse geocoding is degraded until that import runs;
                   # assets, albums, faces and search embeddings are unaffected.
-                  pg_dump -h immich-postgresql -U immich \
+                  # immich-pg-rw since the move to CloudNativePG: a dump of the
+                  # old StatefulSet would keep succeeding on frozen data.
+                  pg_dump -h immich-pg-rw -U immich \
                     -d immich --clean --if-exists \
                     --exclude-table-data=geodata_places \
                     --exclude-table-data=naturalearth_countries \

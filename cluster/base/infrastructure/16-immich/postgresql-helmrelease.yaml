@@ -1,3 +1,8 @@
+# ROLLBACK COPY ONLY. Immich runs on the CloudNativePG cluster immich-pg
+# (postgres-cluster.yaml) since the migration; nothing reads this database any
+# more. It stays, untouched, until the new one has proven itself, and is then
+# removed together with its Retain volume, copied out first: Helm prunes a
+# chart-templated claim, so the release cannot simply be left to rot.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
