@@ -94,9 +94,9 @@ dump job. No application namespace ever holds an AWS credential.
 | 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Done: vault (#592), promotion and remote verification (#596), guarantee alerts (#597) |
 | Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Done (#599) |
 | 9. Argo | Namespaced controller | Done (#588) |
-| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Drift detection on the recovery path's releases followed (F5, below); one proposal is open (F3) |
+| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Drift detection on the recovery path's releases followed (F5, below); the vault data check is deferred to the backlog, and its retention alert was built (F3, below) |
 | 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below; #612) |
-| Cutover | Old pipeline, relay, reconciler and Velero removed; the old Immich StatefulSet kept as rollback until then | Follows |
+| Cutover | Old pipeline, relay, reconciler and Velero removed | Follows. The old Immich database release, first kept as rollback, was already removed (#606) |
 
 ## Phase 11: the reconciler decision
 
@@ -165,7 +165,7 @@ cluster-wide decision. Changes to cilium, longhorn and tailscale stay reviewed b
 
 ## Open
 
-One finding of phase 10 is a proposal, not yet decided. It does not block cutover.
+One gap found in phase 10 is deferred, not closed. It does not block cutover.
 
 **Remote verification reads metadata only (F3).** Promotion ends with `restic check` on the vault.
 That loads every index, confirms that each pack the indexes name exists at its recorded size, and
@@ -174,16 +174,20 @@ downloads a data blob, so it passes a pack whose bytes are corrupt (E6b). What i
 the vault is complete and consistent, not that its data is readable. Locally, every point's
 restore test closes that gap. Offsite, nothing does.
 
-Proposal: the weekly AWS retention run gains a last step, `restic check --read-data-subset=5G`,
-which runs whether or not anything was thinned. restic picks packs at random up to 5 GiB,
-downloads them, and checks each pack's hash and each blob's decryption and hash. Until the vault
-holds 5 GiB, that reads all of it every week (89 MiB today). At the 250 GiB cap it samples 2% a
-week: enough to catch damage to many packs within a week, and isolated damage eventually. The
-vault is S3 Standard, so there is no retrieval fee. About 22 GiB of egress a month fits within
-AWS's free 100 GB of monthly transfer out, and costs about $2 a month without it. The
-alternative, `--read-data-subset=n/12` rotated by week, reads the whole vault every quarter, but
-its cost grows with the vault: close to 100 GB a month at the cap.
+A weekly, size-bounded data check of the vault was proposed: `restic check
+--read-data-subset=5G` at the end of AWS retention, at most about $2 a month. It is deferred to the
+backlog ("Deferred: read the AWS vault's data back") for three reasons:
 
-It needs one more thing: an alert on `recovery_retention_last_success_timestamp`, which nothing
-reads today. A retention run that fails, rather than refusing or holding, alerts nobody; the
-repository only grows until it reaches a cap.
+- On S3, the damage it would catch -- a pack of the right size with the wrong bytes -- needs a
+  software fault. Missing packs, truncated uploads and a wrong password are already caught every
+  night.
+- It samples ever less as the vault grows.
+- A finding has no repair procedure yet.
+
+The quarterly restore drills from AWS (runbook A9) remain the check that the offsite data
+restores.
+
+The part of the proposal that cost nothing was built: RecoveryRetentionStale fires when a
+repository's retention has not completed on schedule, 30 hours locally or 8 days on AWS. Before
+it, a retention run that failed, rather than refusing or holding, raised no alert, and the
+repository only grew.

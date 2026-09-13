@@ -78,7 +78,8 @@ vault's indexes, snapshots and trees; E6b shows it passes over a corrupted data 
 `restore --verify` and `check --read-data` catch. That is the architecture's own choice --
 "verify without downloading the complete backup" -- and every local point's data is read back by
 its restore test. A weekly `check --read-data-subset` against the vault would sample the offsite
-bytes at a small egress cost. ADR-012 proposes it (Open).
+bytes at a small egress cost. It is deferred to the backlog (ADR-012, Open). The retention alert
+proposed with it was built.
 
 **F4 -- a failed or missed night waited a day.** Nothing retried a FAILED point before the next
 01:00, so the RPO was missed by up to a day. This is the one behaviour the schedules cannot
