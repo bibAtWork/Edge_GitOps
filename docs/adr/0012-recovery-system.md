@@ -129,5 +129,11 @@ for the scheduled runs. It has its own identity, which can list and create workf
 nothing else. No CRD, no controller, no leader election, no queue, no state of its own: the
 records are the observed state and the policy the desired one.
 
+Verified live on 2026-09-13. With its defaults it submitted nothing: every application was
+within its RPO. With a point's allowed wait for AWS set to zero, it submitted one promotion per
+application, and each ended REMOTE_VERIFIED. With a profile's RPO and the grace set to zero, it
+submitted a recovery point for each application of that profile; both VALIDATED, and a second
+run at once declined to submit them again ("not now -- running").
+
 The guardrail stands: if it ever needs more than evaluating and submitting, stop and revisit --
 "do not accidentally build a backup operator".

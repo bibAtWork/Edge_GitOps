@@ -82,7 +82,9 @@ offsite bytes at a small egress cost; not added.
 
 **F4 -- a failed or missed night waited a day.** Nothing retried a FAILED point before the next
 01:00, so the RPO was missed by up to a day. This is the one behaviour the schedules cannot
-express; phase 11 answers it (ADR-012).
+express. Phase 11 answers it with a reconciler (ADR-012), verified live: it submitted the
+missing recovery points and promotions, both ended VALIDATED and REMOTE_VERIFIED, and it did
+not submit a workflow that was still running.
 
 **F6 -- the kubectl steps ran out of memory.** kubectl loads the discovery data of every API
 group before it applies anything; with the ~200 CRDs this cluster serves, that is about
@@ -90,7 +92,8 @@ group before it applies anything; with the ~200 CRDs this cluster serves, that i
 run kubectl had a 256Mi limit. The kernel OOM-killed them five times on the test day -- the
 first such kills since its log began three days earlier -- and a retry of a killed step died
 the same way. Found by reading the node's kernel log after retries kept failing: the exit 137
-that looked like a test's kill was the OOM killer's. Fixed: 512Mi (#610).
+that looked like a test's kill was the OOM killer's. Fixed: 512Mi (#610). The reconciler's own submit step, written
+with 128Mi, hit the same limit in its first test and went to 512Mi before it merged.
 
 **F7 -- a step that creates objects could not run twice.** After a kill, Argo runs the step
 again -- and every step that creates Kubernetes objects failed on the second run: `kubectl
