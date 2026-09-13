@@ -30,7 +30,8 @@
   "kubernetes": {
     "enabled": true,
     "managerFilePatterns": [
-      "/cluster/.+\\.yaml$/"
+      "/cluster/.+\\.yaml$/",
+      "!/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
     ]
   },
   "customManagers": [
@@ -264,16 +265,6 @@
       ],
       "groupName": "longhorn",
       "automerge": false
-    },
-    {
-      "description": "Do not propose updates for the Talos factory installer image, and accept that Renovate still warns about it. machine.install.image is a real YAML key, so the built-in kubernetes manager claims it and attempts a Docker lookup on factory.talos.dev/installer/<schematic-id> -- which has no tag list to enumerate, because that path segment is a content hash of the schematic rather than a repository name. The lookup fails with no-result, and Renovate prints \"Some dependencies could not be looked up\" in the body of every PR it opens. That warning is expected here and is not worth chasing further. Suppressing it was tried twice on 2026-09-09 -- matched on the manager where the dependency is detected, then on the datasource -- and it survived both. enabled:false stops the update being proposed; it does not stop the datasource being queried. Nothing is lost. The version on that line is already tracked, correctly, by the custom manager that reads it as siderolabs/talos from github-releases: one line, two managers claiming it, and only one that can resolve it. The remaining ways to silence it all act at extraction time and cost more than the noise -- ignorePaths is global and would blind the custom manager that tracks the Talos version, and narrowing the kubernetes manager's file patterns means an explicit include-list whose failure mode is silently losing image tracking elsewhere. See docs/backlog.md.",
-      "matchDatasources": [
-        "docker"
-      ],
-      "matchPackageNames": [
-        "/^factory[.]talos[.]dev//"
-      ],
-      "enabled": false
     },
     {
       "description": "Move the victoria-metrics chart and its pinned images together. ADR-009 requires a chart and the images it packages to move in one change. The chart's appVersion and the pinned tags describe the same release, so a proposal that carries one without the other opens a window where the pin is a downgrade of the chart's own intent. Grouping by package file keeps them in a single branch whenever both updates are available together.",

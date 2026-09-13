@@ -1031,49 +1031,51 @@ Implementation notes for whoever picks this up:
 - Coverage will be partial. Not every dependency is a GitHub project with a release feed --
   `immich-postgresql` comes from a Bitnami registry with none.
 
-## Accepted: Renovate warns about the Talos factory installer on every PR
+## Resolved 2026-09-13: Renovate warned about the Talos factory installer on every PR
 
-Every Renovate PR body carries `> Some dependencies could not be looked up`, naming
+Every Renovate PR body carried `> Some dependencies could not be looked up`, naming
 `factory.talos.dev/installer/<schematic-id>` in `cluster/overlays/1-node/talos-machineconfigs/`
-`controlplane.yaml`. This is accepted, not unexplained -- the entry exists so nobody spends the
-afternoon on it a third time.
+`controlplane.yaml`.
 
-`machine.install.image` is an ordinary YAML key, so Renovate's built-in `kubernetes` manager claims
-it and attempts a Docker lookup. That path segment is a content hash of the schematic rather than a
-repository name, so there is no tag list to enumerate and the lookup returns `no-result`.
+`machine.install.image` is an ordinary YAML key, so Renovate's built-in `kubernetes` manager claimed
+it and attempted a Docker lookup. That path segment is a content hash of the schematic rather than a
+repository name, so there is no tag list to enumerate and the lookup returned `no-result`.
 
-**Nothing is actually untracked.** The same line is read by the custom manager as
+**Nothing was actually untracked.** The same line is read by the custom manager as
 `siderolabs/talos` from `github-releases`, which resolves fine and is what the `talos` group uses.
 One line, two managers claiming it, one of them able to resolve it.
 
-**Suppression was tried twice on 2026-09-09 and does not work.** A `packageRule` with
-`enabled: false` matched first on `matchManagers: [kubernetes]` -- where the dependency is
-detected -- and then on `matchDatasources: [docker]`. The regex matches the package name in both
-cases. The warning survived both. The conclusion is that `enabled: false` stops the update being
-*proposed* and does not stop the datasource being *queried*.
+**Suppression via `packageRules` never worked, confirmed twice on 2026-09-09** -- once matched on
+`matchManagers: [kubernetes]`, once on `matchDatasources: [docker]`, both `enabled: false`. This
+matches Renovate's actual behaviour: `enabled: false` in a `packageRule` stops the update being
+*proposed*, but the dependency is still resolved during the earlier extraction/discovery pass that
+populates the Dependency Dashboard's warning list, so the "could not be looked up" line survives
+regardless of which post-extraction rule targets it.
 
-### Why it was not pursued further
+**What settled it: `managerFilePatterns` takes a negative entry directly, in the same array as the
+positive one.** The two earlier attempts assumed the only way to narrow the manager was a negative
+*lookahead* (unsupported -- Renovate's regex runs through RE2) or a full include-list covering every
+file the manager should still see (rejected: it would have dropped tracking for the CronJobs in
+other files -- aws-cli, rclone, the postgres dump clients -- and for `quay.io/cilium/cilium-cli` in
+this same file). Neither is required. Renovate's string-pattern-matching syntax evaluates positive
+and negative entries in one array as an AND: match the broad pattern, then exclude anything the
+negative pattern also matches. So the fix is one added line, scoped to exactly the one file:
 
-The remaining options all act at extraction time and cost more than the noise:
+```json
+"kubernetes": {
+  "managerFilePatterns": [
+    "/cluster/.+\\.yaml$/",
+    "!/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
+  ]
+}
+```
 
-- **`ignorePaths`** is global. Excluding that file would also blind the custom manager that tracks
-  the Talos version -- trading a cosmetic warning for the pin the upgrade path depends on.
-- **Narrowing `kubernetes.managerFilePatterns`** needs either a negative lookahead, which Renovate
-  runs through RE2 where lookahead is unsupported, or an explicit include-list. That manager tracks
-  every plain `image:` in the CronJobs (aws-cli, rclone, the postgres dump clients), so an
-  include-list's failure mode is silently losing image tracking -- the exact failure ADR-009 and
-  the image gate exist to prevent. It would also drop `quay.io/cilium/cilium-cli`, tracked from the
-  same file, unless a replacement custom manager is added first.
-
-### To settle it
-
-The dependency dashboard links Mend's logs at `developer.mend.io`, which would say definitively why
-`enabled: false` does not skip the lookup. That needs a human with access. If the answer is that a
-different config key does suppress it, this becomes a one-line fix; if not, the entry stands and
-the warning is permanent and harmless.
-
-Reviewed 2026-09-09. Revisit only if the noise starts hiding a *real* lookup failure -- that is the
-one way this becomes more than cosmetic, since a second failing dependency would look identical.
+Every other file the `kubernetes` manager was tracking stays tracked. `cilium-cli` in this same file
+loses nothing either -- it was already double-tracked exactly like the installer tag, by the
+dedicated custom manager a few lines above in `renovate.json`, so the built-in manager dropping the
+file removes only the duplicate, unresolvable claim. The now-dead `packageRule` that tried to
+suppress `factory.talos.dev/*` via `enabled: false` is removed; there is nothing left for it to act
+on.
 
 ## F1 closed: every database dump is restore-tested nightly
 
