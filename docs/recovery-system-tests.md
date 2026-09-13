@@ -82,7 +82,7 @@ offsite bytes at a small egress cost; not added.
 
 **F4 -- a failed or missed night waited a day.** Nothing retried a FAILED point before the next
 01:00, so the RPO was missed by up to a day. This is the one behaviour the schedules cannot
-express. Phase 11 answers it with a reconciler (ADR-012), verified live: it submitted the
+express. Phase 11 answers it with a reconciler (ADR-012, #612), verified live: it submitted the
 missing recovery points and promotions, both ended VALIDATED and REMOTE_VERIFIED, and it did
 not submit a workflow that was still running.
 

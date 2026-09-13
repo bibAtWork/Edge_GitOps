@@ -95,7 +95,7 @@ dump job. No application namespace ever holds an AWS credential.
 | Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Done (#599) |
 | 9. Argo | Namespaced controller | Done (#588) |
 | 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind |
-| 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below) |
+| 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below; #612) |
 | Cutover | Old pipeline, relay, reconciler and Velero removed; the old Immich StatefulSet kept as rollback until then | Follows |
 
 ## Phase 11: the reconciler decision
@@ -120,7 +120,7 @@ architecture itself defines: act on the recovery guarantee, not on the clock -- 
 validated point is 27 h old, RPO 24 h: a new point is required", and "a failure is retryable;
 the next reconciliation retries it". A schedule cannot say that.
 
-**Decision: the smallest possible reconciler, built from Argo itself.** One CronWorkflow,
+**Decision: the smallest possible reconciler, built from Argo itself** (#612). One CronWorkflow,
 hourly, compares the policy's RPO with the newest VALIDATED record of each application, and
 the age of a point waiting for AWS with a limit, and submits the one workflow that is missing
 -- a recovery point or a promotion -- unless that workflow is running or was started within a
