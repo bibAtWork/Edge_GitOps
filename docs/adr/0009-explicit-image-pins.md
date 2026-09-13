@@ -113,6 +113,20 @@ no chart download. Tags that cannot be ordered are reported as unorderable rathe
 at. The check is required, not optional: without it this decision trades one silent staleness for
 another.
 
+**Only a divergence that crosses a major blocks the chart bump; a same-major lag does not.** The
+first implementation of this check blocked every divergence outright, on any chart update, which
+defeated the point of decoupling the two versions: a routine chart bump (a template fix, an RBAC
+change) sat unmerged waiting on a human, for a gap the pin was going to close on its own. The pin
+is not a one-time snapshot — it is an ordinary Renovate-tracked dependency in its own right, and a
+same-major gap already produces its own update proposal on its own schedule, through the normal
+minor/patch path. Blocking the chart on that gap holds back a change that is already safe in order
+to enforce a coupling this decision exists to remove. A gap that crosses a major is different in
+kind, not degree: it is the same case as any other major version step, already never auto-merged,
+arriving by a different path — the chart moved to a new major application and the pin has not. That
+one still needs a person. The result is the invariant this decision actually wants: the pin and the
+appVersion stay within one major of each other automatically, and only a major step is a deliberate,
+reviewed decision.
+
 ## Consequences
 
 **The chart/image pairing becomes this repository's responsibility.** Chart maintainers test that
