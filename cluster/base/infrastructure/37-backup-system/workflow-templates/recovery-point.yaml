@@ -570,6 +570,12 @@ spec:
               # Requested, not awaited: see volume-clone's cleanup.
               kubectl delete snapshots.longhorn.io -n longhorn-system "$C" --ignore-not-found --wait=false
             done < /tmp/clones
+            # Base-backup requests (CNPG Backup objects) this run made in the databases'
+            # namespaces. The backup step removes its own once read, but a step cut
+            # off between creating and removing it leaves one behind.
+            for NS in $(sed 's/#.*//' /policy/datasets | awk '$3 == "cnpg" { split($4, a, "[:/]"); print a[2] }' | sort -u); do
+              kubectl delete backups.postgresql.cnpg.io -n "$NS" -l "recovery.homelab/recovery-point=$WF" --ignore-not-found || FAILED=1
+            done
             echo "removed $(wc -l < /tmp/scratch | tr -d ' ') scratch cluster(s) and $(wc -l < /tmp/clones | tr -d ' ') clone(s) of this run"
             exit "$FAILED"
         env:
@@ -578,6 +584,9 @@ spec:
         volumeMounts:
           - name: tmp
             mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
         resources:
           requests:
             cpu: 10m
