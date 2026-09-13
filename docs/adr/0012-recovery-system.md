@@ -94,7 +94,7 @@ dump job. No application namespace ever holds an AWS credential.
 | 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Done: vault (#592), promotion and remote verification (#596), guarantee alerts (#597) |
 | Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Done (#599) |
 | 9. Argo | Namespaced controller | Done (#588) |
-| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Two proposals are open (below) |
+| 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Drift detection on the recovery path's releases followed (F5, below); one proposal is open (F3) |
 | 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below; #612) |
 | Cutover | Old pipeline, relay, reconciler and Velero removed; the old Immich StatefulSet kept as rollback until then | Follows |
 
@@ -138,9 +138,34 @@ run at once declined to submit them again ("not now -- running").
 The guardrail stands: if it ever needs more than evaluating and submitting, stop and revisit --
 "do not accidentally build a backup operator".
 
+## Drift detection on the recovery path (F5)
+
+Phase 10 found that a deleted object of a HelmRelease stays gone. helm-controller acts on a change
+of chart or values, and without drift detection a deleted Deployment of the Argo release was not
+recreated until a reconcile was forced (E10b).
+
+Decided and done: `driftDetection: {mode: enabled}` on the four releases the recovery path runs on
+-- Argo Workflows, the CNPG operator, the barman-cloud plugin and SeaweedFS -- as on Longhorn. No
+ignore rules are needed:
+
+- The restore playbook suspends a HelmRelease before scaling its workload down (A6), and a
+  suspended release is not corrected.
+- Fields that controllers fill in and the charts do not render are not compared, such as the
+  CNPG webhooks' CA bundles.
+
+Verified live on 2026-09-13:
+
+- Enabling it upgraded none of the four releases and reported no drift.
+- A deleted `argo-workflows-server` Deployment was reported as removed (DriftDetected) and
+  recreated by the next reconcile (DriftCorrected).
+
+A deleted or hand-edited object of these releases is now back within their 30-minute interval,
+or at once with `flux reconcile hr`. Enabling drift detection for the other releases is a
+cluster-wide decision. Changes to cilium, longhorn and tailscale stay reviewed before they merge.
+
 ## Open
 
-Two findings of phase 10 are proposals, not yet decided. Neither blocks cutover.
+One finding of phase 10 is a proposal, not yet decided. It does not block cutover.
 
 **Remote verification reads metadata only (F3).** Promotion ends with `restic check` on the vault.
 That loads every index, confirms that each pack the indexes name exists at its recorded size, and
@@ -162,21 +187,3 @@ its cost grows with the vault: close to 100 GB a month at the cap.
 It needs one more thing: an alert on `recovery_retention_last_success_timestamp`, which nothing
 reads today. A retention run that fails, rather than refusing or holding, alerts nobody; the
 repository only grows until it reaches a cap.
-
-**A deleted Helm-rendered object is not healed (F5).** helm-controller acts on a change of chart or
-values. Without drift detection, a deleted Deployment of a HelmRelease stays gone until a
-reconcile is forced (E10b).
-
-Proposal: `driftDetection: {mode: enabled}` on the four releases the recovery path runs on --
-Argo Workflows, the CNPG operator, the barman-cloud plugin and SeaweedFS -- as Longhorn already
-has it. No ignore rules are needed:
-
-- The restore playbook suspends a HelmRelease before scaling its workload down (A6), and a
-  suspended release is not corrected.
-- Fields that controllers fill in and the charts do not render are not compared, such as the
-  CNPG webhooks' CA bundles.
-
-A dry run as helm-controller of the four releases' stored manifests (2026-09-13) found no
-difference beyond Helm's own metadata, so enabling it would change nothing on the day. Enabling
-it for the other releases is a cluster-wide decision. Changes to cilium, longhorn and tailscale
-stay reviewed before they merge.

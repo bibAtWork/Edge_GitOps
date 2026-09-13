@@ -34,6 +34,11 @@ spec:
       retries: 3
       remediateLastFailure: true
     cleanupOnFail: true
+  # The recovery system runs on this release (ADR-012, F5). An object of it that
+  # is deleted or edited by hand is put back on the next reconcile; to change one
+  # by hand, suspend the HelmRelease first.
+  driftDetection:
+    mode: enabled
   values:
     # Both images pinned explicitly per ADR-009, to the chart's appVersion. The
     # sidecar is what runs inside every database pod, so a bump to it restarts
