@@ -67,7 +67,7 @@ spec:
             CL="{{inputs.parameters.cluster}}"
             B="rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
             mkdir -p /tmp/out
-            kubectl apply -f - > /dev/null <<EOF
+            kubectl create -f - > /dev/null 2> /tmp/create.err <<EOF || { grep -v AlreadyExists /tmp/create.err | grep -q . && { cat /tmp/create.err; exit 1; }; true; }
             apiVersion: postgresql.cnpg.io/v1
             kind: Backup
             metadata:
@@ -516,7 +516,9 @@ spec:
             SIZE="$(get '{.spec.storage.size}')"
             PRELOAD="$(get '{.spec.postgresql.shared_preload_libraries}')"
             [ -n "$IMAGE" ] && [ -n "$DB" ] && [ -n "$SIZE" ] || { echo "cannot read image, database or size of $NS/$CL"; exit 1; }
-            kubectl apply -f - > /dev/null <<EOF
+            # Created if missing, never re-applied: a re-run after a kill finds the
+            # cluster the first run made, and this identity may not patch it.
+            kubectl create -f - > /dev/null 2> /tmp/create.err <<EOF || { grep -v AlreadyExists /tmp/create.err | grep -q . && { cat /tmp/create.err; exit 1; }; true; }
             apiVersion: postgresql.cnpg.io/v1
             kind: Cluster
             metadata:
