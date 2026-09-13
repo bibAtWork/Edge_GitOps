@@ -1,0 +1,37 @@
+# The reconciler's identity (ADR-012, phase 11). It reads the policy and the
+# local records, and submits workflows -- nothing else. It mounts no volume,
+# clones nothing and holds no AWS key: the workflows it submits run as
+# backup-workflow, like the scheduled ones, with that identity's grants.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: recovery-reconciler
+  namespace: backup-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: recovery-reconciler
+  namespace: backup-system
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs: ["get", "list", "create"]
+  # What Argo's executor needs in every workflow pod.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: recovery-reconciler
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: recovery-reconciler
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: recovery-reconciler

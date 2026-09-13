@@ -231,3 +231,23 @@ spec:
       parameters:
         - name: application
           value: seaweedfs
+---
+# The reconciler (ADR-012, phase 11), hourly at half past: after a night that
+# failed or never ran, it submits the recovery point or the promotion the
+# guarantee is missing. The scheduled runs above stay the plan.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: reconcile
+  namespace: backup-system
+spec:
+  schedules:
+    - "30 * * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: reconcile

@@ -1,0 +1,214 @@
+# The reconciler (ADR-012, phase 11): the smallest one the end-to-end tests
+# showed a need for, built from Argo itself.
+#
+# The daily CronWorkflows are the plan. Every hour this checks, per application,
+# that the plan held -- against the recovery guarantee, not the clock:
+#
+#   recovery point  the newest VALIDATED point is older than the profile's RPO
+#                   plus an hour: a night that failed or never ran
+#   promotion       a VALIDATED point has waited for AWS longer than
+#                   promote-after-hours: a 03:00 promotion that failed
+#
+# and submits the one workflow that is missing, unless that workflow is running
+# or was started within the last backoff-hours. It decides and submits; Argo
+# executes, retries, orders and locks exactly as for the scheduled runs. The
+# records are the observed state and the policy the desired one: no CRD, no
+# controller, no state of its own. If it ever needs more than evaluating and
+# submitting, stop and revisit -- "do not accidentally build a backup operator".
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: reconcile
+  namespace: backup-system
+spec:
+  entrypoint: main
+  serviceAccountName: recovery-reconciler
+  arguments:
+    parameters:
+      # A dataset that keeps failing is retried a few times a day, not hourly.
+      - name: backoff-hours
+        value: "3"
+      # Promotion runs at 03:00, two hours after the points; a point still
+      # waiting after this long missed it.
+      - name: promote-after-hours
+        value: "6"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: policy
+      configMap:
+        name: recovery-policy
+  templates:
+    - name: main
+      steps:
+        - - name: assess
+            template: assess
+        - - name: act
+            when: "'{{steps.assess.outputs.parameters.needed}}' != ''"
+            template: act
+            arguments:
+              parameters:
+                - name: needed
+                  value: "{{steps.assess.outputs.parameters.needed}}"
+                - name: since
+                  value: "{{steps.assess.outputs.parameters.since}}"
+
+    # Desired against observed: the policy's RPO per application, and the
+    # newest VALIDATED record in the local bucket.
+    - name: assess
+      outputs:
+        parameters:
+          - name: needed
+            valueFrom:
+              path: /tmp/out/needed
+          - name: since
+            valueFrom:
+              path: /tmp/out/since
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            mkdir -p /tmp/out
+            NOW="$(date -u +%s)"
+            : > /tmp/out/needed
+            # Anything started after this counts as "started recently".
+            date -u -d "@$((NOW - {{workflow.parameters.backoff-hours}} * 3600))" +%Y-%m-%dT%H:%M:%SZ > /tmp/out/since
+            WAIT=$(( {{workflow.parameters.promote-after-hours}} * 3600 ))
+            for T in profiles applications; do sed 's/#.*//' "/policy/$T" > "/tmp/$T"; done
+            # application RPO-in-hours, for applications whose profile has one
+            awk 'FILENAME == "/tmp/profiles" && NF == 7 { r[$1] = $2; next }
+                 FILENAME == "/tmp/applications" && NF == 3 && r[$3] ~ /^[0-9]+h$/ { v = r[$3]; sub(/h$/, "", v); print $1, v }' \
+              /tmp/profiles /tmp/applications > /tmp/apps
+            while read -r APP RPO; do
+              P="local:recovery/recovery-points/$APP"
+              # A listing that fails fails the run; exit 3 is "no records yet".
+              rclone lsf "$P/" --files-only --include "*.json" > /tmp/list || [ $? -eq 3 ]
+              NEWEST=0; PENDING=0
+              while read -r F; do
+                [ -n "$F" ] || continue
+                rclone cat "$P/$F" > /tmp/r.json
+                # The point's own state, which follows "recorded".
+                grep -q '"recorded":[0-9]*,"state":"VALIDATED"' /tmp/r.json || continue
+                TAKEN="$(grep -o '"taken":[0-9]*' /tmp/r.json | cut -d: -f2)"
+                [ "$TAKEN" -gt "$NEWEST" ] && NEWEST="$TAKEN"
+                if grep -q '"remote":{"state":"PROMOTION_PENDING"}' /tmp/r.json; then
+                  REC="$(grep -o '"recorded":[0-9]*' /tmp/r.json | cut -d: -f2)"
+                  [ $((NOW - REC)) -gt "$WAIT" ] && PENDING=$((PENDING + 1))
+                fi
+              done < /tmp/list
+              AGE=$(( (NOW - NEWEST) / 3600 ))
+              if [ $((NOW - NEWEST)) -gt $(( (RPO + 1) * 3600 )) ]; then
+                echo "$APP: newest validated point ${AGE}h old, RPO ${RPO}h -> a recovery point is needed"
+                echo "recovery-point:$APP" >> /tmp/out/needed
+              else
+                echo "$APP: newest validated point ${AGE}h old, within RPO ${RPO}h"
+              fi
+              if [ "$PENDING" -gt 0 ]; then
+                echo "$APP: $PENDING validated point(s) waiting for AWS too long -> a promotion is needed"
+                echo "promote:$APP" >> /tmp/out/needed
+              fi
+            done < /tmp/apps
+            tr '\n' ' ' < /tmp/out/needed | sed 's/ $//' > /tmp/n && mv /tmp/n /tmp/out/needed
+        env:
+          - name: HOME
+            value: /tmp
+          - name: RCLONE_CONFIG_LOCAL_TYPE
+            value: s3
+          - name: RCLONE_CONFIG_LOCAL_PROVIDER
+            value: Other
+          - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+            value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+          - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+            value: "true"
+          - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_ACCESS_KEY_ID
+          - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: restic-local
+                key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # Submit what is needed, unless that workflow is running or was started
+    # since `since`.
+    - name: act
+      inputs:
+        parameters:
+          - name: needed
+          - name: since
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            SINCE="{{inputs.parameters.since}}"
+            # template, application, phase (with "-" appended, so an empty one
+            # still counts as a field), creation time
+            kubectl get workflows -n backup-system -o jsonpath='{range .items[*]}{.spec.workflowTemplateRef.name}{" "}{.spec.arguments.parameters[?(@.name=="application")].value}{" "}{.status.phase}{"-"}{" "}{.metadata.creationTimestamp}{"\n"}{end}' > /tmp/wfs
+            for N in {{inputs.parameters.needed}}; do
+              T="${N%%:*}"; APP="${N#*:}"
+              BUSY="$(awk -v t="$T" -v a="$APP" -v s="$SINCE" '$1 == t && $2 == a && ($3 == "-" || $3 == "Pending-" || $3 == "Running-" || $4 > s)' /tmp/wfs | head -n 1)"
+              if [ -n "$BUSY" ]; then
+                echo "$T $APP: not now -- running, or started since $SINCE ($BUSY)"
+                continue
+              fi
+              W="$(kubectl create -o name -f - <<EOF
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: $T-$APP-reconcile-
+              namespace: backup-system
+              labels:
+                recovery.homelab/trigger: reconcile
+            spec:
+              workflowTemplateRef:
+                name: $T
+              arguments:
+                parameters:
+                  - name: application
+                    value: $APP
+            EOF
+            )"
+              echo "$T $APP: submitted $W"
+            done
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
