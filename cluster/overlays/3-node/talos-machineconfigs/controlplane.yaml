@@ -18,10 +18,10 @@ machine:
   # it provides the serviceaccounts.talos.dev CRD, and the cluster holds zero
   # of those objects.
   #
-  # etcd is out of scope for backups here: Velero covers the application
-  # namespaces, the databases have their own logical dumps, and everything
-  # else in etcd is declared in git and rebuilt by Flux. Re-enable this only
-  # alongside a workload proven to actually upload. See docs/backup-architecture.md.
+  # etcd is out of scope for backups here: the recovery system (ADR-012)
+  # covers the applications' data, and everything else in etcd is declared in
+  # git and rebuilt by Flux. Re-enable this only alongside a workload proven to
+  # actually upload. See docs/backup-architecture.md.
 
   # Pin the node IP to the LAN subnet -- same reason as the 1-node overlay, and
   # the same subnet etcd.advertisedSubnets already uses below.

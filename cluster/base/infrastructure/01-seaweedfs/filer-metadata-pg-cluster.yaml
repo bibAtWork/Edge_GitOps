@@ -49,8 +49,9 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:16.15
 
   # Single instance: one node, so a second replica has nowhere to run and CNPG
-  # would leave it permanently pending. Durability comes from the hourly logical
-  # dumps to the filer-metadata bucket, not from replication.
+  # would leave it permanently pending. Durability comes from the recovery
+  # system (ADR-012) -- continuous WAL archiving and nightly base backups staged
+  # into restic -- not from replication.
   instances: 1
 
   # No PodDisruptionBudget. CNPG creates a <cluster>-primary PDB with

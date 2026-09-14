@@ -4,18 +4,15 @@ rotate-secrets.py — Secret rotation helper for edge-gitops.
 
 Subcommands:
   sops-age      Rotate the SOPS age key (re-encrypt all Git secrets with new key)
-  backup-age    Rotate the talos-backup age key (update Kubernetes secret)
   credential    Rotate a named credential inside a SOPS-encrypted secret file
 
 Usage:
   ./scripts/rotate-secrets.py sops-age
   ./scripts/rotate-secrets.py sops-age --phase2
-  ./scripts/rotate-secrets.py backup-age [--namespace talos-backup] [--secret talos-backup-age]
   ./scripts/rotate-secrets.py credential --file cluster/base/.../secret.yaml --key MY_KEY
 """
 
 import argparse
-import base64
 import getpass
 import os
 import re
@@ -235,54 +232,6 @@ def _sops_age_phase2() -> None:
     print("  2. The OLD private key can now be safely destroyed.")
 
 
-def cmd_backup_age(namespace: str, secret_name: str) -> None:
-    check_prereqs("age-keygen", "kubectl")
-
-    print("=== talos-backup Age Key Rotation ===")
-    print()
-    print("Steps:")
-    print("  1. Generate a new age keypair for etcd snapshot encryption")
-    print("  2. Update the Kubernetes secret in the cluster")
-    print()
-    print("WARNING: Existing etcd snapshots remain encrypted with the old key.")
-    print("Keep both old and new private keys offline until all old snapshots are deleted.")
-    confirm(f"Rotate talos-backup age key (secret: {namespace}/{secret_name})?")
-
-    # Generate new keypair
-    fd, tmp = tempfile.mkstemp(suffix=".age.key")
-    os.close(fd)
-    new_key_file = Path(tmp)
-    new_key_file.chmod(0o600)
-
-    print(f"\nGenerating new keypair → {new_key_file}")
-    run(["age-keygen", "-o", str(new_key_file)])
-    public_key = parse_public_key_from_keypair(new_key_file)
-    print(f"  New public key: {public_key}")
-
-    # Encode keypair for Kubernetes secret
-    key_content = new_key_file.read_text()
-    encoded = base64.b64encode(key_content.encode()).decode()
-
-    # Patch the Kubernetes secret
-    patch = f'{{"data": {{"age.key": "{encoded}"}}}}'
-    print(f"\nPatching {namespace}/{secret_name}...")
-    run(["kubectl", "patch", "secret", secret_name, "-n", namespace, "--patch", patch])
-
-    print()
-    print(f"Updated {namespace}/{secret_name} with new public key: {public_key}")
-    print()
-    print("NEXT STEPS:")
-    print(f"  1. Copy {new_key_file} to OFFLINE secure storage.")
-    print(f"     Then delete: shred -u {new_key_file}")
-    print()
-    print("  2. etcd snapshots encrypted with the old key remain valid until expiry.")
-    print("     Default retention: 168h (7 days). Verify:")
-    print("     aws s3 ls s3://<cluster>-etcd-backups-offsite/ --recursive")
-    print()
-    print("  3. Keep the OLD talos-backup private key offline until all old snapshots expire.")
-    print("     After that, the old key can be destroyed.")
-
-
 def cmd_credential(secret_file_str: str, key: str, value: Optional[str]) -> None:
     check_prereqs("sops")
 
@@ -332,10 +281,6 @@ def main() -> None:
         help="Phase 2: strip old key encryption (run after removing old key from .sops.yaml)",
     )
 
-    p_backup = subs.add_parser("backup-age", help="Rotate the talos-backup age key")
-    p_backup.add_argument("--namespace", default="talos-backup")
-    p_backup.add_argument("--secret", default="talos-backup-age")
-
     p_cred = subs.add_parser("credential", help="Rotate a named credential in a SOPS secret")
     p_cred.add_argument("--file", required=True, help="Path to SOPS-encrypted secret YAML")
     p_cred.add_argument(
@@ -348,8 +293,6 @@ def main() -> None:
     try:
         if args.command == "sops-age":
             cmd_sops_age(args.phase2)
-        elif args.command == "backup-age":
-            cmd_backup_age(args.namespace, args.secret)
         elif args.command == "credential":
             cmd_credential(args.file, args.key, getattr(args, "value", None))
     except RotationError as exc:

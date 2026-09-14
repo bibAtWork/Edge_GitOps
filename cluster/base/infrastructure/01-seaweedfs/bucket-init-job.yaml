@@ -57,7 +57,7 @@ spec:
         - name: create-buckets
           # (force-annotation verification 2026-09-05: a pod-spec change that
           # would previously have blocked every Kustomization)
-          image: amazon/aws-cli:2.36.43
+          image: amazon/aws-cli:2.36.44
           env:
             - name: AWS_DEFAULT_REGION
               value: us-east-1
@@ -77,13 +77,10 @@ spec:
             - |
               set -euo pipefail
               S3="http://seaweedfs-s3.seaweedfs.svc:8333"
-              # filer-metadata holds the filer's PostgreSQL dumps. It is a separate bucket
-              # rather than a prefix inside velero-backups on purpose: Velero rejects any
-              # top-level directory in its own bucket that it does not own, and marks the
-              # BackupStorageLocation Unavailable, which blocks all backups to it.
-              # longhorn-backups is Longhorn's backup target (ADR-002 Task 1). It is a
-              # dedicated bucket so the relay to AWS can mirror one prefix wholesale
-              # without entangling it with Velero's or Zot's contents.
+              # recovery is the recovery system's local repository (ADR-012). The old
+              # pipeline's buckets -- etcd-backups, velero-backups, filer-metadata,
+              # db-backups, longhorn-backups and seaweedfs-staging -- went with it at the
+              # cutover (2026-09-13).
               # "pvs" is deliberately absent. It was a vestige of an earlier plan to back
               # application PVCs with SeaweedFS through its CSI driver, which was never
               # carried through: the driver was removed entirely in #264 once no PVC used
@@ -93,7 +90,7 @@ spec:
               # Confirmed empty before removal, on 2026-08-17 when this was first proposed
               # and again on 2026-08-25 -- the 64MB it briefly held in between was debris
               # from a SeaweedFS round-trip integrity test, since cleared.
-              for bucket in etcd-backups velero-backups zot-registry filer-metadata db-backups longhorn-backups seaweedfs-staging recovery; do
+              for bucket in zot-registry recovery; do
                 if aws --endpoint-url "$S3" s3api head-bucket --bucket "$bucket" 2>/dev/null; then
                   echo "Bucket already exists: $bucket"
                 else

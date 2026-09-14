@@ -35,8 +35,8 @@ spec:
   # What it actually covers, checked rather than assumed: Pod Security
   # Standards `restricted` already forbids hostPath, and 17 namespaces enforce
   # it -- so this rule is only load-bearing in the baseline/privileged ones
-  # that are not excluded above. That is six: immich, keycloak, monitoring and
-  # paperless (baseline), plus local-path-storage and velero (privileged).
+  # that are not excluded above. That is five: immich, keycloak, monitoring and
+  # paperless (baseline), plus local-path-storage (privileged).
   # The first four are application namespaces where a hostPath would be
   # genuinely suspicious, which is the case worth catching.
   #

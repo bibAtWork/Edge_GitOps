@@ -183,7 +183,6 @@
           - "Bootstrap complete."
           - "IMPORTANT: Back up and then delete these files from this machine:"
           - "  {{ repo_root }}/.age.key"
-          - "  {{ repo_root }}/.talos-backup-age.key"
           - "  {{ repo_root }}/.talos/secrets.yaml"
           - "Store them in a password manager (Bitwarden, 1Password, etc.)."
           - "Without them, full disaster recovery from total cluster loss is impossible."

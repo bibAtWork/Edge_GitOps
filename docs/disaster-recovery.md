@@ -4,13 +4,13 @@
 
 This document covers recovery procedures for the Talos Kubernetes home lab. Read it to understand the process; where a scenario is automated, use `dr.py` to execute it.
 
-Five recovery scenarios are covered. A and B are automated via `scripts/dr.py`;
-C, D and E are manual procedures.
+Five recovery scenarios are covered. B is partly automated by `bootstrap/scripts/dr.py`;
+the others are manual procedures.
 
 | Scenario | When to use | Time estimate |
 |---|---|---|
-| **A — Namespace restore** | A workload is broken or data was accidentally deleted | 5–20 min |
-| **B — Full cluster recovery** | Nodes are lost; cluster cannot be rebuilt from scratch | 30–60 min |
+| **A — Restore application data** | A workload's data is broken or was accidentally deleted | 15–60 min |
+| **B — Full cluster recovery** | Nodes are lost; rebuild from Git, data from the recovery system | not yet measured |
 | **C — Add node** | Expanding from 1-node to 3-node, or replacing a failed node | 15–30 min |
 | **D — Longhorn disk `NotReady`** | Every volume unschedulable after a node rebuild | 5 min |
 | **E — Roll back Talos** | A Talos upgrade left the node broken or degraded | 5–20 min |
@@ -22,10 +22,9 @@ C, D and E are manual procedures.
 Before running any recovery, ensure you have the following items **offline** (never stored on the cluster or in git):
 
 - [ ] **SOPS age private key** (`sops.age.key`) — decrypts all Git secrets
-- [ ] ~~**talos-backup age private key** (`talos-backup.age.key`)~~ — decrypted etcd
-      snapshots. No longer required: no snapshots exist. See Scenario B.
 - [ ] **secrets bundle** (generated during bootstrap: `talosconfig`, `secrets.yaml`, and/or `controlplane.yaml`) — required for full cluster recovery
-- [ ] **AWS credentials** — to fetch offsite etcd snapshots from S3 (full recovery only)
+- [ ] **The recovery system's escrow** — the restic password and the vault's coordinates
+      ([runbook A8](runbooks/backup-recovery.md)); the vault's AWS keys are in Git, SOPS-encrypted
 
 Install required tools (or run `ansible-playbook ansible/bootstrap.yml` to install):
 
@@ -117,7 +116,7 @@ flowchart TD
     A -- Yes --> B{"Pods broken or\ndata lost?"}
     A -- No --> C{"Nodes still exist\n(hardware OK)?"}
 
-    B -- "Namespace only" --> SA["Scenario A:\nNamespace restore"]
+    B -- "One application" --> SA["Scenario A:\nRestore data"]
     B -- "Full storage corruption" --> SB1["Scenario B:\nFull recovery"]
 
     C -- Yes --> D{"Can etcd quorum\nbe restored?"}
@@ -135,245 +134,79 @@ flowchart TD
 
 ---
 
-## Scenario A — Namespace Restore
+## Scenario A — Restore application data
 
-Restore a single namespace from the most recent Velero backup. Cluster must be running.
+The cluster is up, and one application's data is broken or was deleted. Restore it from the
+recovery system ([ADR-012](adr/0012-recovery-system.md)), following
+[`runbooks/backup-recovery.md`, Part A](runbooks/backup-recovery.md):
 
-### Automated (recommended)
+| What | Section |
+|---|---|
+| Choose the recovery point to restore | A2 |
+| Immich's photos, Paperless' documents | A3 |
+| Paperless' database | A4 |
+| A PostgreSQL database, to a point in time (last 7 days) or from a recovery point | A5 |
+| Stopping the application while its data is replaced | A6 |
 
-```bash
-export SOPS_AGE_KEY_FILE=/path/to/sops.age.key
-
-python3 scripts/dr.py namespace
-```
-
-The script:
-1. Lists available Velero backups and lets you choose one
-2. Triggers `velero restore` for the selected namespace
-3. Polls until the restore is complete
-4. Runs a basic readiness check on the restored pods
-
-### Manual fallback
-
-```bash
-# List available backups
-velero backup get
-
-# Restore a specific namespace from a backup
-velero restore create --from-backup <backup-name> \
-  --include-namespaces <namespace> \
-  --wait
-
-# Check restore status
-velero restore get
-kubectl get pods -n <namespace>
-```
-
----
-
-### Restoring a Velero backup that only exists offsite
-
-Velero writes **only** to the local `seaweedfs-local` location. There is no offsite
-BackupStorageLocation, deliberately: `backup-relay` is the single point that pushes to AWS
-([ADR-005](adr/0005-two-stage-backup-relay.md)), and giving Velero its own AWS credential made it a
-second, independent writer.
-
-The consequence is that a backup which has aged out locally, but still exists in the vault, cannot
-be restored directly. Bring the objects back first, then restore normally:
-
-```sh
-# 1. from a pod that is an authorised S3 client, copy the backup back into the
-#    local bucket. The vault mirrors local paths under seaweedfs/.
-aws s3 cp --recursive \
-  s3://homelab-backup-vault/seaweedfs/velero-backups/backups/<backup-name>/ \
-  s3://velero-backups/backups/<backup-name>/ --endpoint-url <local endpoint>
-
-# 2. Velero rescans the location and the backup reappears
-velero backup get
-
-# 3. restore as usual -- the storage location is seaweedfs-local either way
-velero restore create --from-backup <backup-name>
-```
-
-Copying the `backups/<name>/` prefix is not enough on its own if the repository metadata has also
-aged out; copy `restic/` or `kopia/` prefixes alongside it if the restore reports missing data.
-
-**Backups taken before 2026-09-10 are in a different bucket.** Until then Velero wrote weekly and
-monthly backups directly to `homelab-velero-backups-offsite`. That bucket and its contents still
-exist -- nothing in this change deletes them -- but Velero can no longer see them, because the
-BackupStorageLocation pointing at it is gone. To reach one, add a temporary read-only
-BackupStorageLocation for that bucket, restore, then remove it again. Do not leave it in place:
-a standing offsite location re-creates the second writer this change removed.
-
-**Retention is now local retention.** A monthly backup survives offsite for a year because the
-local bucket keeps it for a year and `backup-reconciler` therefore never sees it as absent -- not
-because AWS was told to keep it. Shortening a local TTL shortens the offsite copy too, after the
-14-day absence grace.
+Every procedure was drilled on 2026-09-13 against the real repositories, into scratch targets.
+Writing into a live volume or database has not been drilled; the runbook says where.
 
 ---
 
 ## Scenario B — Full Cluster Recovery
 
-Rebuild the cluster from scratch using an etcd snapshot. This wipes all nodes.
+Rebuild the cluster from Git, then restore its data from the recovery system. This wipes all
+nodes.
 
-> **This scenario cannot currently be executed. There are no etcd snapshots to recover
-> from, and there never have been.**
->
-> A `talos-backup` CronJob ran every six hours for 44 days and exited 0 every time. It
-> took the snapshot — the logs record a real one, 219 MB — and then never uploaded it.
-> The `etcd-backups` bucket it targeted holds zero objects, confirmed with the SeaweedFS
-> admin credential, and the AWS `homelab-etcd-backups-offsite` bucket that phases 3–5
-> below read from has no mechanism writing to it at all. The CronJob was removed on
-> 2026-08-25 rather than left reporting success.
->
-> The steps below are kept because the *procedure* is correct and the only missing
-> ingredient is the snapshot. If etcd backups are reinstated, this works again as
-> written. Until then, treat phases 3–5 as unavailable.
->
-> **What recovery does exist.** Everything except cluster identity is covered by
-> [ADR-005](adr/0005-two-stage-backup-relay.md): Longhorn volume backups and database
-> dumps, relayed to an immutable off-site vault and verified nightly. A rebuild without
-> an etcd snapshot means re-provisioning Talos from `secrets.yaml`, letting Flux
-> reconstruct every cluster resource from Git, and restoring data from those backups.
-> What is lost is runtime-only state that Git does not describe.
+There is no etcd snapshot to restore, deliberately. Everything in etcd is declared in Git and
+rebuilt by Flux, and application data comes from the recovery system's AWS vault. What is lost is
+runtime-only state that Git does not describe. (A `talos-backup` CronJob once took etcd snapshots
+and never uploaded one; it was removed on 2026-08-25.)
 
 ### Pre-flight checklist
 
 - [ ] Offline SOPS age private key (`sops.age.key`)
-- [ ] ~~Offline talos-backup age private key (`talos-backup.age.key`)~~ — see the note
-      above; phases 3–5 cannot run
 - [ ] `secrets.yaml` (Talos secrets bundle generated at bootstrap)
-- [ ] AWS credentials with read access to the etcd-backups S3 bucket
+- [ ] The recovery system's escrow: the restic password ([runbook A8](runbooks/backup-recovery.md))
 - [ ] Node IP addresses (or DHCP-assigned addresses visible on network)
 
 ### Automated (recommended)
 
 ```bash
 export SOPS_AGE_KEY_FILE=/path/to/sops.age.key
-export AWS_ACCESS_KEY_ID=<key>
-export AWS_SECRET_ACCESS_KEY=<secret>
-export AWS_REGION=<region>
 
-# For 3-node:
-export NODE1_IP=192.168.1.10
-export NODE2_IP=192.168.1.11
-export NODE3_IP=192.168.1.12
-export VIP=192.168.1.100
-
-# For 1-node:
-export NODE_IP=192.168.1.10
-export PRIMARY_DISK=/dev/sda
-export BACKUP_DISK=/dev/sdb
-
-python3 scripts/dr.py full
+python3 bootstrap/scripts/dr.py full --profile 1-node --sops-age-key "$SOPS_AGE_KEY_FILE"
+# 3-node: --profile 3-node --node1-ip ... --node2-ip ... --node3-ip ... --vip ...
 ```
-
-The script executes 9 phases:
 
 | Phase | Action |
 |---|---|
-| 1 | Generate Talos machine configs from original `secrets.yaml` |
-| 2 | Apply machine configs to nodes (wipes disks — confirmed interactively) |
-| 3 | Fetch latest etcd snapshot from AWS S3 |
-| 4 | Decrypt snapshot with talos-backup age key |
-| 5 | Bootstrap etcd recovery with `talosctl bootstrap --recover-from` |
-| 6 | Retrieve kubeconfig and wait for API server |
-| 7 | Re-bootstrap Flux (re-applies all cluster resources from Git) |
-| 8 | Re-create SeaweedFS buckets (idempotent) |
-| 9 | Restore Velero backups (latest schedule snapshot) |
+| 1 | Generate Talos machine configs from the original `secrets.yaml` |
+| 2 | Apply machine configs to the nodes (wipes disks — confirmed interactively) |
+| 3 | Bootstrap a fresh etcd |
+| 4 | Retrieve the kubeconfig |
+| 5 | Re-bootstrap Flux, which re-applies every cluster resource from Git |
+| 6 | Suspend the recovery system's CronWorkflows, before any data is restored |
+| 7 | Restore application data by hand: [runbook A7](runbooks/backup-recovery.md) |
+| 8 | Verification |
 
-### Manual fallback (phase-by-phase)
+**Phase 6 is not optional.** A rebuilt, still-empty application passes its own restore checks,
+and the next scheduled point would promote it to AWS, where retention could then thin the last
+good point away. Resume the schedules only once every application is back.
 
-**Phase 1: Regenerate Talos configs**
+### Manual fallback
 
-```bash
-talosctl gen config homelab https://${VIP}:6443 \
-  --with-secrets secrets.yaml \
-  --output .talos/ \
-  --force
-```
-
-**Phase 2: Apply configs and wipe nodes**
+Phases 1, 2 and 4 are plain `talosctl gen config`, `talosctl apply-config --insecure` and
+`talosctl kubeconfig`, as in the script. Bootstrap etcd without a snapshot:
 
 ```bash
-# WARNING: This wipes all data on the node.
-talosctl apply-config --insecure --nodes ${NODE1_IP} --file .talos/controlplane.yaml
-talosctl apply-config --insecure --nodes ${NODE2_IP} --file .talos/controlplane.yaml
-talosctl apply-config --insecure --nodes ${NODE3_IP} --file .talos/controlplane.yaml
-```
-
-**Phase 3–4: Fetch and decrypt etcd snapshot**
-
-```bash
-# List available snapshots (newest first)
-aws s3 ls s3://<cluster>-etcd-backups-offsite/ --recursive | sort -r | head -5
-
-# Download the latest snapshot
-aws s3 cp s3://<cluster>-etcd-backups-offsite/<latest-snapshot>.age /tmp/etcd.age
-
-# Decrypt
-AGE_SECRET_KEY=$(cat /path/to/talos-backup.age.key) \
-  age --decrypt -i /path/to/talos-backup.age.key /tmp/etcd.age > /tmp/etcd.snapshot
-```
-
-**Phase 5: Bootstrap etcd recovery**
-
-```bash
-talosctl bootstrap \
-  --talosconfig .talos/talosconfig \
-  --nodes ${NODE1_IP} \
-  --recover-from /tmp/etcd.snapshot
-```
-
-Wait for the cluster to come up (allow 2–5 minutes):
-
-```bash
+talosctl bootstrap --talosconfig .talos/talosconfig --nodes ${NODE1_IP}
 talosctl health --talosconfig .talos/talosconfig --nodes ${NODE1_IP}
 ```
 
-**Phase 6: Retrieve kubeconfig**
-
-```bash
-talosctl kubeconfig --talosconfig .talos/talosconfig --nodes ${NODE1_IP} ~/.kube/config
-kubectl get nodes
-```
-
-**Phase 7: Re-bootstrap Flux**
-
-```bash
-flux bootstrap github \
-  --owner=${GITHUB_OWNER} \
-  --repository=${GITHUB_REPO} \
-  --path=cluster/overlays/3-node \
-  --personal
-```
-
-Wait for Flux to reconcile all HelmReleases (allow 10–15 minutes):
-
-```bash
-kubectl get helmreleases -A
-kubectl get kustomizations -A
-```
-
-**Phase 8: Re-create SeaweedFS buckets**
-
-The `seaweedfs-bucket-init` Job runs automatically via Flux. If it needs to be re-triggered:
-
-```bash
-kubectl delete job seaweedfs-bucket-init -n seaweedfs
-# Flux re-creates it on the next reconciliation
-flux reconcile kustomization flux-system
-```
-
-**Phase 9: Velero restore**
-
-```bash
-# List available backups
-velero backup get
-
-# Restore all namespaces from the latest scheduled backup
-velero restore create --from-backup <latest-backup> --wait
-```
+Re-bootstrap Flux as in [Bootstrap](../README.md), and wait for the Kustomizations and
+HelmReleases to become Ready. Then pause the schedules and restore the data following
+[runbook A7](runbooks/backup-recovery.md), which gives the order and the commands.
 
 ---
 
@@ -620,108 +453,16 @@ that pin is raised.
 
 ---
 
-## Scenario F — Restore a Postgres database from its dump
+## Scenario F — Restore a PostgreSQL database
 
-For `keycloak-pg`, `immich-pg` and `filer-meta-pg`, an hourly/nightly `pg_dump` to S3 is the
-current pipeline's recovery path. Longhorn's backup policy excludes these volumes and Velero stores
-no volume bytes for them.
+The per-database logical dumps this section used to describe ended at the ADR-012 cutover
+(2026-09-13). Every PostgreSQL database -- `keycloak-pg`, `immich-pg` and `filer-meta-pg` -- is
+now restored from the recovery system: to any point in the last 7 days from its WAL archive, or
+from a recovery point, including after total loss from AWS alone. See
+[`runbooks/backup-recovery.md`, A5](runbooks/backup-recovery.md).
 
-**Prefer the recovery system** ([ADR-012](adr/0012-recovery-system.md)): each database is archived
-by barman, with point-in-time recovery over the last 7 days, and has a validated recovery point
-every night, promoted to AWS. Its restore procedures — point-in-time, from a recovery point, and
-after total loss from AWS alone — are in
-[`runbooks/backup-recovery.md`, Part A](runbooks/backup-recovery.md), drilled on 2026-09-13. The
-dumps below remain the fallback until cutover.
-
-That path was first exercised end-to-end on **2026-09-09**. It works — and it has three
-prerequisites that are not obvious and are not in any manifest. A restore attempted without them
-fails, which in an emergency reads as "the backup is corrupt" when it is not.
-
-| database | dump object | schedule | restore image |
-| --- | --- | --- | --- |
-| `filer-meta-pg` / `seaweedfs_filer` | `s3://filer-metadata/filer-<TS>.sql.gz` | hourly, :17 | `postgres:16-alpine` |
-| `keycloak-pg` / `keycloak` | `s3://db-backups/keycloak/keycloak-<TS>.sql.gz` | daily, 02:50 | `postgres:16-alpine` |
-| `immich-pg` / `immich` | `s3://db-backups/immich/immich-<TS>.sql.gz` | daily, 02:40 | `ghcr.io/tensorchord/cloudnative-vectorchord:17-0.3.0` |
-
-### The three prerequisites
-
-**1. The owner role must exist before the dump is replayed.** Each dump is taken as its
-application's role and carries ownership statements. Replaying into an empty cluster fails until
-the role exists:
-
-```sql
-CREATE ROLE seaweedfs LOGIN;   -- or keycloak, or immich
-```
-
-**2. Immich needs `vchord` preloaded, and its own image.** The immich dump references vectorchord
-and pgvector types. A stock `postgres:17` cannot replay it at all, and even immich's own image
-fails at default settings with:
-
-```
-ERROR:  vchord must be loaded via shared_preload_libraries.
-```
-
-The restore server must be started with `-c shared_preload_libraries=vchord`. The restore image
-must match the server's *flavour*, not merely its major version — which is the same coupling the
-dump clients have, in the other direction.
-
-**3. The restore pod must be an authorised S3 client.** `allow-seaweedfs-internal` restricts port
-8333 to specific pod labels. A restore pod without the right label does not get a permission
-error — it gets a **connect timeout**, and an `aws s3 ls` that returns empty rather than failing
-loudly. The authorised labels are `app.kubernetes.io/name: <app>-postgres-backup` in the
-`keycloak` and `immich` namespaces; anything in the `seaweedfs` namespace is allowed already.
-
-### Procedure
-
-Restore into a **throwaway** server first and compare it against the live database. Never replay a
-dump over a running database to find out whether the dump is good.
-
-```sh
-# 1. fetch the newest dump (from a pod carrying the authorised label)
-NEWEST=$(aws --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 \
-          s3 ls s3://db-backups/keycloak/ | sort | tail -1 | awk '{print $4}')
-aws --endpoint-url http://seaweedfs-s3.seaweedfs.svc:8333 \
-    s3 cp "s3://db-backups/keycloak/$NEWEST" /work/dump.sql.gz
-
-# 2. scratch server (add -c shared_preload_libraries=vchord for immich)
-initdb -D /work/pgdata -U postgres --auth=trust
-pg_ctl -D /work/pgdata -o "-c listen_addresses='' -k /work" -w start
-
-# 3. prerequisites, then replay with ON_ERROR_STOP so failure is loud
-psql -h /work -U postgres -d postgres -c "CREATE ROLE keycloak LOGIN;"
-createdb -h /work -U postgres keycloak
-gunzip -c /work/dump.sql.gz | psql -h /work -U postgres -d keycloak -v ON_ERROR_STOP=1
-
-# 4. verify against the live database before trusting it
-psql -h /work -U postgres -d keycloak -At -c \
-  "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 5;"
-```
-
-`ON_ERROR_STOP=1` matters. Without it `psql` reports success having skipped every statement it
-could not apply, which is the failure mode that makes a restore look fine and leave a half-built
-schema.
-
-### What the 2026-09-09 drill found
-
-| database | result | restored | live at the time |
-| --- | --- | --- | --- |
-| `seaweedfs_filer` | replay OK | 3,109 rows in `filemeta` | 3,111 |
-| `keycloak` | replay OK | 88 tables, `user_entity` = 2 | — |
-| `immich` | replay OK *after* preloading `vchord` | 61 tables | — |
-
-The filer's two-row gap is the 23 minutes of activity between the 14:17Z dump and the drill — a
-coherent delta, not loss. Immich's tables are small because its library was previously lost and
-the database was rebuilt; that is expected here and is not a restore defect.
-
-### What this does not cover
-
-The drill proves a dump **replays into a schema**. It does not prove the application starts
-against the restored database, and it does not restore anything: it verifies, then throws the
-scratch server away. Bringing a real database back means stopping the application, replaying into
-the live instance, and restarting it — which has never been exercised.
-
-This is also a point-in-time result, not a standing guarantee. It is not yet automated, so it will
-decay. See `docs/backlog.md`.
+The prerequisites that the 2026-09-09 dump drill found -- the owner role, Immich's `vchord`
+preload and matching image, and an authorised S3 client -- are built into those procedures.
 
 ## Post-Recovery Verification Checklist
 
@@ -738,8 +479,6 @@ kubectl get helmreleases -A
 
 # Storage
 kubectl get pods -n seaweedfs
-velero backup-location get
-velero backup get | head -5
 
 # Monitoring
 kubectl get pods -n monitoring
@@ -751,16 +490,16 @@ kubectl get ciliumclusterwidenetworkpolicies
 # Certificates
 kubectl get certificates -A
 
-# Scheduled backups
-kubectl get cronjobs -n talos-backup
-velero schedule get
+# The recovery system (resume its schedules first, if Scenario B paused them)
+kubectl get cronworkflows -n backup-system
+python3 scripts/cluster-health.py --group backup
 ```
 
 Expected healthy state:
 - All nodes `Ready`
 - All HelmReleases `Ready: True`
-- Velero backup-location shows `Available`
-- talos-backup CronJob active
+- `cluster-health.py --group backup` passes: every application has a validated recovery point
+  and a verified copy in AWS
 
 ---
 
@@ -768,11 +507,12 @@ Expected healthy state:
 
 | Scenario | Minimum | Expected | Maximum |
 |---|---|---|---|
-| Namespace restore | 5 min | 10 min | 20 min |
-| Full cluster recovery | 30 min | 45 min | 90 min |
+| Restore one application's data | 15 min | 30 min | 60 min |
+| Full cluster recovery | not yet measured | | |
 | Add node | 10 min | 20 min | 30 min |
 
-Full recovery time depends heavily on Flux reconciliation time (HelmRelease downloads) and Velero restore size.
+Full recovery time depends heavily on Flux reconciliation time (HelmRelease downloads) and on how much
+data comes back from AWS. The total-loss drill that would measure it has not been run.
 
 ---
 
@@ -780,10 +520,11 @@ Full recovery time depends heavily on Flux reconciliation time (HelmRelease down
 
 | Item | Location |
 |---|---|
-| DR automation script | `scripts/dr.py` |
-| Bootstrap scripts | `scripts/bootstrap-1node.sh`, `scripts/bootstrap-3node.sh` |
+| DR automation script | `bootstrap/scripts/dr.py` |
+| Bootstrap scripts | `bootstrap/scripts/bootstrap-1node.sh`, `bootstrap/scripts/bootstrap-3node.sh` |
 | Cluster overlays | `cluster/overlays/1-node/`, `cluster/overlays/3-node/` |
 | SOPS config | `.sops.yaml` |
-| Terraform (AWS) | `terraform/` |
-| AWS provisioning | `scripts/setup-aws.sh` |
-| Secret rotation | `scripts/rotate-secrets.py` |
+| Terraform (AWS) | `bootstrap/terraform/` |
+| AWS provisioning | `bootstrap/scripts/setup-aws.sh` |
+| Secret rotation | `bootstrap/scripts/rotate-secrets.py` |
+| Recovery runbook | `docs/runbooks/backup-recovery.md` |

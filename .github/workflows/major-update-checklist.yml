@@ -40,7 +40,7 @@ jobs:
             echo '- [ ] Read the upstream changelog / release notes for all skipped versions'
             echo "- [ ] Check \`helmrelease.yaml\` values against the new chart's \`values.yaml\` schema — look for renamed or removed fields"
             echo '- [ ] Verify CRD schema changes (if the chart ships CRDs) — confirm existing resources still conform to the new schema'
-            echo '- [ ] For stateful workloads (databases, object storage): confirm a Velero backup completed successfully before merging'
+            echo '- [ ] For stateful workloads (databases, object storage): confirm the newest recovery point is VALIDATED and verified in AWS before merging (ADR-012)'
             echo '- [ ] Confirm no network policy changes are needed for the new version'
             echo ''
             echo '### After merging'

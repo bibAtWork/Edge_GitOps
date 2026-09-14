@@ -6,17 +6,12 @@ Fills every REPLACE_WITH_* token, patches non-secret config (email, subnet),
 then runs encrypt-secrets.sh so the result is ready to commit and push.
 
 Called by bootstrap-1node.sh at multiple points as generated values become
-available (age key after Phase 1, talosconfig after Phase 3, Velero IAM
-credentials after Phase 5). Can also be run standalone to refresh a single
-secret without re-running the full bootstrap.
+available (the talosconfig after Phase 3). Can also be run standalone to refresh
+a single secret without re-running the full bootstrap.
 
 Usage:
   python3 bootstrap/scripts/apply-config.py
-  python3 bootstrap/scripts/apply-config.py --age-public-key age1xyz...
   python3 bootstrap/scripts/apply-config.py --talosconfig /path/to/talosconfig
-  python3 bootstrap/scripts/apply-config.py \\
-      --velero-access-key AKIAIOSFODNN7EXAMPLE \\
-      --velero-secret-key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
   python3 bootstrap/scripts/apply-config.py --no-encrypt
 """
 
@@ -105,14 +100,8 @@ def patch_subnet(path: Path, subnet: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--age-public-key", metavar="KEY",
-                        help="talos-backup age public key (from .talos-backup-age.key)")
     parser.add_argument("--talosconfig", metavar="PATH",
                         help="Path to generated talosconfig file (for system-upgrade-controller)")
-    parser.add_argument("--velero-access-key", metavar="KEY",
-                        help="Velero IAM access key ID (from terraform output)")
-    parser.add_argument("--velero-secret-key", metavar="SECRET",
-                        help="Velero IAM secret access key (from terraform output)")
     parser.add_argument("--no-encrypt", action="store_true",
                         help="Skip SOPS encryption step (useful when called mid-bootstrap)")
     args = parser.parse_args()
@@ -249,15 +238,6 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Zot S3 credentials")
 
-    # Velero SeaweedFS credentials — for the local backup storage location
-    path = cluster / "base/infrastructure/07-velero/seaweedfs-secret.yaml"
-    if replace_in_file(path, {
-        "REPLACE_WITH_ADMIN_KEY":    sw_key,
-        "REPLACE_WITH_ADMIN_SECRET": sw_sec,
-    }):
-        changed.append(str(path.relative_to(REPO_ROOT)))
-        print(f"  ✓ Velero SeaweedFS credentials")
-
     # Grafana admin password
     path = cluster / "base/infrastructure/04-grafana/admin-secret.yaml"
     if replace_in_file(path, {"REPLACE_WITH_SECURE_PASSWORD": grafana}):
@@ -376,18 +356,6 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print("  ✓ Dex static clients (grafana OIDC client with redirect URI)")
 
-    # talos-backup: SeaweedFS credentials (same key/secret as above)
-    path = cluster / "base/00-bootstrap/talos-backup/secret.yaml"
-    replacements = {
-        "REPLACE_WITH_SEAWEEDFS_ACCESS_KEY": sw_key,
-        "REPLACE_WITH_SEAWEEDFS_SECRET_KEY": sw_sec,
-    }
-    if args.age_public_key:
-        replacements["REPLACE_WITH_AGE_PUBLIC_KEY"] = args.age_public_key
-    if replace_in_file(path, replacements):
-        changed.append(str(path.relative_to(REPO_ROOT)))
-        print(f"  ✓ talos-backup credentials")
-
     # ── Generated values (only when flags are passed) ─────────────────────────
 
     # system-upgrade-controller talosconfig
@@ -410,16 +378,6 @@ def main() -> None:
             path.write_text(new_content)
             changed.append(str(path.relative_to(REPO_ROOT)))
             print(f"  ✓ system-upgrade-controller talosconfig")
-
-    # Velero AWS IAM credentials (from Terraform output)
-    if args.velero_access_key and args.velero_secret_key:
-        path = cluster / "base/infrastructure/07-velero/aws-secret.yaml"
-        if replace_in_file(path, {
-            "REPLACE_WITH_ACCESS_KEY": args.velero_access_key,
-            "REPLACE_WITH_SECRET_KEY": args.velero_secret_key,
-        }):
-            changed.append(str(path.relative_to(REPO_ROOT)))
-            print(f"  ✓ Velero AWS IAM credentials")
 
     # ── Encrypt ───────────────────────────────────────────────────────────────
 

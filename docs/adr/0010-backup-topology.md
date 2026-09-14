@@ -1,7 +1,7 @@
 # ADR-010: Dump Where the Data Is, Relay and Verify Centrally
 
 **Date:** 2026-09-09
-**Status:** Accepted
+**Status:** Superseded by [ADR-012](0012-recovery-system.md) (cutover, 2026-09-13)
 **Related:** [ADR-003](0003-backup-immutability-versioning-only.md), [ADR-005](0005-two-stage-backup-relay.md), [ADR-008](0008-storage-mechanisms.md)
 
 ## Context

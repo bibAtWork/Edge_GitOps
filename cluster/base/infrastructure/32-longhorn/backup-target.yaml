@@ -1,0 +1,19 @@
+# Longhorn's default backup target, deliberately empty.
+#
+# Longhorn backups ended at the ADR-012 cutover (2026-09-13). The recovery
+# system backs volumes up with restic from snapshot clones, so Longhorn needs
+# no backup target, no credential and no recurring backup jobs.
+#
+# The object stays in Git, empty, rather than being removed: Longhorn always
+# keeps a `default` BackupTarget and refuses to delete it ("deleting default
+# backup target is not allowed"), so pruning it would fail on every reconcile.
+# An empty URL is how Longhorn is told there is no target.
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: ""
+  credentialSecret: ""
+  pollInterval: "5m0s"
