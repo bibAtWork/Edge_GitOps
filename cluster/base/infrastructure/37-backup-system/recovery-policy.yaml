@@ -45,6 +45,24 @@ data:
     filer-db           seaweedfs    cnpg           cnpg:seaweedfs/filer-meta-pg      -
     immich-db          immich       cnpg           cnpg:immich/immich-pg             -
 
+  # Whole volumes deliberately not a dataset above, and why -- ADR-011 kept a
+  # table like this for the old pipeline (`not-backed-up`); it was dropped at
+  # the ADR-012 cutover and nothing replaced it. Without it there is no
+  # written distinction between "not protected, reviewed, and safe" and "not
+  # protected because nobody added it yet" (docs/backlog.md), which is also
+  # why nothing can check a PVC against this list automatically -- there was
+  # no list to check it against. Found on code review.
+  #
+  #   status
+  #     derived        reconstructable from a dataset above; losing it costs
+  #                    time, not data
+  #     known-gap      NOT safely excludable -- real risk, written down
+  #                    rather than left silent
+  excluded-volumes: |
+    # volume                              status      reason
+    pvc:paperless/paperless-export-lh     derived     document_exporter output, regenerable from paperless-media + paperless-db; only populated by a manual export, not by normal operation
+    pvc:paperless/paperless-consume-lh    known-gap   meant to be transient (files are consumed and removed on successful ingest), but a document that FAILS ingestion stays here -- unique, never backed up, and nothing currently reports one sitting unconsumed
+
   # Ceilings, so no mistake -- a bug that re-uploads, a backup pointed at the
   # wrong volume, files rewritten wholesale -- turns into an unbounded bill or a
   # full disk. Units: KiB, MiB, GiB, TiB; growth-percent is a plain number.

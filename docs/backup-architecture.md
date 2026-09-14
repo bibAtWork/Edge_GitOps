@@ -23,10 +23,15 @@ What has to be recoverable, and how well, is stated in one place:
 
 - metrics, logs and traces, which are derived data;
 - caches, including Zot's copies of upstream images;
-- etcd (below).
+- etcd (below);
+- specific whole volumes, listed with a reason in recovery-policy's `excluded-volumes` --
+  currently `paperless-export-lh` (regenerable) and `paperless-consume-lh` (a known gap, not
+  actually safe to exclude: a document that fails ingestion stays there, unbacked-up, with
+  nothing reporting it).
 
-**Not protected by accident:** a volume that holds real data but is not yet a dataset in the
-policy. Nothing reports one yet (docs/backlog.md).
+**Not protected by accident:** a volume that is in neither `datasets` nor `excluded-volumes`.
+Nothing reports one yet (docs/backlog.md) -- `excluded-volumes` exists so that check has
+something to check against, not because the check itself exists yet.
 
 ## How a recovery point is made
 
