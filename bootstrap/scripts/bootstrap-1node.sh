@@ -443,8 +443,10 @@ echo "=== Bootstrap Complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Run PROFILE=1-node ./bootstrap/scripts/post-deploy.sh to check the deployment"
-echo "  2. Add SOPS-encrypted secrets for Cloudflare and Tailscale, and commit the"
-echo "     recovery system's AWS credentials written by make-recovery-credentials.sh"
+echo "  2. Commit the recovery system's AWS credentials written by make-recovery-credentials.sh,"
+echo "     and the other SOPS-encrypted secrets apply-config.py just wrote from config.json"
+echo "  3. Fill in and commit the secrets apply-config.py does not generate"
+echo "     (docs/backlog.md, \"most SOPS secrets have no bootstrap generator\")"
 echo ""
 if [[ -n "${TALOS_VERSION}" ]]; then
   _client_ver=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}')

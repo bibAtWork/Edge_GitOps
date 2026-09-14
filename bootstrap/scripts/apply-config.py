@@ -150,12 +150,29 @@ def main() -> None:
     # Grafana's own oauth secret below and into Keycloak's realm-config Secret
     # (26-keycloak/keycloak-secret.yaml, hand-maintained; apply-config.py does
     # not manage that file — see docs/backlog.md).
-    grafana_oidc_secret = get(cfg, "keycloak", "grafana_client_secret", required=False)
+    #
+    # Falls back to the old dex.grafana_client_secret key, which held this
+    # same value before Dex was replaced by Keycloak. Without the fallback, a
+    # rebuild using an existing config.json (bootstrap-1node.sh runs this
+    # script on every run, not just the first) would silently auto-generate a
+    # NEW secret under the new key, rewrite grafana-oauth-secret.yaml to
+    # match it, and break Grafana sign-in the moment it no longer matches the
+    # value already sitting in Keycloak's own hand-maintained Secret. Found
+    # on review of this fix (round 5).
+    grafana_oidc_secret = get(cfg, "keycloak", "grafana_client_secret", required=False) \
+        or get(cfg, "dex", "grafana_client_secret", required=False)
     if not grafana_oidc_secret:
         grafana_oidc_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
         cfg.setdefault("keycloak", {})["grafana_client_secret"] = grafana_oidc_secret
         modified_cfg = True
         print("  auto-generated keycloak.grafana_client_secret")
+    elif not get(cfg, "keycloak", "grafana_client_secret", required=False):
+        # Carried over from the old dex key on this run; save it under the
+        # new key so future runs read it from keycloak.* directly and the
+        # old dex section can eventually be deleted from config.json by hand.
+        cfg.setdefault("keycloak", {})["grafana_client_secret"] = grafana_oidc_secret
+        modified_cfg = True
+        print("  migrated dex.grafana_client_secret -> keycloak.grafana_client_secret")
 
     if modified_cfg:
         save_config(cfg)
