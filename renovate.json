@@ -31,7 +31,8 @@
     "enabled": true,
     "managerFilePatterns": [
       "/cluster/.+\\.yaml$/",
-      "/docs/runbooks/recovery/.+\\.yaml$/"
+      "/docs/runbooks/recovery/.+\\.yaml$/",
+      "/docs/runbooks/.+\\.md$/"
     ]
   },
   "customManagers": [
@@ -245,6 +246,18 @@
         "major"
       ],
       "enabled": false
+    },
+    {
+      "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list).",
+      "matchPackageNames": [
+        "immich",
+        "ghcr.io/tensorchord/cloudnative-vectorchord"
+      ],
+      "groupName": "immich",
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
     },
     {
       "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
