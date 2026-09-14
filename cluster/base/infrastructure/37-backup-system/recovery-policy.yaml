@@ -62,6 +62,9 @@ data:
     # volume                              status      reason
     pvc:paperless/paperless-export-lh     derived     document_exporter output, regenerable from paperless-media + paperless-db; only populated by a manual export, not by normal operation
     pvc:paperless/paperless-consume-lh    known-gap   meant to be transient (files are consumed and removed on successful ingest), but a document that FAILS ingestion stays here -- unique, never backed up, and nothing currently reports one sitting unconsumed
+    pvc:immich/immich-valkey-lh           derived     Valkey job queue/cache; rebuilds itself from Immich's own state on restart, holds nothing that does not already exist elsewhere
+    pvc:immich/immich-ml-cache-lh         derived     ML model weights and computed embeddings cache; models re-download, embeddings recompute from immich-media + immich-db, which are both protected
+    pvc:paperless/paperless-valkey-lh     derived     Valkey task queue/cache for Paperless' Celery workers; rebuilds itself on restart, holds nothing that does not already exist elsewhere
 
   # Ceilings, so no mistake -- a bug that re-uploads, a backup pointed at the
   # wrong volume, files rewritten wholesale -- turns into an unbounded bill or a
