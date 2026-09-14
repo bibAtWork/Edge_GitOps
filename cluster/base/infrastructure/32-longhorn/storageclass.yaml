@@ -26,3 +26,26 @@ parameters:
   # physical copies of every write for no added durability.
   dataLocality: "strict-local"
   fsType: "ext4"
+---
+# Scratch class. The opposite trade from both classes above, deliberately: this
+# is for volumes that hold nothing worth keeping past the pod that created them
+# -- restic-dataset.yaml's restore-test destination is the reason this exists
+# (code review found it using an emptyDir instead, which put a 30GiB dataset's
+# restore on sda, the disk the machine config deliberately moved Longhorn off
+# of for etcd's sake). Delete, so a generic ephemeral volume backed by this
+# class is fully gone with the pod that used it -- no PV left Released, no
+# manual cleanup, unlike longhorn/longhorn-db's Retain. No replication: a
+# restore test that loses its scratch copy to a disk fault re-runs tomorrow
+# from the same source snapshot: nothing here is the only copy of anything.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-scratch
+provisioner: driver.longhorn.io
+allowVolumeExpansion: false
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: "strict-local"
+  fsType: "ext4"
