@@ -349,7 +349,9 @@ submits the run a missed guarantee needs. Restore procedures are in
 
 ## Architecture
 
-See [`docs/architecture.md`](./docs/architecture.md) for full design decisions and ADRs.
+See [`docs/adr/`](./docs/adr/) for architecture decision records, plus
+[`docs/network-architecture.md`](./docs/network-architecture.md) and
+[`docs/backup-architecture.md`](./docs/backup-architecture.md) for topic-specific deep dives.
 
 ## Technical Debt
 

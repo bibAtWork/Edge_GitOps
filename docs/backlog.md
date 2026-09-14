@@ -170,20 +170,9 @@ re-enabling is a one-line change.
 
 A working note, not a design decision. Delete entries as they close.
 
-**S3 Inventory is fixed but unproven.** `terraform apply` ran successfully on 2026-08-26,
-flipping both inventory configurations from Parquet to CSV -- which is the format
-`34-backup/reconciler-script.yaml` actually parses. AWS regenerates inventory manifests on
-its own schedule, up to 24h, so the reconciler will keep failing to parse until the first
-CSV manifest lands. Confirm with:
-
-```
-kubectl create job -n longhorn-system inv-check --from=cronjob/backup-reconciler
-kubectl logs -n longhorn-system job/inv-check -f
-```
-
-If it still reports a parse failure after 24h, the manifest has not rotated yet -- check the
-`fileFormat` field in the newest `manifest.json` under the vault bucket before assuming the
-apply did not take.
+**~~S3 Inventory is fixed but unproven.~~ Moot: the ADR-012 cutover (2026-09-13) removed
+`34-backup/` and `backup-reconciler` entirely** -- there is no CSV/Parquet manifest to parse
+and no reconciler left to parse it. The recovery system does not use S3 Inventory at all.
 
 **The node is still on v1.13.6 against a v1.13.9 pin,** and carries a
 `talos.homelab/upgrade-now` label that does nothing, because SUC never creates Jobs (see the
@@ -327,6 +316,17 @@ pin, so a rebuilt node would not land on the pinned Talos version.
 succeeds, CI validates it, and nothing signals that the result is a fraction of the
 product. The moment it would be reached for is a rebuild after losing the cluster, which
 is the worst possible time to discover it.
+
+**Also found (2026-09-14), same root cause -- the overlay was last touched long ago and
+`bootstrap-1node.sh` has since moved on without it:** `bootstrap-3node.sh`'s own `terraform
+apply -auto-approve` call passes no `-var` flags at all and has no `TF_VAR_budget_alert_email`
+guard, unlike `bootstrap-1node.sh`'s equivalent call. It still runs -- `cluster_name` and
+`aws_region` fall back to Terraform's own defaults (`homelab`, `eu-central-1`) -- but silently
+ignores whatever `NODE1_IP`/`GITHUB_OWNER`/etc. this script's own env-var config actually says,
+so a 3-node deployment configured for a different cluster name or region gets AWS resources
+named and located for neither. Not fixed here: patching the Terraform call would polish a
+script for a profile this entry says is not deployable end-to-end anyway. Worth doing only
+alongside Option 1 below, not on its own.
 
 **This is a decision, not a task.** Either:
 
@@ -593,57 +593,22 @@ pipeline, which is removed at cutover.
 
 ---
 
-## Planned: hub-and-spoke Cilium network policy, replacing `allow-cluster-internal`
+## Closed: hub-and-spoke Cilium network policy, replacing `allow-cluster-internal`
 
-**Status (2026-09-04): designed, not started.** Deliberately not implemented yet -- recorded so
-the design isn't lost before it is picked up.
+Closed 2026-08-17 by PR #182 ("hub-and-spoke network policy PR 6 -- cleanup and docs"), the
+last of a six-PR staged rollout (#177-#182) that matched the plan this entry used to describe
+step for step: `allow-cluster-internal` (the cluster-wide any-pod-to-any-pod grant) is deleted;
+`allow-intra-namespace-ingress`/`-egress` cover the same-namespace-only case per namespace;
+`allow-gateway-ingress` and `allow-monitoring-scrape-ingress` are the two genuine cluster-wide
+hubs (Envoy Gateway's proxy, and vmagent/otel-agent scraping); and
+`allow-seaweedfs-internal.yaml` carries an explicit per-caller list (`zot`, `backup-system`,
+CNPG's WAL archivers) instead of an any-pod grant on :8333. `docs/network-architecture.md`
+section 3 was updated to describe this as the current model, with a mermaid diagram.
 
-`allow-cluster-internal`, a cluster-wide `CiliumClusterwideNetworkPolicy`, grants any pod
-ingress from any other pod on any port (`docs/network-architecture.md` section 3, corrected
-in PR #176). Every narrower per-app ingress rule elsewhere in the repo is therefore an additive no-op
-under it -- verified live via `cilium-dbg` on Keycloak and the SeaweedFS filer. Concretely: a
-single compromised pod anywhere in the cluster, including `kubeopencode`/`mcp-server` (LLM
-agent tooling `security-review.md` already flags as prompt-injection/exfil surface), has direct
-network reach to Keycloak and SeaweedFS S3 on every port, with nothing but each service's own
-app-level auth in the way. It also means `CLAUDE.md`'s claim that SeaweedFS's Cilium policy is
-"the primary auth boundary" for S3 access is not accurate as deployed.
-
-**Proposed replacement** -- default-deny (already true) plus:
-
-1. A same-namespace-only `CiliumNetworkPolicy` per namespace (`endpointSelector: {}` +
-   `ingress: fromEndpoints: [{}]`) -- the pattern `keycloak` and `envoy-gateway-system` already
-   use for both directions, and ~20 namespaces already use for egress.
-2. Two clusterwide hub policies for the only things that genuinely need every namespace:
-   `allow-envoy-gateway-ingress` (replacing dead `fromEntities: [ingress]` rules left over from
-   before the Envoy Gateway cutover, ADR-001, and covering `immich`/`paperless`/`schenkmatch`
-   and OPA's `ext_authz` path, none of which currently have their own ingress rule at all) and
-   `allow-monitoring-scrape-ingress` (mirroring the existing `allow-vmagent-scrape-egress`
-   shape for the ingress side).
-3. An explicit caller list for SeaweedFS's `allow-seaweedfs-internal.yaml`, replacing its
-   current any-pod `fromEndpoints: [{}]` grant on :8333 with `velero`, `talos-backup`, `zot` --
-   live-verified that the CSI-driver rule some of this was written for doesn't apply (`kubectl
-   get csidrivers` is empty; the only provisioner is `local-path-provisioner`).
-
-**Staged rollout** (each stage additive-then-subtractive and independently verifiable, highest
-blast radius last): PR1 adds every new policy while `allow-cluster-internal` stays untouched, so
-nothing changes yet -- verify via `cilium-dbg endpoint get` that each new rule is realized. PR2
-excludes single-purpose/single-pod namespaces (`schenkmatch`, `falco`, `trivy-system`, `zot`,
-`external-dns`, `local-path-storage`, `cilium-secrets`, `kubescape`, `system-upgrade`,
-`gateway-system`). PR3 excludes medium-risk namespaces with the new PR1 rules backing them
-(`immich`, `paperless`, `monitoring`, `flux-system`, `kube-system`, `velero`, `talos-backup`,
-`tailscale`, `cert-manager`, and `kyverno` if a wider Hubble check confirms no same-namespace
-traffic). PR4 excludes `seaweedfs`, relying on its new caller-list policy -- verify Velero,
-`talos-backup` and Zot's S3 access all still work. PR5, last: `keycloak`, `security` (OPA),
-`envoy-gateway-system` -- verify every OIDC login path and every HTTPRoute end-to-end from a
-genuinely external client before merging, with a ready revert. PR6 deletes
-`allow-cluster-internal.yaml` once every namespace is excluded, and updates
-`docs/network-architecture.md` section 3 to describe the new model as current rather than the
-"why the broad-allow is mostly not hub-and-spoke" framing it carries today.
-
-Full per-namespace classification (which ones were live-verified to need a same-namespace rule
-vs. confirmed not to) was worked out via `cilium-dbg`, `kubectl`, and Hubble flow observation
-across all 28 existing network-policy files in the repo, and is not reproduced here -- redo that
-audit when this is picked up, since the namespace inventory will have moved on by then.
+This entry had drifted stale before it was closed: its own "Status (2026-09-04): designed, not
+started" postdated the PR #182 merge by over two weeks. Left here as a pointer in case anything
+still cross-references the old "Planned" framing -- see `docs/network-architecture.md` section
+3 for the live model and each policy file's own header comment for the per-rule rationale.
 
 ---
 
@@ -1031,7 +996,31 @@ Implementation notes for whoever picks this up:
 - Coverage will be partial. Not every dependency is a GitHub project with a release feed --
   `immich-postgresql` comes from a Bitnami registry with none.
 
-## Resolved 2026-09-13: Renovate warned about the Talos factory installer on every PR
+## Renovate warned about the Talos factory installer on every PR
+
+**Correction (2026-09-14): this was marked resolved on 2026-09-13, prematurely.** The fix
+described below (a negative `managerFilePatterns` entry) does not work: Renovate's
+`getMatchingFiles` evaluates each `managerFilePatterns` entry independently and unions the
+results rather than treating a negative entry as subtracting from a positive one in the same
+array (confirmed against Renovate's own source during a later review round). That entry excluded
+nothing -- `/cluster/.+\.yaml$/` still matched `controlplane.yaml` directly -- while its own
+match silently widened the `kubernetes` manager to every other file in the repo, including all
+of `docs/`. The warning this section describes was, in all likelihood, never actually
+suppressed by it.
+
+**Attempted fix, in `renovate.json`:** the negative entry is removed; in its place, a
+`packageRule` (`matchManagers: ["kubernetes"]`, `matchFileNames:
+["cluster/overlays/*/talos-machineconfigs/controlplane.yaml"]`, `enabled: false`) -- the same
+shape already used, apparently successfully, for the SUC Plan files a few rules above. This
+differs from the two approaches below that were live-tested and confirmed not to work: those
+matched broadly on `matchManagers`/`matchDatasources` alone, with no file scoping at all.
+Whether file-scoping the `enabled: false` rule actually stops Renovate from attempting the
+lookup during extraction (as opposed to just refusing to propose an update from it) has **not**
+been confirmed against a live run on this repo -- unlike the rest of this entry, which was.
+Check the Dependency Dashboard after the next scheduled Renovate run; if the warning persists,
+this needs the same live-iteration treatment the rest of this entry describes.
+
+The original writeup, kept for the debugging trail:
 
 Every Renovate PR body carried `> Some dependencies could not be looked up`, naming
 `factory.talos.dev/installer/<schematic-id>` in `cluster/overlays/1-node/talos-machineconfigs/`
@@ -1079,17 +1068,28 @@ on.
 
 ## F1 closed: every database dump is restore-tested nightly
 
-**Automated 2026-09-12** by `longhorn-system/backup-db-restore-test` (ADR-011). Each night it
-replays the newest dump of every database dataset in `34-backup/backup-policy.yaml` into a
-throwaway server of the same major and flavour, and runs the policy's `restore-checks` against the
-result. Its scripts encode every prerequisite the drill below found: owner roles created first,
-Immich's server started with its vector extensions preloaded. First run: all four passed. A run
-against a deliberately broken policy failed exactly the three sabotaged datasets.
+**Superseded 2026-09-13 by the ADR-012 cutover, in a different shape from the one described
+below.** `34-backup/` and its `backup-db-restore-test` job are gone; every PostgreSQL database
+now runs on CloudNativePG with continuous WAL archiving (see "Closed: continuous WAL archiving"
+below), and Paperless' SQLite is copied via its online backup API. Restore-testing is now a
+per-dataset step in the recovery system itself -- `sqlite-dataset.yaml`'s and
+`cnpg-dataset.yaml`'s own `restore-test` templates -- not a separate nightly job replaying
+dumps. The original 2026-09-12 automation this section described follows, kept for its
+prerequisites (owner roles, `vchord` preload, the S3-client network policy gate), which the
+ADR-012 dataset templates and `docs/runbooks/backup-recovery.md` now encode directly.
 
-The network-policy blocker recorded below did not apply. The job runs in `longhorn-system`, which
-`allow-seaweedfs-internal` already admits as an S3 client, so no policy change was needed.
+**Automated 2026-09-12** by `longhorn-system/backup-db-restore-test` (ADR-011, since removed).
+Each night it replayed the newest dump of every database dataset in `34-backup/backup-policy.yaml`
+into a throwaway server of the same major and flavour, and ran the policy's `restore-checks`
+against the result. Its scripts encoded every prerequisite the drill below found: owner roles
+created first, Immich's server started with its vector extensions preloaded. First run: all four
+passed. A run against a deliberately broken policy failed exactly the three sabotaged datasets.
 
-What stays open is the last paragraph: replaying into a *live* database.
+The network-policy blocker recorded below did not apply. The job ran in `longhorn-system`, which
+`allow-seaweedfs-internal` already admitted as an S3 client, so no policy change was needed.
+
+What stayed open is the last paragraph: replaying into a *live* database -- still true today, see
+`docs/runbooks/backup-recovery.md`'s "not drilled" marker on that step.
 
 ### The original drill, 2026-09-09
 
@@ -1411,8 +1411,56 @@ it is empty a few days after 2026-10-04.
 Recorded 2026-09-13, at the ADR-012 cutover. Longhorn's recurring jobs used to back up every volume
 by default: a new volume was protected before anyone classified it, and `BackupDatasetUnclassified`
 flagged the ones nobody had. Both went with the old pipeline. A volume is now protected only once it
-is a dataset in `37-backup-system/recovery-policy.yaml`, and nothing reports a PVC holding real data
-that is not.
+is a dataset in `37-backup-system/recovery-policy.yaml`.
 
-Worth an alert of the same shape: fire on a Longhorn-backed PVC that is neither a dataset in the
-policy nor listed as deliberately unprotected (metrics, logs, caches).
+**Partly addressed since:** `recovery-policy.yaml` now carries an `excluded-volumes` table
+(`derived` / `known-gap`, mirroring ADR-011's old `not-backed-up` table), so a volume that is
+deliberately not a dataset is at least written down, distinct from one nobody has classified yet.
+
+Still open: nothing automated checks a PVC against either list. Worth an alert of the same
+shape as `BackupDatasetUnclassified`: fire on a Longhorn-backed PVC that is neither a dataset in
+`recovery-policy.yaml` nor listed in its `excluded-volumes` table.
+
+---
+
+## Open: most SOPS secrets have no bootstrap generator
+
+Found during a repository review, 2026-09-14. The repo is published as a template, so a fresh
+deployment is a real use case, not just a hypothetical -- and `bootstrap/scripts/apply-config.py`
+does not get it all the way there.
+
+Counted directly: 31 files under `cluster/` carry a `sops:` block. Of those, `apply-config.py`
+fills in 10 (Cloudflare's token for both cert-manager and external-dns, Tailscale OAuth,
+SeaweedFS's and Zot's S3 credentials, Zot's htpasswd, Grafana's admin password and its Keycloak
+OAuth client secret, the optional Flux GitHub-status token, and system-upgrade-controller's
+talosconfig when `--talosconfig` is passed), and `scripts/make-recovery-credentials.sh` fills in
+2 more from Terraform's outputs (`recovery-aws-promoter.yaml`, `recovery-aws-retention.yaml`).
+The remaining **19** have no generator anywhere in `bootstrap/scripts/` or `scripts/` -- they must
+be created and SOPS-encrypted by hand before a fresh bootstrap's Flux reconciliation can succeed:
+
+```
+04-grafana/config/telegram-secret.yaml       12-zot/operator/oidc-credentials-secret.yaml
+05-cilium/config/edge-client-secret.yaml     16-immich/db-secret.yaml
+16-immich/oauth-config-secret.yaml           16-immich/pg-owner-secret.yaml
+16-immich/recovery-object-store.yaml         17-paperless-ngx/oidc-secret.yaml
+17-paperless-ngx/secret.yaml                 26-keycloak/edge-client-secret.yaml
+26-keycloak/google-idp-secret.yaml           26-keycloak/immich-client-secret.yaml
+26-keycloak/keycloak-admin-user-secret.yaml  26-keycloak/keycloak-secret.yaml
+26-keycloak/paperless-client-secret.yaml     26-keycloak/recovery-object-store.yaml
+26-keycloak/zot-client-secret.yaml           27-kubeopencode/config/edge-client-secret.yaml
+37-backup-system/restic-secret.yaml
+```
+
+`26-keycloak/keycloak-secret.yaml` is a specific, concrete instance of this: it holds
+`grafana-client-secret`, the same value `apply-config.py` now generates and writes into
+`04-grafana/grafana-oauth-secret.yaml` as `keycloak.grafana_client_secret` in `config.json` (see
+the bootstrap disk-prompt/Dex cleanup, 2026-09-14). The two sides of that shared secret can drift
+if whoever fills in `keycloak-secret.yaml` by hand does not copy the same value `config.json`
+already holds -- worth fixing first, and closest to already being solved, since half of it is
+already automated.
+
+Not scoped here: writing 19 generators is a much larger effort than documenting the gap, and
+several of these (the Keycloak per-app client secrets, the `recovery-object-store.yaml` pair)
+depend on each other in ways that would need to be worked out first -- e.g. whether the
+Keycloak realm import job or `apply-config.py` should own generating them. Recorded so the gap
+is visible to whoever next does a fresh deployment, rather than discovered mid-bootstrap.
