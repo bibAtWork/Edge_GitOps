@@ -260,3 +260,93 @@ jobs:
           else:
               print('All HelmRelease references resolve correctly.')
           PY
+
+  # ── Job 4: recovery-policy applications must have a matching CronWorkflow ───
+  #
+  # Restores a narrower version of a check 598beee removed: that one bound
+  # the OLD backup pipeline's policy file to the jobs implementing it, and
+  # was removed because both had stopped existing (ADR-012 cutover). This
+  # one binds the CURRENT policy (recovery-policy.yaml) to the CURRENT
+  # implementation. Nothing else does: the reconciler reads the policy
+  # directly and would back up an application added to it with no matching
+  # CronWorkflow, but the pre-upgrade gate used to derive its own list of
+  # applications from the CronWorkflows' names, so that same application
+  # would silently never be proven before an upgrade (fixed alongside this,
+  # upgrade-gate-script.yaml -- the gate now also reads the policy directly,
+  # which makes a missing CronWorkflow fail gate proof for that application
+  # instead of hiding it; this check exists to catch the mismatch at PR time
+  # instead of at 11:00 the following Sunday).
+  recovery-policy-cronworkflows:
+    name: Recovery policy / CronWorkflow consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify every policy application has a recovery-point CronWorkflow, and vice versa
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, sys, yaml
+
+          errors = []
+
+          for overlay in ('1-node', '3-node'):
+              result = subprocess.run(
+                  ['kubectl', 'kustomize', '--load-restrictor',
+                   'LoadRestrictionsNone', f'cluster/overlays/{overlay}'],
+                  capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  errors.append(f'[{overlay}] kubectl kustomize failed:\n{result.stderr.strip()}')
+                  continue
+
+              docs = [d for d in yaml.safe_load_all(result.stdout) if d]
+
+              policy = next(
+                  (d for d in docs if d.get('kind') == 'ConfigMap'
+                   and d.get('metadata', {}).get('name') == 'recovery-policy'),
+                  None,
+              )
+              if policy is None:
+                  errors.append(f'[{overlay}] no ConfigMap/recovery-policy found -- cannot compare anything')
+                  continue
+
+              apps_table = policy.get('data', {}).get('applications', '')
+              policy_apps = set()
+              for line in apps_table.splitlines():
+                  line = line.split('#', 1)[0].strip()
+                  if not line:
+                      continue
+                  policy_apps.add(line.split()[0])
+              if not policy_apps:
+                  errors.append(f'[{overlay}] recovery-policy\'s applications table is empty -- cannot compare anything')
+                  continue
+
+              cron_apps = {
+                  m.group(1)
+                  for d in docs
+                  if d.get('kind') == 'CronWorkflow'
+                  and d.get('metadata', {}).get('namespace') == 'backup-system'
+                  and (m := re.match(r'^recovery-point-(.+)$', d['metadata']['name']))
+              }
+
+              for app in sorted(policy_apps - cron_apps):
+                  errors.append(
+                      f'[{overlay}] recovery-policy declares application "{app}" but there is no '
+                      f'recovery-point-{app} CronWorkflow in backup-system -- it will never be proven '
+                      f'by the pre-upgrade gate'
+                  )
+              for app in sorted(cron_apps - policy_apps):
+                  errors.append(
+                      f'[{overlay}] recovery-point-{app} CronWorkflow exists but "{app}" is not in '
+                      f'recovery-policy\'s applications table -- it is running unplanned, or the '
+                      f'policy is stale'
+                  )
+
+          if errors:
+              print(f'{len(errors)} consistency error(s) found:\n')
+              for e in errors:
+                  print(f'  ERROR: {e}')
+              sys.exit(1)
+          else:
+              print('Every recovery-policy application has a matching CronWorkflow, and vice versa.')
+          PY
