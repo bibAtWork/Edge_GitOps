@@ -23,6 +23,34 @@ spec:
     - toEndpoints:
         - {}
 ---
+# argo-server authenticates nothing (authModes: [server], argo-workflows.yaml)
+# -- every caller acts with the server's own namespaced Role, which can
+# create, update and delete Workflows, WorkflowTemplates and CronWorkflows.
+# It's meant to be reached only by a human via `kubectl port-forward
+# svc/argo-workflows-server 2746`, which enters through the kubelet and does
+# not cross the CNI datapath Cilium enforces -- but allow-intra-namespace
+# above also lets every OTHER pod in this namespace reach it over the pod
+# network, which was never the intent, and this namespace also runs scratch
+# PostgreSQL restored from production data. Found on code review.
+#
+# ingressDeny overrides any Allow for the same endpoint (unlike two Allow
+# policies, which OR) -- see restrict-vmsingle-ingress in
+# 10-network-policies/allow-monitoring.yaml for the same pattern -- so this
+# closes the pod-network path regardless of what allow-intra-namespace grants,
+# without narrowing what allow-intra-namespace does for anything else.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: deny-argo-server-ingress
+  namespace: backup-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: argo-workflows-server
+  ingressDeny:
+    - fromEndpoints:
+        - {}
+---
 # The local repository. S3 on the filer, and nothing else in SeaweedFS. The
 # matching ingress side is in 10-network-policies/allow-seaweedfs-internal.yaml,
 # which is the S3 authorisation boundary (CLAUDE.md).

@@ -72,6 +72,17 @@ spec:
     controller:
       clusterWorkflowTemplates:
         enabled: false
+      # Unset by default: a Workflow may then reference any WorkflowTemplate
+      # by name, in whichever namespace it runs. Strict requires the
+      # reference to be embedded (or, with Secure, additionally signed) --
+      # closing the path where recovery-reconciler's narrow "create
+      # workflows" grant (rbac-reconciler.yaml) could otherwise submit a
+      # Workflow that points at an attacker-controlled template. Doesn't
+      # close the argo-server path (deny-argo-server-ingress,
+      # networkpolicy.yaml, covers that): the server can edit templates
+      # directly, which this setting does not restrict.
+      workflowRestrictions:
+        templateReferencing: Strict
       podSecurityContext:
         runAsNonRoot: true
         seccompProfile:
