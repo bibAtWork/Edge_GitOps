@@ -75,6 +75,24 @@ spec:
               set -- "$@" "$P"
             done
 
+            # First backup ever against this repository (exit 10: no repository
+            # there). Nothing else initialises the local repository -- unlike
+            # the AWS one, which promote.yaml creates on its own first run the
+            # same way -- so on a fresh cluster this was the missing step:
+            # every recovery point failed until someone ran `restic init` by
+            # hand. Checked, not assumed, for the same reason promote.yaml
+            # checks rather than inits unconditionally: a repository pointed
+            # at the wrong place (wrong bucket, wrong endpoint, a typo in the
+            # Secret) fails with a real restic error here instead of
+            # `init`'s own idempotency quietly accepting it as "the empty
+            # repository we expected". Found on code review (round 4).
+            RC=0; $R cat config > /dev/null 2>&1 || RC=$?
+            if [ "$RC" -eq 10 ]; then
+              $R init
+            elif [ "$RC" -ne 0 ]; then
+              echo "the local repository is unreadable (restic exit $RC)"; exit 1
+            fi
+
             # --host groups a dataset's snapshots for retention; the tags tie
             # each one to its dataset and recovery point.
             # restic never passes a stale lock by itself: a lock left by a process that

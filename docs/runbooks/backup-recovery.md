@@ -392,10 +392,15 @@ for C in $(kubectl get cronworkflows -n backup-system -o name); do
 done
 ```
 
-**Create the local repository before resuming.** Nothing creates it by itself. Give it the AWS
-repository's chunker parameters, so data splits into the same blobs and promotion deduplicates
-against what AWS already holds instead of uploading everything again. restic reaches the local
-store through rclone, inside the shell:
+**Create the local repository before resuming, with the AWS repository's chunker parameters.**
+Restic backup steps now initialise a missing local repository themselves on first use
+(restic-dataset.yaml, cnpg-dataset.yaml), but with restic's own default parameters -- correct for
+a genuinely new deployment, wrong here: AWS already holds this application's real data, chunked
+under the OLD parameters, and a repository created with different ones deduplicates against
+nothing. Doing it here first, before the schedules resume (they are still suspended), is what
+keeps that working -- give it the AWS repository's chunker parameters, so data splits into the
+same blobs and promotion deduplicates against what AWS already holds instead of uploading
+everything again. restic reaches the local store through rclone, inside the shell:
 
 ```bash
 kubectl exec -n backup-system recovery-shell -c rclone -- \
