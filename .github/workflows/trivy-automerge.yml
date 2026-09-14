@@ -117,7 +117,7 @@ jobs:
       # renovate: datasource=github-releases depName=helm/helm
       - name: Install Helm (chart rendering)
         run: |
-          VERSION=v3.22.0
+          VERSION=v4.3.0
           curl -fsSL "https://get.helm.sh/helm-${VERSION}-linux-amd64.tar.gz" \
             | tar -xz -C /tmp linux-amd64/helm
           install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
