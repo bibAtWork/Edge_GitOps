@@ -89,6 +89,15 @@ data "aws_iam_policy_document" "vault_deny_destructive" {
     # requires), and denied otherwise, same as originally intended. No
     # in-cluster identity can ever produce an MFA context, so none of them
     # gain anything here.
+    #
+    # One-time bootstrapping snag, flagged on code review: if the PREVIOUS
+    # version of this policy (no admin exemption at all -- commit b577284)
+    # is already live when this change is applied, the apply that INSTALLS
+    # this MFA-gated version needs s3:PutBucketPolicy, which that live
+    # policy denies to everyone but backup_admin and root. The general admin
+    # identity cannot bootstrap itself into the exemption it is about to
+    # gain -- this one apply needs to run as backup_admin's MFA session, or
+    # root. Every apply after this one can use the new exemption normally.
     condition {
       test     = "StringNotLike"
       variable = "aws:PrincipalArn"

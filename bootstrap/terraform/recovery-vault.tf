@@ -267,6 +267,12 @@ resource "aws_iam_user_policy" "recovery_admin" {
 # naming an identity means whichever identity normally runs Terraform here
 # can still apply changes to this bucket's own configuration, exactly as
 # before, but only while that identity is not just a long-lived key.
+#
+# Same one-time bootstrapping snag as backup-vault-policy.tf: if the
+# no-admin-exemption version of this policy is already live, the apply that
+# installs THIS version needs to run as backup_admin's MFA session or root
+# -- the general admin identity cannot yet use the exemption it is about to
+# gain.
 data "aws_iam_policy_document" "recovery_vault_deny_destructive" {
   statement {
     sid    = "DenyDestructiveExceptAdminAndRoot"
