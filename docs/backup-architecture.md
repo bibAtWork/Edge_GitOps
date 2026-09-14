@@ -113,6 +113,34 @@ Also: `python3 scripts/cluster-health.py --group backup`, and the upgrade gate's
 - **The restic password encrypts both repositories.** It is escrowed off-site with the age key
   (runbook A8): without it, the AWS copy cannot be read.
 
+## Failure domain: the local repository is not offsite from production
+
+**SeaweedFS and Longhorn are two partitions of the same physical NVMe**
+(`cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml`, `UserVolumeConfig` `seaweedfs`
+and `longhorn0`, both selecting `disk.transport == "nvme" && !system_disk` -- the node's only NVMe).
+That disk is deliberately separate from `sda`, which holds the OS, etcd and every `local-path` PVC
+-- but it is not separate from production. Losing it loses the Longhorn volumes it backs, the local
+restic repository, and every WAL archive at once, in the same event.
+
+What that leaves is the AWS copy: offsite RPO up to 48 hours (`RecoveryOffsiteStale`), and no
+point-in-time recovery -- PostgreSQL's 7-day PITR window (above) only reaches back through the WAL
+archive on this same disk. A disk loss and a PostgreSQL restore both fall back to the newest daily
+recovery point in AWS, not to "a moment in the last week."
+
+The 120 GiB SeaweedFS partition also holds Zot's registry blobs, not only the local repository, which
+is why `recovery-policy`'s `local-repository`/`aws-repository` limits are sized well under it rather
+than under the disk's full ~460 GiB (`recovery-policy.yaml`'s `limits` comment).
+
+**The coupling runs the other way too.** When this partition fills, CNPG cannot archive WAL and keeps
+it on each database's own Longhorn volume instead -- so a full backup disk can degrade into a
+Keycloak or Immich database outage, not just a stale backup. `SeaweedFSDiskSpaceLow` (04-grafana) is
+the warning for both failure modes at once, since they share the same root cause.
+
+Giving the local repository a genuinely separate device would close this gap; on a one-node
+homelab with a single NVMe, that is a hardware change, not a configuration one. Found on code
+review: the docs previously implied full separation ("Dedicated NVMe for SeaweedFS", the
+`SeaweedFSDiskSpaceLow` alert text) without stating what it does and does not separate.
+
 ## Deliberately out of scope: etcd
 
 There is no etcd backup, and that is a decision rather than a gap. It is written here because it

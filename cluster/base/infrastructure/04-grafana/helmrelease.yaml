@@ -1108,7 +1108,7 @@ spec:
                   summary: >-
                     SeaweedFS backing disk below 20% free
                   description: >-
-                    The dedicated NVMe holding all SeaweedFS volume data is filling. Every SeaweedFS-backed PVC in the cluster draws from it, so this affects all of them at once rather than one workload. Check current usage per component and whether old volumes left over from migrations are still holding space.
+                    The NVMe partition holding all SeaweedFS volume data is filling. Every SeaweedFS-backed PVC in the cluster draws from it, so this affects all of them at once rather than one workload -- including the recovery system's local backup repository, which shares this partition, not a separate disk. Check current usage per component and whether old volumes left over from migrations are still holding space.
                 labels:
                   severity: warning
                 isPaused: false

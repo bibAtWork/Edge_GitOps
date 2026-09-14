@@ -50,16 +50,27 @@ data:
   # full disk. Units: KiB, MiB, GiB, TiB; growth-percent is a plain number.
   #
   #   aws-repository    ENFORCED: promotion refuses to push the AWS repository
-  #                     past it. 250 GiB is about EUR 6 a month in S3 Standard,
-  #                     leaving room inside the ~EUR 10 budget for pruned versions
-  #                     held 45 days and for requests.
+  #                     past it. 60 GiB is about EUR 1.50 a month in S3
+  #                     Standard, well inside the ~EUR 10 budget with room for
+  #                     pruned versions held 45 days and for requests.
   #   local-repository  ALERT: the local repository always holds everything the
   #                     AWS one does plus more history (7/3/3 against 1/3), so it
-  #                     must be allowed to be larger. Never a blocker -- a full
-  #                     local repository must not mean no backups. It shares one
-  #                     463 GiB disk with the production volumes, so the disk
-  #                     fills long before AWS reaches its budget; the disk-space
-  #                     alert is the earlier warning.
+  #                     must be allowed to be larger, and never a blocker -- a
+  #                     full local repository must not mean no backups.
+  #
+  #                     Both caps are sized to the SeaweedFS partition the local
+  #                     repository actually lives on -- 120 GiB, not the whole
+  #                     460 GiB NVMe -- because SeaweedFS and Longhorn are two
+  #                     partitions of that one disk (controlplane.yaml), so
+  #                     losing it loses production data too, not only backups.
+  #                     That partition also holds Zot's registry blobs and every
+  #                     barman WAL archive, so 80 GiB for the repository (never
+  #                     reached at anything close to today's usage) leaves real
+  #                     headroom for both rather than assuming the repository
+  #                     can grow into space those already claim. Found on code
+  #                     review: the previous 300/250 GiB pair both individually
+  #                     exceeded the 120 GiB partition, so local always filled
+  #                     first and neither cap could ever fire.
   #   growth-*          ALERT: a single backup adding more than growth-bytes, or
   #                     more than growth-percent of the dataset once that exceeds
   #                     growth-floor. Bulk imports trip it legitimately; so does
@@ -77,8 +88,8 @@ data:
   #                     decision retention makes.
   limits: |
     # limit             value
-    aws-repository      250GiB
-    local-repository    300GiB
+    aws-repository      60GiB
+    local-repository    80GiB
     growth-bytes        5GiB
     growth-percent      50
     growth-floor        100MiB
