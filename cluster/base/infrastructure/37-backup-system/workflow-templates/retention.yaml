@@ -360,24 +360,34 @@ spec:
               # shellcheck disable=SC2046
               $R forget $(cut -d' ' -f1 /tmp/remove)
               $R prune
-              # Metadata-only by default: proves the repository's structure
-              # is sound, not that the data blocks it references still are.
-              # Data that exists only in an older snapshot -- never the
-              # newest one restore-test already reads back byte-for-byte --
-              # would fail silently to a check this narrow. On the LOCAL
-              # repository only, read one week's worth of that too, a
-              # rotating 1/7 slice per day so the whole repository is read
-              # back once a week, at zero AWS cost -- this repository is
-              # free to read from. Not applied to the AWS repository:
-              # retention there runs once a week already (Sundays only), so
-              # $(date +%u) would always resolve to the same slice rather
-              # than rotating, and every read of it is a real transfer cost.
-              # Found on code review.
-              if [ "$REPO" = local ]; then
-                $R check --read-data-subset="$(date +%u)/7"
-              else
-                $R check
-              fi
+            fi
+            # Metadata-only by default: proves the repository's structure is
+            # sound, not that the data blocks it references still are. Data
+            # that exists only in an older snapshot -- never the newest one
+            # restore-test already reads back byte-for-byte -- would fail
+            # silently to a check this narrow. On the LOCAL repository only,
+            # read one week's worth of that too, a rotating 1/7 slice per day
+            # so the whole repository is read back once a week, at zero AWS
+            # cost -- this repository is free to read from. Not applied to
+            # the AWS repository: retention there runs once a week already
+            # (Sundays only), so $(date +%u) would always resolve to the
+            # same slice rather than rotating, and every read of it is a
+            # real transfer cost.
+            #
+            # Deliberately OUTSIDE the `-s /tmp/remove` block above: this
+            # check verifies the repository, not the plan just applied to
+            # it, so it must run whether or not anything aged out today.
+            # Round-2 code review found the first version of this fix nested
+            # inside that block -- on a day retention found nothing to
+            # forget (routine once daily/weekly/monthly counts settle),
+            # nothing was ever read back, so the weekly rotation this exists
+            # for silently never completed. Both REFUSE and dry-run already
+            # exit above before reaching this line, so nothing here needs to
+            # re-check either.
+            if [ "$REPO" = local ]; then
+              $R check --read-data-subset="$(date +%u)/7"
+            else
+              $R check
             fi
             awk '{ printf "%s%s,%s,%s,%s", (NR > 1 ? ";" : ""), $2, $3, $4, $5 }' /tmp/remove > /tmp/out/removed
             {
@@ -387,7 +397,7 @@ spec:
             if [ -s /tmp/remove ]; then
               echo "forgot $(wc -l < /tmp/remove | tr -d ' ') snapshot(s); repository pruned and checked"
             else
-              echo "nothing to forget; the repository is unchanged"
+              echo "nothing to forget; the repository is unchanged but was still checked"
             fi
         envFrom:
           - secretRef:
