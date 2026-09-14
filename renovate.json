@@ -30,7 +30,8 @@
   "kubernetes": {
     "enabled": true,
     "managerFilePatterns": [
-      "/cluster/.+\\.yaml$/"
+      "/cluster/.+\\.yaml$/",
+      "!/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
     ]
   },
   "customManagers": [
@@ -76,6 +77,41 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "cilium-cli image used by the Talos cilium-install inlineManifest, which installs the CNI at first boot before Flux exists. This was cilium-cli-ci:latest -- an unpinned rolling CI build -- until it went distroless and broke bootstrap outright: the Job's shell form could no longer start. Pinning it is what stops the bootstrap path drifting under us again. Same file as the installer tag above and the same caveat: applied by hand via talosctl, outside Kustomize and Flux.",
+      "managerFilePatterns": [
+        "/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*quay\\.io/cilium/cilium-cli:(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "quay.io/cilium/cilium-cli"
+    },
+    {
+      "customType": "regex",
+      "description": "Cilium version the bootstrap cilium install lays down. Deliberately tracked as the SAME dep as the 05-cilium HelmRelease chart (datasource helm, name cilium) so Renovate bumps both in one PR instead of letting them drift -- a mismatch means first boot installs one Cilium and Flux immediately upgrades it to another. The capture group omits the leading v so it matches the chart version exactly; the v stays literal in the file because the CLI flag requires it.",
+      "managerFilePatterns": [
+        "/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
+      ],
+      "matchStrings": [
+        "--version=v(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "helm",
+      "depNameTemplate": "cilium",
+      "registryUrlTemplate": "https://helm.cilium.io"
+    },
+    {
+      "customType": "regex",
+      "description": "Pinned CI tool versions in .github/workflows, comment-driven like the Ansible manager. These are plain `curl` downloads of release binaries, so no built-in manager sees them. Before this existed the pins drifted by hand and two of them were not pins at all -- Trivy came from an install.sh on the main branch and yq from /releases/latest -- which made CI unreproducible and, in Trivy's case, executed unversioned remote code.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+(?:- name:[^\\n]*\\n\\s+run: [|]\\n)?\\s*[A-Z_]*VERSION=(?<currentValue>v[\\d.]+)"
+      ]
     }
   ],
   "packageRules": [
@@ -178,6 +214,155 @@
         "major"
       ],
       "enabled": false
+    },
+    {
+      "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
+      "matchPackageNames": [
+        "cilium",
+        "longhorn",
+        "tailscale-operator",
+        "/^quay[.]io/cilium//",
+        "/^(docker[.]io/)?longhornio//",
+        "/^(docker[.]io/)?tailscale//"
+      ],
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
+    },
+    {
+      "description": "Kyverno ships five images from one release -- four controllers plus the admission init container -- and the chart that wires them. ADR-009 requires they move as one change: a deployment running mismatched Kyverno components is a worse failure than one that is a version behind.",
+      "matchPackageNames": [
+        "kyverno",
+        "/^reg[.]kyverno[.]io/kyverno//"
+      ],
+      "groupName": "kyverno",
+      "automerge": false
+    },
+    {
+      "description": "Tailscale's operator and proxy images ship as one release, with the chart. Grouped so they cannot diverge. Also carries manual-review from the unrecoverable-component rule -- losing the operator removes the remote path into the cluster.",
+      "matchPackageNames": [
+        "tailscale-operator",
+        "/^(docker[.]io/)?tailscale//"
+      ],
+      "groupName": "tailscale",
+      "automerge": false
+    },
+    {
+      "description": "kubeopencode's controller and server are two roles of one binary, pinned twice from the same repository. Grouped so a bump cannot land on one and not the other.",
+      "matchPackageNames": [
+        "kubeopencode",
+        "/^ghcr[.]io/kubeopencode//"
+      ],
+      "groupName": "kubeopencode",
+      "automerge": false
+    },
+    {
+      "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it -- upstream csi-attacher and Longhorn's build of it are not interchangeable. A CSI driver assembled from mismatched sidecars fails at volume attach, which here means every workload with a PVC. Also carries manual-review from the unrecoverable-component rule.",
+      "matchPackageNames": [
+        "longhorn",
+        "/^(docker[.]io/)?longhornio//"
+      ],
+      "groupName": "longhorn",
+      "automerge": false
+    },
+    {
+      "description": "Move the victoria-metrics chart and its pinned images together. ADR-009 requires a chart and the images it packages to move in one change. The chart's appVersion and the pinned tags describe the same release, so a proposal that carries one without the other opens a window where the pin is a downgrade of the chart's own intent. Grouping by package file keeps them in a single branch whenever both updates are available together.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/02-victoriametrics-stack/helmrelease.yaml"
+      ],
+      "groupName": "victoria-metrics"
+    },
+    {
+      "description": "Move the grafana chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/04-grafana/helmrelease.yaml"
+      ],
+      "groupName": "grafana"
+    },
+    {
+      "description": "Move the velero chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/07-velero/helmrelease.yaml"
+      ],
+      "groupName": "velero"
+    },
+    {
+      "description": "Move the external-dns chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/08-external-dns/helmrelease.yaml"
+      ],
+      "groupName": "external-dns"
+    },
+    {
+      "description": "Move the reloader chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/09-reloader/helmrelease.yaml"
+      ],
+      "groupName": "reloader"
+    },
+    {
+      "description": "Move the zot chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/12-zot/operator/helmrelease.yaml"
+      ],
+      "groupName": "zot"
+    },
+    {
+      "description": "Move the trivy-operator chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/13-trivy-operator/helmrelease.yaml"
+      ],
+      "groupName": "trivy-operator"
+    },
+    {
+      "description": "Move the system-upgrade-controller chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/15-system-upgrade-controller/operator/helmrelease.yaml"
+      ],
+      "groupName": "system-upgrade-controller"
+    },
+    {
+      "description": "Move the immich-postgresql chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/16-immich/postgresql-helmrelease.yaml"
+      ],
+      "groupName": "immich-postgresql"
+    },
+    {
+      "description": "Move the falco chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/18-falco/helmrelease.yaml"
+      ],
+      "groupName": "falco"
+    },
+    {
+      "description": "Move the envoy-gateway chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/28-envoy-gateway/operator/helmrelease.yaml"
+      ],
+      "groupName": "envoy-gateway"
+    },
+    {
+      "description": "Move the metrics-server chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/29-metrics-server/helmrelease.yaml"
+      ],
+      "groupName": "metrics-server"
+    },
+    {
+      "description": "Move the cloudnative-pg chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/33-cloudnative-pg/helmrelease.yaml"
+      ],
+      "groupName": "cloudnative-pg"
+    },
+    {
+      "description": "Move the node-exporter chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
+      "matchFileNames": [
+        "cluster/base/infrastructure/35-node-exporter/helmrelease.yaml"
+      ],
+      "groupName": "node-exporter"
     }
   ]
 }
