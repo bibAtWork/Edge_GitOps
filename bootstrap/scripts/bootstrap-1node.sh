@@ -75,11 +75,7 @@ _config_wizard() {
   read -rsp "  Grafana admin password: " _wgpw; echo ""
 
   echo ""
-  echo "── Dex (OIDC identity provider) ──────────────────────────────────────────"
-  read -rsp "  Dex admin password (for admin@homelab.internal): " _wdexpw; echo ""
-
-  echo ""
-  echo "  SeaweedFS, Zot, and Dex OAuth client credentials will be auto-generated."
+  echo "  SeaweedFS, Zot, and Grafana's Keycloak OAuth client secret will be auto-generated."
   echo ""
 
   # Write config.json via Python — values passed through env vars to avoid shell injection
@@ -88,7 +84,7 @@ _config_wizard() {
   _WGHO="$_wgho" _WGHR="$_wghr" _WGHB="$_wghb" _WGHT="$_wght" \
   _WAR="$_war" _WAK="$_wak" _WAS="$_was" \
   _WCF="$_wcf" _WTSI="$_wtsi" _WTSS="$_wtss" \
-  _WGPW="$_wgpw" _WDEXPW="$_wdexpw" \
+  _WGPW="$_wgpw" \
   python3 - "${CONFIG_FILE}" <<'PYEOF'
 import json, os, sys
 
@@ -134,9 +130,8 @@ cfg = {
   "zot": {
     "admin_password": "",
   },
-  "dex": {
+  "keycloak": {
     "grafana_client_secret": "",
-    "admin_password":        e("_WDEXPW", ""),
   },
 }
 with open(config_file, "w") as f:
