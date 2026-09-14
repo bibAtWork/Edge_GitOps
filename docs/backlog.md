@@ -1464,3 +1464,24 @@ several of these (the Keycloak per-app client secrets, the `recovery-object-stor
 depend on each other in ways that would need to be worked out first -- e.g. whether the
 Keycloak realm import job or `apply-config.py` should own generating them. Recorded so the gap
 is visible to whoever next does a fresh deployment, rather than discovered mid-bootstrap.
+
+---
+
+## Open: the vault bucket policy MFA fix (b577284) has not been applied
+
+Found on review of #640, 2026-09-14. `b577284` (merged via #632) changed both vault bucket
+policies' deny-destructive exemption from "whoever last ran `terraform apply`, no MFA required"
+to an MFA-gated condition (`BoolIfExists` on `aws:MultiFactorAuthPresent` --
+`backup-vault-policy.tf`, `recovery-vault.tf`). That is a real fix in Git. It is not a real fix
+in AWS: nobody has run `terraform apply` against the live account since, so the bucket policies
+currently enforcing `DeleteObjectVersion`/`BypassGovernanceRetention` on both vaults are still
+the pre-b577284 version -- whichever identity last applied is still exempt, with no MFA
+requirement at all. The code review that found and fixed this treated the fix as done; it isn't,
+until the apply happens.
+
+This is not hypothetical or low-stakes: it is the live state of both S3 Object Lock vaults this
+whole recovery system depends on for immutability. To close it: `cd bootstrap/terraform &&
+terraform plan` should show only the policy documents changing (no resource replacement), then
+`terraform apply` with an MFA-authenticated session -- applying it with the same long-lived,
+no-MFA key the exemption used to cover would be applying the fix from the identity the fix is
+meant to stop trusting.
