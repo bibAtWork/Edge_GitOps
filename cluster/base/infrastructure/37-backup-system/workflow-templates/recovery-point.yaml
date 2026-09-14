@@ -237,6 +237,15 @@ spec:
                   value: "{{inputs.parameters.paths}}"
                 - name: snapshot
                   value: "{{steps.backup.outputs.parameters.snapshot}}"
+                # The source volume's own size (bytes), from the same clone
+                # step -- so the scratch restore destination is sized to the
+                # dataset instead of a flat guess. Found on code review: a
+                # fixed 100Gi per restore test, with recovery points having no
+                # mutex against each other, could overlap two at once and push
+                # Longhorn's scheduling budget on this node's single NVMe
+                # partition to its limit even though real usage was far lower.
+                - name: restore-size
+                  value: "{{steps.clone.outputs.parameters.size}}"
           - name: sqlite-restore-test
             when: "'{{inputs.parameters.adapter}}' == 'sqlite-volume'"
             templateRef:

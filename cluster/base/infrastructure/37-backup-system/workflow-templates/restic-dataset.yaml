@@ -190,6 +190,7 @@ spec:
           - name: claim
           - name: paths
           - name: snapshot
+          - name: restore-size
       outputs:
         parameters:
           - name: verified
@@ -219,10 +220,22 @@ spec:
         # today), but both problems are latent in every run regardless.
         #
         # longhorn-scratch (32-longhorn/storageclass.yaml) lands this on the
-        # NVMe instead, with no size ceiling below the class's own headroom,
-        # and reclaimPolicy Delete means the PVC this generates is fully
-        # gone -- volume included, no manual cleanup -- once this pod is,
-        # unlike the Retain classes used for real data.
+        # NVMe instead, with reclaimPolicy Delete meaning the PVC this
+        # generates is fully gone -- volume included, no manual cleanup --
+        # once this pod is, unlike the Retain classes used for real data.
+        #
+        # Sized to the source volume (restore-size, in bytes -- from
+        # volume-clone.yaml's clone step, which already reads it off
+        # Longhorn), not a flat guess. A fixed 100Gi here, round 1's fix,
+        # was itself found on round-2 code review to risk overcommitting
+        # Longhorn's scheduling budget: overprovisioning is 100% on this
+        # cluster (32-longhorn/helmrelease.yaml), so it counts requested
+        # size, not actual usage, and recovery points have no mutex against
+        # each other -- two datasets' restore tests landing in the same
+        # 01:00 run could together request 200Gi against a 340Gi partition
+        # already carrying the real Longhorn volumes and snapshot clones.
+        # Sizing to the actual source, typically far under 100Gi, removes
+        # that risk without reintroducing a ceiling below any real dataset.
         - name: restore
           ephemeral:
             volumeClaimTemplate:
@@ -231,7 +244,7 @@ spec:
                 storageClassName: longhorn-scratch
                 resources:
                   requests:
-                    storage: 100Gi
+                    storage: "{{inputs.parameters.restore-size}}"
       container:
         image: docker.io/restic/restic:0.19.1
         command: ["/bin/sh", "-c"]
