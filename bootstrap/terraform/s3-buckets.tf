@@ -1,7 +1,15 @@
+# The first offsite buckets: etcd snapshots and Velero backups, both encrypted
+# with the KMS key in kms.tf.
+#
+# DECOMMISSIONING since the ADR-012 cutover (2026-09-13). Velero was removed,
+# and nothing has uploaded etcd snapshots since talos-backup was removed on
+# 2026-08-25. Their identities are gone; lifecycle.tf empties both buckets,
+# which, with the KMS key, are then deleted along with the vault's files
+# (docs/backlog.md).
 locals {
   buckets = {
-    etcd    = "${var.cluster_name}-etcd-backups-offsite"
-    velero  = "${var.cluster_name}-velero-backups-offsite"
+    etcd   = "${var.cluster_name}-etcd-backups-offsite"
+    velero = "${var.cluster_name}-velero-backups-offsite"
   }
 }
 
@@ -40,14 +48,4 @@ resource "aws_s3_bucket_public_access_block" "backup" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_intelligent_tiering_configuration" "velero" {
-  bucket = aws_s3_bucket.backup["velero"].id
-  name   = "deep-archive"
-
-  tiering {
-    access_tier = "DEEP_ARCHIVE_ACCESS"
-    days        = 180
-  }
 }
