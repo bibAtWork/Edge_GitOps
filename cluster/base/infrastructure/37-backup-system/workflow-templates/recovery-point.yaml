@@ -193,6 +193,14 @@ spec:
                   value: "{{inputs.parameters.pvc}}"
                 - name: clone-name
                   value: "rpc-{{=sprig.trunc(8, workflow.uid)}}-{{inputs.parameters.dataset}}"
+          # Independent of the clone above, so it runs alongside it rather
+          # than adding a round trip -- see its own comment in
+          # restic-dataset.yaml for why every dataset calls this before
+          # touching the local repository.
+          - name: ensure-repo
+            templateRef:
+              name: restic-dataset
+              template: ensure-local-repo
         - - name: sqlite-copy
             when: "'{{inputs.parameters.adapter}}' == 'sqlite-volume'"
             templateRef:
@@ -279,7 +287,11 @@ spec:
           - name: namespace
           - name: cluster
       steps:
-        - - name: backup
+        - - name: ensure-repo
+            templateRef:
+              name: restic-dataset
+              template: ensure-local-repo
+          - name: backup
             templateRef:
               name: cnpg-dataset
               template: backup

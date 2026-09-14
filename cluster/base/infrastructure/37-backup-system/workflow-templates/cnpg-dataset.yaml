@@ -239,17 +239,11 @@ spec:
             R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
             mkdir -p /tmp/out
             cd /stage
-            # First backup ever against this repository (exit 10: no repository
-            # there). Same check as restic-dataset.yaml's backup template --
-            # see its comment for the full reasoning (round-4 code review);
-            # this is CNPG's own copy of the same restic backup logic, so it
-            # needs its own copy of the fix.
-            RC=0; $R cat config > /dev/null 2>&1 || RC=$?
-            if [ "$RC" -eq 10 ]; then
-              $R init
-            elif [ "$RC" -ne 0 ]; then
-              echo "the local repository is unreadable (restic exit $RC)"; exit 1
-            fi
+            # The repository must already exist here: the caller runs
+            # restic-dataset's ensure-local-repo before this template, which
+            # serialises the first-ever `restic init` across every dataset
+            # (including this one) via its mutex. See its comment in
+            # restic-dataset.yaml for the full reasoning (round 4/5 review).
 
             # restic never passes a stale lock by itself: a lock left by a process that
             # died -- a prune cut off by a power loss -- fails every later backup until

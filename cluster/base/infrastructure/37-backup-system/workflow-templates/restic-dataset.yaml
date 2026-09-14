@@ -75,23 +75,11 @@ spec:
               set -- "$@" "$P"
             done
 
-            # First backup ever against this repository (exit 10: no repository
-            # there). Nothing else initialises the local repository -- unlike
-            # the AWS one, which promote.yaml creates on its own first run the
-            # same way -- so on a fresh cluster this was the missing step:
-            # every recovery point failed until someone ran `restic init` by
-            # hand. Checked, not assumed, for the same reason promote.yaml
-            # checks rather than inits unconditionally: a repository pointed
-            # at the wrong place (wrong bucket, wrong endpoint, a typo in the
-            # Secret) fails with a real restic error here instead of
-            # `init`'s own idempotency quietly accepting it as "the empty
-            # repository we expected". Found on code review (round 4).
-            RC=0; $R cat config > /dev/null 2>&1 || RC=$?
-            if [ "$RC" -eq 10 ]; then
-              $R init
-            elif [ "$RC" -ne 0 ]; then
-              echo "the local repository is unreadable (restic exit $RC)"; exit 1
-            fi
+            # The repository must already exist here: the caller runs
+            # ensure-local-repo (below) before this template, exactly once
+            # per dataset but serialised by its mutex, so the first-ever
+            # backup's `restic init` cannot race with another dataset's.
+            # See ensure-local-repo's comment for the full reasoning.
 
             # --host groups a dataset's snapshots for retention; the tags tie
             # each one to its dataset and recovery point.
@@ -184,6 +172,83 @@ spec:
             memory: 128Mi
           limits:
             memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # First backup ever against the local repository (exit 10: no repository
+    # there). Nothing else initialises it -- unlike the AWS one, which
+    # promote.yaml creates on its own first run the same way -- so on a fresh
+    # cluster this was the missing step: every recovery point failed until
+    # someone ran `restic init` by hand. Checked, not assumed, for the same
+    # reason promote.yaml checks rather than inits unconditionally: a
+    # repository pointed at the wrong place (wrong bucket, wrong endpoint, a
+    # typo in the Secret) fails with a real restic error here instead of
+    # `init`'s own idempotency quietly accepting it as "the empty repository
+    # we expected". Found on code review (round 4).
+    #
+    # A separate, mutex-guarded template rather than inline in `backup` and
+    # cnpg-dataset's `stage`: recovery-point.yaml runs every dataset's protect
+    # step in parallel (its outer `protect` DAG task, withParam), so on that
+    # first run several datasets can all see the repository missing at once.
+    # restic does not lock during init, so an actual race here -- two
+    # concurrent `restic init` calls against the same empty bucket -- can
+    # leave two different repository identities (their own config/key pair
+    # each) fighting over one bucket. Found on review of this fix (round 5).
+    # The mutex serialises the check; the fast path once the repository
+    # exists (every night after the first) is one `cat config` under the
+    # lock, so it never blocks the backup that follows in the caller's own
+    # step. The re-check after acquiring the lock matters: another dataset's
+    # task may have already initialised the repository while this one
+    # waited, and initting again would be the same race one lock-holder
+    # later.
+    - name: ensure-local-repo
+      synchronization:
+        mutex:
+          name: restic-local-repo-init
+      activeDeadlineSeconds: 300
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
+            RC=0; $R cat config > /dev/null 2>&1 || RC=$?
+            if [ "$RC" -eq 10 ]; then
+              $R init
+            elif [ "$RC" -ne 0 ]; then
+              echo "the local repository is unreadable (restic exit $RC)"; exit 1
+            fi
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
