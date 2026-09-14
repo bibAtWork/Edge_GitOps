@@ -99,7 +99,7 @@ jobs:
       # renovate: datasource=github-releases depName=google/go-containerregistry
       - name: Install crane and yq
         run: |
-          VERSION=v0.21.9
+          VERSION=v0.22.1
           curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin crane
           # renovate: datasource=github-releases depName=mikefarah/yq
