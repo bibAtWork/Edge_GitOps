@@ -173,7 +173,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000}
   containers:
     - name: helper
-      image: docker.io/library/alpine:3.22
+      image: docker.io/library/alpine:3.24
       command: ["sleep", "3600"]
       resources: {limits: {memory: 128Mi}}
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
