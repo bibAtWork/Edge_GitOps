@@ -23,7 +23,7 @@ jobs:
       # renovate: datasource=github-releases depName=open-policy-agent/opa
       - name: Install OPA
         run: |
-          VERSION=v1.19.1
+          VERSION=v1.20.2
           curl -fsSL -o /usr/local/bin/opa "https://openpolicyagent.org/downloads/${VERSION}/opa_linux_amd64_static"
           chmod +x /usr/local/bin/opa
 
