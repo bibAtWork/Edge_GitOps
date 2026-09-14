@@ -1,18 +1,20 @@
 # ADR-012: the recovery system's independent AWS repository.
 #
-# A new bucket, not a prefix in the current vault: the recovery system replaces
-# the current pipeline, and its repository must be operationally independent of
-# everything it replaces. The current vault (backup-vault*.tf) stays until
-# cutover and is removed with the relay and auditor identities then.
+# A new bucket, not a prefix in the old vault: the recovery system replaces
+# the old pipeline, and its repository had to be operationally independent of
+# everything it replaced. The old vault (backup-vault*.tf) is decommissioning
+# since the cutover (#617, 2026-09-13) and is removed, with its identities
+# already gone (#620), once its bucket is empty (docs/backlog.md).
 #
-# What differs from the current vault, and why:
+# What differs from the old vault, and why:
 #
-#   The current vault grants no in-cluster identity any delete, and prunes by
-#   tag through Lifecycle, because the relay mirrors a Longhorn backupstore that
-#   only Longhorn can prune. The recovery vault holds restic and barman
-#   repositories, which prune themselves and must be allowed to: that is what
-#   makes a vault shallower than local possible (1 weekly / 3 monthly against
-#   7 / 3 / 3).
+#   The old vault granted no in-cluster identity any delete, and pruned by tag
+#   through Lifecycle, because the relay mirrored a Longhorn backupstore that
+#   only Longhorn could prune. The recovery vault holds only restic
+#   repositories -- barman's WAL archives stay local-only (runbook A1) and are
+#   never promoted here -- which prune themselves and must be allowed to: that
+#   is what makes a vault shallower than local possible (1 weekly / 3 monthly
+#   against 7 / 3 / 3).
 #
 #   So `retention` may DeleteObject. On a versioned bucket under Object Lock that
 #   writes a delete marker and nothing more: the locked version survives, an
@@ -23,9 +25,7 @@
 #   `promoter` cannot delete at all, except restic's own lock files, which every
 #   restic write creates and removes.
 #
-# Exactly two in-cluster identities, as for the current vault. During the
-# side-by-side period both vaults exist, so four keys do; at cutover the relay
-# and auditor keys go.
+# Exactly two in-cluster identities, as for the old vault.
 
 resource "aws_s3_bucket" "recovery_vault" {
   bucket              = "${var.cluster_name}-recovery-vault"
@@ -253,6 +253,14 @@ resource "aws_iam_user_policy" "recovery_admin" {
 #
 # Same shape as vault_deny_destructive, minus s3:DeleteObject: the retention
 # identity needs it, and on this bucket it can only write a delete marker.
+#
+# Exemption list is backup_admin and root only -- not the identity running
+# Terraform, which an earlier version also exempted unconditionally. See
+# backup-vault-policy.tf's vault_deny_destructive for why: backup_admin's own
+# identity policy (recovery_admin, above) already grants Terraform everything
+# it needs on this bucket, MFA-gated, so Terraform applies as backup_admin's
+# MFA session rather than getting a bucket-policy free pass as whoever else
+# happens to be running it.
 data "aws_iam_policy_document" "recovery_vault_deny_destructive" {
   statement {
     sid    = "DenyDestructiveExceptAdminAndRoot"
@@ -277,11 +285,10 @@ data "aws_iam_policy_document" "recovery_vault_deny_destructive" {
     condition {
       test     = "StringNotLike"
       variable = "aws:PrincipalArn"
-      values = distinct([
+      values = [
         aws_iam_user.backup_admin.arn,
         "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
-        data.aws_caller_identity.current.arn,
-      ])
+      ]
     }
   }
 }

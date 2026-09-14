@@ -1,0 +1,73 @@
+name: Recovery drill overdue check
+
+# ADR-012 requires quarterly drills (docs/runbooks/backup-recovery.md, A9),
+# but nothing checked that one actually happened on schedule -- the log is a
+# markdown table a human updates by hand after running one. Code review found
+# this: "RTO is defined (4h/8h) but never measured... nothing flags when the
+# quarterly one is overdue." This doesn't measure RTO (the drills themselves
+# don't record how long a restore took, only pass/fail), but it closes the
+# other half: something now notices if the log goes stale.
+#
+# Like cluster-health.yml and trivy-auto-patch.yml, this workflow file's
+# schedule trigger reads from the DEFAULT branch regardless of which branch
+# it checks out -- confirmed the hard way twice already in this repo's
+# history (#439, #438). It must be forward-ported to main to actually fire;
+# see those two fixes for the same lesson.
+#
+# No cluster access needed -- this only reads a file from the repo -- so
+# unlike cluster-health.yml this runs on a GitHub-hosted runner.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # every Monday, cheap enough to check weekly
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  drill-check:
+    name: Quarterly drill freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ops/talos_linux
+
+      - name: Verify the newest logged drill is not overdue
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          from datetime import date, timedelta
+
+          PATH = 'docs/runbooks/backup-recovery.md'
+          # Quarterly, plus about ten days' slack: a drill run a few days late
+          # is a scheduling nuisance, not evidence anything is actually broken.
+          MAX_AGE_DAYS = 100
+
+          text = open(PATH, encoding='utf-8').read()
+          m = re.search(r'^## A9\. Drills$', text, re.MULTILINE)
+          if not m:
+              print(f'::error::could not find the "## A9. Drills" section in {PATH} -- '
+                    f'has the runbook been restructured? This check has nothing to read.')
+              sys.exit(1)
+
+          section = text[m.end():]
+          dates = re.findall(r'^\|\s*(\d{4}-\d{2}-\d{2})\s*\|', section, re.MULTILINE)
+          if not dates:
+              print(f'::error::found the A9 Drills section but no dated log rows in it -- '
+                    f'either the table format changed or no drill has ever been logged.')
+              sys.exit(1)
+
+          newest = max(date.fromisoformat(d) for d in dates)
+          age = (date.today() - newest).days
+          print(f'newest logged drill: {newest} ({age} days ago); {len(dates)} log row(s) found')
+
+          if age > MAX_AGE_DAYS:
+              print(f'::error::the newest logged drill is {age} days old, over the '
+                    f'{MAX_AGE_DAYS}-day (quarterly + slack) threshold -- run the A9 drills '
+                    f'(docs/runbooks/backup-recovery.md) and log the result.')
+              sys.exit(1)
+
+          print(f'ok -- within {MAX_AGE_DAYS} days')
+          PY

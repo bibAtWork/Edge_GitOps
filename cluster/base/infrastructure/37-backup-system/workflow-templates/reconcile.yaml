@@ -115,6 +115,24 @@ spec:
               fi
             done < /tmp/apps
             tr '\n' ' ' < /tmp/out/needed | sed 's/ $//' > /tmp/n && mv /tmp/n /tmp/out/needed
+
+            # recovery_policy_dataset: one series per dataset the policy
+            # declares, pushed every run regardless of whether it has ever
+            # produced a validated point. Found on code review: a dataset
+            # that has never validated -- new, or failing since it was added
+            # -- has no recovery_dataset_validated_timestamp series at all,
+            # so RecoveryPointStale's max-by-dataset query has nothing to
+            # evaluate for it and never fires; only the warning-severity
+            # RecoveryPointFailed does. This series exists so the alert can
+            # tell "no data because nothing has ever succeeded" apart from
+            # "no data because nothing has run recently", which last_over_time
+            # already handles on its own.
+            sed 's/#.*//' /policy/datasets > /tmp/datasets
+            : > /tmp/metrics
+            awk 'NF >= 2 { print "recovery_policy_dataset{dataset=\"" $1 "\",application=\"" $2 "\"} 1" }' /tmp/datasets > /tmp/metrics
+            wget -q -O /dev/null --post-file=/tmp/metrics \
+              http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus \
+              || echo "WARN: recovery_policy_dataset push failed"
         env:
           - name: HOME
             value: /tmp

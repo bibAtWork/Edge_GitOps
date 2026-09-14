@@ -12,12 +12,15 @@
 # ConfigMap where it can be reviewed.
 #
 # Least privilege: this account can read Workflows and CronWorkflows in
-# backup-system, and read and label nodes, and nothing else. It is NOT the
-# system-upgrade-controller account, which is bound to cluster-admin -- the gate
-# would have inherited all of it by running inside the upgrade Job. It cannot
-# create Workflows either: a Workflow runs as backup-workflow, which holds every
-# backup-store credential, so the gate reads the recovery system's verdicts and
-# never submits work of its own.
+# backup-system, read one named ConfigMap there (the policy, so it knows which
+# applications to prove rather than deriving that list from whichever
+# CronWorkflows happen to exist -- found on code review), and read and label
+# nodes, and nothing else. It is NOT the system-upgrade-controller account,
+# which is bound to cluster-admin -- the gate would have inherited all of it
+# by running inside the upgrade Job. It cannot create Workflows either: a
+# Workflow runs as backup-workflow, which holds every backup-store credential,
+# so the gate reads the recovery system's verdicts and never submits work of
+# its own.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -36,6 +39,10 @@ rules:
   - apiGroups: ["argoproj.io"]
     resources: ["workflows", "cronworkflows"]
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["recovery-policy"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

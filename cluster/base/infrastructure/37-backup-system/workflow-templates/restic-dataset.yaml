@@ -208,9 +208,30 @@ spec:
             claimName: "{{inputs.parameters.claim}}"
         - name: tmp
           emptyDir: {}
+        # A generic ephemeral volume, not emptyDir: emptyDir is node-local
+        # storage, which on this node's Talos machine config means sda -- the
+        # disk Longhorn was deliberately moved OFF of, for etcd's fsync
+        # latency (controlplane.yaml). The 20Gi emptyDir this replaced was
+        # also a hard ceiling on any dataset: past it the kubelet evicts the
+        # pod on every run, every restore test FAILED, and nothing was
+        # promoted -- immich-library-lh alone is already 30Gi. Found on code
+        # review; not yet hit in practice (the vault holds under 100MiB
+        # today), but both problems are latent in every run regardless.
+        #
+        # longhorn-scratch (32-longhorn/storageclass.yaml) lands this on the
+        # NVMe instead, with no size ceiling below the class's own headroom,
+        # and reclaimPolicy Delete means the PVC this generates is fully
+        # gone -- volume included, no manual cleanup -- once this pod is,
+        # unlike the Retain classes used for real data.
         - name: restore
-          emptyDir:
-            sizeLimit: 20Gi
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: longhorn-scratch
+                resources:
+                  requests:
+                    storage: 100Gi
       container:
         image: docker.io/restic/restic:0.19.1
         command: ["/bin/sh", "-c"]

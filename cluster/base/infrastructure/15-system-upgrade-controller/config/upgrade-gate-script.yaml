@@ -58,12 +58,22 @@ data:
     log "cleared $LABEL from all nodes -- it must be re-earned by this run"
 
     # ---------------------------------------------------------------
-    # 1. Every application with a scheduled recovery point is proven.
+    # 1. Every application the policy declares is proven.
     # ---------------------------------------------------------------
-    # The applications are the recovery-point CronWorkflows: the ones the
-    # recovery system has promised to protect. Finding none is a refusal.
-    APPS="$(kubectl get cronworkflows -n "$NS" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sed -n 's/^recovery-point-//p')"
-    [ -n "$APPS" ] || fail "found no recovery-point CronWorkflows in $NS"
+    # The applications come from recovery-policy's own `applications` table,
+    # not from the recovery-point CronWorkflows that implement it. Found on
+    # code review: nothing else bound those two lists together, so an
+    # application added to the policy without a matching CronWorkflow was
+    # still backed up by the reconciler (which does read the policy) but
+    # never checked here -- upgrades got authorised without proving it.
+    # Reading the policy directly, rather than deriving the list from
+    # whichever CronWorkflows exist, makes that gap impossible to reopen the
+    # same way twice: a missing CronWorkflow now fails proof (below) for the
+    # application it should have protected, instead of the application
+    # being invisible to this gate entirely.
+    APPS="$(kubectl get configmap recovery-policy -n "$NS" -o jsonpath='{.data.applications}' 2>/dev/null \
+      | sed 's/#.*//' | awk 'NF >= 1 { print $1 }')"
+    [ -n "$APPS" ] || fail "could not read recovery-policy's applications table in $NS, or it is empty"
 
     # RFC3339 UTC timestamps are zero-padded, so their string order is time
     # order, and they compare with the shell's own string comparison.

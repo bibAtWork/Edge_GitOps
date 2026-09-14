@@ -1108,7 +1108,7 @@ spec:
                   summary: >-
                     SeaweedFS backing disk below 20% free
                   description: >-
-                    The dedicated NVMe holding all SeaweedFS volume data is filling. Every SeaweedFS-backed PVC in the cluster draws from it, so this affects all of them at once rather than one workload. Check current usage per component and whether old volumes left over from migrations are still holding space.
+                    The NVMe partition holding all SeaweedFS volume data is filling. Every SeaweedFS-backed PVC in the cluster draws from it, so this affects all of them at once rather than one workload -- including the recovery system's local backup repository, which shares this partition, not a separate disk. Check current usage per component and whether old volumes left over from migrations are still holding space.
                 labels:
                   severity: warning
                 isPaused: false
@@ -1245,7 +1245,27 @@ spec:
                     model:
                       # Hours since each dataset's newest validated point was
                       # taken. 26 = the 24h RPO plus the run itself.
-                      expr: '(time() - max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d]))) / 3600'
+                      #
+                      # The `or` union covers a dataset that has NEVER
+                      # validated -- new, or failing since the day it was
+                      # added -- which otherwise has no
+                      # recovery_dataset_validated_timestamp series at all, so
+                      # the left side alone has nothing to evaluate for it and
+                      # this alert never fires (only the warning-severity
+                      # RecoveryPointFailed does). recovery_policy_dataset
+                      # (pushed hourly by the reconciler for every dataset the
+                      # policy declares, reconcile.yaml) scaled to a large
+                      # synthetic age stands in for it, restricted by `unless`
+                      # to only the datasets with no real series -- a dataset
+                      # with one is excluded here and takes its real age from
+                      # the left side instead, never both. Found on code
+                      # review.
+                      expr: >-
+                        (time() - max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d]))) / 3600
+                        or
+                        (max by (application, dataset) (recovery_policy_dataset) * 0 + 999)
+                        unless on (application, dataset)
+                        (max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d])))
                       instant: true
                       range: false
                       refId: A
@@ -1293,7 +1313,17 @@ spec:
                     model:
                       # Hours since each dataset's newest REMOTE_VERIFIED point
                       # was taken; the profile's offsite RPO is 48h.
-                      expr: '(time() - max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d]))) / 3600'
+                      #
+                      # Same `or` union as RecoveryPointStale, and for the same
+                      # reason: a dataset that has never been verified offsite
+                      # has no recovery_dataset_remote_verified_timestamp
+                      # series, so the left side alone never evaluates it.
+                      expr: >-
+                        (time() - max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d]))) / 3600
+                        or
+                        (max by (application, dataset) (recovery_policy_dataset) * 0 + 999)
+                        unless on (application, dataset)
+                        (max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d])))
                       instant: true
                       range: false
                       refId: A
