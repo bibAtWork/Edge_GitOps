@@ -1260,10 +1260,21 @@ spec:
                       # with one is excluded here and takes its real age from
                       # the left side instead, never both. Found on code
                       # review.
+                      #
+                      # recovery_policy_dataset is itself pushed hourly, not
+                      # continuously -- so it needs the same last_over_time()
+                      # wrap as every other pushed metric here (see this
+                      # section's own header on the five-minute staleness
+                      # window), or an instant query only sees it for about
+                      # five minutes out of every sixty. Missed on the first
+                      # pass (round-2 code review): without the wrap, the
+                      # synthetic arm existed for ~5 minutes an hour and the
+                      # alert flapped on and off with it instead of firing
+                      # steadily for a genuinely never-validated dataset.
                       expr: >-
                         (time() - max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d]))) / 3600
                         or
-                        (max by (application, dataset) (recovery_policy_dataset) * 0 + 999)
+                        (max by (application, dataset) (last_over_time(recovery_policy_dataset[2h])) * 0 + 999)
                         unless on (application, dataset)
                         (max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d])))
                       instant: true
@@ -1318,10 +1329,13 @@ spec:
                       # reason: a dataset that has never been verified offsite
                       # has no recovery_dataset_remote_verified_timestamp
                       # series, so the left side alone never evaluates it.
+                      # recovery_policy_dataset needs the same last_over_time()
+                      # wrap as there too -- see RecoveryPointStale's comment;
+                      # missed here identically on the first pass.
                       expr: >-
                         (time() - max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d]))) / 3600
                         or
-                        (max by (application, dataset) (recovery_policy_dataset) * 0 + 999)
+                        (max by (application, dataset) (last_over_time(recovery_policy_dataset[2h])) * 0 + 999)
                         unless on (application, dataset)
                         (max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d])))
                       instant: true

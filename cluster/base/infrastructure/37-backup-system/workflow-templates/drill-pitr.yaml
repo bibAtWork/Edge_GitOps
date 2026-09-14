@@ -1,0 +1,167 @@
+# Drill 3: point-in-time recovery of Keycloak to thirty minutes ago, from the live
+# barman archive, into a scratch cluster that never archives.
+#
+# A WorkflowTemplate, not a standalone Workflow the operator applies directly
+# -- see drill-files-aws.yaml in this directory for why (Strict requires
+# workflowTemplateRef). The runbook submits a minimal Workflow
+# (docs/runbooks/recovery/drill-pitr.yaml) that only references this template
+# by name; onExit: cleanup still runs the same way under a workflowTemplateRef
+# submission.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: drill-pitr
+  namespace: backup-system
+spec:
+  entrypoint: main
+  onExit: cleanup
+  podGC:
+    strategy: OnPodSuccess
+    deleteDelayDuration: 30m
+  volumes:
+    - name: tmp
+      emptyDir: {}
+  templates:
+    - name: main
+      steps:
+        - - name: recover
+            template: recover
+        - - name: checks
+            template: checks
+
+    - name: recover
+      activeDeadlineSeconds: 2400
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-pitr"
+            # PostgreSQL stops at a target time only when the archive holds a commit
+            # after it. Idle Keycloak can go ten minutes without one, so aim thirty back.
+            TT="$(date -u -d @$(( $(date -u +%s) - 1800 )) '+%Y-%m-%d %H:%M:%S.00000+00')"
+            echo "recovering keycloak-pg as it was at $TT"
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              name: $S
+              namespace: backup-system
+              labels:
+                recovery-scratch: "true"
+            spec:
+              imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+              instances: 1
+              enablePDB: false
+              stopDelay: 30
+              enableSuperuserAccess: true
+              storage:
+                size: 5Gi
+                storageClass: local-path
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi
+              bootstrap:
+                recovery:
+                  source: origin
+                  recoveryTarget:
+                    targetTime: "$TT"
+              externalClusters:
+                - name: origin
+                  plugin:
+                    name: barman-cloud.cloudnative-pg.io
+                    parameters:
+                      barmanObjectName: restore-archive
+                      serverName: keycloak-pg
+            EOF
+            if ! kubectl wait clusters.postgresql.cnpg.io -n backup-system "$S" --for=condition=Ready --timeout=1800s; then
+              echo "DRILL: $S did not come up: $(kubectl get clusters.postgresql.cnpg.io -n backup-system "$S" -o jsonpath='{.status.phase} {.status.phaseReason}')"
+              exit 1
+            fi
+            echo "scratch cluster $S recovered keycloak-pg to $TT"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: checks
+      container:
+        image: docker.io/library/postgres:17-alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-pitr"
+            q() { psql -h "$S-rw" -U postgres -d keycloak -tA -v ON_ERROR_STOP=1 -c "$1" < /dev/null; }
+            REALMS="$(q 'select count(*) from realm')"
+            USERS="$(q 'select count(*) from user_entity')"
+            CLIENTS="$(q 'select count(*) from client')"
+            echo "recovered keycloak: realms=$REALMS users=$USERS clients=$CLIENTS (policy minimums 2 / 1 / 10)"
+            echo "server reports it is a primary after recovery: $(q 'select not pg_is_in_recovery()')"
+            [ "$REALMS" -ge 2 ] && [ "$USERS" -ge 1 ] && [ "$CLIENTS" -ge 10 ]
+        env:
+          - name: HOME
+            value: /tmp
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "drill-{{=sprig.trunc(8, workflow.uid)}}-pitr-superuser"
+                key: password
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: cleanup
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - kubectl delete clusters.postgresql.cnpg.io -n backup-system "drill-{{=sprig.trunc(8, workflow.uid)}}-pitr" --ignore-not-found --timeout=300s
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL

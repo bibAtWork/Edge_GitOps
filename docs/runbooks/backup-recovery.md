@@ -442,11 +442,15 @@ back at each quarterly drill (A9).
 
 ### The admin identity (MFA)
 
-`backup-admin` is the only identity that can delete an object version or bypass Governance
-retention. It is interactive-only: its key lives in the password manager, never in a Secret, and
-not in Terraform state. Its policy is conditioned on `aws:MultiFactorAuthPresent`, which
-**evaluates false for a long-lived access key used directly**, so exchange the key for session
-credentials first:
+`backup-admin` is the identity meant for this: interactive-only, its key lives in the password
+manager, never in a Secret, and not in Terraform state. Its own policy is conditioned on
+`aws:MultiFactorAuthPresent`, which **evaluates false for a long-lived access key used directly**,
+so exchange the key for session credentials first. It is not, strictly, the *only* identity that
+can delete an object version or bypass Governance retention: since PR #632 the bucket policy's
+deny exempts `backup-admin`, root, and any other principal while using an MFA session (the same
+`aws:MultiFactorAuthPresent` condition), if that principal's own permissions grant the action --
+`backup-admin` is simply the identity actually set up to hold it. No long-lived key, from any
+identity, can ever do this.
 
 ```bash
 aws sts get-session-token \
@@ -464,6 +468,11 @@ one.
 The drills are Argo Workflows in [`recovery/`](recovery/). Each restores into scratch targets and
 removes what it made. The end-to-end tests of the whole system, failures included, are in
 [`recovery-system-tests.md`](../recovery-system-tests.md).
+
+Each file here only submits its drill -- it names a `workflowTemplateRef` (required by
+`controller.workflowRestrictions.templateReferencing: Strict`, argo-workflows.yaml) pointing at the
+Flux-managed WorkflowTemplate of the same name (`37-backup-system/workflow-templates/drill-*.yaml`),
+which carries the actual steps.
 
 | Drill | Proves |
 |---|---|

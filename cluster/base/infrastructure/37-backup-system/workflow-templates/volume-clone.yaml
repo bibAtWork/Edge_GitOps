@@ -31,6 +31,16 @@ spec:
           - name: claim
             valueFrom:
               path: /tmp/claim
+          # The source volume's own size, in bytes (Longhorn's .spec.size, a
+          # plain byte count -- a valid Kubernetes Quantity as-is, no unit
+          # conversion needed). Lets a caller size a scratch destination to
+          # match the source instead of guessing a flat value: restic-dataset.
+          # yaml's restore-test reads this rather than requesting a fixed
+          # 100Gi regardless of the dataset, found oversized for the common
+          # case and undersized for a large enough one on code review.
+          - name: size
+            valueFrom:
+              path: /tmp/size
       activeDeadlineSeconds: 1800
       retryStrategy:
         limit: 1
@@ -158,6 +168,7 @@ spec:
             done
             log "claim backup-system/$C bound"
             echo "$C" > /tmp/claim
+            echo "$SIZE" > /tmp/size
         env:
           - name: HOME
             value: /tmp

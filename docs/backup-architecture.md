@@ -114,7 +114,10 @@ Also: `python3 scripts/cluster-health.py --group backup`, and the upgrade gate's
   - the promoter, which may write, and may delete only restic's own lock files;
   - retention, whose deletes are only delete markers on the versioned, Object-Lock bucket.
 
-  An interactive admin, behind MFA, is the only identity that can remove a version (runbook A8).
+  Removing a version needs an interactive identity behind MFA -- `backup-admin`, or (since PR #632)
+  any other principal in the account, while using an MFA session and holding the underlying
+  permission itself. No long-lived key can do it no matter what it is otherwise allowed, on this
+  bucket or the old vault's (runbook A8).
 - **The restic password encrypts both repositories.** It is escrowed off-site with the age key
   (runbook A8): without it, the AWS copy cannot be read.
 

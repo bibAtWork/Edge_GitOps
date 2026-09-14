@@ -190,6 +190,7 @@ spec:
           - name: claim
           - name: paths
           - name: snapshot
+          - name: restore-size
       outputs:
         parameters:
           - name: verified
@@ -219,10 +220,38 @@ spec:
         # today), but both problems are latent in every run regardless.
         #
         # longhorn-scratch (32-longhorn/storageclass.yaml) lands this on the
-        # NVMe instead, with no size ceiling below the class's own headroom,
-        # and reclaimPolicy Delete means the PVC this generates is fully
-        # gone -- volume included, no manual cleanup -- once this pod is,
-        # unlike the Retain classes used for real data.
+        # NVMe instead, with reclaimPolicy Delete meaning the PVC this
+        # generates is fully gone -- volume included, no manual cleanup --
+        # once this pod is, unlike the Retain classes used for real data.
+        #
+        # Sized to the source volume (restore-size, in bytes -- from
+        # volume-clone.yaml's clone step, which already reads it off
+        # Longhorn), not a flat guess. A fixed 100Gi here, round 1's fix,
+        # was itself found on round-2 code review to risk overcommitting
+        # Longhorn's scheduling budget: overprovisioning is 100% on this
+        # cluster (32-longhorn/helmrelease.yaml), so it counts requested
+        # size, not actual usage, and recovery points have no mutex against
+        # each other -- two datasets' restore tests landing in the same
+        # 01:00 run could together request 200Gi against a 340Gi partition
+        # already carrying the real Longhorn volumes and snapshot clones.
+        # Sizing to the actual source, typically far under 100Gi, removes
+        # that risk without reintroducing a ceiling below any real dataset.
+        #
+        # 1Gi below is a placeholder, always overridden by podSpecPatch
+        # below -- not read from at runtime. It exists only because this
+        # field is a Kubernetes resource.Quantity in the WorkflowTemplate
+        # CRD's own schema (Argo installs full CRDs, crds.full is unset =
+        # true default, argo-workflows.yaml), which the API server -- not
+        # just kubeconform -- validates the WorkflowTemplate object against
+        # on submission. round 2's fix put the raw `{{...}}` placeholder
+        # directly in this field; Argo can substitute workflow parameters
+        # into a plain string field, but cannot make a typed field accept a
+        # template expression that isn't itself a valid Quantity, so the
+        # object was rejected at admission -- Flux applies this whole
+        # overlay as one unit, so that one rejected object would have
+        # blocked every other change in it, including unrelated PRs and
+        # Renovate auto-merges, until reverted. Found on code review before
+        # merge.
         - name: restore
           ephemeral:
             volumeClaimTemplate:
@@ -231,7 +260,35 @@ spec:
                 storageClassName: longhorn-scratch
                 resources:
                   requests:
-                    storage: 100Gi
+                    storage: 1Gi
+      # podSpecPatch is a plain string in the CRD schema, not a typed
+      # sub-object -- so the same {{inputs.parameters.restore-size}}
+      # substitution that broke the volumes: field above works fine here,
+      # and by the time Argo turns this into the actual Pod (after
+      # substitution, with a real byte count in place of the placeholder),
+      # that Pod's own resources.requests.storage is a valid Quantity and
+      # passes the API server's validation on IT. Strategic merge patch
+      # (k8s.io/apimachinery/pkg/util/strategicpatch, confirmed against
+      # Argo's own controller source) matches spec.volumes by name -- the
+      # PodSpec type tags this field patchMergeKey:"name" -- so this only
+      # overrides the one "restore" volume's storage request, leaving
+      # accessModes and storageClassName as the static volumes: block above
+      # already set them.
+      #
+      # Also why Strict (argo-workflows.yaml) doesn't block this: it
+      # restricts what a SUBMITTING Workflow may override via
+      # workflowTemplateRef (podSpecPatch is deliberately not on that
+      # allow-list), not what a template itself sets. This podSpecPatch is
+      # part of the template definition, not a submission-time override.
+      podSpecPatch: |
+        volumes:
+          - name: restore
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  resources:
+                    requests:
+                      storage: "{{inputs.parameters.restore-size}}"
       container:
         image: docker.io/restic/restic:0.19.1
         command: ["/bin/sh", "-c"]

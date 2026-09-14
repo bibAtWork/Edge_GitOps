@@ -53,20 +53,51 @@ data "aws_iam_policy_document" "vault_deny_destructive" {
     # configuration -- the policy would deny every principal able to change the
     # policy, with no way back.
     #
-    # Deliberately NOT the identity currently running Terraform: an earlier
-    # version exempted data.aws_caller_identity.current.arn too, on the
-    # reasoning that Terraform manages the lifecycle, versioning, inventory and
-    # policy resources above and needs PutLifecycleConfiguration etc. to do it.
-    # Code review found that reasoning correct but the mechanism wrong -- it
-    # exempts whoever last ran `terraform apply` from this bucket's own
-    # destructive-action deny with no MFA condition at all, so a long-lived key
-    # with broad IAM permissions loses no capability here just by being the one
-    # that happened to apply. backup_admin's own identity policy already grants
-    # everything Terraform needs on this bucket (BucketConfiguration statement,
-    # backup-vault-iam.tf), MFA-gated the same way DestructiveObjectOperations
-    # is -- so Terraform applies as backup_admin's MFA session instead, the
-    # same way any other change to a locked object does, and this exemption
-    # list needs nothing beyond backup_admin and root.
+    # A round of code review found this list should also drop
+    # data.aws_caller_identity.current.arn, exempted unconditionally by an
+    # earlier version so Terraform (which needs PutLifecycleConfiguration etc.
+    # to manage the resources below) never locked itself out. Correct problem,
+    # wrong fix: it exempted whoever last ran `terraform apply` from this
+    # bucket's own destructive-action deny with no MFA condition at all, so a
+    # long-lived key with broad IAM permissions lost no capability here just by
+    # being the one that happened to apply. Dropping the exemption outright
+    # (the next round) broke the opposite way: backup_admin's own identity
+    # policy is scoped to only this bucket and recovery_vault (backup-vault-
+    # iam.tf), with no IAM, KMS or Budgets access and not even
+    # s3:GetBucketVersioning -- not broad enough to run a plan across the rest
+    # of this Terraform config at all, let alone apply one. Routine applies
+    # need an identity with the account's usual broad permissions (this
+    # repo's general admin identity, not defined here); they were never
+    # denied by this policy, since none of its actions cover plain reads or
+    # anything outside these two buckets.
+    #
+    # What ties the two together: BoolIfExists on aws:MultiFactorAuthPresent,
+    # ANDed with the same principal exemption, in the same condition block.
+    # AWS's own semantics for `...IfExists` (IAM user guide, "condition
+    # operators"): if the key is present in the request, test it as
+    # specified; if the key is ABSENT -- a long-lived access key used
+    # directly, with no STS session at all -- evaluate that condition element
+    # as true. So `BoolIfExists: {MultiFactorAuthPresent: false}` reads as
+    # "true (matches) unless the caller is in an MFA session" -- combined
+    # with StringNotLike by AND, the Deny now fires only when BOTH the
+    # caller is outside {backup_admin, root} AND no MFA session is present.
+    # backup_admin and root stay exempt unconditionally, exactly as before
+    # (the StringNotLike arm alone already excludes them, so the AND is
+    # false regardless of the second condition). Anyone else -- the general
+    # admin identity included -- is exempt only while using an MFA session
+    # (`aws sts get-session-token`, same dance backup_admin already
+    # requires), and denied otherwise, same as originally intended. No
+    # in-cluster identity can ever produce an MFA context, so none of them
+    # gain anything here.
+    #
+    # One-time bootstrapping snag, flagged on code review: if the PREVIOUS
+    # version of this policy (no admin exemption at all -- commit b577284)
+    # is already live when this change is applied, the apply that INSTALLS
+    # this MFA-gated version needs s3:PutBucketPolicy, which that live
+    # policy denies to everyone but backup_admin and root. The general admin
+    # identity cannot bootstrap itself into the exemption it is about to
+    # gain -- this one apply needs to run as backup_admin's MFA session, or
+    # root. Every apply after this one can use the new exemption normally.
     condition {
       test     = "StringNotLike"
       variable = "aws:PrincipalArn"
@@ -74,6 +105,11 @@ data "aws_iam_policy_document" "vault_deny_destructive" {
         aws_iam_user.backup_admin.arn,
         "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
       ]
+    }
+    condition {
+      test     = "BoolIfExists"
+      variable = "aws:MultiFactorAuthPresent"
+      values   = ["false"]
     }
   }
 }
