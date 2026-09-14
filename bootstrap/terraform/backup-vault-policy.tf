@@ -53,19 +53,27 @@ data "aws_iam_policy_document" "vault_deny_destructive" {
     # configuration -- the policy would deny every principal able to change the
     # policy, with no way back.
     #
-    # The identity currently running Terraform is included for the same reason:
-    # it manages the lifecycle, versioning, inventory and policy resources above,
-    # and denying it PutLifecycleConfiguration would make this the last apply
-    # that ever succeeds. If Terraform later runs as a different principal, that
-    # apply fails and is recovered by running once as root.
+    # Deliberately NOT the identity currently running Terraform: an earlier
+    # version exempted data.aws_caller_identity.current.arn too, on the
+    # reasoning that Terraform manages the lifecycle, versioning, inventory and
+    # policy resources above and needs PutLifecycleConfiguration etc. to do it.
+    # Code review found that reasoning correct but the mechanism wrong -- it
+    # exempts whoever last ran `terraform apply` from this bucket's own
+    # destructive-action deny with no MFA condition at all, so a long-lived key
+    # with broad IAM permissions loses no capability here just by being the one
+    # that happened to apply. backup_admin's own identity policy already grants
+    # everything Terraform needs on this bucket (BucketConfiguration statement,
+    # backup-vault-iam.tf), MFA-gated the same way DestructiveObjectOperations
+    # is -- so Terraform applies as backup_admin's MFA session instead, the
+    # same way any other change to a locked object does, and this exemption
+    # list needs nothing beyond backup_admin and root.
     condition {
       test     = "StringNotLike"
       variable = "aws:PrincipalArn"
-      values = distinct([
+      values = [
         aws_iam_user.backup_admin.arn,
         "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
-        data.aws_caller_identity.current.arn,
-      ])
+      ]
     }
   }
 }

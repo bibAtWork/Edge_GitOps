@@ -1,7 +1,10 @@
 # A recovery point per application, daily (ADR-012).
 #
-# 01:00, clear of the current pipeline's 02:00-09:00 chain while both run side
-# by side.
+# 01:00: chosen to run clear of the old pipeline's 02:00-09:00 chain, back
+# when both ran side by side. The old pipeline is gone (#617, #621), but
+# 01:00 is still a reasonable slot on its own merits -- before promotion
+# (03:00) and local retention (04:00), which both depend on the night's
+# points already existing.
 #
 # startingDeadlineSeconds is what makes "offline is not failure" true here: when
 # the node comes back after missing the slot, the run happens once, then, and
