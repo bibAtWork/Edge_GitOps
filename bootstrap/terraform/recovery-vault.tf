@@ -254,13 +254,19 @@ resource "aws_iam_user_policy" "recovery_admin" {
 # Same shape as vault_deny_destructive, minus s3:DeleteObject: the retention
 # identity needs it, and on this bucket it can only write a delete marker.
 #
-# Exemption list is backup_admin and root only -- not the identity running
-# Terraform, which an earlier version also exempted unconditionally. See
-# backup-vault-policy.tf's vault_deny_destructive for why: backup_admin's own
-# identity policy (recovery_admin, above) already grants Terraform everything
-# it needs on this bucket, MFA-gated, so Terraform applies as backup_admin's
-# MFA session rather than getting a bucket-policy free pass as whoever else
-# happens to be running it.
+# Exemption is backup_admin and root, unconditionally, plus anyone else while
+# using an MFA session (BoolIfExists on aws:MultiFactorAuthPresent, ANDed with
+# the principal check). See backup-vault-policy.tf's vault_deny_destructive
+# for the full reasoning -- same fix, same round of code review, same shape:
+# an earlier version exempted data.aws_caller_identity.current.arn
+# unconditionally (no MFA required), the version after that dropped the
+# exemption entirely and broke routine Terraform applies (backup_admin's own
+# identity policy has no IAM, KMS or Budgets access, and is scoped only to
+# this bucket and the old vault -- nowhere near broad enough to run this
+# config's plan, let alone apply one). MFA-gating the exemption instead of
+# naming an identity means whichever identity normally runs Terraform here
+# can still apply changes to this bucket's own configuration, exactly as
+# before, but only while that identity is not just a long-lived key.
 data "aws_iam_policy_document" "recovery_vault_deny_destructive" {
   statement {
     sid    = "DenyDestructiveExceptAdminAndRoot"
@@ -289,6 +295,11 @@ data "aws_iam_policy_document" "recovery_vault_deny_destructive" {
         aws_iam_user.backup_admin.arn,
         "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
       ]
+    }
+    condition {
+      test     = "BoolIfExists"
+      variable = "aws:MultiFactorAuthPresent"
+      values   = ["false"]
     }
   }
 }
