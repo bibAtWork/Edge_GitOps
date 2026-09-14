@@ -1,5 +1,12 @@
 # Drill 1: Immich's photo library, restored from AWS alone.
-# Reads only the AWS vault (promoter key) and the restic password.
+#
+# The template this submits is Flux-managed
+# (cluster/base/infrastructure/37-backup-system/workflow-templates/drill-files-aws.yaml)
+# and carries everything else -- entrypoint, volumes, the steps themselves.
+# It has to be, and this has to stay this small: controller.workflowRestrictions.
+# templateReferencing: Strict (argo-workflows.yaml) requires workflowTemplateRef
+# and rejects a Workflow that defines its own templates:, which this file was
+# until code review found Strict broke every `kubectl create` of it.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
@@ -8,148 +15,5 @@ metadata:
   labels:
     recovery-scratch: "true"
 spec:
-  entrypoint: main
-  podGC:
-    strategy: OnPodSuccess
-    deleteDelayDuration: 30m
-  volumes:
-    - name: tmp
-      emptyDir: {}
-  templates:
-    - name: main
-      steps:
-        - - name: find
-            template: find
-        - - name: restore
-            template: restore
-            arguments:
-              parameters:
-                - name: rp
-                  value: "{{steps.find.outputs.parameters.rp}}"
-
-    # The newest point of the application that is VALIDATED and REMOTE_VERIFIED,
-    # read from the records in the AWS bucket -- what a total-loss recovery reads first.
-    - name: find
-      outputs:
-        parameters:
-          - name: rp
-            valueFrom:
-              path: /tmp/rp
-      container:
-        image: docker.io/rclone/rclone:1.75.1
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            set -eu
-            APP=immich
-            BEST=""; BT=0
-            for F in $(rclone lsf "aws:$AWS_BUCKET/recovery-points/$APP/" --files-only --include "*.json"); do
-              rclone cat "aws:$AWS_BUCKET/recovery-points/$APP/$F" > /tmp/r.json
-              grep -q '"recorded":[0-9]*,"state":"VALIDATED"' /tmp/r.json || continue
-              grep -q '"remote":{"state":"REMOTE_VERIFIED"' /tmp/r.json || continue
-              T="$(grep -o '"taken":[0-9]*' /tmp/r.json | cut -d: -f2)"
-              [ "$T" -gt "$BT" ] && { BT=$T; BEST="${F%.json}"; }
-            done
-            [ -n "$BEST" ] || { echo "no REMOTE_VERIFIED point for $APP in AWS"; exit 1; }
-            echo "$BEST" > /tmp/rp
-            echo "newest REMOTE_VERIFIED point of $APP in AWS: $BEST (taken $(date -u -d @"$BT" +%FT%TZ))"
-        env: &aws-rclone
-          - name: HOME
-            value: /tmp
-          - name: RCLONE_CONFIG_AWS_TYPE
-            value: s3
-          - name: RCLONE_CONFIG_AWS_PROVIDER
-            value: AWS
-          - name: RCLONE_CONFIG_AWS_NO_CHECK_BUCKET
-            value: "true"
-          - name: RCLONE_CONFIG_AWS_REGION
-            valueFrom:
-              secretKeyRef:
-                name: recovery-aws-promoter
-                key: AWS_DEFAULT_REGION
-          - name: RCLONE_CONFIG_AWS_ACCESS_KEY_ID
-            valueFrom:
-              secretKeyRef:
-                name: recovery-aws-promoter
-                key: AWS_ACCESS_KEY_ID
-          - name: RCLONE_CONFIG_AWS_SECRET_ACCESS_KEY
-            valueFrom:
-              secretKeyRef:
-                name: recovery-aws-promoter
-                key: AWS_SECRET_ACCESS_KEY
-          - name: AWS_BUCKET
-            valueFrom:
-              secretKeyRef:
-                name: recovery-aws-promoter
-                key: AWS_BUCKET
-        volumeMounts:
-          - name: tmp
-            mountPath: /tmp
-        resources:
-          requests:
-            cpu: 10m
-            memory: 32Mi
-          limits:
-            memory: 128Mi
-        securityContext:
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-
-    - name: restore
-      inputs:
-        parameters:
-          - name: rp
-      volumes:
-        - name: restore
-          emptyDir:
-            sizeLimit: 20Gi
-      container:
-        image: docker.io/restic/restic:0.19.1
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            set -eu
-            RP="{{inputs.parameters.rp}}"
-            R="restic -r $RESTIC_REPOSITORY_AWS"
-            # A copy in AWS has its own ID; it keeps the original's tags, so the
-            # recovery point finds it: --tag rp=<point>.
-            $R snapshots --json --no-lock --tag "rp=$RP" --host immich-media > /tmp/s.json
-            ID="$(grep -oE '"id":"[0-9a-f]{64}"' /tmp/s.json | tail -n 1 | cut -d'"' -f4)"
-            [ -n "$ID" ] || { echo "no immich-media snapshot tagged rp=$RP in AWS"; exit 1; }
-            echo "AWS snapshot $ID (tagged rp=$RP)"
-            $R restore "$ID" --target /restore --verify --no-lock
-            echo "restored from AWS: $(find /restore -type f | wc -l) files, $(du -sk /restore | cut -f1) KiB, every file re-read against its blob hashes"
-            find /restore -type f | sed 's|^/restore||' | head -8
-        envFrom:
-          - secretRef:
-              name: recovery-aws-promoter
-        env:
-          - name: HOME
-            value: /tmp
-          - name: RESTIC_CACHE_DIR
-            value: /tmp/cache
-          - name: RESTIC_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: restic-local
-                key: RESTIC_PASSWORD
-        volumeMounts:
-          - name: tmp
-            mountPath: /tmp
-          - name: restore
-            mountPath: /restore
-        resources:
-          requests:
-            cpu: 50m
-            memory: 128Mi
-          limits:
-            memory: 1Gi
-        securityContext:
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
+  workflowTemplateRef:
+    name: drill-files-aws

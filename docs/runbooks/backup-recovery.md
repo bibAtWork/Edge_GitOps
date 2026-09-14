@@ -465,6 +465,11 @@ The drills are Argo Workflows in [`recovery/`](recovery/). Each restores into sc
 removes what it made. The end-to-end tests of the whole system, failures included, are in
 [`recovery-system-tests.md`](../recovery-system-tests.md).
 
+Each file here only submits its drill -- it names a `workflowTemplateRef` (required by
+`controller.workflowRestrictions.templateReferencing: Strict`, argo-workflows.yaml) pointing at the
+Flux-managed WorkflowTemplate of the same name (`37-backup-system/workflow-templates/drill-*.yaml`),
+which carries the actual steps.
+
 | Drill | Proves |
 |---|---|
 | [`drill-files-aws.yaml`](recovery/drill-files-aws.yaml) | Immich's photos from AWS alone: the newest `REMOTE_VERIFIED` point, found from its record in the vault, restored with `--verify` |

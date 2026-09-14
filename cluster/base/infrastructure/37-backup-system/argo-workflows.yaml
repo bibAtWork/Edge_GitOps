@@ -72,15 +72,34 @@ spec:
     controller:
       clusterWorkflowTemplates:
         enabled: false
-      # Unset by default: a Workflow may then reference any WorkflowTemplate
-      # by name, in whichever namespace it runs. Strict requires the
-      # reference to be embedded (or, with Secure, additionally signed) --
-      # closing the path where recovery-reconciler's narrow "create
-      # workflows" grant (rbac-reconciler.yaml) could otherwise submit a
-      # Workflow that points at an attacker-controlled template. Doesn't
-      # close the argo-server path (deny-argo-server-ingress,
-      # networkpolicy.yaml, covers that): the server can edit templates
+      # Unset by default: a Workflow may then define its own inline
+      # `templates:`, submit an arbitrary pod spec, and override fields like
+      # serviceAccountName and volumes freely. Strict requires
+      # workflowTemplateRef -- an inline Workflow is rejected outright -- and
+      # narrows what a workflowTemplateRef submission may itself override to
+      # a fixed allow-list that does not include serviceAccountName,
+      # podSpecPatch or volumes. (Corrected on code review: the previous
+      # version of this comment described Strict as being about templates
+      # being "embedded" or, under Secure, "signed" -- neither is what these
+      # modes actually check; see docs/workflow-restrictions.md upstream.)
+      #
+      # Closes the path where recovery-reconciler's narrow "create workflows"
+      # grant (rbac-reconciler.yaml) could otherwise submit a Workflow that
+      # points at an attacker-controlled template or pod spec. Doesn't close
+      # the argo-server path (deny-argo-server-ingress, networkpolicy.yaml,
+      # covers that): the server can edit templates and WorkflowTemplates
       # directly, which this setting does not restrict.
+      #
+      # Every Workflow this repo submits itself already fits: the reconciler
+      # and every CronWorkflow use workflowTemplateRef with only `arguments`
+      # alongside it (both on the allow-list). The four A9 drills
+      # (docs/runbooks/recovery/, workflow-templates/drill-*.yaml) did not --
+      # they were standalone inline Workflows until Strict started rejecting
+      # every submission of them ("workflows must use workflowTemplateRef to
+      # be executed when the controller is in reference mode"), found on
+      # code review after this setting had already merged. Restructured into
+      # a WorkflowTemplate plus a minimal referencing Workflow, matching
+      # every other template in this namespace, rather than loosening Strict.
       workflowRestrictions:
         templateReferencing: Strict
       podSecurityContext:
