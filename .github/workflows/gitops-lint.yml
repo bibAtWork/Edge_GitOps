@@ -288,6 +288,18 @@ jobs:
           import re, subprocess, sys, yaml
 
           errors = []
+          # Round-2 code review: 3-node's own kustomization.yaml never lists
+          # 37-backup-system at all -- that overlay simply doesn't run the
+          # recovery system, which is not a defect in it. The first version
+          # of this check treated "no policy ConfigMap" as an error
+          # unconditionally, so it failed on every PR, on every overlay,
+          # forever (confirmed against #629's own CI run: "[3-node] no
+          # ConfigMap/recovery-policy found", merged red). An overlay with no
+          # policy is now skipped rather than failed; checked stays 0 for it,
+          # and every overlay skipping is what actually fails the job --
+          # same fail-closed shape as elsewhere in this file, just applied to
+          # "the check ran nowhere" instead of "the check found a mismatch".
+          checked_overlays = []
 
           for overlay in ('1-node', '3-node'):
               result = subprocess.run(
@@ -307,8 +319,10 @@ jobs:
                   None,
               )
               if policy is None:
-                  errors.append(f'[{overlay}] no ConfigMap/recovery-policy found -- cannot compare anything')
+                  print(f'[{overlay}] no ConfigMap/recovery-policy found -- this overlay does not run '
+                        f'the recovery system, skipping')
                   continue
+              checked_overlays.append(overlay)
 
               apps_table = policy.get('data', {}).get('applications', '')
               policy_apps = set()
@@ -342,11 +356,19 @@ jobs:
                       f'policy is stale'
                   )
 
+          if not checked_overlays and not errors:
+              errors.append(
+                  'no overlay has a recovery-policy ConfigMap -- this check compared nothing. '
+                  'If the recovery system was removed intentionally, remove this job; if not, '
+                  'something broke every overlay\'s reference to 37-backup-system.'
+              )
+
           if errors:
               print(f'{len(errors)} consistency error(s) found:\n')
               for e in errors:
                   print(f'  ERROR: {e}')
               sys.exit(1)
           else:
-              print('Every recovery-policy application has a matching CronWorkflow, and vice versa.')
+              print(f'Every recovery-policy application has a matching CronWorkflow, and vice versa '
+                    f'(checked: {", ".join(checked_overlays)}).')
           PY
