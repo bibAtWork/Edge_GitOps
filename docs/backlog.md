@@ -996,29 +996,60 @@ Implementation notes for whoever picks this up:
 - Coverage will be partial. Not every dependency is a GitHub project with a release feed --
   `immich-postgresql` comes from a Bitnami registry with none.
 
-## Renovate warned about the Talos factory installer on every PR
+## Open (reopened 2026-09-15): Renovate warns about the Talos factory installer on every PR
 
-**Correction (2026-09-14): this was marked resolved on 2026-09-13, prematurely.** The fix
-described below (a negative `managerFilePatterns` entry) does not work: Renovate's
-`getMatchingFiles` evaluates each `managerFilePatterns` entry independently and unions the
-results rather than treating a negative entry as subtracting from a positive one in the same
-array (confirmed against Renovate's own source during a later review round). That entry excluded
-nothing -- `/cluster/.+\.yaml$/` still matched `controlplane.yaml` directly -- while its own
-match silently widened the `kubernetes` manager to every other file in the repo, including all
-of `docs/`. The warning this section describes was, in all likelihood, never actually
-suppressed by it.
+**Marked resolved on 2026-09-13. Reopened 2026-09-14, then re-attempted twice more on
+2026-09-15, all three attempts confirmed live NOT to clear the warning.** This is the current
+status; the original writeup and the four attempts' detail follow, kept for the debugging
+trail since the next attempt should not repeat any of them.
 
-**Attempted fix, in `renovate.json`:** the negative entry is removed; in its place, a
-`packageRule` (`matchManagers: ["kubernetes"]`, `matchFileNames:
-["cluster/overlays/*/talos-machineconfigs/controlplane.yaml"]`, `enabled: false`) -- the same
-shape already used, apparently successfully, for the SUC Plan files a few rules above. This
-differs from the two approaches below that were live-tested and confirmed not to work: those
-matched broadly on `matchManagers`/`matchDatasources` alone, with no file scoping at all.
-Whether file-scoping the `enabled: false` rule actually stops Renovate from attempting the
-lookup during extraction (as opposed to just refusing to propose an update from it) has **not**
-been confirmed against a live run on this repo -- unlike the rest of this entry, which was.
-Check the Dependency Dashboard after the next scheduled Renovate run; if the warning persists,
-this needs the same live-iteration treatment the rest of this entry describes.
+**What is confirmed true**, from `renovate.json`'s git history and four live checks of the
+Dependency Dashboard (`updated_at` verified past each merge, the last three forced via the
+dashboard's own "run again" checkbox rather than waiting on schedule, response time ~80s each):
+
+1. A negative `managerFilePatterns` entry, alone (2026-09-09 original, and again
+   2026-09-15) -- confirmed live not to clear the warning, twice. Root cause confirmed against
+   Renovate's own source (`lib/config/options/index.ts`): `managerFilePatterns` is declared
+   `mergeable: true`. User config for a built-in manager **merges with** its default file match
+   rather than replacing it -- no entry in this field, positive or negative, in any
+   combination, can ever exclude a file the manager already covers by default. (The "entries
+   get unioned as independent selectors" theory from the 2026-09-14 round was a plausible-
+   sounding but wrong explanation for the same real symptom -- `mergeable: true` is the actual
+   mechanism, and it means this field was never capable of narrowing a built-in manager's
+   coverage at all, regardless of how the array is written.)
+2. A `packageRule` matching `matchManagers` + `matchFileNames` + `enabled: false` (2026-09-14) --
+   confirmed live not to clear the warning.
+3. A `packageRule` matching `matchManagers` + `matchPackageNames` (the literal depName) +
+   `enabled: false` (2026-09-15) -- the shape a maintainer confirmed fixes this *exact* warning
+   for someone else (`renovatebot/renovate` discussion #30889, accepted answer, user-verified)
+   -- confirmed live not to clear the warning on this repo regardless.
+4. `matchManagers`/`matchDatasources` alone, no file or package scoping (2026-09-09, see
+   below) -- confirmed live not to clear the warning.
+
+**What this doesn't rule out:** whether Renovate's per-file extraction cache is masking every
+retest -- i.e., whether the datasource lookup for this dependency has actually been
+re-attempted even once since the original failure was first cached, since none of the four
+fixes touched `controlplane.yaml` itself (only `renovate.json`), and Renovate may key its
+extract cache on file content alone. Not tested: deliberately touching `controlplane.yaml`
+(a no-op comment, say) to force a fresh extraction, independent of any packageRule change.
+Also not accessible from here: the actual job log at the Mend portal link in the dashboard,
+which would show directly whether the lookup was attempted in each of these runs -- would
+settle this in one read rather than another guess-and-check round.
+
+**Process note, for whoever picks this up:** two of these four fixes were pushed as separate
+PRs where the second was branched from the first PR's own head *before* that PR had been
+squash-merged. Squash-merging breaks the ancestry between the original commits and their
+squashed equivalent on the target branch; a later PR branched from the pre-squash commit has
+no common history with the target branch newer than the commit *before* the first PR, so
+GitHub computes its merge diff against that older point. The practical effect here: the second
+PR's own commit correctly showed removing the negative `managerFilePatterns` entry against its
+own parent, but the merged result on `ops/talos_linux` silently kept the entry, because the
+diff GitHub actually applied was computed against a base that never had it -- adding it
+(PR N) and removing it (PR N+1) cancelled out into a no-op from that stale vantage point,
+independent of the file's real final content on either branch. Caught only by re-reading the
+live file on `ops/talos_linux` directly rather than trusting the merged PR's own diff. Always
+branch fresh from an updated pull of the target branch, not from a just-merged feature branch's
+local head.
 
 The original writeup, kept for the debugging trail:
 
