@@ -345,23 +345,19 @@ which is the worst possible time to discover it.
 
 **What's still not done, on purpose:**
 
-- The disk sizes above -- real numbers need real hardware.
-- `bootstrap-3node.sh`'s missing `-var`/`TF_VAR_budget_alert_email` guard and its total lack
-  of `config.json`/`apply-config.py` integration (found 2026-09-14, noted below in its own
-  right): `apply-config.py` is never called from `bootstrap-3node.sh` at all, unlike
-  `bootstrap-1node.sh`. Worth doing once a real 3-node deployment is imminent, not before --
-  bootstrap automation for a profile nobody has hardware for yet is speculative in a way the
-  GitOps manifests (testable today, at zero risk, via `kustomize build`) are not.
-- A pre-existing, unrelated naming bug noticed along the way: `apply-config.py`'s gateway-IP
-  patching references `14-tailscale-operator/config/subnet-router.yaml`, but the real file is
-  `subnet-router-hostnetwork.yaml` -- the reference is stale, so that file's `REPLACE_WITH_GATEWAY_IP`
-  placeholder (if it is ever regenerated) will not be filled in automatically. Not fixed here;
-  unrelated to overlay parity and predates this entry.
-- `flux-bootstrap.yaml` (both profiles) documents its `sourceRef` as `homelab-cluster`, but the
-  GitRepository `flux bootstrap` actually creates is named `flux-system` (confirmed against
-  1-node's real, committed `flux-system/gotk-sync.yaml`). The file is documentation of what
-  bootstrap produces, not itself applied, so this is cosmetically wrong rather than functionally
-  broken -- left alone rather than bundled into an unrelated PR.
+- The disk sizes above -- real numbers need real hardware. Everything else that didn't need
+  real hardware has since been closed out (2026-09-15): `bootstrap-3node.sh` now shares
+  `bootstrap-1node.sh`'s config.json/`apply-config.py`/Terraform-`-var` handling (config.json
+  gained `node.ip1`/`ip2`/`ip3`/`vip` alongside the existing `node.ip`), the
+  `subnet-router-hostnetwork.yaml` filename bug is fixed, and both profiles'
+  `flux-bootstrap.yaml` now names the real `flux-system` GitRepository. One deliberate gap
+  remains: `bootstrap-3node.sh` was not given `bootstrap-1node.sh`'s full idempotent
+  state-machine (maintenance / installed / bootstrapped / k8s-ready / flux-ready) --
+  coordinating that across three independently-progressing nodes is materially more complex
+  than the single-node case, and wasn't asked for. It's safe to re-run through secrets/Talos-
+  config generation and again from Flux onward, but a failure while applying config to the
+  three nodes or bootstrapping etcd needs manual recovery, not just a re-run. README corrected
+  to say so.
 
 ---
 
