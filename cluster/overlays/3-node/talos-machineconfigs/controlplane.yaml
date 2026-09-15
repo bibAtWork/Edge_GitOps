@@ -1,8 +1,48 @@
-# Apply with: talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
-# Generate secrets bundle first: talosctl gen config --with-secrets secrets.yaml homelab https://<vip>:6443
+# FIRST BOOT ONLY: talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
+#
+# ⚠️ DO NOT run apply-config against an already-running node to make a change.
+# This file is a TEMPLATE, not the live config. It carries none of the secrets
+# the cluster actually runs on -- no CA certificates, no service-account keys,
+# no secretboxEncryptionSecret -- because those are generated into the secrets
+# bundle at provisioning time and are never committed. Applying it wholesale to
+# a live node would strip every one of them. See the 1-node overlay's copy of
+# this warning for the incident that established it (PR #197).
+#
+# To change a running node, patch only the delta instead, which leaves every
+# other field untouched and needs no reboot:
+#   talosctl patch machineconfig --patch @some-patch.yaml --dry-run   # inspect
+#   talosctl patch machineconfig --patch @some-patch.yaml             # apply
+#
+# ⚠️ UserVolumeConfig sizes at the end of this file are PLACEHOLDERS copied
+# from the 1-node overlay's own disk, not measured on any real 3-node
+# hardware -- no 3-node cluster has been bootstrapped yet (docs/backlog.md,
+# "The 3-node overlay would not produce a working cluster"). Before using
+# this file: run `talosctl get disks` in maintenance mode against the real
+# node, confirm actual usable NVMe capacity, and set minSize/maxSize
+# accordingly. Ported here anyway (unlike leaving the block out) so kustomize
+# build/kubeconform validate the shape and the diverged-overlay CI check does
+# not flag Longhorn/SeaweedFS as unconfigured -- but treat the numbers as
+# wrong until someone confirms them against real disks.
 ---
 machine:
   type: controlplane
+  install:
+    # Factory image, not the stock ghcr.io/siderolabs/installer -- it carries the
+    # iscsi-tools and util-linux-tools extensions Longhorn V1 needs. Talos is
+    # immutable, so extensions are part of the image and cannot be added at
+    # runtime.
+    #
+    # Keep this in step with versions.env
+    # (cluster/base/infrastructure/15-system-upgrade-controller/config/), which
+    # pins the schematic ID and the Talos version this tag must match -- the
+    # Talos image CI workflow checks that they agree. This is the one pin
+    # Kustomize's replacements cannot reach, since machine config is applied
+    # by hand via talosctl, outside Kustomize/Flux entirely. Changing
+    # schematic.yaml means a new schematic ID and a new value here.
+    #
+    # Same schematic and version as the 1-node overlay, deliberately: both
+    # profiles run the same cluster software, just a different node count.
+    image: factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245:v1.14.0
   # kubernetesTalosAPIAccess is deliberately NOT enabled.
   #
   # It existed to let talos-backup reach the Talos machine API for etcd
@@ -41,6 +81,32 @@ machine:
     nodeIP:
       validSubnets:
         - 192.168.178.0/24
+    # Bind-mounts the PARENT of the user volumes, not each volume. With rshared
+    # propagation any number of /var/mnt/* user volumes are carried into the
+    # kubelet container automatically, so adding a disk later needs no change
+    # here. Without this the kubelet cannot see u-longhorn0 or u-seaweedfs at
+    # all, and Longhorn comes up with no disk to schedule on.
+    extraMounts:
+      - destination: /var/mnt
+        type: bind
+        source: /var/mnt
+        options:
+          - bind
+          - rshared
+          - rw
+
+  # Longhorn disk discovery. defaultDataPath in the Helm chart is a single
+  # cluster-wide string and cannot describe per-node layouts, so labeled-node
+  # disk configuration is used instead: Longhorn creates disks only on nodes
+  # carrying the label, and reads the disk list from the annotation. Same on
+  # every node in this profile -- each is expected to carry its own
+  # dedicated Longhorn disk under the same mount point (see the
+  # UserVolumeConfig documents at the end of this file).
+  nodeLabels:
+    node.longhorn.io/create-default-disk: "config"
+  nodeAnnotations:
+    node.longhorn.io/default-disks-config: |
+      [{"path":"/var/mnt/longhorn0","allowScheduling":true}]
 
 cluster:
   # Workers handle workloads on 3-node; control-plane taint stays active
@@ -64,8 +130,83 @@ cluster:
   etcd:
     advertisedSubnets:
       - 192.168.178.0/24
+    extraArgs:
+      # etcd serves metrics on a dedicated port that is OFF by default. Without
+      # this, `count(etcd_server_has_leader)` returns 0 series. Ported from the
+      # 1-node overlay, where this closed a real monitoring blind spot on
+      # etcd -- the fix is profile-agnostic (etcd is unmonitored the same way
+      # regardless of node count), see that file for the full incident.
+      #
+      # The chart ships a kube-etcd Service selecting {component: etcd}, which
+      # matches nothing on Talos because etcd is a host-level service rather
+      # than a pod. That Service is disabled in 02-victoriametrics-stack and
+      # replaced by a VMNodeScrape, which discovers nodes rather than needing
+      # an address written down here.
+      #
+      # :2381 is etcd's metrics-only listener, not the client port -- reads and
+      # writes still require mTLS on :2379, untouched.
+      listen-metrics-urls: http://0.0.0.0:2381
+
+  # kube-controller-manager and kube-scheduler bind their metrics and health
+  # endpoints to 127.0.0.1 by default on Talos, which means nothing off the
+  # node can scrape them. Ported from the 1-node overlay for the same reason
+  # as the etcd metrics fix above -- see that file for the full incident
+  # (vmagent reporting "connection refused" indefinitely, no alert firing
+  # because a metric that is never collected produces no series).
+  #
+  # 0.0.0.0 rather than the node IP: Talos renders this config before the
+  # address is known, so pinning it would mean templating the machine config
+  # per node. The endpoints are not open by binding them -- both use delegated
+  # authn/authz against the API server, so a scrape still needs a token bound
+  # to a role that permits it, which is what the vmagent ServiceAccount has.
+  controllerManager:
+    extraArgs:
+      bind-address: 0.0.0.0
+      # Default is 12500. See the 1-node overlay for the incident this was
+      # found from (stale terminated pods surviving across unrelated
+      # incidents, producing false-alarm investigations). Lower here on
+      # purpose too: three nodes' worth of terminated pods reach any fixed
+      # threshold faster than one node's did, so the same problem would
+      # recur sooner, not later, without this.
+      terminated-pod-gc-threshold: "50"
+
+  scheduler:
+    extraArgs:
+      bind-address: 0.0.0.0
 
   apiServer:
+    # ADR-002 (docs/adr/0002-flattened-hierarchical-rbac.md): closes the
+    # gap docs/backlog.md tracked as "Kubernetes-native RBAC has no
+    # identity layer" -- kubectl access was cert-based only until now.
+    # Cert-based admin kubeconfig access is completely unaffected: this
+    # is an ADDITIONAL authenticator, not a replacement, and remains the
+    # break-glass path if OIDC is ever misconfigured. Ported from the
+    # 1-node overlay, where this was applied live and confirmed on the
+    # running kube-apiserver's --oidc-* flags (2026-08-18) -- the same
+    # Keycloak realm serves both profiles, so the issuer URL is identical.
+    #
+    # oidc-username-prefix/oidc-groups-prefix ("oidc:"): upstream
+    # Kubernetes' own recommendation, so an OIDC-sourced username or
+    # group can never collide with a service account, a cert CN, or any
+    # other auth mechanism's identity. 31-cluster-rbac/
+    # clusterrolebindings.yaml's Group subjects carry this same prefix
+    # for exactly that reason -- "platform-admin" alone is not what
+    # Kubernetes RBAC actually sees.
+    extraArgs:
+      oidc-issuer-url: https://keycloak.homelab.data-harness.org/realms/homelab
+      oidc-client-id: kubernetes
+      oidc-username-claim: email
+      oidc-username-prefix: "oidc:"
+      oidc-groups-claim: groups
+      oidc-groups-prefix: "oidc:"
+      # Six metric families the apiserver no longer registers at all. Ported
+      # from the 1-node overlay, where an unbounded apiserver /metrics
+      # response (16.4 MiB) exceeded vmagent's scrape limit and silently
+      # failed every scrape -- see that file for the full breakdown of why
+      # these six specifically. The cause (histogram cardinality) scales with
+      # cluster size, if anything worse with three API servers each carrying
+      # their own metrics volume, so this is at least as necessary here.
+      disabled-metrics: "apiserver_request_body_size_bytes,apiserver_response_sizes,apiserver_watch_events_sizes,apiserver_watch_list_duration_seconds,apiserver_watch_cache_read_wait_seconds,apiserver_request_sli_duration_seconds"
     # There is deliberately no encryptionConfig here.
     #
     # `cluster.apiServer.encryptionConfig` is not a Talos field. Talos rejects
@@ -166,6 +307,11 @@ cluster:
         #
         # backoffLimit is 2 rather than 0 because the genuine bootstrap path does
         # need retries -- the API server is not always ready on the first try.
+        #
+        # On 3-node this Job runs once per node as each applies its own machine
+        # config; `cilium install` is idempotent from the second node onward
+        # (the Helm release already exists, exactly the re-materialisation case
+        # above), so no coordination between nodes is needed here.
         apiVersion: batch/v1
         kind: Job
         metadata:
@@ -222,3 +368,54 @@ cluster:
                     - '--set=securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}'
                     - --set=cgroup.autoMount.enabled=false
                     - --set=cgroup.hostRoot=/sys/fs/cgroup
+---
+# Dedicated NVMe for SeaweedFS, per Sidero's Talos+SeaweedFS guidance.
+#
+# ⚠️ PLACEHOLDER, copied from the 1-node overlay's own disk (see that file's
+# comment for the full methodology and the incident that made these sizes
+# "load-bearing" there). No 3-node hardware has been provisioned yet, so
+# these minSize/maxSize values describe the 1-NODE machine's NVMe, not any
+# real 3-node disk. Before this file is used against real hardware: boot each
+# node into maintenance mode, run `talosctl get disks --insecure --nodes
+# <ip>` to find its actual NVMe capacity, and set both volumes' sizes to fit
+# it (see the 1-node file for why explicit sizes rather than grow:true, and
+# why getting this wrong on a node that already holds data is destructive).
+#
+# The selector itself needs no per-node change: `disk.transport == "nvme" &&
+# !system_disk` matches whichever disk qualifies on each node independently,
+# the same as on 1-node.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: seaweedfs
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 100GiB
+  maxSize: 120GiB
+  grow: false
+filesystem:
+  type: xfs
+---
+# Longhorn's data disk, mounted at /var/mnt/longhorn0 and named in the
+# node.longhorn.io/default-disks-config annotation above.
+#
+# Why Longhorn is NOT on the system disk: /var/lib/longhorn would sit on
+# EPHEMERAL alongside /var/lib/etcd. etcd is unusually sensitive to fsync
+# latency, and sustained replica writes on the same filesystem push its fsync
+# p99 up -- which presents as leader elections and slow API responses, i.e.
+# looks like a control-plane fault rather than a storage one. Putting Longhorn
+# on the NVMe separates them at the device level, not just the filesystem
+# level. That reasoning holds on any node count.
+#
+# ⚠️ PLACEHOLDER sizes -- see the seaweedfs volume above, same caveat.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: longhorn0
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 300GiB
+  maxSize: 340GiB
+  grow: false
+filesystem:
+  type: xfs

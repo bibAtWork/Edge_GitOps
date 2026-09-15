@@ -24,7 +24,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        overlay: [1-node, 3-node]
+        # The two -config overlays validate standalone: kubeconform checks
+        # resource shape against its own schema catalog (default + the
+        # datreeio CRDs-catalog for CRDs like cilium.io/gateway.networking.k8s.io),
+        # not against CRDs actually present in the same build, so the
+        # base overlay's operators don't need to be in this same pass.
+        overlay: [1-node, 3-node, 1-node-config, 3-node-config]
 
     steps:
       - uses: actions/checkout@v7

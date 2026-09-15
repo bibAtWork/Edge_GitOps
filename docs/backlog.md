@@ -289,55 +289,79 @@ produced a 20-byte file that only the size guard caught.
 
 ---
 
-## The 3-node overlay would not produce a working cluster
+## Closed: the 3-node overlay would not produce a working cluster
 
-Found 2026-08-25 while reviewing the repository against the live cluster.
+Found 2026-08-25 while reviewing the repository against the live cluster. Closed 2026-09-15
+by Option 1 below (maintain it), with one piece deliberately left open -- see "What's still
+not done" at the end of this entry.
 
-`cluster/overlays/3-node/kustomization.yaml` lists **16** infrastructure components.
-`1-node` lists **33**. The 18 it is missing are not trimmings:
+`cluster/overlays/3-node/kustomization.yaml` listed **16** infrastructure components against
+`1-node`'s **33**. The 18 missing were not trimmings -- no storage, no ingress, no identity, no
+databases and no backups -- and there was no `3-node-config` overlay at all, so the CRD-dependent
+resources 1-node splits into its own config-layer Flux Kustomization (Plans, HTTPRoutes,
+CiliumNetworkPolicy, ClusterPolicy) had nowhere to go on 3-node. `3-node/talos-machineconfigs/
+controlplane.yaml` also had no installer pin, no etcd/apiserver/controller-manager/scheduler
+observability flags, no OIDC integration, and no disk provisioning (UserVolumeConfig) at all.
 
-```
-00-gateway-api  00-local-path-provisioner  16-immich  17-paperless-ngx
-18-falco  19-kyverno  20-kubescape  22-schenkmatch  24-opa  26-keycloak
-27-kubeopencode  28-envoy-gateway  29-metrics-server  30-trivy-renovate-bridge
-31-cluster-rbac  32-longhorn  33-cloudnative-pg  34-backup
-```
+**Why this was worse than an incomplete profile.** It looked deployable. `kustomize build`
+succeeded, CI validated it, and nothing signalled that the result was a fraction of the
+product. The moment it would have been reached for is a rebuild after losing the cluster,
+which is the worst possible time to discover it.
 
-That is no storage, no ingress, no identity, no databases and no backups. It stops at
-`21-flux-notifications`, roughly where the repo stood when the overlay was last touched;
-everything added since went to `1-node` only.
+**What was done:**
 
-There is also **no `3-node-config` overlay**. The `config` layer is what applies
-CRD-dependent resources — including the Talos upgrade Plans — so on 3-node those would
-not deploy at all. And `3-node/talos-machineconfigs/controlplane.yaml` has no installer
-pin, so a rebuilt node would not land on the pinned Talos version.
+- Ported the missing components and added `cluster/overlays/3-node-config`, mirroring
+  `1-node-config`'s exact operator/config split (`06-cert-manager`, `12-zot`,
+  `14-tailscale-operator`, `15-system-upgrade-controller`, `28-envoy-gateway` now split the
+  same way on both profiles; `10-network-policies` and `11-ingress-gateway` moved into the
+  config layer to match). `flux-kustomizations/config.yaml` added, pointing at
+  `3-node-config`, dependent on `flux-system` the same way 1-node's does.
+- Ported the software-only machine-config hardening that has zero disk risk and no
+  node-count sensitivity: the installer image pin, etcd's metrics listener,
+  controller-manager/scheduler bind-address and pod-gc threshold, the apiserver OIDC
+  integration (same Keycloak realm serves both profiles) and its `disabled-metrics` list, and
+  the kube-proxy/flannel CNI-conflict fix 3-node already had in its own words.
+- Added the `UserVolumeConfig` documents (Longhorn + SeaweedFS disk selectors) so the shape
+  is there and CI validates it, but with **placeholder sizes copied from the 1-node overlay's
+  own physical disk** -- no 3-node hardware has ever been provisioned, so there is nothing
+  real to measure yet. Explicitly marked in the file; must be replaced with real
+  `talosctl get disks` output before this is used against actual nodes.
+- Added a CI job, `overlay-component-parity` in `gitops-lint.yml`, that fails a PR if the two
+  profiles' base+config overlays ever reference a different set of `base/infrastructure/`
+  components again -- the piece the original write-up called out as mattering most, since a
+  fix with nothing to stop it recurring is exactly how this happened the first time. Also
+  added both `-config` overlays to `kubeconform.yml`'s validation matrix (previously neither
+  was validated standalone, on either profile), and fixed a real regression the operator/config
+  split caused in `gitops-lint.yml`'s existing sentinel check: it targeted `3-node`, not
+  `3-node-config`, for the SUC Plans' sentinel survival -- correct before this split (3-node
+  used to bundle the Plans into its base overlay directly) and silently checking nothing at
+  all afterward, had it not been caught.
+- Verified: `kubeconform --strict` on all four overlays (`1-node`/`3-node` 278/0 and 275/0,
+  `1-node-config`/`3-node-config` 97/0 each -- identical component counts), and every existing
+  `gitops-lint.yml` check (`no-latest-tags`, `unreplaced-sentinels`, `flux-references`,
+  `recovery-policy-cronworkflows`) re-run by hand against the new 3-node/3-node-config content.
+  `recovery-policy-cronworkflows` now actually checks 3-node instead of skipping it (no
+  `recovery-policy` ConfigMap existed there before).
 
-**Why this is worse than an incomplete profile.** It looks deployable. `kustomize build`
-succeeds, CI validates it, and nothing signals that the result is a fraction of the
-product. The moment it would be reached for is a rebuild after losing the cluster, which
-is the worst possible time to discover it.
+**What's still not done, on purpose:**
 
-**Also found (2026-09-14), same root cause -- the overlay was last touched long ago and
-`bootstrap-1node.sh` has since moved on without it:** `bootstrap-3node.sh`'s own `terraform
-apply -auto-approve` call passes no `-var` flags at all and has no `TF_VAR_budget_alert_email`
-guard, unlike `bootstrap-1node.sh`'s equivalent call. It still runs -- `cluster_name` and
-`aws_region` fall back to Terraform's own defaults (`homelab`, `eu-central-1`) -- but silently
-ignores whatever `NODE1_IP`/`GITHUB_OWNER`/etc. this script's own env-var config actually says,
-so a 3-node deployment configured for a different cluster name or region gets AWS resources
-named and located for neither. Not fixed here: patching the Terraform call would polish a
-script for a profile this entry says is not deployable end-to-end anyway. Worth doing only
-alongside Option 1 below, not on its own.
-
-**This is a decision, not a task.** Either:
-
-1. **Maintain it** — port the 18 components, add `3-node-config`, add the installer pin,
-   and add CI that fails when the two overlays diverge. The last part matters most: without
-   it, this recurs.
-2. **Mark it aspirational** — a header in its `kustomization.yaml` and a line in the README
-   saying it is not deployable today, so nobody reaches for it in a recovery.
-
-Option 2 is minutes and removes the trap. Option 1 is the real fix and only worth doing if
-a second and third node are actually planned.
+- The disk sizes above -- real numbers need real hardware.
+- `bootstrap-3node.sh`'s missing `-var`/`TF_VAR_budget_alert_email` guard and its total lack
+  of `config.json`/`apply-config.py` integration (found 2026-09-14, noted below in its own
+  right): `apply-config.py` is never called from `bootstrap-3node.sh` at all, unlike
+  `bootstrap-1node.sh`. Worth doing once a real 3-node deployment is imminent, not before --
+  bootstrap automation for a profile nobody has hardware for yet is speculative in a way the
+  GitOps manifests (testable today, at zero risk, via `kustomize build`) are not.
+- A pre-existing, unrelated naming bug noticed along the way: `apply-config.py`'s gateway-IP
+  patching references `14-tailscale-operator/config/subnet-router.yaml`, but the real file is
+  `subnet-router-hostnetwork.yaml` -- the reference is stale, so that file's `REPLACE_WITH_GATEWAY_IP`
+  placeholder (if it is ever regenerated) will not be filled in automatically. Not fixed here;
+  unrelated to overlay parity and predates this entry.
+- `flux-bootstrap.yaml` (both profiles) documents its `sourceRef` as `homelab-cluster`, but the
+  GitRepository `flux bootstrap` actually creates is named `flux-system` (confirmed against
+  1-node's real, committed `flux-system/gotk-sync.yaml`). The file is documentation of what
+  bootstrap produces, not itself applied, so this is cosmetically wrong rather than functionally
+  broken -- left alone rather than bundled into an unrelated PR.
 
 ---
 
