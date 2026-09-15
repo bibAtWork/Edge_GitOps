@@ -198,7 +198,7 @@ def main() -> None:
     if gateway_ip:
         for path in [
             cluster / "overlays/1-node-config/lb-ipam.yaml",
-            cluster / "base/infrastructure/14-tailscale-operator/config/subnet-router.yaml",
+            cluster / "base/infrastructure/14-tailscale-operator/config/subnet-router-hostnetwork.yaml",
         ]:
             if replace_in_file(path, {"REPLACE_WITH_GATEWAY_IP": gateway_ip}):
                 changed.append(str(path.relative_to(REPO_ROOT)))
