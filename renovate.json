@@ -31,7 +31,6 @@
     "enabled": true,
     "managerFilePatterns": [
       "/cluster/.+\\.yaml$/",
-      "!/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/",
       "/docs/runbooks/recovery/.+\\.yaml$/",
       "/docs/runbooks/.+\\.md$/"
     ]
