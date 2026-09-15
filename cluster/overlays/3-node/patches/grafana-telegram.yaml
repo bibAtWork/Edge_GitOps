@@ -1,0 +1,75 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  values:
+    # envValueFrom injects TELEGRAM_BOT_TOKEN via secretKeyRef so Grafana can
+    # substitute $TELEGRAM_BOT_TOKEN in contactpoints.yaml at startup.
+    # chatid is a literal string — Helm's toYaml (go-yaml v3) quotes integer-
+    # looking strings, so '-1004444712571' becomes "-1004444712571" in the
+    # ConfigMap and Grafana parses it as a string, not an int.
+    envValueFrom:
+      TELEGRAM_BOT_TOKEN:
+        secretKeyRef:
+          name: telegram-credentials
+          key: TELEGRAM_BOT_TOKEN
+
+    # Reloader restarts Grafana whenever telegram-credentials is rotated.
+    podAnnotations:
+      reloader.stakater.com/auto: "true"
+
+    alerting:
+      contactpoints.yaml:
+        apiVersion: 1
+        contactPoints:
+          - orgId: 1
+            name: Telegram
+            receivers:
+              - uid: telegram
+                type: telegram
+                disableResolveMessage: false
+                settings:
+                  bottoken: $TELEGRAM_BOT_TOKEN
+                  chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
+
+      policies.yaml:
+        apiVersion: 1
+        policies:
+          # Lengthened 2026-08-17: this is a home lab, not a production system
+          # with an on-call SLA. The old cadence (1h critical / 4h default
+          # repeat) paged Telegram near-hourly for issues that are still going
+          # to be there next time it's checked. Detection speed (the `for:`
+          # grace period on each rule in 04-grafana/helmrelease.yaml) is
+          # unchanged -- only how often an already-known, ongoing issue
+          # re-notifies.
+          - orgId: 1
+            receiver: Telegram
+            group_by:
+              - alertname
+              - namespace
+            group_wait: 2m
+            group_interval: 30m
+            repeat_interval: 24h
+            routes:
+              - matchers:
+                  - severity = critical
+                receiver: Telegram
+                repeat_interval: 6h
+
+      deleteRules.yaml:
+        apiVersion: 1
+        deleteRules:
+          - orgId: 1
+            uid: alert-pipeline-test
+          - orgId: 1
+            uid: alert-pipeline-test-v2
+          - orgId: 1
+            uid: kubescape-scan-findings
+          # Efficiency review 2026-08-17: replaced by trivy-critical-cve +
+          # trivy-high-critical-tracking (04-grafana/helmrelease.yaml) -- this rule
+          # never fired due to a wrong label name (score vs vuln_score) and is now
+          # split into a critical-only page and a high+critical tracking alert.
+          - orgId: 1
+            uid: trivy-high-cvss
