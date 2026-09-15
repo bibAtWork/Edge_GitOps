@@ -194,11 +194,14 @@ def main() -> None:
     if domain_changed:
         print(f"  ✓ Domain ({effective_domain}) applied to wildcard cert + HTTPRoutes")
 
-    # Cilium LB IPAM + Tailscale subnet router — both use the gateway LAN IP
+    # Cilium LB IPAM (one per profile — each overlay owns its own
+    # CiliumLoadBalancerIPPool) + Tailscale subnet router (shared base
+    # component, one file for both profiles) — all use the gateway LAN IP
     if gateway_ip:
         for path in [
             cluster / "overlays/1-node-config/lb-ipam.yaml",
-            cluster / "base/infrastructure/14-tailscale-operator/config/subnet-router.yaml",
+            cluster / "overlays/3-node-config/lb-ipam.yaml",
+            cluster / "base/infrastructure/14-tailscale-operator/config/subnet-router-hostnetwork.yaml",
         ]:
             if replace_in_file(path, {"REPLACE_WITH_GATEWAY_IP": gateway_ip}):
                 changed.append(str(path.relative_to(REPO_ROOT)))
