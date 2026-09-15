@@ -116,9 +116,7 @@ $EDITOR bootstrap/config.json
 ```jsonc
 {
   "cluster":   { "name": "homelab", "letsencrypt_email": "you@example.com" },
-  "node":      { "ip": "192.168.1.10", "subnet": "192.168.1.0/24",
-                 "primary_disk": "/dev/disk/by-id/...",
-                 "backup_disk":  "/dev/disk/by-id/..." },
+  "node":      { "ip": "192.168.1.10", "subnet": "192.168.1.0/24" },
   "github":    { "owner": "...", "repo": "...", "branch": "main", "token": "..." },
   "aws":       { "region": "eu-central-1", "access_key_id": "...", "secret_access_key": "..." },
   "cloudflare":{ "api_token": "..." },
@@ -128,9 +126,9 @@ $EDITOR bootstrap/config.json
 }
 ```
 
-`seaweedfs` credentials are auto-generated and saved back to `config.json` if left empty.
-
-`node.primary_disk` and `node.backup_disk` can be omitted — the bootstrap will prompt interactively if they're missing.
+`seaweedfs` credentials are auto-generated and saved back to `config.json` if left empty. Disks
+are selected automatically by Talos (`cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml`'s
+`UserVolumeConfig` selectors) — no disk path is needed in `config.json`.
 
 ---
 

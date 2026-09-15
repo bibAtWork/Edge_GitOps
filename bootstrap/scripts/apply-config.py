@@ -146,14 +146,33 @@ def main() -> None:
         modified_cfg = True
         print("  auto-generated zot.admin_password")
 
-    dex_client_secret = get(cfg, "dex", "grafana_client_secret", required=False)
-    if not dex_client_secret:
-        dex_client_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
-        cfg.setdefault("dex", {})["grafana_client_secret"] = dex_client_secret
+    # Shared secret for Grafana's Keycloak OIDC client — same value goes into
+    # Grafana's own oauth secret below and into Keycloak's realm-config Secret
+    # (26-keycloak/keycloak-secret.yaml, hand-maintained; apply-config.py does
+    # not manage that file — see docs/backlog.md).
+    #
+    # Falls back to the old dex.grafana_client_secret key, which held this
+    # same value before Dex was replaced by Keycloak. Without the fallback, a
+    # rebuild using an existing config.json (bootstrap-1node.sh runs this
+    # script on every run, not just the first) would silently auto-generate a
+    # NEW secret under the new key, rewrite grafana-oauth-secret.yaml to
+    # match it, and break Grafana sign-in the moment it no longer matches the
+    # value already sitting in Keycloak's own hand-maintained Secret. Found
+    # on review of this fix (round 5).
+    grafana_oidc_secret = get(cfg, "keycloak", "grafana_client_secret", required=False) \
+        or get(cfg, "dex", "grafana_client_secret", required=False)
+    if not grafana_oidc_secret:
+        grafana_oidc_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
+        cfg.setdefault("keycloak", {})["grafana_client_secret"] = grafana_oidc_secret
         modified_cfg = True
-        print("  auto-generated dex.grafana_client_secret")
-
-    dex_admin_password = get(cfg, "dex", "admin_password")
+        print("  auto-generated keycloak.grafana_client_secret")
+    elif not get(cfg, "keycloak", "grafana_client_secret", required=False):
+        # Carried over from the old dex key on this run; save it under the
+        # new key so future runs read it from keycloak.* directly and the
+        # old dex section can eventually be deleted from config.json by hand.
+        cfg.setdefault("keycloak", {})["grafana_client_secret"] = grafana_oidc_secret
+        modified_cfg = True
+        print("  migrated dex.grafana_client_secret -> keycloak.grafana_client_secret")
 
     if modified_cfg:
         save_config(cfg)
@@ -166,7 +185,6 @@ def main() -> None:
         cluster / "base/infrastructure/12-zot/config/httproute.yaml",
         cluster / "base/infrastructure/04-grafana/config/httproute.yaml",
         cluster / "base/infrastructure/05-cilium/config/httproute.yaml",
-        cluster / "base/infrastructure/23-dex/config/httproute.yaml",
     ]
     domain_changed = False
     for path in domain_files:
@@ -296,27 +314,8 @@ def main() -> None:
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ Zot htpasswd")
 
-    # Dex OIDC secrets — write whole-file (like Zot htpasswd) so this works even when
-    # the committed file is already SOPS-encrypted from a prior bootstrap run.
-    # _bcrypt_hash is already defined above for the Zot htpasswd block.
-    dex_admin_hash = _bcrypt_hash(dex_admin_password)
-    path = cluster / "base/infrastructure/23-dex/secret.yaml"
-    new_dex_secret = (
-        "apiVersion: v1\n"
-        "kind: Secret\n"
-        "metadata:\n"
-        "  name: dex-secrets\n"
-        "  namespace: dex\n"
-        "stringData:\n"
-        f'  grafana-client-secret: "{dex_client_secret}"\n'
-        f'  admin-password-hash: "{dex_admin_hash}"\n'
-    )
-    existing = path.read_text() if path.exists() else ""
-    if new_dex_secret != existing:
-        path.write_text(new_dex_secret)
-        changed.append(str(path.relative_to(REPO_ROOT)))
-        print("  ✓ Dex secrets (grafana-client-secret + admin bcrypt hash)")
-
+    # Grafana OIDC secret — write whole-file (like Zot htpasswd) so this works even
+    # when the committed file is already SOPS-encrypted from a prior bootstrap run.
     path = cluster / "base/infrastructure/04-grafana/grafana-oauth-secret.yaml"
     new_grafana_oauth_secret = (
         "apiVersion: v1\n"
@@ -325,36 +324,13 @@ def main() -> None:
         "  name: grafana-oauth-secret\n"
         "  namespace: monitoring\n"
         "stringData:\n"
-        f'  GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{dex_client_secret}"\n'
+        f'  GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{grafana_oidc_secret}"\n'
     )
     existing = path.read_text() if path.exists() else ""
     if new_grafana_oauth_secret != existing:
         path.write_text(new_grafana_oauth_secret)
         changed.append(str(path.relative_to(REPO_ROOT)))
         print("  ✓ Grafana OAuth client secret")
-
-    path = cluster / "base/infrastructure/23-dex/static-clients-secret.yaml"
-    new_static_clients_secret = (
-        "apiVersion: v1\n"
-        "kind: Secret\n"
-        "metadata:\n"
-        "  name: dex-static-clients\n"
-        "  namespace: dex\n"
-        "stringData:\n"
-        "  values.yaml: |\n"
-        "    config:\n"
-        "      staticClients:\n"
-        "        - id: grafana\n"
-        f'          secret: "{dex_client_secret}"\n'
-        "          redirectURIs:\n"
-        f'            - https://grafana.{effective_domain}/login/generic_oauth\n'
-        "          name: Grafana\n"
-    )
-    existing = path.read_text() if path.exists() else ""
-    if new_static_clients_secret != existing:
-        path.write_text(new_static_clients_secret)
-        changed.append(str(path.relative_to(REPO_ROOT)))
-        print("  ✓ Dex static clients (grafana OIDC client with redirect URI)")
 
     # ── Generated values (only when flags are passed) ─────────────────────────
 

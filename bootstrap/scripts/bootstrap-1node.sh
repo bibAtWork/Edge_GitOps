@@ -7,7 +7,6 @@
 #   GITHUB_OWNER=<your-github-user> GITHUB_REPO=homelab-cluster \
 #   ./bootstrap/scripts/bootstrap-1node.sh
 #
-#   PRIMARY_DISK and BACKUP_DISK are prompted interactively in maintenance mode.
 #   Set TALOS_VERSION when the node ISO version differs from talosctl
 #   (e.g. TALOS_VERSION=v1.11.2). A post-bootstrap upgrade will be printed.
 #
@@ -76,11 +75,7 @@ _config_wizard() {
   read -rsp "  Grafana admin password: " _wgpw; echo ""
 
   echo ""
-  echo "── Dex (OIDC identity provider) ──────────────────────────────────────────"
-  read -rsp "  Dex admin password (for admin@homelab.internal): " _wdexpw; echo ""
-
-  echo ""
-  echo "  SeaweedFS, Zot, and Dex OAuth client credentials will be auto-generated."
+  echo "  SeaweedFS, Zot, and Grafana's Keycloak OAuth client secret will be auto-generated."
   echo ""
 
   # Write config.json via Python — values passed through env vars to avoid shell injection
@@ -89,7 +84,7 @@ _config_wizard() {
   _WGHO="$_wgho" _WGHR="$_wghr" _WGHB="$_wghb" _WGHT="$_wght" \
   _WAR="$_war" _WAK="$_wak" _WAS="$_was" \
   _WCF="$_wcf" _WTSI="$_wtsi" _WTSS="$_wtss" \
-  _WGPW="$_wgpw" _WDEXPW="$_wdexpw" \
+  _WGPW="$_wgpw" \
   python3 - "${CONFIG_FILE}" <<'PYEOF'
 import json, os, sys
 
@@ -106,8 +101,6 @@ cfg = {
   "node": {
     "ip":           e("_WNI", ""),
     "subnet":       e("_WSNET", "192.168.1.0/24"),
-    "primary_disk": "",
-    "backup_disk":  "",
   },
   "github": {
     "owner":  e("_WGHO", ""),
@@ -137,9 +130,8 @@ cfg = {
   "zot": {
     "admin_password": "",
   },
-  "dex": {
+  "keycloak": {
     "grafana_client_secret": "",
-    "admin_password":        e("_WDEXPW", ""),
   },
 }
 with open(config_file, "w") as f:
@@ -201,8 +193,6 @@ NODE_IP="${NODE_IP:-$(_cfg 'node.ip')}"
 GITHUB_OWNER="${GITHUB_OWNER:-$(_cfg 'github.owner')}"
 GITHUB_REPO="${GITHUB_REPO:-$(_cfg 'github.repo')}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-$(_cfg 'github.token')}"
-PRIMARY_DISK="${PRIMARY_DISK:-$(_cfg 'node.primary_disk')}"
-BACKUP_DISK="${BACKUP_DISK:-$(_cfg 'node.backup_disk')}"
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$(_cfg 'aws.access_key_id')}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-$(_cfg 'aws.secret_access_key')}"
 AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-$(_cfg 'aws.region')}"
@@ -254,25 +244,6 @@ if [[ -f "${TALOSCONFIG_PATH}" ]]; then
   talosctl config endpoint "${NODE_IP}" 2>/dev/null || true
   talosctl config node "${NODE_IP}" 2>/dev/null || true
 fi
-
-# ── Disk selection (maintenance mode only) ────────────────────────────────────
-if _in_maintenance_mode && { [[ -z "${PRIMARY_DISK:-}" ]] || [[ -z "${BACKUP_DISK:-}" ]]; }; then
-  echo "=== Available disks on ${NODE_IP} ==="
-  talosctl get disks --insecure --nodes "${NODE_IP}"
-  echo ""
-  echo "Enter the WWID of each disk (WWID column above). Avoid TRANSPORT=usb drives."
-  echo ""
-  if [[ -z "${PRIMARY_DISK:-}" ]]; then
-    read -rp "Primary disk WWID: " _wwid
-    PRIMARY_DISK="/dev/disk/by-id/${_wwid}"
-  fi
-  if [[ -z "${BACKUP_DISK:-}" ]]; then
-    read -rp "Backup disk WWID:  " _wwid
-    BACKUP_DISK="/dev/disk/by-id/${_wwid}"
-  fi
-fi
-PRIMARY_DISK="${PRIMARY_DISK:-}"
-BACKUP_DISK="${BACKUP_DISK:-}"
 
 # ── Phase 1: Key Generation ───────────────────────────────────────────────────
 echo ""
@@ -472,11 +443,10 @@ echo "=== Bootstrap Complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Run PROFILE=1-node ./bootstrap/scripts/post-deploy.sh to check the deployment"
-echo "  2. Update overlays/1-node/patches/seaweedfs-single.yaml with disk paths:"
-echo "     PRIMARY_DISK=${PRIMARY_DISK}"
-echo "     BACKUP_DISK=${BACKUP_DISK}"
-echo "  3. Add SOPS-encrypted secrets for Cloudflare and Tailscale, and commit the"
-echo "     recovery system's AWS credentials written by make-recovery-credentials.sh"
+echo "  2. Commit the recovery system's AWS credentials written by make-recovery-credentials.sh,"
+echo "     and the other SOPS-encrypted secrets apply-config.py just wrote from config.json"
+echo "  3. Fill in and commit the secrets apply-config.py does not generate"
+echo "     (docs/backlog.md, \"most SOPS secrets have no bootstrap generator\")"
 echo ""
 if [[ -n "${TALOS_VERSION}" ]]; then
   _client_ver=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}')

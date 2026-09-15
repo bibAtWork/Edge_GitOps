@@ -15,8 +15,6 @@
 # ansible-playbook -i inventory.yml bootstrap.yml \
 #   -e profile=1-node \
 #   -e node_ip=192.168.1.10 \
-#   -e primary_disk=/dev/disk/by-id/ata-Samsung_SSD_... \
-#   -e backup_disk=/dev/disk/by-id/ata-WDC_... \
 #   -e github_owner=myuser \
 #   -e github_repo=homelab-cluster
 #
@@ -138,8 +136,6 @@
         chdir: "{{ repo_root }}"
       environment:
         NODE_IP:      "{{ node_ip }}"
-        PRIMARY_DISK: "{{ primary_disk | default('') }}"
-        BACKUP_DISK:  "{{ backup_disk | default('') }}"
         GITHUB_OWNER:  "{{ github_owner }}"
         GITHUB_REPO:   "{{ github_repo }}"
         GITHUB_BRANCH: "{{ github_branch | default('main') }}"
