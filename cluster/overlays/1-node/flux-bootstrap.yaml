@@ -11,7 +11,14 @@ spec:
   timeout: 5m
   sourceRef:
     kind: GitRepository
-    name: homelab-cluster
+    # flux bootstrap names the GitRepository it creates "flux-system" by
+    # default (no --source-name/--name override in bootstrap-1node.sh's
+    # invocation) -- confirmed against the real, committed
+    # flux-system/gotk-sync.yaml, which flux itself generated and which
+    # carries this exact name. This file is documentation, not applied
+    # anywhere, so getting the name wrong broke nothing live -- but it
+    # would mislead anyone using it as a reference.
+    name: flux-system
   decryption:
     provider: sops
     secretRef:
