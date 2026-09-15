@@ -72,7 +72,8 @@ Gather credentials from external services — nothing gets edited manually in th
 #### Nodes
 
 - Boot each machine from the [Talos Linux ISO](https://github.com/siderolabs/talos/releases) and note the IP address(es)
-- For 1-node: note the disk WWIDs — the bootstrap will prompt if they aren't in config.json
+- For 1-node: `node.ip` in config.json. Disks are selected automatically (`controlplane.yaml`'s `UserVolumeConfig` selectors) — no disk path to note down.
+- For 3-node: `node.ip1`/`ip2`/`ip3` plus `node.vip`, a free LAN IP for the control-plane endpoint (not one of the three node IPs)
 
 #### GitHub
 
@@ -117,6 +118,7 @@ $EDITOR bootstrap/config.json
 {
   "cluster":   { "name": "homelab", "letsencrypt_email": "you@example.com" },
   "node":      { "ip": "192.168.1.10", "subnet": "192.168.1.0/24" },
+  // 3-node instead uses: "node": { "ip1": "...", "ip2": "...", "ip3": "...", "vip": "...", "subnet": "..." }
   "github":    { "owner": "...", "repo": "...", "branch": "main", "token": "..." },
   "aws":       { "region": "eu-central-1", "access_key_id": "...", "secret_access_key": "..." },
   "cloudflare":{ "api_token": "..." },
@@ -165,7 +167,7 @@ Keep `.age.key` present until bootstrap finishes — the script uses it to creat
 ./bootstrap/scripts/bootstrap-3node.sh
 ```
 
-No environment variables to export — everything comes from `config.json`. The script is idempotent; re-running it resumes from where it left off.
+No environment variables to export — everything comes from `config.json`. `bootstrap-1node.sh` is idempotent: it detects the node's actual state (maintenance / installed / bootstrapped / Kubernetes up / Flux up) and resumes from there, so re-running after a failure is always safe. `bootstrap-3node.sh` shares its config.json/apply-config.py/Terraform handling but not that state detection — Phases 1-2 (secrets, Talos config generation) and Phases 5-6 (Flux, Terraform) are safe to re-run, but a failure partway through applying config to the three nodes or bootstrapping etcd needs manual recovery rather than just running the script again.
 
 The bootstrap handles end-to-end:
 

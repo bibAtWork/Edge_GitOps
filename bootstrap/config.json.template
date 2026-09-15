@@ -11,7 +11,12 @@
   },
 
   "node": {
+    "_comment": "ip is read by bootstrap-1node.sh; ip1/ip2/ip3/vip are read by bootstrap-3node.sh. Fill in only the ones your profile needs -- the other script ignores fields it doesn't read. subnet is shared by both.",
     "ip": "",
+    "ip1": "",
+    "ip2": "",
+    "ip3": "",
+    "vip": "",
     "subnet": "192.168.1.0/24"
   },
 
