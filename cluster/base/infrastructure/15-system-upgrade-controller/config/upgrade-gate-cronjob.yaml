@@ -62,7 +62,7 @@ spec:
               # runAsNonRoot and does not depend on a package mirror being
               # reachable at the moment an upgrade is being decided. SUC already
               # pulls this image for its own Jobs, so it is present on the node.
-              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.2
               command: ["/bin/sh", "/scripts/gate.sh"]
               env:
                 - name: VM_IMPORT_URL
