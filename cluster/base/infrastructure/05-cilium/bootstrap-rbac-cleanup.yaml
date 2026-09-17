@@ -111,7 +111,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: cleanup
-              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.2
               command:
                 - /bin/sh
                 - -c

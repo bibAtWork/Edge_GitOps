@@ -42,7 +42,7 @@ spec:
               # upgrade-backup-gate-cronjob.yaml for why that matters (Falco
               # fires Critical on `apk add`, once per run). Already on the
               # node: SUC pulls this image for its own Jobs.
-              image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+              image: docker.io/rancher/kuberlr-kubectl:v8.1.2
               command: ["/bin/sh", "/scripts/gate.sh"]
               volumeMounts:
                 - name: scripts
