@@ -6,7 +6,7 @@ records why it is built this way, and [the recovery runbook](runbooks/backup-rec
 how to restore.
 
 What has to be recoverable, and how well, is stated in one place:
-[`37-backup-system/recovery-policy.yaml`](../cluster/base/infrastructure/37-backup-system/recovery-policy.yaml).
+[`37-backup-system/deferred/recovery-policy.yaml`](../cluster/base/infrastructure/37-backup-system/deferred/recovery-policy.yaml).
 
 ## What is protected
 

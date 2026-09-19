@@ -74,7 +74,7 @@ jobs:
       - name: Reject :latest image tags in rendered overlays
         run: |
           FAIL=0
-          for overlay in 1-node 3-node; do
+          for overlay in 1-node 3-node 1-node-config 3-node-config; do
             # The `-?` is load-bearing. Container specs render as list items
             # (`      - image: foo:latest`), and the previous pattern required
             # whitespace immediately before `image:`, so the leading dash broke
@@ -103,7 +103,10 @@ jobs:
             # carried a bare `busybox` for the life of this repo, inside a
             # ConfigMap, so neither this gate nor schema validation touched it.
             # A digest pin is fine; a bare repository name is not.
-            untagged=$(grep -E '^[[:space:]]*-?[[:space:]]*image:' "$rendered" | sed -E 's/^.*image:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/' | grep -v '@sha256:' | awk -F/ '$NF !~ /:/' || true)
+            # Kyverno policies also use an `image:` match key with wildcard
+            # values such as docker.io/*. Those are policy expressions rather
+            # than pullable container references, so exclude wildcard values.
+            untagged=$(grep -E '^[[:space:]]*-?[[:space:]]*image:' "$rendered" | sed -E 's/^.*image:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/' | grep -v '@sha256:' | grep -v '\*' | awk -F/ '$NF !~ /:/' || true)
             rm -f "$rendered"
             if [ -n "$untagged" ]; then
               echo "ERROR: untagged images in ${overlay} overlay (resolve to :latest at pull time):"
@@ -209,7 +212,7 @@ jobs:
 
           errors = []
 
-          for overlay in ('1-node', '3-node'):
+          for overlay in ('1-node-config', '3-node-config'):
               result = subprocess.run(
                   ['kubectl', 'kustomize', '--load-restrictor',
                    'LoadRestrictionsNone', f'cluster/overlays/{overlay}'],
@@ -295,20 +298,12 @@ jobs:
           import re, subprocess, sys, yaml
 
           errors = []
-          # Round-2 code review: 3-node's own kustomization.yaml never lists
-          # 37-backup-system at all -- that overlay simply doesn't run the
-          # recovery system, which is not a defect in it. The first version
-          # of this check treated "no policy ConfigMap" as an error
-          # unconditionally, so it failed on every PR, on every overlay,
-          # forever (confirmed against #629's own CI run: "[3-node] no
-          # ConfigMap/recovery-policy found", merged red). An overlay with no
-          # policy is now skipped rather than failed; checked stays 0 for it,
-          # and every overlay skipping is what actually fails the job --
-          # same fail-closed shape as elsewhere in this file, just applied to
-          # "the check ran nowhere" instead of "the check found a mismatch".
+          # Recovery policy and CronWorkflows are CRD-dependent resources and
+          # therefore live in each profile's config overlay. An overlay with
+          # no policy is skipped; every overlay skipping fails closed below.
           checked_overlays = []
 
-          for overlay in ('1-node', '3-node'):
+          for overlay in ('1-node-config', '3-node-config'):
               result = subprocess.run(
                   ['kubectl', 'kustomize', '--load-restrictor',
                    'LoadRestrictionsNone', f'cluster/overlays/{overlay}'],
@@ -423,15 +418,24 @@ jobs:
           }
 
           def components(profile):
-              names = set()
+              from pathlib import Path
+              import yaml
+              names, visited = set(), set()
+              def visit(path):
+                  path = path.resolve()
+                  if path in visited:
+                      return
+                  visited.add(path)
+                  for part in path.parts:
+                      if re.fullmatch(r'[0-9]{2}-[a-z0-9-]+', part):
+                          names.add(part)
+                  data = yaml.safe_load(path.read_text(encoding='utf-8-sig'))
+                  for resource in data.get('resources', []):
+                      child = path.parent / resource
+                      if child.is_dir():
+                          visit(child / 'kustomization.yaml')
               for suffix in ('', '-config'):
-                  path = f'cluster/overlays/{profile}{suffix}/kustomization.yaml'
-                  try:
-                      text = open(path, encoding='utf-8-sig').read()
-                  except FileNotFoundError:
-                      continue
-                  for m in re.finditer(r'base/infrastructure/([0-9]{2}-[a-z0-9-]+)', text):
-                      names.add(m.group(1))
+                  visit(Path(f'cluster/overlays/{profile}{suffix}/kustomization.yaml'))
               return names
 
           one = components('1-node')
@@ -471,3 +475,11 @@ jobs:
           else:
               print(f'1-node and 3-node reference the same {len(one)} infrastructure components.')
           PY
+
+  platform-contracts:
+    name: Platform extension contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify RBAC, Flux dependencies, telemetry and application template
+        run: python3 scripts/check-platform-contracts.py

@@ -2,12 +2,16 @@
 
 Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD GitOps.
 
+See the [platform extension contract](docs/runbooks/platform-extension.md) for application
+onboarding, shared services, and the required Flux inventory migration. The three-node
+profile still has single-instance databases; it does not guarantee end-to-end availability.
+
 ## Profiles
 
-| | 3-node HA | 1-node |
+| | 3-node scale-out | 1-node |
 |---|---|---|
 | Control plane | 3-member etcd quorum | Single member |
-| Node failure tolerance | 1 node | Total outage |
+| Control-plane failure tolerance | 1 node | Total outage |
 | SeaweedFS replication | Cross-node (`001`) | Dual-disk via collections |
 | Monthly cost | ~$12–14 | ~$5–6 |
 
@@ -36,7 +40,7 @@ cluster/
 │   ├── 00-bootstrap/        # Namespaces, LimitRanges, SOPS
 │   └── infrastructure/      # Components 00-37
 ├── overlays/
-│   ├── 3-node/              # ← Flux path for HA cluster
+│   ├── 3-node/              # ← Flux path for three-node cluster
 │   └── 1-node/              # ← Flux path for single node
 bootstrap/
 ├── config.json.template     # ← fill this in once; bootstrap reads it
@@ -163,7 +167,7 @@ Keep `.age.key` present until bootstrap finishes — the script uses it to creat
 # Single node
 ./bootstrap/scripts/bootstrap-1node.sh
 
-# 3-node HA
+# 3-node scale-out
 ./bootstrap/scripts/bootstrap-3node.sh
 ```
 
@@ -233,7 +237,7 @@ export AWS_REGION=eu-central-1 CLUSTER_NAME=homelab
 |---|---|
 | Inter-node pod traffic | WireGuard configured but no-op on single-node (no inter-node traffic) |
 | Same-node pod traffic | No pod-to-pod encryption (SPIRE mTLS disabled — races with Cilium bootstrap) |
-| Internet-bound egress | HTTPS-only enforced via `CiliumClusterwideNetworkPolicy` |
+| Internet-bound egress | TCP/443 allowed by `CiliumClusterwideNetworkPolicy`; TLS and destinations are not verified |
 | Git secrets at rest | SOPS + Age (SOPS keypair) |
 | AWS S3 — recovery vault | SSE-S3, and restic encrypts every blob client-side with the escrowed repository password ([ADR-012](./docs/adr/0012-recovery-system.md)) |
 
@@ -262,7 +266,7 @@ Default deny-all ingress/egress with explicit allow rules:
 - Recovery system egress to AWS S3, from `backup-system` only
 - SeaweedFS internal cluster traffic
 - Monitoring scrape
-- **Internet egress: HTTPS (port 443) only** — pods needing plain HTTP must add an explicit per-namespace policy
+- **Internet egress: TCP/443** — this L4 policy does not verify TLS or restrict destinations
 
 ## Automated Patching
 
@@ -353,6 +357,7 @@ See [`docs/adr/`](./docs/adr/) for architecture decision records, plus
 [`docs/network-architecture.md`](./docs/network-architecture.md) and
 [`docs/backup-architecture.md`](./docs/backup-architecture.md) for topic-specific deep dives.
 
-## Technical Debt
+## Known limitations
 
-_No open items._
+The [platform extension contract](docs/runbooks/platform-extension.md) records the three-node
+availability limits and the live validation required before treating that profile as HA.

@@ -1,7 +1,7 @@
 # Drill 3: point-in-time recovery of Keycloak to thirty minutes ago, from the
 # live barman archive, into a scratch cluster that never archives.
 #
-# The template this submits is Flux-managed (37-backup-system/workflow-templates/
+# The template this submits is Flux-managed (37-backup-system/deferred/workflow-templates/
 # drill-pitr.yaml) -- see drill-files-aws.yaml in this directory for why this
 # file has to stay this small (Strict requires workflowTemplateRef).
 apiVersion: argoproj.io/v1alpha1

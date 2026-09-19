@@ -476,7 +476,7 @@ removes what it made. The end-to-end tests of the whole system, failures include
 
 Each file here only submits its drill -- it names a `workflowTemplateRef` (required by
 `controller.workflowRestrictions.templateReferencing: Strict`, argo-workflows.yaml) pointing at the
-Flux-managed WorkflowTemplate of the same name (`37-backup-system/workflow-templates/drill-*.yaml`),
+Flux-managed WorkflowTemplate of the same name (`37-backup-system/deferred/workflow-templates/drill-*.yaml`),
 which carries the actual steps.
 
 | Drill | Proves |
