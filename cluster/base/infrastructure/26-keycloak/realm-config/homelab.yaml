@@ -247,9 +247,11 @@ clients:
     # rather than a new client, a new secret, a new env var and a rename of an
     # immutable Job.
     redirectUris:
+      - https://canary.homelab.data-harness.org/oauth2/callback
       - https://hubble.homelab.data-harness.org/oauth2/callback
       - https://kubeopencode.homelab.data-harness.org/oauth2/callback
     webOrigins:
+      - https://canary.homelab.data-harness.org
       - https://hubble.homelab.data-harness.org
       - https://kubeopencode.homelab.data-harness.org
     secret: $(env:EDGE_CLIENT_SECRET)

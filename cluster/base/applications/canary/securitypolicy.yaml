@@ -1,0 +1,37 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: platform-canary-oidc
+  namespace: platform-canary
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: platform-canary
+  oidc:
+    provider:
+      issuer: https://keycloak.homelab.data-harness.org/realms/homelab
+      authorizationEndpoint: https://keycloak.homelab.data-harness.org/realms/homelab/protocol/openid-connect/auth
+      tokenEndpoint: http://keycloak.keycloak.svc.cluster.local/realms/homelab/protocol/openid-connect/token
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: keycloak
+          namespace: keycloak
+          port: 80
+    clientID: homelab-edge
+    clientSecret:
+      name: keycloak-edge-oidc
+    forwardAccessToken: true
+    scopes:
+      - openid
+      - email
+      - groups
+  extAuth:
+    grpc:
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: opa
+          namespace: security
+          port: 9191
