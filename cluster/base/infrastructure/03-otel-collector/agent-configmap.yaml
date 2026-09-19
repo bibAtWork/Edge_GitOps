@@ -91,11 +91,11 @@ data:
     service:
       pipelines:
         metrics:
-          receivers: [hostmetrics, prometheus]
+          receivers: [hostmetrics, prometheus, otlp]
           processors: [memory_limiter, batch, resource]
           exporters: [prometheusremotewrite]
         logs:
-          receivers: [filelog, filelog/audit]
+          receivers: [filelog, filelog/audit, otlp]
           processors: [memory_limiter, batch, resource]
           exporters: [otlp/gateway]
         traces:

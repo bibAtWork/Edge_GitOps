@@ -10,6 +10,8 @@ data:
         protocols:
           grpc:
             endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
 
     processors:
       batch:
@@ -26,6 +28,8 @@ data:
             value: homelab
 
     exporters:
+      prometheusremotewrite:
+        endpoint: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/write
       otlphttp/victorialogs:
         endpoint: http://vlsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:9428/insert/opentelemetry
       otlphttp/victoriatraces:
@@ -33,6 +37,10 @@ data:
 
     service:
       pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters: [prometheusremotewrite]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch, resource]
