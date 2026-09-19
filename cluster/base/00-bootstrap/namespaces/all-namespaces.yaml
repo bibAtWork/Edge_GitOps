@@ -14,6 +14,7 @@ kind: Namespace
 metadata:
   name: monitoring
   labels:
+    homelab.local/gateway-access: "true"
     # Grafana, VictoriaMetrics/Logs/Traces, vmagent, vmalert and the OTel gateway.
     # None of them touch the host: the two workloads that did -- node-exporter and
     # the OTel agent -- now run in monitoring-agents.
@@ -69,6 +70,7 @@ kind: Namespace
 metadata:
   name: zot
   labels:
+    homelab.local/gateway-access: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -95,6 +97,7 @@ kind: Namespace
 metadata:
   name: gateway-system
   labels:
+    homelab.local/gateway-access: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -122,6 +125,8 @@ kind: Namespace
 metadata:
   name: immich
   labels:
+    homelab.local/application: "true"
+    homelab.local/gateway-access: "true"
     # Bitnami postgresql init container runs as root to chown the data directory.
     # baseline allows this via runAsUser override; restricted blocks it.
     pod-security.kubernetes.io/enforce: baseline
@@ -132,6 +137,8 @@ kind: Namespace
 metadata:
   name: paperless
   labels:
+    homelab.local/application: "true"
+    homelab.local/gateway-access: "true"
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/warn: baseline
 ---
@@ -166,6 +173,7 @@ kind: Namespace
 metadata:
   name: keycloak
   labels:
+    homelab.local/gateway-access: "true"
     # Bitnami PostgreSQL init container runs as root to chown the data directory.
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/warn: baseline
@@ -183,6 +191,7 @@ kind: Namespace
 metadata:
   name: kubeopencode-system
   labels:
+    homelab.local/gateway-access: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -237,6 +246,7 @@ metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
+    homelab.local/gateway-access: "true"
     # Privileged is the honest level, not an aspiration: Cilium, CoreDNS and the
     # static control-plane pods need host access and cannot run under baseline.
     #

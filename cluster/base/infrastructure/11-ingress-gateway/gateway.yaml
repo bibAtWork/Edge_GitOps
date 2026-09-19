@@ -13,18 +13,8 @@ spec:
         namespaces:
           from: Selector
           selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values:
-                  - monitoring
-                  - zot
-                  - kube-system
-                  - gateway-system
-                  - immich
-                  - paperless
-                  - keycloak
-                  - kubeopencode-system
+            matchLabels:
+              homelab.local/gateway-access: "true"
       tls:
         mode: Terminate
         certificateRefs:
