@@ -891,26 +891,57 @@ blast radius and belongs in its own entry.
 
 ## Immich is a major version behind, and the upgrade is now a decision rather than a drift
 
-Immich runs chart `0.12.0` / app **v2.6.3**. Chart `0.13.1` (app **v3.0.0**) has been published
-since 2026-07-03, and upstream app v3.1.0 since 2026-07-29. Until #513 neither Immich
-HelmRelease named a chart version, so Flux resolved `*` and would have taken v3.0.0 unattended
-on the next index refresh -- a major version with a database migration, arriving with no PR and
-skipping this repo's own major-update checklist. It had not happened only because the cached
-index was stale.
+Immich runs chart `0.12.0`, and as of this HelmRelease now overrides the app image tag to
+**v2.7.5** (was v2.6.3, the chart's own stale default -- see below).
 
-Both are now pinned to what is running, so the upgrade is a reviewable Renovate PR. It is worth
-doing rather than deferring indefinitely: Immich carries the large majority of the cluster's
-critical CVE findings across `immich-server`, `immich-machine-learning` and its postgres image,
-and roughly half of those carry a `fixedVersion`, meaning they clear with the app version.
+Re-checked 2026-09-19 against the real chart repo (`immich-app/immich-charts`, both its
+published index and its git tags) and the real app repo (`immich-app/immich`), because this
+entry's own earlier numbers turned out to be wrong -- checked against a stale cached index, not
+the source. Ground truth, verified by parsing the actual index.yaml rather than summarising it:
 
-What the upgrade needs, and why it is not a routine merge:
+- **Chart `0.12.0` / appVersion v2.6.3 is and has always been the newest chart the
+  immich-charts repo has ever published** (2026-05-15). No `0.12.1`, no `0.13.x`, nothing
+  higher exists in the index Flux/Renovate actually read.
+- immich-charts' own git repo does have a later tag, `immich-0.12.1` (appVersion v3.0.0), but it
+  was never packaged and pushed to the index -- it is invisible to this HelmRelease and to
+  Renovate no matter how often either checks. Whatever stalled there is entirely upstream.
+- Separately, upstream kept shipping **v2.x** after v2.6.3: v2.7.0 through v2.7.5
+  (2026-04-07 to 2026-04-13, bugfixes and translations only, confirmed against every release's
+  notes) before jumping to v3.0.0 (2026-07-02). The chart never got a release in that window to
+  carry it forward -- so the deployed app was stuck on v2.6.3 not because v2.6.3 was the latest
+  2.x, but because the chart simply skipped straight from "last release before v2.7" to "last
+  release before v3" with nothing in between.
+- This HelmRelease now overrides `controllers.main.containers.main.image.tag` directly (a plain
+  Helm values override, same mechanism the DB_* env vars already use) to run v2.7.5 without
+  waiting on a chart release or touching the `version: 0.12.0` pin. Low-risk by design: same
+  major version, no schema change, nothing in its release notes touches OAuth config, the CNPG
+  connection or resource sizing.
+- Upstream app itself is further ahead again: **v3.2.2** (2026-09-15). That gap is the real,
+  still-open decision below -- the tag override above does not touch it.
+- Not yet wired into Renovate: the new `image.tag` override has no datasource attached (unlike
+  the chart version and the vectorchord DB image), so it will not bump itself when v2.7.6+
+  ships. A custom regex manager like the existing talos/vectorchord ones would close that; not
+  done here since it is a separate concern from the version fix itself.
+
+Worth doing rather than deferring indefinitely: Immich carries the large majority of the
+cluster's critical CVE findings across `immich-server`, `immich-machine-learning` and its
+database image, and roughly half of those carry a `fixedVersion`, meaning they clear with the
+app version.
+
+What the v2 -> v3 upgrade needs, and why it is not a routine merge:
 
 - a verified database dump taken first, and read back -- not just taken;
 - the major-update checklist, since v2 -> v3 crosses a schema migration;
-- a decision about `immich-postgresql`, whose image is pinned separately in values
-  (`immich-app/postgres:17-vectorchord0.3.0-pgvectors0.3.0`) and may need to move with the app;
-- awareness that the chart trails the app by roughly a minor version, so even after this the
-  cluster will not be on the newest Immich.
+- awareness that even after landing on the latest chart, the cluster will trail upstream app by
+  a step -- the chart has never tracked the app exactly, and a version behind the newest chart
+  release is not itself a reason to wait further.
+
+Closed since this entry was first written: the "decision about `immich-postgresql`" point is
+gone -- #603/#604 moved Immich's database onto CloudNativePG (the bundled bitnami postgres
+sub-chart this entry used to worry about no longer exists), and its image
+(`ghcr.io/tensorchord/cloudnative-vectorchord`) is now tracked by its own Renovate custom
+manager with `automerge: false`/`manual-review` (#636), grouped with the `immich` chart so both
+land in front of the same review together.
 
 ## Container images track the chart's appVersion, not the image itself
 
