@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - ../canary
   - ../../infrastructure/16-immich/config
   - ../../infrastructure/17-paperless-ngx/config
   - ../../infrastructure/16-immich/deferred
