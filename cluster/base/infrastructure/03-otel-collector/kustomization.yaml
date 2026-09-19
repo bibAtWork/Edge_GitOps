@@ -6,4 +6,3 @@ resources:
   - daemonset.yaml
   - gateway-deployment.yaml
   - gateway-service.yaml
-  - tracing-referencegrant.yaml

@@ -1,0 +1,65 @@
+# Check controllers only: waiting on application releases would form a dependency cycle.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: operators-ready
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./cluster/base/operator-readiness
+  prune: true
+  timeout: 15m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: flux-system
+  healthChecks:
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: cilium
+    namespace: kube-system
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: cert-manager
+    namespace: cert-manager
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: cloudnative-pg
+    namespace: cnpg-system
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: plugin-barman-cloud
+    namespace: cnpg-system
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: argo-workflows
+    namespace: backup-system
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: vmstack
+    namespace: monitoring
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: longhorn
+    namespace: longhorn-system
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: kyverno
+    namespace: kyverno
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: tailscale-operator
+    namespace: tailscale
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: system-upgrade-controller
+    namespace: system-upgrade
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: envoy-gateway
+    namespace: envoy-gateway-system
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: kubeopencode
+    namespace: kubeopencode-system

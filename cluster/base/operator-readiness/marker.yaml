@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: operator-readiness
+  namespace: flux-system
+data:
+  purpose: Controller health gate; root applies operators, config consumes their CRDs.

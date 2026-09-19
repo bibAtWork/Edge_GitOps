@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../infrastructure/10-network-policies
+  - ../infrastructure/06-cert-manager/config
+  - ../infrastructure/28-envoy-gateway/config
+  - ../infrastructure/11-ingress-gateway
+  - ../infrastructure/04-grafana/config
+  - ../infrastructure/05-cilium/config
+  - ../infrastructure/12-zot/config
+  - ../infrastructure/14-tailscale-operator/config
+  - ../infrastructure/15-system-upgrade-controller/config
+  - ../infrastructure/19-kyverno/config
+  - ../infrastructure/26-keycloak/config
+  - ../infrastructure/27-kubeopencode/config
+  - ../infrastructure/01-seaweedfs/deferred
+  - ../infrastructure/02-victoriametrics-stack/deferred
+  - ../infrastructure/03-otel-collector/deferred
+  - ../infrastructure/35-node-exporter/deferred
+  - ../infrastructure/13-trivy-operator/deferred
+  - ../infrastructure/20-kubescape/deferred
+  - ../infrastructure/26-keycloak/deferred
+  - ../infrastructure/24-opa/deferred
+  - ../infrastructure/27-kubeopencode/deferred
+  - ../infrastructure/28-envoy-gateway/operator/deferred
+  - ../infrastructure/32-longhorn/deferred
+  - ../infrastructure/33-cloudnative-pg/deferred
+  - ../infrastructure/37-backup-system/deferred
+  - ../applications/config

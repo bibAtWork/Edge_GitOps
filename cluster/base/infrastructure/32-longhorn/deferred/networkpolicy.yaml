@@ -1,0 +1,49 @@
+# Longhorn's manager and instance managers talk to each other and to the host;
+# nothing else in the cluster needs to reach them except the CSI plugin. This
+# namespace runs with enforce: privileged, so the network policy is doing real
+# work in limiting what a compromise there can reach.
+#
+# Verify with `hubble observe -n longhorn-system --verdict DROPPED` before
+# treating this as done -- over-tight policy here presents as volumes that attach
+# but never become healthy, which is easy to misdiagnose as a storage fault.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-restrict
+  namespace: longhorn-system
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: longhorn-system
+    # kubelet and iscsid live on the host and need the CSI socket paths.
+    - fromEntities:
+        - host
+        - remote-node
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: longhorn-system
+    - toEntities:
+        - host
+        - remote-node
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+    # SeaweedFS S3, for backup targets and any future RecurringJob destination.
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            app.kubernetes.io/component: filer
+            io.kubernetes.pod.namespace: seaweedfs
+      toPorts:
+        - ports:
+            - port: "8333"
+              protocol: TCP

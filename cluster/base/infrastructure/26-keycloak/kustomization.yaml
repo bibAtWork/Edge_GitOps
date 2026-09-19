@@ -8,16 +8,11 @@ resources:
   - paperless-client-secret.yaml
   - zot-client-secret.yaml
   - immich-client-secret.yaml
-  - securitypolicy-referencegrant.yaml
   - setup-job.yaml
   - config-cli-job.yaml
   - google-idp-secret.yaml
   - edge-client-secret.yaml
-  - cilium-policy.yaml
-  - postgres-cluster.yaml
-  - objectstore.yaml
   - recovery-object-store.yaml
-  - archive-netpol.yaml
 
 configMapGenerator:
   # Standalone ConfigMap (not folded into keycloak-setup-script) so

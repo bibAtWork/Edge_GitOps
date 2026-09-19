@@ -1,0 +1,239 @@
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cilium-agent
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      k8s-app: cilium
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cilium-operator
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      io.cilium/app: operator
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: trivy-operator
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - trivy-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-operator
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cilium-envoy
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      k8s-app: cilium-envoy
+  podMetricsEndpoints:
+    - port: envoy-metrics
+      path: /metrics
+---
+# cert-manager exposes certificate and ACME metrics on port 9402 of each component service.
+# The controller service is the primary source of certmanager_certificate_* metrics.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: cert-manager
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      relabelConfigs:
+        - targetLabel: job
+          replacement: cert-manager
+---
+# Flux controllers all expose Prometheus metrics on port 8080 (http-prom).
+# A single VMPodScrape with app.kubernetes.io/part-of=flux covers all controllers
+# (helm, kustomize, source, notification, image-reflector, image-automation).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: flux-controllers
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: flux
+  podMetricsEndpoints:
+    - port: http-prom
+      path: /metrics
+      relabelConfigs:
+        - targetLabel: job
+          replacement: flux
+        - sourceLabels: [__meta_kubernetes_pod_label_app]
+          targetLabel: controller
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: falco
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - falco
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falco
+  podMetricsEndpoints:
+    - port: web
+      path: /metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: kyverno
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kyverno
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kyverno-admission-controller
+  podMetricsEndpoints:
+    - port: metrics-port
+      path: /metrics
+---
+# Grafana exposes login and alert metrics at /metrics on its HTTP port.
+# With Keycloak SSO as the primary auth method, native POST logins are anomalous.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  endpoints:
+    - port: service
+      path: /metrics
+---
+# Backlog item 13 / ADR-001 "not yet realized": Envoy Gateway's own observability.
+# Two separate workloads in envoy-gateway-system, both needed for full coverage:
+# the control plane (the operator reconciling Gateway API resources into xDS
+# config) and the data plane (the actual Envoy proxy handling Gateway traffic).
+# Hubble covers the L4/Cilium view already; this is the L7/Envoy one that was
+# missing entirely — "no VMServiceScrape targets envoy-gateway-system" from the
+# original finding.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: envoy-gateway-controller
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      control-plane: envoy-gateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      relabelConfigs:
+        - targetLabel: job
+          replacement: envoy-gateway-controller
+---
+# The data-plane proxy pod (the actual Envoy instance) has no Service exposing
+# its metrics port (19001) — only 443/80 are exposed on
+# envoy-gateway-system-homelab-gateway-*, so this scrapes the pod directly
+# rather than adding a port to that Service (which already carries several
+# comments about VIP/LB-IPAM behavior not worth touching for this). Confirmed
+# live: this pod's /stats/prometheus (not /metrics — Envoy's own path) returns
+# real per-route Envoy stats (envoy_cluster_*, envoy_http_*, etc.), same
+# pattern as the existing cilium-envoy VMPodScrape above for Cilium's own
+# embedded Envoy instance.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: envoy-gateway-proxy
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/name: envoy
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      relabelConfigs:
+        - targetLabel: job
+          replacement: envoy-gateway-proxy
+---
+# Longhorn manager metrics (:9500). Added 2026-08-24 after finding that nothing
+# in longhorn-system was being scraped at all -- `up{namespace="longhorn-system"}`
+# returned an empty vector and not a single longhorn_* series existed.
+#
+# That gap mattered more than it looks. Longhorn now backs every application
+# volume in the cluster and, under ADR-002, its RecurringJobs are the mechanism
+# that produces backups at all. Without these series there is no way to alert on
+# a backup tier silently ceasing to run, which is the failure this whole design
+# is built to notice.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: longhorn
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+  selector:
+    matchLabels:
+      app: longhorn-manager
+  endpoints:
+    - port: manager
+      path: /metrics

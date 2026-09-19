@@ -1,0 +1,80 @@
+---
+# Controller <-> data-plane xDS (same namespace): the data-plane Envoy pods pull
+# their listener/route config from the envoy-gateway controller pod on 18000-19001.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: envoy-gateway-system
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+  egress:
+    - toEndpoints:
+        - {}
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+---
+# Ordinary ingress rule on an ordinary pod — this is the entire replacement for
+# the old two-policy-rule on Cilium's special reserved:ingress L7LB entity (see
+# Agent.md and ADR-001). No BPF direction-misclassification bug class applies
+# here: Envoy Gateway's data-plane pods are regular pods with regular policy.
+#
+# The ports MUST be the container ports, not the Gateway listener ports. Envoy
+# Gateway defaults to useListenerPortAsContainerPort: false, which maps any
+# listener port below 1024 to port+10000 so the proxy never needs
+# CAP_NET_BIND_SERVICE — so listener 80 is served on 10080 and 443 on 10443.
+# External traffic is DNAT'd by the LoadBalancer VIP straight to the pod, and
+# therefore arrives on 10080/10443.
+#
+# Listing 80/443 here instead is what broke the 2026-08-14 cutover: the selector
+# matched the pods, the policy looked correct, and every SYN was dropped with
+# "policy-verdict:none INGRESS DENIED" on port 10080. That presented as a silent
+# connection timeout and was misattributed first to upstream cilium#44630 and
+# then to the kube-proxy/nftables conflict. Verified 2026-08-16 against a live
+# test Gateway: 10080/10443 works, 80/443 does not.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-world-ingress
+  namespace: envoy-gateway-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+  ingress:
+    - fromEntities:
+        - world
+        - host
+        - cluster
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+            - port: "10080"
+              protocol: TCP
+---
+# Where the gateway may forward: any backend pod in the cluster. Replaces
+# allow-gateway-egress-to-cluster's role, again as an ordinary policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-egress-to-backends
+  namespace: envoy-gateway-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+  egress:
+    - toEntities:
+        - cluster

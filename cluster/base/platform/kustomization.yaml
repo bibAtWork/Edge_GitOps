@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../00-bootstrap
+  - ../infrastructure/sources
+  - ../infrastructure/00-gateway-api
+  - ../infrastructure/00-local-path-provisioner
+  - ../infrastructure/01-seaweedfs
+  - ../infrastructure/02-victoriametrics-stack
+  - ../infrastructure/03-otel-collector
+  - ../infrastructure/35-node-exporter
+  - ../infrastructure/36-talos-cve-watch
+  - ../infrastructure/04-grafana
+  - ../infrastructure/05-cilium
+  - ../infrastructure/06-cert-manager/operator
+  - ../infrastructure/08-external-dns
+  - ../infrastructure/09-reloader
+  - ../infrastructure/12-zot/operator
+  - ../infrastructure/13-trivy-operator
+  - ../infrastructure/14-tailscale-operator/operator
+  - ../infrastructure/15-system-upgrade-controller/operator
+  - ../infrastructure/18-falco
+  - ../infrastructure/19-kyverno
+  - ../infrastructure/20-kubescape
+  - ../infrastructure/21-flux-notifications
+  - ../infrastructure/26-keycloak
+  - ../infrastructure/24-opa
+  - ../infrastructure/27-kubeopencode
+  - ../infrastructure/28-envoy-gateway/operator
+  - ../infrastructure/29-metrics-server
+  - ../infrastructure/30-trivy-renovate-bridge
+  - ../infrastructure/31-cluster-rbac
+  - ../infrastructure/32-longhorn
+  - ../infrastructure/33-cloudnative-pg
+  - ../infrastructure/37-backup-system
+  - ../applications
