@@ -19,6 +19,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: platform-canary
+        homelab.local/telemetry-client: "true"
     spec:
       serviceAccountName: platform-canary
       automountServiceAccountToken: false
@@ -38,8 +39,16 @@ spec:
               value: "1"
             - name: PYTHONUNBUFFERED
               value: "1"
-            - name: SERVICE_NAME
+            - name: OTEL_SERVICE_NAME
               value: platform-canary
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector-gateway.monitoring.svc:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/json
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: TELEMETRY_INTERVAL_SECONDS
+              value: "60"
           ports:
             - name: http
               containerPort: 8080

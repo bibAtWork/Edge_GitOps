@@ -8,9 +8,104 @@ data:
     import json
     import logging
     import os
+    import secrets
+    import threading
+    import time
+    import urllib.request
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "platform-canary")
+    OTLP_ENDPOINT = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://otel-collector-gateway.monitoring.svc:4318",
+    ).rstrip("/")
+    TELEMETRY_INTERVAL = int(os.getenv("TELEMETRY_INTERVAL_SECONDS", "60"))
+
+    def resource():
+        return {
+            "attributes": [
+                {"key": "service.name", "value": {"stringValue": SERVICE_NAME}},
+                {"key": "deployment.environment", "value": {"stringValue": "homelab"}},
+            ]
+        }
+
+    def post_signal(path, payload):
+        request = urllib.request.Request(
+            f"{OTLP_ENDPOINT}{path}",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status not in (200, 202):
+                raise RuntimeError(f"OTLP exporter returned HTTP {response.status}")
+
+    def emit_telemetry():
+        sequence = 0
+        while True:
+            sequence += 1
+            now = time.time_ns()
+            trace_id = secrets.token_hex(16)
+            span_id = secrets.token_hex(8)
+            try:
+                post_signal("/v1/logs", {
+                    "resourceLogs": [{
+                        "resource": resource(),
+                        "scopeLogs": [{
+                            "scope": {"name": SERVICE_NAME},
+                            "logRecords": [{
+                                "timeUnixNano": str(now),
+                                "severityText": "INFO",
+                                "body": {"stringValue": "platform canary heartbeat"},
+                                "traceId": trace_id,
+                                "spanId": span_id,
+                            }],
+                        }],
+                    }],
+                })
+                post_signal("/v1/metrics", {
+                    "resourceMetrics": [{
+                        "resource": resource(),
+                        "scopeMetrics": [{
+                            "scope": {"name": SERVICE_NAME},
+                            "metrics": [{
+                                "name": "platform_canary_heartbeats_total",
+                                "unit": "1",
+                                "sum": {
+                                    "aggregationTemporality": 2,
+                                    "isMonotonic": True,
+                                    "dataPoints": [{
+                                        "timeUnixNano": str(now),
+                                        "asInt": str(sequence),
+                                    }],
+                                },
+                            }],
+                        }],
+                    }],
+                })
+                post_signal("/v1/traces", {
+                    "resourceSpans": [{
+                        "resource": resource(),
+                        "scopeSpans": [{
+                            "scope": {"name": SERVICE_NAME},
+                            "spans": [{
+                                "traceId": trace_id,
+                                "spanId": span_id,
+                                "name": "platform-canary-heartbeat",
+                                "kind": 1,
+                                "startTimeUnixNano": str(now),
+                                "endTimeUnixNano": str(time.time_ns()),
+                                "status": {"code": 1},
+                            }],
+                        }],
+                    }],
+                })
+                logging.info(json.dumps({"telemetry": "exported", "sequence": sequence}))
+            except Exception as error:
+                logging.error(json.dumps({"telemetry": "failed", "error": str(error)}))
+            time.sleep(TELEMETRY_INTERVAL)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -18,7 +113,7 @@ data:
                 status, body = 200, {"status": "ok"}
             elif self.path == "/":
                 status, body = 200, {
-                    "service": os.getenv("SERVICE_NAME", "platform-canary"),
+                    "service": SERVICE_NAME,
                     "status": "ready",
                 }
             else:
@@ -34,4 +129,5 @@ data:
         def log_message(self, _format, *_args):
             return
 
+    threading.Thread(target=emit_telemetry, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
