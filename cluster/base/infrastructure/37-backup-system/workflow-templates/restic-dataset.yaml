@@ -5,11 +5,24 @@
 #   restore-test  restore that snapshot and compare every file's SHA-256 with the
 #                 clone it was taken from
 #
-# Both read the clone as uid 1000 with NO fsGroup. With an fsGroup, kubelet
-# re-owns and re-modes every file on mount, and restic would record the damage.
-# Every file on these volumes is readable by uid 1000 as it is (checked
-# 2026-09-12). If that ever stops being true, restic exits 3 ("some files could
-# not be read"), and that fails the backup rather than passing as partial.
+# Both read the clone as uid 1000 with NO fsGroup on the clone's own PVC.
+# With an fsGroup, kubelet re-owns and re-modes every file on mount, and
+# restic would record the damage. Every file on these volumes is readable by
+# uid 1000 as it is (checked 2026-09-12). If that ever stops being true,
+# restic exits 3 ("some files could not be read"), and that fails the backup
+# rather than passing as partial.
+#
+# restore-test's pod does carry an fsGroup, unlike backup's: it also mounts a
+# brand-new ephemeral PVC (the "restore" volume, below) that restic writes
+# into, and a fresh PVC's root is owned root:root -- uid 1000 cannot mkdir
+# into it without one. This is safe for the clone mount precisely because
+# restore-test's use of the clone is read-only content hashing (sha256sum),
+# never restic backup: kubelet's chown/chmod at mount time changes ownership
+# and mode bits, not file bytes, so it cannot alter what gets hashed or
+# recorded. Found live: every restore-test for a restic-backed dataset
+# (immich-media, paperless-media) was failing with "mkdir /restore/...:
+# permission denied", restoring zero files, for as long as this template has
+# existed -- backups were being written but never proven restorable.
 #
 # restic is always given an explicit region: without one it asks SeaweedFS for
 # the bucket's location, is told the bucket does not exist, and retries for
@@ -290,6 +303,11 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+        # Only the "restore" volume below needs this -- fsGroup is pod-wide,
+        # not per-volume, so it also lands on the clone mount. See the file
+        # header for why that is safe here and deliberately avoided in
+        # `backup`.
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       volumes:
