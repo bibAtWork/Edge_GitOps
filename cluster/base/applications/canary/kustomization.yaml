@@ -9,3 +9,4 @@ resources:
   - access.yaml
   - edge-client-secret.yaml
   - securitypolicy.yaml
+  - synthetic.yaml
