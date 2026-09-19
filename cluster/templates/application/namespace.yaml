@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: example-app
+  labels:
+    homelab.local/application: "true"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Enable only after configuring and testing native or per-route OIDC.
+    homelab.local/gateway-access: "false"
+  annotations:
+    homelab.local/recovery: stateless
+    homelab.local/recovery-reason: Recreated from Git; no persistent application data.

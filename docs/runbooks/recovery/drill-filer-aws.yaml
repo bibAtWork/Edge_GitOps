@@ -1,7 +1,7 @@
 # Drill 2: the SeaweedFS filer database, restored from AWS with SeaweedFS
 # treated as gone.
 #
-# The template this submits is Flux-managed (37-backup-system/workflow-templates/
+# The template this submits is Flux-managed (37-backup-system/deferred/workflow-templates/
 # drill-filer-aws.yaml) -- see drill-files-aws.yaml in this directory for why
 # this file has to stay this small (Strict requires workflowTemplateRef).
 apiVersion: argoproj.io/v1alpha1

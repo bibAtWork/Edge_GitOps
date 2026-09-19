@@ -1,7 +1,7 @@
 # Drill 1: Immich's photo library, restored from AWS alone.
 #
 # The template this submits is Flux-managed
-# (cluster/base/infrastructure/37-backup-system/workflow-templates/drill-files-aws.yaml)
+# (cluster/base/infrastructure/37-backup-system/deferred/workflow-templates/drill-files-aws.yaml)
 # and carries everything else -- entrypoint, volumes, the steps themselves.
 # It has to be, and this has to stay this small: controller.workflowRestrictions.
 # templateReferencing: Strict (argo-workflows.yaml) requires workflowTemplateRef
