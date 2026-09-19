@@ -423,15 +423,24 @@ jobs:
           }
 
           def components(profile):
-              names = set()
+              from pathlib import Path
+              import yaml
+              names, visited = set(), set()
+              def visit(path):
+                  path = path.resolve()
+                  if path in visited:
+                      return
+                  visited.add(path)
+                  for part in path.parts:
+                      if re.fullmatch(r'[0-9]{2}-[a-z0-9-]+', part):
+                          names.add(part)
+                  data = yaml.safe_load(path.read_text(encoding='utf-8-sig'))
+                  for resource in data.get('resources', []):
+                      child = path.parent / resource
+                      if child.is_dir():
+                          visit(child / 'kustomization.yaml')
               for suffix in ('', '-config'):
-                  path = f'cluster/overlays/{profile}{suffix}/kustomization.yaml'
-                  try:
-                      text = open(path, encoding='utf-8-sig').read()
-                  except FileNotFoundError:
-                      continue
-                  for m in re.finditer(r'base/infrastructure/([0-9]{2}-[a-z0-9-]+)', text):
-                      names.add(m.group(1))
+                  visit(Path(f'cluster/overlays/{profile}{suffix}/kustomization.yaml'))
               return names
 
           one = components('1-node')
