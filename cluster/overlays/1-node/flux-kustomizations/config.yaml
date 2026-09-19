@@ -22,4 +22,4 @@ spec:
     secretRef:
       name: sops-age
   dependsOn:
-    - name: flux-system
+    - name: operators-ready

@@ -4,6 +4,3 @@ resources:
   - helmrelease.yaml
   - s3-secret.yaml
   - bucket-init-job.yaml
-  - filer-metadata-pg-cluster.yaml
-  - objectstore.yaml
-  - filer-postgres-netpol.yaml

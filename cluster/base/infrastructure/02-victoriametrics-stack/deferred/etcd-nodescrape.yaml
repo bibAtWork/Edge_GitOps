@@ -1,0 +1,72 @@
+# Scrape etcd's metrics-only listener on every node.
+#
+# ── Why a VMNodeScrape and not the chart's kube-etcd Service ─────────────────
+# The chart ships a Service selecting {component: etcd}. On Talos that matches
+# nothing -- etcd runs as a host-level service, not a pod -- so the Endpoints
+# object was empty from install and the VMServiceScrape over it had no target
+# for 54 days while reporting updateStatus: operational. It also pointed at
+# :2379, the mTLS client port, over https. Wrong selector, wrong port, wrong
+# scheme, and green the whole time. That Service is disabled in helmrelease.yaml.
+#
+# A VMNodeScrape discovers nodes through the API server instead, so there is no
+# Service to keep in sync, no Endpoints object to go stale, and no node address
+# committed to the repo -- which matters because this file is in base/ and is
+# consumed by both the 1-node and 3-node overlays. A static endpoint list would
+# be correct in exactly one of them.
+#
+# ── Why this matters ─────────────────────────────────────────────────────────
+# etcd is the entire state of the cluster, and on a single-node cluster it has
+# no redundancy whatsoever. Until this existed there were no etcd metrics at
+# all: no DB size against the 2GB quota, no fsync latency, no leader state.
+# Quota exhaustion puts the API server into read-only -- a total outage -- and
+# it would have arrived with no warning at all.
+#
+# Requires cluster.etcd.extraArgs.listen-metrics-urls: http://0.0.0.0:2381 on
+# the Talos machineconfig. Without it the port is closed and this scrape finds
+# nothing -- which, unlike the Service it replaces, is visible as a down target.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMNodeScrape
+metadata:
+  name: etcd
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/component: kube-etcd
+spec:
+  # Plain http, no bearer token. etcd's :2381 listener supports no
+  # authentication of any kind -- this is a property of etcd, not an omission
+  # here. It exposes operational metrics only; key/value data is reachable
+  # solely over mTLS on :2379. The exposure this creates is discussed in the
+  # machineconfig, where the bind address is set.
+  scheme: http
+  port: "2381"
+  path: /metrics
+  interval: 30s
+  scrapeTimeout: 10s
+  # Only control-plane nodes run etcd. On the 1-node cluster this selects the
+  # single node; on a 3-node control plane it selects all three and nothing
+  # needs changing here. A worker-only node would otherwise be scraped forever
+  # as a down target.
+  selector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+  relabelConfigs:
+    - action: labelmap
+      regex: __meta_kubernetes_node_label_(.+)
+    - targetLabel: job
+      replacement: kube-etcd
+  metricRelabelConfigs:
+    # etcd emits a large histogram set. Two are dropped: the generic request
+    # duration buckets (highest cardinality, lowest value -- the _sum and
+    # _count survive so averages still work), and peer round-trip time, which
+    # measures traffic to other members and is meaningless on a single-node
+    # cluster. Mirrors the API server bucket drops in helmrelease.yaml.
+    #
+    # The disk fsync and backend commit buckets are deliberately KEPT. They are
+    # what etcd latency alerting is actually built on -- a p99 needs the
+    # buckets, and an average hides exactly the tail that matters -- and at one
+    # histogram each on one node they are cheap.
+    - action: drop
+      sourceLabels: [__name__]
+      regex: "etcd_request_duration_seconds_bucket|etcd_network_peer_round_trip_time_seconds_bucket"

@@ -1,0 +1,42 @@
+# Where keycloak-pg's WAL and base backups go (ADR-012): the local object
+# store's `recovery` bucket, under postgres/keycloak-pg/ -- barman keeps each
+# cluster under its own server name, so every database can share the prefix.
+# The plugin's sidecar runs inside the database pod, and reads this object and
+# its credential from this namespace.
+#
+# retentionPolicy is a RECOVERY WINDOW, not a count: every base backup and all
+# WAL of the last 7 days are kept, so any moment of the last week can be
+# restored. The longer history -- the profile's 7 daily / 3 weekly / 3 monthly
+# locally, 1 weekly / 3 monthly in AWS -- is each recovery point's base backup,
+# staged into restic.
+#
+# Base backups are stored uncompressed, so that restic, which compresses on its
+# own, deduplicates one day's data files against the last: unchanged tables
+# cost nothing, and the daily upload to AWS is the change rather than the whole
+# database. WAL segments are new every time, so they stay gzip-compressed.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: recovery
+  namespace: keycloak
+spec:
+  retentionPolicy: "7d"
+  configuration:
+    destinationPath: s3://recovery/postgres/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: recovery-object-store
+        key: admin_access_key_id
+      secretAccessKey:
+        name: recovery-object-store
+        key: admin_secret_access_key
+    wal:
+      compression: gzip
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

@@ -58,7 +58,7 @@ spec:
         - name: tmp
           emptyDir: {}
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -506,7 +506,7 @@ spec:
         - name: tmp
           emptyDir: {}
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
         args:
           - |

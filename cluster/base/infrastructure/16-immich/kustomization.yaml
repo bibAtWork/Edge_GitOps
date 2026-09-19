@@ -1,13 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - postgres-cluster.yaml
-  - objectstore.yaml
   - pg-owner-secret.yaml
   - recovery-object-store.yaml
-  - archive-netpol.yaml
   - helmrelease.yaml
   - pvcs.yaml
   - db-secret.yaml
-  - cilium-policy.yaml
   - oauth-config-secret.yaml

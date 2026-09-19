@@ -6,8 +6,8 @@ metadata:
 spec:
   interval: 30m
   dependsOn:
-    - name: seaweedfs
-      namespace: seaweedfs
+    - name: longhorn
+      namespace: longhorn-system
   chart:
     spec:
       chart: victoria-metrics-k8s-stack

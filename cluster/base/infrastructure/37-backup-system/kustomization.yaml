@@ -2,7 +2,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - namespace.yaml
-  - networkpolicy.yaml
   - argo-workflows.yaml
   - restic-secret.yaml
   - recovery-aws-promoter.yaml
@@ -10,18 +9,3 @@ resources:
   - rbac.yaml
   - rbac-cnpg.yaml
   - rbac-reconciler.yaml
-  - objectstore-restore.yaml
-  - workflow-templates/volume-clone.yaml
-  - recovery-policy.yaml
-  - workflow-templates/restic-dataset.yaml
-  - workflow-templates/sqlite-dataset.yaml
-  - workflow-templates/cnpg-dataset.yaml
-  - workflow-templates/recovery-point.yaml
-  - workflow-templates/promote.yaml
-  - workflow-templates/retention.yaml
-  - workflow-templates/reconcile.yaml
-  - workflow-templates/drill-files-aws.yaml
-  - workflow-templates/drill-sqlite-aws.yaml
-  - workflow-templates/drill-filer-aws.yaml
-  - workflow-templates/drill-pitr.yaml
-  - cronworkflows.yaml

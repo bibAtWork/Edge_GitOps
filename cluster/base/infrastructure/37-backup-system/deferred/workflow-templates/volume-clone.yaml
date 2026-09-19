@@ -46,7 +46,7 @@ spec:
         limit: 1
         retryPolicy: Always
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -202,7 +202,7 @@ spec:
         limit: 2
         retryPolicy: Always
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
         command: ["/bin/sh", "-c"]
         args:
           - |

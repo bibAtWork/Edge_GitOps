@@ -1,0 +1,38 @@
+# Cilium is default-deny in both directions. Scan jobs already have
+# allow-intra-namespace-egress, so this is the ingress half plus the server's
+# own reach to the database mirror.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-trivy-server
+  namespace: trivy-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-server
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: trivy-system
+      toPorts:
+        - ports:
+            - port: "4954"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+    # Pulls the vulnerability database from the registry mirror. This is the
+    # only egress the server needs; the clients need none at all once they stop
+    # downloading it themselves.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
