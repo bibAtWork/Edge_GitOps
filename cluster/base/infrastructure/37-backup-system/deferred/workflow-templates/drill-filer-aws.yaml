@@ -213,7 +213,7 @@ spec:
           - name: backup-id
       activeDeadlineSeconds: 2400
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -325,7 +325,7 @@ spec:
 
     - name: delete-cluster
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.1
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
         command: ["/bin/sh", "-c"]
         args:
           - kubectl delete clusters.postgresql.cnpg.io -n backup-system "drill-{{=sprig.trunc(8, workflow.uid)}}-filer" --ignore-not-found --timeout=300s
