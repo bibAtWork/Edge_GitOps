@@ -7,3 +7,4 @@ resources:
   - pvcs.yaml
   - db-secret.yaml
   - oauth-config-secret.yaml
+  - app-operator-rolebinding.yaml

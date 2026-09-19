@@ -8,3 +8,4 @@ resources:
   - deployment.yaml
   - service.yaml
   - rbac-groups-configmap.yaml
+  - app-operator-rolebinding.yaml

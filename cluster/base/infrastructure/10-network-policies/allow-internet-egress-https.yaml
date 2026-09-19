@@ -3,7 +3,8 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-internet-egress-https-only
 spec:
-  # Allow all pods to reach the internet, but HTTPS (443/TCP) only.
+  # TCP/443 internet egress. The historical resource name is retained for migration.
+  # This L4 rule does not validate TLS or restrict external destinations.
   # Pods needing plain HTTP to public endpoints must use an explicit per-namespace policy.
   endpointSelector:
     matchExpressions:
