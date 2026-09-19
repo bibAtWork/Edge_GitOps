@@ -46,6 +46,8 @@ kind: DaemonSet
 metadata:
   name: otel-agent
   namespace: monitoring-agents
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   selector:
     matchLabels:

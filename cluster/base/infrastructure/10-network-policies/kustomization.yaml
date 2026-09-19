@@ -19,3 +19,4 @@ resources:
 
   - allow-gateway-egress-to-cluster.yaml
   - allow-tailscale-egress.yaml
+  - allow-application-otlp.yaml

@@ -1,0 +1,50 @@
+# Internal telemetry write capability. Callers control service.name; this is
+# not tenant isolation. The endpoint must not be exposed publicly.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-application-otlp-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      homelab.local/telemetry-client: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector-gateway
+            io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-otlp-gateway-ingress
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector-gateway
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            homelab.local/telemetry-client: "true"
+          matchExpressions:
+            - key: io.kubernetes.pod.namespace
+              operator: Exists
+        - matchLabels:
+            app.kubernetes.io/name: otel-agent
+            io.kubernetes.pod.namespace: monitoring-agents
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP
