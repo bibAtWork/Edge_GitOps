@@ -254,3 +254,74 @@ spec:
   workflowSpec:
     workflowTemplateRef:
       name: reconcile
+---
+# Restore drills are staggered away from the nightly recovery-point pipeline.
+# Critical applications run every seven days; important applications run once
+# per calendar month, whose longest interval is the policy's 31 days.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-files-aws
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 5 * * 6"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 604800
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-files-aws
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-pitr
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 5 * * 3"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 604800
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-pitr
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-sqlite-aws
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 6 1 * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 2678400
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-sqlite-aws
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-filer-aws
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 6 15 * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 2678400
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-filer-aws

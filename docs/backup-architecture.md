@@ -89,6 +89,8 @@ flowchart LR
 | 04:30 Sundays | AWS retention: 1 weekly, 3 monthly |
 | :30 hourly | the reconciler, which submits a recovery point or a promotion only when a guarantee is missed |
 | 11:00 Sundays | the pre-upgrade gate, which authorises that day's Talos and Kubernetes upgrades only if every application has a restore-tested point with a verified AWS copy |
+| 05:00 Wednesdays / Saturdays | Keycloak PITR and Immich AWS restore drills; each critical application is exercised every 7 days |
+| 06:00 on the 1st / 15th | Paperless and SeaweedFS AWS restore drills; each important application is exercised at least every 31 days |
 
 ## What says it is working
 
@@ -103,6 +105,13 @@ flowchart LR
 | RecoveryBackupUnusualGrowth, RecoveryLocalRepositoryOverCap | a backup grew unusually, or the local repository passed its cap |
 
 Also: `python3 scripts/cluster-health.py --group backup`, and the upgrade gate's own verdict.
+
+Successful drills write timestamped `recovery_drill_*` samples directly to VictoriaMetrics. The
+samples retain the recovered point's timestamp, its age when validation completed (measured RPO),
+elapsed workflow time (measured RTO), the policy's RTO objective, and the latest success time. This
+keeps the evidence queryable after Argo removes old Workflow objects. CI runs
+`scripts/check-recovery-drills.py` against both config overlays so a policy interval, drill mapping,
+or catch-up deadline cannot drift independently of its schedule.
 
 ## Where the credentials live
 

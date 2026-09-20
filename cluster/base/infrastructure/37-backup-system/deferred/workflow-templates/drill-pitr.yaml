@@ -28,9 +28,26 @@ spec:
             template: recover
         - - name: checks
             template: checks
+        - - name: evidence
+            templateRef:
+              name: drill-evidence
+              template: report
+            arguments:
+              parameters:
+                - name: application
+                  value: keycloak
+                - name: drill
+                  value: pitr
+                - name: recovered-at
+                  value: "{{steps.recover.outputs.parameters.recovered-at}}"
 
     - name: recover
       activeDeadlineSeconds: 2400
+      outputs:
+        parameters:
+          - name: recovered-at
+            valueFrom:
+              path: /tmp/recovered-at
       container:
         image: docker.io/rancher/kuberlr-kubectl:v8.1.2
         command: ["/bin/sh", "-c"]
@@ -40,7 +57,9 @@ spec:
             S="drill-{{=sprig.trunc(8, workflow.uid)}}-pitr"
             # PostgreSQL stops at a target time only when the archive holds a commit
             # after it. Idle Keycloak can go ten minutes without one, so aim thirty back.
-            TT="$(date -u -d @$(( $(date -u +%s) - 1800 )) '+%Y-%m-%d %H:%M:%S.00000+00')"
+            TARGET=$(( $(date -u +%s) - 1800 ))
+            echo "$TARGET" > /tmp/recovered-at
+            TT="$(date -u -d @"$TARGET" '+%Y-%m-%d %H:%M:%S.00000+00')"
             echo "recovering keycloak-pg as it was at $TT"
             kubectl apply -f - > /dev/null <<EOF
             apiVersion: postgresql.cnpg.io/v1

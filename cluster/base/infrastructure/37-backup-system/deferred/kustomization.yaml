@@ -11,6 +11,7 @@ resources:
   - workflow-templates/promote.yaml
   - workflow-templates/retention.yaml
   - workflow-templates/reconcile.yaml
+  - workflow-templates/drill-evidence.yaml
   - workflow-templates/drill-files-aws.yaml
   - workflow-templates/drill-sqlite-aws.yaml
   - workflow-templates/drill-filer-aws.yaml
