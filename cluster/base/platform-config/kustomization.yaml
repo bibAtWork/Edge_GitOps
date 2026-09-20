@@ -13,6 +13,7 @@ resources:
   - ../infrastructure/19-kyverno/config
   - ../infrastructure/26-keycloak/config
   - ../infrastructure/27-kubeopencode/config
+  - ../infrastructure/37-backup-system/config
   - ../infrastructure/01-seaweedfs/deferred
   - ../infrastructure/02-victoriametrics-stack/deferred
   - ../infrastructure/03-otel-collector/deferred

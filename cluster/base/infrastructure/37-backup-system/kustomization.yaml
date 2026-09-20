@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - argo-workflows.yaml
+  - argo-workflows-sso-secret.yaml
   - restic-secret.yaml
   - recovery-aws-promoter.yaml
   - recovery-aws-retention.yaml
