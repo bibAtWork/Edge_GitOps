@@ -35,6 +35,9 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           ports:
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
             - containerPort: 4317
               protocol: TCP
             - containerPort: 4318
