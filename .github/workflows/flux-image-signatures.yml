@@ -1,0 +1,76 @@
+name: Flux image signatures
+
+on:
+  pull_request:
+    branches: [ops/talos_linux]
+    paths:
+      - cluster/overlays/1-node/flux-system/gotk-components.yaml
+      - cluster/base/infrastructure/19-kyverno/policies/verify-flux-images.yaml
+      - .github/workflows/flux-image-signatures.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Flux release signatures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Keep this version pinned. Updating the verifier is an explicit trust
+      # change and should be reviewed with the policy it validates.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Verify rendered controller images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          identity='https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.11.0'
+          expected_components=(
+            helm-controller
+            image-automation-controller
+            image-reflector-controller
+            kustomize-controller
+            notification-controller
+            source-controller
+          )
+
+          # Flux is bootstrapped before either cluster profile reconciles. Its
+          # checked-in install manifest is therefore shared by both profiles.
+          kubectl kustomize cluster/overlays/1-node/flux-system \
+            | awk '{ for (i = 1; i <= NF; i++) if ($i == "image:" && $(i + 1) ~ /^ghcr.io\/fluxcd\//) print $(i + 1) }' \
+            | sort -u > /tmp/flux-images
+
+          mapfile -t images < /tmp/flux-images
+          if [[ ${#images[@]} -ne ${#expected_components[@]} ]]; then
+            echo "expected ${#expected_components[@]} Flux images, found ${#images[@]}" >&2
+            printf '  %s\n' "${images[@]}" >&2
+            exit 1
+          fi
+
+          for index in "${!images[@]}"; do
+            image=${images[$index]}
+            component=${expected_components[$index]}
+            actual_component=${image#ghcr.io/fluxcd/}
+            actual_component=${actual_component%%:*}
+            if [[ $actual_component != "$component" ]]; then
+              echo "expected $component at index $index, found $actual_component" >&2
+              exit 1
+            fi
+            tag=${image##*:}
+
+            cosign verify \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity "$identity" \
+              --certificate-github-workflow-trigger push \
+              --certificate-github-workflow-name release \
+              --certificate-github-workflow-repository "fluxcd/$component" \
+              --certificate-github-workflow-ref "refs/tags/$tag" \
+              "$image" >/dev/null
+            echo "verified $image"
+          done

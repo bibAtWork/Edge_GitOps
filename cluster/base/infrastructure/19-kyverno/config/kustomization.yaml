@@ -9,3 +9,4 @@ resources:
   - ../policies/require-probes.yaml
   - ../policies/set-revision-history-limit.yaml
   - ../policies/backup-system-clone-scope.yaml
+  - ../policies/verify-flux-images.yaml
