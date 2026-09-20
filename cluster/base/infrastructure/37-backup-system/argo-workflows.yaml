@@ -211,21 +211,21 @@ spec:
         redirectUrl: https://argo.homelab.data-harness.org/oauth2/callback
         scopes:
           - groups
-        # rbac.enabled defaults to true upstream ("Adds ServiceAccount Policy
-        # to server (Cluster)Role"), which requires mapping OIDC claims to
-        # per-user ServiceAccounts via workflows.argoproj.io/rbac-rule
-        # annotations -- none exist here. Left enabled, every SSO login would
-        # get NO permissions at all (no matching ServiceAccount rule), a
-        # silent regression from today's working access. Explicitly disabled
-        # instead: a logged-in user gets exactly what authModes: [server]
-        # already granted everyone -- the server's own namespaced
-        # permissions -- so this change adds the login gate the Gateway
-        # requires without changing who can see what once inside. Per-user
-        # RBAC (mapping the ADR-002 group tiers to different Argo permission
-        # levels) is a real, separate feature, not required just to expose
-        # this safely.
+        # rbac.enabled maps OIDC claims to per-user ServiceAccounts via
+        # workflows.argoproj.io/rbac-rule annotations (sso-rbac.yaml), one
+        # per ADR-002 tier -- platform-admin, app-operator, viewer -- the
+        # same tiers every other app with a native OIDC role mapping in this
+        # cluster already uses (Grafana's role_attribute_path). Was
+        # explicitly disabled when SSO first landed here: enabling it with
+        # no matching ServiceAccounts would have denied every SSO login
+        # outright (Argo's own behavior when no rbac-rule matches), a silent
+        # regression from what authModes: [server] granted everyone before.
+        # Deliberately no catch-all rule for anyone outside those three
+        # tiers (see sso-rbac.yaml) -- this is backup/recovery
+        # infrastructure, not a surface the public-registration
+        # /self-service tier should reach at all.
         rbac:
-          enabled: false
+          enabled: true
       # Makes every one of the sso.issuer endpoints above (discovery, token,
       # userinfo, jwks) resolve straight to the Gateway's own ClusterIP
       # instead of through DNS to its externally-announced LAN IP -- see the

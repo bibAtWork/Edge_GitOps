@@ -10,3 +10,4 @@ resources:
   - rbac.yaml
   - rbac-cnpg.yaml
   - rbac-reconciler.yaml
+  - sso-rbac.yaml
