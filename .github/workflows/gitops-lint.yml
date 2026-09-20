@@ -483,3 +483,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Verify RBAC, Flux dependencies, telemetry and application template
         run: python3 scripts/check-platform-contracts.py
+
+  recovery-policy-drills:
+    name: Recovery policy / restore drill consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify restore drill coverage and maximum schedule intervals
+        run: python3 scripts/check-recovery-drills.py

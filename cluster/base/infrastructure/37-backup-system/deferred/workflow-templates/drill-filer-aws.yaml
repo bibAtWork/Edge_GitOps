@@ -45,6 +45,18 @@ spec:
                   value: "{{steps.stage.outputs.parameters.backup-id}}"
         - - name: checks
             template: checks
+        - - name: evidence
+            templateRef:
+              name: drill-evidence
+              template: report
+            arguments:
+              parameters:
+                - name: application
+                  value: seaweedfs
+                - name: drill
+                  value: filer-aws
+                - name: recovered-at
+                  value: "{{steps.find.outputs.parameters.taken}}"
 
     - name: find
       outputs:
@@ -52,6 +64,9 @@ spec:
           - name: rp
             valueFrom:
               path: /tmp/rp
+          - name: taken
+            valueFrom:
+              path: /tmp/taken
       container:
         image: docker.io/rclone/rclone:1.75.1
         command: ["/bin/sh", "-c"]
@@ -69,6 +84,7 @@ spec:
             done
             [ -n "$BEST" ] || { echo "no REMOTE_VERIFIED point for $APP in AWS"; exit 1; }
             echo "$BEST" > /tmp/rp
+            echo "$BT" > /tmp/taken
             echo "newest REMOTE_VERIFIED point of $APP in AWS: $BEST (taken $(date -u -d @"$BT" +%FT%TZ))"
         env: &aws-rclone
           - name: HOME

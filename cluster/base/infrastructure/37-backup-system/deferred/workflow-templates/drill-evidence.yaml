@@ -1,0 +1,72 @@
+# Shared evidence writer for restore drills. A drill reaches this template only
+# after its restored data has passed the same checks used during recovery.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: drill-evidence
+  namespace: backup-system
+spec:
+  volumes:
+    - name: policy
+      configMap:
+        name: recovery-policy
+  templates:
+    - name: report
+      retryStrategy:
+        limit: 2
+        retryPolicy: Always
+        backoff:
+          duration: 30s
+          factor: "2"
+      inputs:
+        parameters:
+          - name: application
+          - name: drill
+          - name: recovered-at
+      container:
+        image: docker.io/rclone/rclone:1.75.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            APP="{{inputs.parameters.application}}"
+            DRILL="{{inputs.parameters.drill}}"
+            RECOVERED_AT="{{inputs.parameters.recovered-at}}"
+            CREATED="$(date -u -D '%Y-%m-%dT%H:%M:%SZ' -d '{{workflow.creationTimestamp}}' +%s)"
+            NOW="$(date -u +%s)"
+
+            PROFILE="$(awk -v app="$APP" '$1 == app { print $3; exit }' /policy/applications)"
+            RTO="$(awk -v profile="$PROFILE" '$1 == profile { print $3; exit }' /policy/profiles)"
+            case "$RTO" in
+              *h) RTO_SECONDS=$(( ${RTO%h} * 3600 )) ;;
+              *) echo "invalid RTO '$RTO' for $APP/$PROFILE"; exit 1 ;;
+            esac
+            [ -n "$PROFILE" ] || { echo "no recovery profile for $APP"; exit 1; }
+            [ "$RECOVERED_AT" -le "$NOW" ] || { echo "recovered timestamp is in the future"; exit 1; }
+
+            RPO_SECONDS=$(( NOW - RECOVERED_AT ))
+            RTO_SECONDS_ACTUAL=$(( NOW - CREATED ))
+            {
+              echo "recovery_drill_recovered_point_timestamp{application=\"$APP\",drill=\"$DRILL\",profile=\"$PROFILE\"} $RECOVERED_AT $((NOW * 1000))"
+              echo "recovery_drill_rpo_seconds{application=\"$APP\",drill=\"$DRILL\",profile=\"$PROFILE\"} $RPO_SECONDS $((NOW * 1000))"
+              echo "recovery_drill_rto_seconds{application=\"$APP\",drill=\"$DRILL\",profile=\"$PROFILE\"} $RTO_SECONDS_ACTUAL $((NOW * 1000))"
+              echo "recovery_drill_rto_objective_seconds{application=\"$APP\",drill=\"$DRILL\",profile=\"$PROFILE\"} $RTO_SECONDS $((NOW * 1000))"
+              echo "recovery_drill_last_success_timestamp{application=\"$APP\",drill=\"$DRILL\",profile=\"$PROFILE\"} $NOW $((NOW * 1000))"
+            } | wget -q -O /dev/null --post-file=- http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
+            echo "$APP/$DRILL: recovered point age ${RPO_SECONDS}s; measured RTO ${RTO_SECONDS_ACTUAL}s (objective ${RTO_SECONDS}s)"
+        volumeMounts:
+          - name: policy
+            mountPath: /policy
+            readOnly: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
