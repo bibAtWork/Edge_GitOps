@@ -125,30 +125,36 @@ spec:
 # `kubectl port-forward`, using the in-cluster Kubernetes API (already allowed
 # -- default-deny-egress's own toEntities: [host, kube-apiserver]). SSO adds a
 # genuinely new requirement: the server fetches Keycloak's OIDC discovery
-# document at startup and validates tokens against it per-request, both
-# server-to-server calls with no allow for them anywhere. Found live: the new
-# pod crash-looped on every rollout attempt with
-#   Error: Get "https://keycloak.homelab.data-harness.org/.../openid-configuration":
-#   dial tcp 192.168.178.200:443: i/o timeout
-# -- the external hostname's own reachability problem (same one Paperless and
-# OPA hit, per 26-keycloak/deferred/cilium-policy.yaml's comments; never
-# root-caused there either), which is why server.sso.issuer points at
-# Keycloak's plain in-cluster Service instead, sidestepping the Gateway
-# entirely rather than chasing that further. That address needed its own rule
-# too, though: this namespace has no general cross-namespace egress (see this
-# file's header), so the internal address timed out exactly the same way
-# until this rule and its ingress counterpart (allow-argo-workflows-ingress,
-# in 26-keycloak/deferred/cilium-policy.yaml) both existed.
+# document at startup and calls its token/userinfo endpoints per login, all
+# server-to-server calls with no allow for them anywhere.
+#
+# Superseded once already: an earlier version of this rule targeted Keycloak's
+# pod directly, on the theory that the Gateway itself was unreachable from
+# here. That was wrong -- the Gateway's ClusterIP answers fine from this
+# namespace (confirmed live: same discovery request, same Host header, 200
+# OK) -- and it missed that go-oidc's token/userinfo calls use the hostname
+# from Keycloak's own KC_HOSTNAME-pinned discovery document regardless of
+# which address fetched it, so pointing at Keycloak directly only fixed
+# discovery and left the token exchange hanging (the "upstream request
+# timeout" 504 right after a successful Keycloak sign-in). See
+# argo-workflows.yaml's sso block and its hostAliases for the actual fix:
+# keycloak.homelab.data-harness.org resolves to the Gateway's ClusterIP for
+# every one of those calls, so this rule now targets the Gateway instead of
+# Keycloak -- the real backend port (10443) is the Service's own targetPort
+# for its https listener, not the 443 the Service itself publishes.
 #
 # Scoped to the argo-workflows-server pod specifically (not the whole
-# namespace) and to Keycloak specifically (not a general cross-namespace
-# allow), matching the same narrow, single-destination shape as
+# namespace), matching the same narrow, single-destination shape as
 # allow-seaweedfs-s3-egress and allow-vmsingle-egress above -- the least this
-# namespace's workflows' reachability needs to grow to make SSO work.
+# namespace's workflows' reachability needs to grow to make SSO work. No
+# ingress counterpart needed on the Gateway's own side: unlike Keycloak, its
+# ingress policy (10-network-policies/allow-gateway-world-ingress.yaml)
+# already allows fromEntities: [world, host, cluster], and "cluster" already
+# covers any in-cluster pod.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: allow-argo-server-keycloak-egress
+  name: allow-argo-server-gateway-egress
   namespace: backup-system
 spec:
   endpointSelector:
@@ -157,9 +163,9 @@ spec:
   egress:
     - toEndpoints:
         - matchLabels:
-            app: keycloak
-            io.kubernetes.pod.namespace: keycloak
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
       toPorts:
         - ports:
-            - port: "8080"
+            - port: "10443"
               protocol: TCP

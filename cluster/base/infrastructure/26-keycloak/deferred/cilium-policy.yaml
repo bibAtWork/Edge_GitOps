@@ -84,34 +84,6 @@ spec:
             - port: "8080"
               protocol: TCP
 ---
-# Allow Argo Workflows' server to reach Keycloak directly (internal service
-# DNS) for its OIDC discovery/token calls -- argo-workflows.yaml's
-# server.sso.issuer points at http://keycloak.keycloak.svc.cluster.local for
-# exactly this reason. Found live, not assumed: the external hostname timed
-# out from backup-system (dial tcp 192.168.178.200:443: i/o timeout) even
-# after confirming DNS and TLS were not the problem, so this follows the same
-# direct-pod-to-pod pattern already proven for Paperless and OPA above,
-# whatever the underlying cause turns out to be. The matching egress rule is
-# allow-argo-server-keycloak-egress.yaml, in backup-system.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-argo-workflows-ingress
-  namespace: keycloak
-spec:
-  endpointSelector:
-    matchLabels:
-      app: keycloak
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            app.kubernetes.io/name: argo-workflows-server
-            io.kubernetes.pod.namespace: backup-system
-      toPorts:
-        - ports:
-            - port: "8080"
-              protocol: TCP
----
 # Allow Envoy Gateway's data-plane pod to reach Keycloak directly for OIDC
 # discovery, token exchange, and JWKS (SecurityPolicy.oidc, added 2026-08-16
 # for hubble-ui and kubeopencode).
