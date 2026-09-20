@@ -114,7 +114,10 @@ data:
     growth-bytes        5GiB
     growth-percent      50
     growth-floor        100MiB
-    forget-max          10
+    # A verified weekly AWS catch-up reached 11 removals per Paperless dataset
+    # on 2026-09-20. Twelve clears that bounded backlog while still refusing a
+    # two-week daily-snapshot loss; the independent data-loss cap still applies.
+    forget-max          12
     forget-loss-percent 20
     forget-loss-floor   1GiB
 
