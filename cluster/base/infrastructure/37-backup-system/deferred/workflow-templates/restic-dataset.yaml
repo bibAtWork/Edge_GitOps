@@ -5,11 +5,14 @@
 #   restore-test  restore that snapshot and compare every file's SHA-256 with the
 #                 clone it was taken from
 #
-# Both read the clone as uid 1000 with NO fsGroup. With an fsGroup, kubelet
-# re-owns and re-modes every file on mount, and restic would record the damage.
-# Every file on these volumes is readable by uid 1000 as it is (checked
+# The backup reads the clone as uid 1000 with NO fsGroup. With an fsGroup,
+# kubelet can re-own and re-mode files on mount, and restic would record those
+# changes. Every source file is readable by uid 1000 as it is (checked
 # 2026-09-12). If that ever stops being true, restic exits 3 ("some files could
 # not be read"), and that fails the backup rather than passing as partial.
+# The restore test runs only after that backup and uses an fsGroup so it can
+# write to its root-owned scratch volume. Its source is the disposable snapshot
+# clone, so a group adjustment there cannot alter the original PVC or snapshot.
 #
 # restic is always given an explicit region: without one it asks SeaweedFS for
 # the bucket's location, is told the bucket does not exist, and retries for
@@ -290,6 +293,12 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+        # The generic ephemeral Longhorn volume is mounted root-owned. Grant
+        # this pod's existing group access to that scratch destination. The
+        # mismatch guard avoids a recursive ownership walk when the volume
+        # roots already have the requested group.
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       volumes:
