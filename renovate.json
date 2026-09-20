@@ -31,7 +31,8 @@
     "enabled": true,
     "managerFilePatterns": [
       "/cluster/.+\\.yaml$/",
-      "!/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
+      "/docs/runbooks/recovery/.+\\.yaml$/",
+      "/docs/runbooks/.+\\.md$/"
     ]
   },
   "customManagers": [
@@ -68,7 +69,7 @@
     },
     {
       "customType": "regex",
-      "description": "CloudNativePG cluster images. The built-in kubernetes manager only reads the `image:` key; CNPG Cluster resources spell it `imageName:`, so the two postgres pins (keycloak-pg, filer-meta-pg) were invisible to Renovate and drifted five patch releases behind -- 16.10 while 16.15 was current -- carrying 12 fixable critical CVEs between them. Every other image in the repo was kept current automatically; these two were the ones nothing was watching.",
+      "description": "CloudNativePG cluster images using the stock cloudnative-pg/postgresql image. The built-in kubernetes manager only reads the `image:` key; CNPG Cluster resources spell it `imageName:`, so these pins (keycloak-pg, filer-meta-pg) were invisible to Renovate and drifted five patch releases behind -- 16.10 while 16.15 was current -- carrying 12 fixable critical CVEs between them. Every other image in the repo was kept current automatically; these were the ones nothing was watching. Immich's CNPG cluster uses a different image entirely (tensorchord/cloudnative-vectorchord) and has its own manager below, for the same reason this one exists but with different tag syntax.",
       "managerFilePatterns": [
         "/cluster/base/infrastructure/.+\\.yaml$/"
       ],
@@ -77,6 +78,29 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Immich's CNPG database image, ghcr.io/tensorchord/cloudnative-vectorchord -- a different image from the CNPG manager above, which only matches cloudnative-pg/postgresql and has never matched this pin. Immich moved onto CNPG after that manager was written (#603), so this dependency has had no Renovate coverage since it started existing: the exact failure mode that manager's own description records for keycloak-pg/filer-meta-pg (patch releases behind, fixable critical CVEs accumulating), recurring for the cluster added after the fix. Found on code review (round 4). The tag is <postgres-major>-<vectorchord-version>, e.g. 17-0.3.0; versioningTemplate's `compatibility` capture group (a documented Renovate regex-versioning feature) keeps the postgres-major prefix fixed, so this only ever proposes a new VectorChord version for the SAME Postgres major -- never a cross-major jump, the same invariant the packageRule below enforces for the plain postgres image.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/16-immich/postgres-cluster\\.yaml$/"
+      ],
+      "matchStrings": [
+        "imageName:\\s*(?<depName>ghcr\\.io/tensorchord/cloudnative-vectorchord):(?<currentValue>[\\d.-]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<compatibility>\\d+)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "kubeopencode's three per-role agent images (agentImage, executorImage, attachImage) -- not `image:` keys, so the built-in kubernetes manager never reads them, and they have had zero Renovate coverage. Low priority: kubeopencode is currently parked (27-kubeopencode/config/kustomization.yaml -- the controller cannot run against this cluster's controller-runtime version), so nothing is actually deployed to bump, but tracking costs nothing and stops the pins drifting further behind the chart while it's blocked. Already covered by the existing kubeopencode packageRule below: its /^ghcr[.]io/kubeopencode// pattern matches all three depNames, so no new grouping rule is needed, only extraction.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/27-kubeopencode/config/agent\\.yaml$/"
+      ],
+      "matchStrings": [
+        "(?:agentImage|executorImage|attachImage):\\s*(?<depName>ghcr\\.io/kubeopencode/[a-z-]+):(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker"
     },
     {
       "customType": "regex",
@@ -112,6 +136,54 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+(?:- name:[^\\n]*\\n\\s+run: [|]\\n)?\\s*[A-Z_]*VERSION=(?<currentValue>v[\\d.]+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Immich's app image tag, overridden in the shared top-level controllers block (helmrelease.yaml) to run the real latest v2.x release independently of the chart's own stale appVersion default -- see that file's comment and docs/backlog.md. A bare `image: {tag: ...}` with no adjacent `repository:` is invisible to both the built-in kubernetes manager (needs a single combined repo:tag value) and the helm-values manager (needs repository+tag together): this had zero Renovate coverage until this manager, found on an audit of every HelmRelease-embedded image override in the repo (2026-09-19). Tracked against the app repo directly (github-releases), not one specific ghcr.io image, since server and machine-learning always share this one tag by construction. Grouped with the immich packageRule below so it lands in the same manual-review PR as the chart and the vectorchord DB image.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/16-immich/helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\\n\\s*tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "immich-app/immich"
+    },
+    {
+      "customType": "regex",
+      "description": "kubernetes-mcp-server's app image, values.image.version -- a non-standard field name (version, not tag), with no repository present either. The file's own 2026-08-14 security-review comment claims 'Renovate's docker datasource will now track and PR version bumps the same as every other pinned image in this repo' -- checked against the actual renovate.json on the same audit that found the immich gap above (2026-09-19): that claim was never true, nothing referenced this chart or field. Not grouped with the kubeopencode packageRule: quay.io/containers/kubernetes_mcp_server is an unrelated upstream project that happens to share this local namespace, not a kubeopencode release.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/27-kubeopencode/mcp-server-helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\\n\\s*version:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "quay.io/containers/kubernetes_mcp_server"
+    },
+    {
+      "customType": "regex",
+      "description": "CNPG's Barman Cloud plugin controller image, plugin-barman-cloud.yaml's values.image.tag -- tag-only, no repository, and the file isn't named helmrelease.yaml so even the paired-field helm-values manager could never reach it regardless of shape. Found on the same 2026-09-19 audit as the immich and kubernetes-mcp-server gaps above. Repository confirmed live (kubectl get pod -n cnpg-system), not guessed. Grouped with the sidecar image below per this file's own comment: 'move both tags together, in a reviewed PR'.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/33-cloudnative-pg/plugin-barman-cloud\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\\n\\s*tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/cloudnative-pg/plugin-barman-cloud"
+    },
+    {
+      "customType": "regex",
+      "description": "CNPG's Barman Cloud plugin SIDECAR image, plugin-barman-cloud.yaml's values.sidecarImage.tag -- the highest-blast-radius of the three gaps found on this audit: this is the image injected into every CNPG database pod (keycloak-pg, filer-meta-pg, immich-pg), confirmed live via each pod's initContainers, not the controller deployment. Same tag-only/wrong-filename problem as the controller image above, and the same fix.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/33-cloudnative-pg/plugin-barman-cloud\\.yaml$/"
+      ],
+      "matchStrings": [
+        "sidecarImage:\\s*\\n\\s*tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar"
     }
   ],
   "packageRules": [
@@ -126,6 +198,14 @@
       "matchManagers": ["kubernetes"],
       "matchFileNames": [
         "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/*.yaml"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "The built-in kubernetes manager treats machine.install.image (factory.talos.dev/installer/<schematic-hash>:<tag>) as a plain Docker image and tries to list its tags. That always fails -- the schematic hash is a content hash, not a browsable repository -- so the Dependency Dashboard carries a permanent 'could not be looked up' warning for a dependency the siderolabs/talos custom manager above already tracks correctly by the real value (the tag, not the hash).\n\nTwo earlier fixes for this, each merged and confirmed NOT to clear the warning by checking the live dashboard afterward: (1) a negative managerFilePatterns entry excluding controlplane.yaml from the manager's file match -- did nothing, because managerFilePatterns is `mergeable: true` in Renovate's own option schema (lib/config/options/index.ts): user config MERGES with a built-in manager's default file match rather than replacing it, so no entry in this field, positive or negative, can ever remove a file the manager already covers by default. (2) A packageRule matching matchFileNames + enabled:false (this rule's own previous shape) -- also did nothing: it stops an update from being proposed, but not the lookup that populates this specific warning.\n\nWhat actually works, matching a maintainer-confirmed fix for this exact warning shape (renovatebot/renovate#30889) and this repo's own live test: matchManagers + matchPackageNames on the literal depName, not the file. packageRules apply 'pre-lookup' once the depName is known, and depConfig.enabled === false at that point skips the datasource call entirely (lib/workers/repository/process/fetch.ts) -- matchFileNames evidently doesn't reach that same pre-lookup gate for this manager, matchPackageNames does. The schematic hash below must be updated by hand if the schematic ever changes (schematic.yaml) -- the same maintenance burden the custom regex managers above already carry for this same hash.",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": [
+        "factory.talos.dev/installer/613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245"
       ],
       "enabled": false
     },
@@ -170,12 +250,13 @@
       ]
     },
     {
-      "description": "Group Flux updates",
+      "description": "Group Flux updates. helm/helm (the standalone Helm CLI installed in trivy-auto-patch.yml/trivy-automerge.yml for chart rendering, comment-pinned in .github/workflows) joins this group rather than staying on its own independent latest-upstream schedule: it exists to render charts the way this cluster's Flux actually does, so its version is only meaningful relative to what helm-controller vendors, not upstream helm/helm's own release cadence. Checked 2026-09-19 (PR #634 -- Renovate proposing v3->v4 independently -- prompted the check): the currently-pinned helm-controller v1.6.4 already vendors helm.sh/helm/v4 v4.2.4 (confirmed against its go.mod), so v4 is not ahead of the cluster, it matches it -- but that was a fact to verify, not assume, and the only way to keep it a checked fact going forward is to stop letting this update independently and force it into the same reviewed PR as the next helm-controller/flux2 bump, at which point the reviewer re-checks the new version's go.mod the same way before choosing a CLI version to match.",
       "groupName": "flux",
       "automerge": false,
       "matchPackageNames": [
         "/fluxcd/*/",
-        "/flux2/"
+        "/flux2/",
+        "helm/helm"
       ]
     },
     {
@@ -214,6 +295,38 @@
         "major"
       ],
       "enabled": false
+    },
+    {
+      "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list). immich-app/immich (the app image tag override, added 2026-09-19) joins the same group for the same reason: a new app version and a new chart version are the same underlying decision and must not land as two independent, unreviewed-together PRs.",
+      "matchPackageNames": [
+        "immich",
+        "ghcr.io/tensorchord/cloudnative-vectorchord",
+        "immich-app/immich"
+      ],
+      "groupName": "immich",
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
+    },
+    {
+      "description": "CNPG's Barman Cloud plugin controller and sidecar images move as one -- plugin-barman-cloud.yaml's own comment: 'the sidecar is what runs inside every database pod, so a bump to it restarts each database once: move both tags together, in a reviewed PR.' Neither had any Renovate coverage until the two custom managers above; grouping them now, at the same time coverage starts, so they can never land as two separate PRs on two separate days.",
+      "matchPackageNames": [
+        "ghcr.io/cloudnative-pg/plugin-barman-cloud",
+        "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar"
+      ],
+      "groupName": "plugin-barman-cloud",
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
+    },
+    {
+      "description": "docker.io/rancher/kuberlr-kubectl is pinned independently in four unrelated files (05-cilium/bootstrap-rbac-cleanup.yaml and three system-upgrade-controller/kubescape cronjobs) -- each already tracked individually by the built-in kubernetes manager, but with no relationship between them a bump can land in one file's PR and not the other three, leaving the cluster running several different kubectl-wrapper versions for the same purpose with no reason. Grouped so every occurrence moves together in one PR. docker.io/library/python is deliberately NOT grouped the same way -- different services, different upgrade cadence, no shared-version rationale the way this single-purpose kubectl wrapper has.",
+      "matchPackageNames": [
+        "docker.io/rancher/kuberlr-kubectl"
+      ],
+      "groupName": "kuberlr-kubectl"
     },
     {
       "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
@@ -258,6 +371,14 @@
       "automerge": false
     },
     {
+      "description": "SeaweedFS ships as two separately-tracked packages that are really one release: the chart (01-seaweedfs/helmrelease.yaml) and the chrislusf/seaweedfs image the collection-routing Job pins for itself (cluster/overlays/1-node/seaweedfs-collection-routing-job.yaml, a different file, so the matchFileNames grouping style used elsewhere in this list does not reach it). Ungrouped, client (the Job) and server (the chart) can land on different days in different PRs and drift apart -- the same class of problem the file-based chart+image groups below exist to prevent. Found on code review (round 4).",
+      "matchPackageNames": [
+        "seaweedfs",
+        "/^(docker[.]io/)?chrislusf/seaweedfs$/"
+      ],
+      "groupName": "seaweedfs"
+    },
+    {
       "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it -- upstream csi-attacher and Longhorn's build of it are not interchangeable. A CSI driver assembled from mismatched sidecars fails at volume attach, which here means every workload with a PVC. Also carries manual-review from the unrecoverable-component rule.",
       "matchPackageNames": [
         "longhorn",
@@ -279,13 +400,6 @@
         "cluster/base/infrastructure/04-grafana/helmrelease.yaml"
       ],
       "groupName": "grafana"
-    },
-    {
-      "description": "Move the velero chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
-      "matchFileNames": [
-        "cluster/base/infrastructure/07-velero/helmrelease.yaml"
-      ],
-      "groupName": "velero"
     },
     {
       "description": "Move the external-dns chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
@@ -321,13 +435,6 @@
         "cluster/base/infrastructure/15-system-upgrade-controller/operator/helmrelease.yaml"
       ],
       "groupName": "system-upgrade-controller"
-    },
-    {
-      "description": "Move the immich-postgresql chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
-      "matchFileNames": [
-        "cluster/base/infrastructure/16-immich/postgresql-helmrelease.yaml"
-      ],
-      "groupName": "immich-postgresql"
     },
     {
       "description": "Move the falco chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
