@@ -66,17 +66,21 @@ data:
     def get_token():
         # Prefer the permanent master admin so reruns keep working after the
         # bootstrap admin below is deleted; fall back to it for the first run.
+        #
+        # The boolean also tells the password-reset step below whether a
+        # reset is even needed: succeeding here with ADMIN_USER_PASSWORD
+        # already proves that value is the live password.
         tok = try_login(ADMIN_USER_EMAIL, ADMIN_USER_PASSWORD)
         if tok:
-            return tok
+            return tok, True
         tok = try_login(KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD)
         if tok:
-            return tok
+            return tok, False
         print("ERROR: auth failed with both permanent and bootstrap admin credentials", file=sys.stderr)
         sys.exit(1)
 
 
-    tok = get_token()
+    tok, password_already_synced = get_token()
     print("✓ Authenticated to Keycloak")
 
     def client_uuid(client_id_str):
@@ -289,14 +293,31 @@ data:
 
     user_id = existing[0]["id"]
 
-    # --- Set/sync password (always update to stay in sync with secret) ---
-    status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/reset-password", data={
-        "type": "password",
-        "value": ADMIN_USER_PASSWORD,
-        "temporary": False,
-    }, token=tok)
-    assert status == 204, f"Password reset failed: {status}"
-    print("✓ Password set")
+    # --- Set/sync password (skipped once it's already current) ---
+    #
+    # get_token() already logged in AS this user WITH this exact password
+    # when password_already_synced is True -- there is nothing to sync.
+    # Resetting anyway is not just redundant, it fails outright: since
+    # realm-config/homelab.yaml's passwordPolicy added passwordHistory(3),
+    # Keycloak counts the password's own current value as history and
+    # rejects "reset" to it with invalidPasswordHistoryMessage ("must not
+    # be equal to any of last 3 passwords") -- confirmed live by replaying
+    # this exact call by hand and reading Keycloak's own error body, not
+    # assumed from the docs. That turned every rerun after the first real
+    # password set into a hard failure: this Job never completed again,
+    # retrying until backoffLimit and landing Failed every time, since
+    # `assert status == 204` only ever reported the status code, not the
+    # response body that would have named the real cause.
+    if password_already_synced:
+        print("✓ Password already in sync (skipped reset)")
+    else:
+        status, _ = api("PUT", f"/admin/realms/{REALM}/users/{user_id}/reset-password", data={
+            "type": "password",
+            "value": ADMIN_USER_PASSWORD,
+            "temporary": False,
+        }, token=tok)
+        assert status == 204, f"Password reset failed: {status}"
+        print("✓ Password set")
 
     # --- Migrate legacy 'admin' group members into /owner/platform-admin, then
     # delete the legacy group. ADR-002's Level 0/Level 1 groups are now what
