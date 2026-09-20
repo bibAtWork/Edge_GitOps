@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-canary-synthetic
+  namespace: platform-canary
+data:
+  check.py: |
+    import json
+    import os
+    import ssl
+    import time
+    import urllib.error
+    import urllib.request
+
+    TARGET = os.getenv("SYNTHETIC_TARGET", "https://canary.homelab.data-harness.org/")
+    EXPECTED_ISSUER = os.getenv(
+        "EXPECTED_OIDC_ISSUER",
+        "https://keycloak.homelab.data-harness.org/realms/homelab/",
+    )
+    OTLP_ENDPOINT = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://otel-collector-gateway.monitoring.svc:4318",
+    ).rstrip("/")
+
+    class RejectRedirects(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+            return None
+
+    def emit_result(success):
+        now = str(time.time_ns())
+        payload = {
+            "resourceMetrics": [{
+                "resource": {"attributes": [
+                    {"key": "service.name", "value": {"stringValue": "platform-canary-synthetic"}},
+                ]},
+                "scopeMetrics": [{
+                    "scope": {"name": "platform-canary-synthetic"},
+                    "metrics": [{
+                        "name": "platform_canary_synthetic_success",
+                        "unit": "1",
+                        "gauge": {"dataPoints": [{
+                            "timeUnixNano": now,
+                            "asInt": "1" if success else "0",
+                        }]},
+                    }],
+                }],
+            }],
+        }
+        request = urllib.request.Request(
+            f"{OTLP_ENDPOINT}/v1/metrics",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status not in (200, 202):
+                raise RuntimeError(f"OTLP exporter returned HTTP {response.status}")
+
+    opener = urllib.request.build_opener(
+        RejectRedirects(),
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+    )
+    success = False
+    try:
+        opener.open(TARGET, timeout=15)
+        raise RuntimeError("canary allowed unauthenticated access instead of redirecting to OIDC")
+    except urllib.error.HTTPError as response:
+        location = response.headers.get("Location", "")
+        if response.code not in (302, 303) or not location.startswith(EXPECTED_ISSUER):
+            raise RuntimeError(f"unexpected OIDC response: status={response.code} location={location}")
+        success = True
+    finally:
+        emit_result(success)
+
+    print(json.dumps({"target": TARGET, "oidc_redirect": "verified"}))
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: platform-canary-synthetic
+  namespace: platform-canary
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 90
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: platform-canary-synthetic
+            homelab.local/telemetry-client: "true"
+        spec:
+          serviceAccountName: platform-canary
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: check
+              image: docker.io/library/python:3.14.7-alpine
+              command: [python, /check/check.py]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+                - name: SYNTHETIC_TARGET
+                  value: https://canary.homelab.data-harness.org/
+                - name: EXPECTED_OIDC_ISSUER
+                  value: https://keycloak.homelab.data-harness.org/realms/homelab/
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: http://otel-collector-gateway.monitoring.svc:4318
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 48Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: check
+                  mountPath: /check
+                  readOnly: true
+          volumes:
+            - name: check
+              configMap:
+                name: platform-canary-synthetic
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: platform-canary
+  namespace: monitoring
+spec:
+  groups:
+    - name: platform-canary
+      rules:
+        - alert: PlatformCanarySyntheticFailed
+          expr: max_over_time(platform_canary_synthetic_success[15m]) < 1 or absent(platform_canary_synthetic_success)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Platform canary cannot verify TLS, routing, and OIDC
+            description: >-
+              The in-cluster synthetic check has not observed a successful TLS
+              request and OIDC redirect during the last 15 minutes.
