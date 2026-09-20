@@ -136,6 +136,54 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+(?:- name:[^\\n]*\\n\\s+run: [|]\\n)?\\s*[A-Z_]*VERSION=(?<currentValue>v[\\d.]+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Immich's app image tag, overridden in the shared top-level controllers block (helmrelease.yaml) to run the real latest v2.x release independently of the chart's own stale appVersion default -- see that file's comment and docs/backlog.md. A bare `image: {tag: ...}` with no adjacent `repository:` is invisible to both the built-in kubernetes manager (needs a single combined repo:tag value) and the helm-values manager (needs repository+tag together): this had zero Renovate coverage until this manager, found on an audit of every HelmRelease-embedded image override in the repo (2026-09-19). Tracked against the app repo directly (github-releases), not one specific ghcr.io image, since server and machine-learning always share this one tag by construction. Grouped with the immich packageRule below so it lands in the same manual-review PR as the chart and the vectorchord DB image.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/16-immich/helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\\n\\s*tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "immich-app/immich"
+    },
+    {
+      "customType": "regex",
+      "description": "kubernetes-mcp-server's app image, values.image.version -- a non-standard field name (version, not tag), with no repository present either. The file's own 2026-08-14 security-review comment claims 'Renovate's docker datasource will now track and PR version bumps the same as every other pinned image in this repo' -- checked against the actual renovate.json on the same audit that found the immich gap above (2026-09-19): that claim was never true, nothing referenced this chart or field. Not grouped with the kubeopencode packageRule: quay.io/containers/kubernetes_mcp_server is an unrelated upstream project that happens to share this local namespace, not a kubeopencode release.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/27-kubeopencode/mcp-server-helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\\n\\s*version:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "quay.io/containers/kubernetes_mcp_server"
+    },
+    {
+      "customType": "regex",
+      "description": "CNPG's Barman Cloud plugin controller image, plugin-barman-cloud.yaml's values.image.tag -- tag-only, no repository, and the file isn't named helmrelease.yaml so even the paired-field helm-values manager could never reach it regardless of shape. Found on the same 2026-09-19 audit as the immich and kubernetes-mcp-server gaps above. Repository confirmed live (kubectl get pod -n cnpg-system), not guessed. Grouped with the sidecar image below per this file's own comment: 'move both tags together, in a reviewed PR'.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/33-cloudnative-pg/plugin-barman-cloud\\.yaml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\\n\\s*tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/cloudnative-pg/plugin-barman-cloud"
+    },
+    {
+      "customType": "regex",
+      "description": "CNPG's Barman Cloud plugin SIDECAR image, plugin-barman-cloud.yaml's values.sidecarImage.tag -- the highest-blast-radius of the three gaps found on this audit: this is the image injected into every CNPG database pod (keycloak-pg, filer-meta-pg, immich-pg), confirmed live via each pod's initContainers, not the controller deployment. Same tag-only/wrong-filename problem as the controller image above, and the same fix.",
+      "managerFilePatterns": [
+        "/cluster/base/infrastructure/33-cloudnative-pg/plugin-barman-cloud\\.yaml$/"
+      ],
+      "matchStrings": [
+        "sidecarImage:\\s*\\n\\s*tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar"
     }
   ],
   "packageRules": [
@@ -202,12 +250,13 @@
       ]
     },
     {
-      "description": "Group Flux updates",
+      "description": "Group Flux updates. helm/helm (the standalone Helm CLI installed in trivy-auto-patch.yml/trivy-automerge.yml for chart rendering, comment-pinned in .github/workflows) joins this group rather than staying on its own independent latest-upstream schedule: it exists to render charts the way this cluster's Flux actually does, so its version is only meaningful relative to what helm-controller vendors, not upstream helm/helm's own release cadence. Checked 2026-09-19 (PR #634 -- Renovate proposing v3->v4 independently -- prompted the check): the currently-pinned helm-controller v1.6.4 already vendors helm.sh/helm/v4 v4.2.4 (confirmed against its go.mod), so v4 is not ahead of the cluster, it matches it -- but that was a fact to verify, not assume, and the only way to keep it a checked fact going forward is to stop letting this update independently and force it into the same reviewed PR as the next helm-controller/flux2 bump, at which point the reviewer re-checks the new version's go.mod the same way before choosing a CLI version to match.",
       "groupName": "flux",
       "automerge": false,
       "matchPackageNames": [
         "/fluxcd/*/",
-        "/flux2/"
+        "/flux2/",
+        "helm/helm"
       ]
     },
     {
@@ -248,16 +297,36 @@
       "enabled": false
     },
     {
-      "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list).",
+      "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list). immich-app/immich (the app image tag override, added 2026-09-19) joins the same group for the same reason: a new app version and a new chart version are the same underlying decision and must not land as two independent, unreviewed-together PRs.",
       "matchPackageNames": [
         "immich",
-        "ghcr.io/tensorchord/cloudnative-vectorchord"
+        "ghcr.io/tensorchord/cloudnative-vectorchord",
+        "immich-app/immich"
       ],
       "groupName": "immich",
       "automerge": false,
       "addLabels": [
         "manual-review"
       ]
+    },
+    {
+      "description": "CNPG's Barman Cloud plugin controller and sidecar images move as one -- plugin-barman-cloud.yaml's own comment: 'the sidecar is what runs inside every database pod, so a bump to it restarts each database once: move both tags together, in a reviewed PR.' Neither had any Renovate coverage until the two custom managers above; grouping them now, at the same time coverage starts, so they can never land as two separate PRs on two separate days.",
+      "matchPackageNames": [
+        "ghcr.io/cloudnative-pg/plugin-barman-cloud",
+        "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar"
+      ],
+      "groupName": "plugin-barman-cloud",
+      "automerge": false,
+      "addLabels": [
+        "manual-review"
+      ]
+    },
+    {
+      "description": "docker.io/rancher/kuberlr-kubectl is pinned independently in four unrelated files (05-cilium/bootstrap-rbac-cleanup.yaml and three system-upgrade-controller/kubescape cronjobs) -- each already tracked individually by the built-in kubernetes manager, but with no relationship between them a bump can land in one file's PR and not the other three, leaving the cluster running several different kubectl-wrapper versions for the same purpose with no reason. Grouped so every occurrence moves together in one PR. docker.io/library/python is deliberately NOT grouped the same way -- different services, different upgrade cadence, no shared-version rationale the way this single-purpose kubectl wrapper has.",
+      "matchPackageNames": [
+        "docker.io/rancher/kuberlr-kubectl"
+      ],
+      "groupName": "kuberlr-kubectl"
     },
     {
       "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
