@@ -201,6 +201,11 @@ spec:
                     secretKeyRef:
                       name: keycloak-immich-oidc
                       key: immich-client-secret
+                - name: ARGO_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-argo-workflows-oidc
+                      key: argo-workflows-client-secret
                 - name: GOOGLE_CLIENT_ID
                   valueFrom:
                     secretKeyRef:
