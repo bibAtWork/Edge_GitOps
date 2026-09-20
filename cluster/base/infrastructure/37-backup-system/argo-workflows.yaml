@@ -174,7 +174,39 @@ spec:
         - sso
       sso:
         enabled: true
-        issuer: https://keycloak.homelab.data-harness.org/realms/homelab
+        # issuer is the URL the server actually connects to for discovery
+        # (<issuer>/.well-known/openid-configuration) and, without
+        # issuerAlias, the value it demands back in that document's own
+        # "issuer" field. The external hostname fails both: found live,
+        # the pod crash-looped on
+        #   Error: Get "https://keycloak.homelab.data-harness.org/...
+        #   openid-configuration": dial tcp 192.168.178.200:443: i/o timeout
+        # -- confirmed independent of DNS/TLS, since the plain in-cluster
+        # Service (http://keycloak.keycloak.svc) timed out identically until
+        # allow-argo-server-keycloak-egress/allow-argo-workflows-ingress
+        # (this change) opened that specific east-west path; backup-system
+        # has no general cross-namespace egress by design.
+        #
+        # 17-paperless-ngx/deployment.yaml solved the identical problem
+        # already (its own comment: "Paperless's namespace gets a 403 ...
+        # for reasons not yet root-caused... Direct pod-to-pod sidesteps
+        # it") by pointing straight at the internal Service. Confirmed live
+        # here too: fetching discovery over that internal URL still returns
+        # "issuer": "https://keycloak.homelab.data-harness.org/realms/homelab"
+        # -- Keycloak's KC_HOSTNAME pins every declared endpoint to the
+        # public hostname regardless of how the document was reached, so the
+        # only remaining problem is the mismatch between that declared
+        # issuer and the (internal) URL used to fetch it. issuerAlias is
+        # argo-workflows' own name for exactly this: server/auth/sso/sso.go
+        # wraps the OIDC context with oidc.InsecureIssuerURLContext(...,
+        # IssuerAlias) precisely to accept a discovery document whose issuer
+        # differs from the URL it was fetched from -- "Some offspec
+        # providers... have oidc discovery url different from issuer url",
+        # per that file's own comment. issuer here is the address to reach;
+        # issuerAlias is the value already everywhere else (Keycloak's own
+        # declaration, every token's iss claim) -- unchanged.
+        issuer: http://keycloak.keycloak.svc.cluster.local/realms/homelab
+        issuerAlias: https://keycloak.homelab.data-harness.org/realms/homelab
         clientId:
           name: argo-workflows-sso
           key: client-id
