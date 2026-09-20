@@ -1,0 +1,86 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-fsgroup-for-ephemeral-volumes
+  annotations:
+    policies.kyverno.io/title: Require fsGroup for Generic Ephemeral Volumes
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      A pod that runs as non-root and mounts a generic ephemeral volume
+      (spec.volumes[].ephemeral) must set securityContext.fsGroup. A freshly
+      provisioned Longhorn volume behind a generic ephemeral volume is
+      root-owned; a non-root process has no write permission on it at all
+      without fsGroup.
+spec:
+  # Enforce, not Audit -- unlike this cluster's other hardening policies.
+  # Those trade a security property against a running fleet that mostly
+  # doesn't comply yet (require-readonly-rootfs: 55 of 84 containers).
+  # This one isn't a hardening trade-off: a pod this rule would reject was
+  # never going to work anyway. Measured before writing this (both checks
+  # empty):
+  #   - every currently-running pod cluster-wide that is non-root and mounts
+  #     a PersistentVolumeClaim or generic ephemeral volume already sets
+  #     fsGroup (0 hits) -- so Enforce cannot break anything already running.
+  #   - `grep -rn 'ephemeral:' cluster/` finds exactly one user of a generic
+  #     ephemeral volume in this whole repo, and it already sets fsGroup
+  #     (see below) -- so Enforce cannot block anything this repo currently
+  #     defines either. This is a tripwire for the next one, not a fix for
+  #     an existing gap.
+  #
+  # Why `ephemeral:` specifically, not every PersistentVolumeClaim reference:
+  # restic-dataset.yaml's `backup` step and sqlite-dataset.yaml's
+  # `consistent-copy` step both mount a real PersistentVolumeClaim (the
+  # dataset's own snapshot clone) as non-root with no fsGroup, and both work
+  # fine -- the clone inherits whatever ownership the LIVE source volume
+  # already has (uid 1000, checked 2026-09-12), which is not something this
+  # policy can reason about generically. A rule keyed on any
+  # persistentVolumeClaim would have flagged those two as violations despite
+  # them being correct. `ephemeral:` (a generic ephemeral volume, provisioned
+  # fresh via its own volumeClaimTemplate on every pod) has no such history to
+  # inherit -- it is unconditionally root-owned on first mount -- which is
+  # exactly and only the case that broke restic-dataset.yaml's `restore-test`
+  # (Agent.md, "A Longhorn-backed scratch volume is root-owned...", `25721ee`/
+  # #692).
+  #
+  # Only checks pod-level securityContext.runAsNonRoot, not a per-container
+  # override. Every template in this cluster sets runAsNonRoot/runAsUser at
+  # the pod level (Argo WorkflowTemplates translate their own top-level
+  # `securityContext:` directly into the Pod's), which is what actually
+  # exists to check against; a container-level-only override would slip past
+  # this rule.
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-fsgroup-with-ephemeral-volume
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - flux-system
+                - kyverno
+      preconditions:
+        all:
+          - key: "{{ length(request.object.spec.volumes[?ephemeral][]) || `0` }}"
+            operator: GreaterThan
+            value: 0
+          - key: "{{ request.object.spec.securityContext.runAsNonRoot || `false` }}"
+            operator: Equals
+            value: true
+      validate:
+        message: >-
+          This pod mounts a generic ephemeral volume (spec.volumes[].ephemeral)
+          and runs as non-root, but sets no securityContext.fsGroup. A brand-new
+          Longhorn volume behind a generic ephemeral volume is root-owned, so a
+          non-root process cannot write to it -- see Agent.md, "A Longhorn-backed
+          scratch volume is root-owned...".
+        pattern:
+          spec:
+            securityContext:
+              fsGroup: "?*"

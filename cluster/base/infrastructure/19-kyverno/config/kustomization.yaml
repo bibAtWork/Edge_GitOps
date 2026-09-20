@@ -10,3 +10,4 @@ resources:
   - ../policies/set-revision-history-limit.yaml
   - ../policies/backup-system-clone-scope.yaml
   - ../policies/verify-flux-images.yaml
+  - ../policies/require-fsgroup-for-ephemeral-volumes.yaml
