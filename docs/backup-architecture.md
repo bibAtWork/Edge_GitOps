@@ -29,9 +29,9 @@ What has to be recoverable, and how well, is stated in one place:
   unique until ingestion, so `PaperlessConsumeFileStalled` alerts when one remains for six hours;
   its monitor also alerts when the directory cannot be scanned.
 
-**Not protected by accident:** a volume that is in neither `datasets` nor `excluded-volumes`.
-Nothing reports one yet (docs/backlog.md) -- `excluded-volumes` exists so that check has
-something to check against, not because the check itself exists yet.
+**Not protected by accident:** CI rejects a declared Longhorn PVC that is in neither `datasets`
+nor `excluded-volumes`. It checks both deployment profiles and also rejects stale or contradictory
+policy entries.
 
 ## How a recovery point is made
 
