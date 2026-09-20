@@ -26,6 +26,16 @@
 # (docs/service-account-secrets.md, linked from the SSO RBAC doc above) --
 # each ServiceAccount below has one, created the old-fashioned way via the
 # kubernetes.io/service-account.name annotation.
+#
+# The Secret's own name matters, not just that annotation: Argo looks it up
+# by name specifically as "${serviceAccountName}.service-account-token"
+# (service-account-secrets.md's "Option 1 -- Discovery By Name"), not by
+# scanning for the annotation. Found live: with the annotation right but
+# the name merely descriptive (argo-viewer-token), the correct
+# ServiceAccount was still selected per-tier (RBAC group mapping worked
+# exactly as intended) but every single request then 403'd with "failed to
+# get service account secret: secrets \"argo-viewer.service-account-token\"
+# not found" -- the token existed, Argo just never found it.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -38,7 +48,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: argo-viewer-token
+  name: argo-viewer.service-account-token
   namespace: backup-system
   annotations:
     kubernetes.io/service-account.name: argo-viewer
@@ -56,7 +66,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: argo-operator-token
+  name: argo-operator.service-account-token
   namespace: backup-system
   annotations:
     kubernetes.io/service-account.name: argo-operator
@@ -74,7 +84,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: argo-admin-token
+  name: argo-admin.service-account-token
   namespace: backup-system
   annotations:
     kubernetes.io/service-account.name: argo-admin
