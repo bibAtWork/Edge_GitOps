@@ -1,0 +1,175 @@
+# Per-user RBAC for Argo's SSO login (argo-workflows.yaml sets
+# server.sso.rbac.enabled: true to activate this). Maps the same three
+# ADR-002 group tiers every other app in this cluster maps (Grafana's
+# role_attribute_path, docs/adr/0002-flattened-hierarchical-rbac.md) onto
+# three levels of Argo access, via the mechanism Argo itself defines for
+# this: https://argo-workflows.readthedocs.io/en/stable/argo-server-sso/#sso-rbac
+#
+# Argo evaluates workflows.argoproj.io/rbac-rule on every ServiceAccount in
+# this namespace against the logged-in user's claims, picks the
+# highest-precedence match, and impersonates as that ServiceAccount for the
+# rest of the session. Deliberately no catch-all "true" rule at precedence 0
+# (the pattern Argo's own docs recommend for a default read-only account):
+# this is internal backup/recovery infrastructure, not a read-safe surface
+# for the /self-service tier public registration lands people in
+# (realm-config/homelab.yaml), and Argo's own behavior when nothing matches
+# is to deny outright -- exactly what's wanted here for anyone outside the
+# three real tiers.
+#
+# Groups arrive as bare names ("platform-admin", not "/owner/platform-admin"):
+# the groups client scope's mapper sets full.path: false
+# (realm-config/homelab.yaml), confirmed against Grafana's own already-live
+# role_attribute_path, which matches the same bare names.
+#
+# Kubernetes 1.24+ stopped auto-creating a ServiceAccount's token Secret, and
+# Argo's SSO RBAC reads a bound Secret rather than requesting one dynamically
+# (docs/service-account-secrets.md, linked from the SSO RBAC doc above) --
+# each ServiceAccount below has one, created the old-fashioned way via the
+# kubernetes.io/service-account.name annotation.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo-viewer
+  namespace: backup-system
+  annotations:
+    workflows.argoproj.io/rbac-rule: "'viewer' in groups"
+    workflows.argoproj.io/rbac-rule-precedence: "1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argo-viewer-token
+  namespace: backup-system
+  annotations:
+    kubernetes.io/service-account.name: argo-viewer
+type: kubernetes.io/service-account-token
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo-operator
+  namespace: backup-system
+  annotations:
+    workflows.argoproj.io/rbac-rule: "'app-operator' in groups"
+    workflows.argoproj.io/rbac-rule-precedence: "2"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argo-operator-token
+  namespace: backup-system
+  annotations:
+    kubernetes.io/service-account.name: argo-operator
+type: kubernetes.io/service-account-token
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo-admin
+  namespace: backup-system
+  annotations:
+    workflows.argoproj.io/rbac-rule: "'platform-admin' in groups"
+    workflows.argoproj.io/rbac-rule-precedence: "3"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argo-admin-token
+  namespace: backup-system
+  annotations:
+    kubernetes.io/service-account.name: argo-admin
+type: kubernetes.io/service-account-token
+---
+# Read-only: can see every run, template, and log, but cannot start, stop,
+# retry or edit anything. Matches what "viewer" means for every other app
+# with a native OIDC role mapping in this cluster (Grafana Viewer, Keycloak's
+# own /reader tier).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-viewer
+  namespace: backup-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "events", "pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources:
+      ["eventsources", "sensors", "workflows", "workfloweventbindings", "workflowtemplates", "cronworkflows"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-viewer
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: argo-viewer
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-viewer
+---
+# Can run and manage Workflow instances -- submit, retry, resubmit, stop,
+# delete a run, delete its pods -- but not create, edit or delete a
+# WorkflowTemplate or CronWorkflow: those define WHAT can run and on what
+# schedule, which is a platform-admin decision here (this namespace runs
+# ADR-012's recovery system, not general-purpose CI), not an operator one.
+# Everything an operator can't change, they can still read.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-operator
+  namespace: backup-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["eventsources", "sensors", "workfloweventbindings", "workflowtemplates", "cronworkflows"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-operator
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: argo-operator
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-operator
+---
+# Full access -- reuses the argo-workflows-server Role the chart already
+# creates for the server's own ServiceAccount (server.rbac.create: true,
+# the chart default), rather than duplicating its rules here: platform-admin
+# is meant to be exactly what authModes: [server] granted everyone before
+# this change, no more and no less, and binding the same Role instead of a
+# copy means the two can never drift apart.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-admin
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: argo-admin
+    namespace: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-workflows-server
