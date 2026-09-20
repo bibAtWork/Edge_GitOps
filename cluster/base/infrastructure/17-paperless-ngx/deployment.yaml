@@ -104,7 +104,34 @@ spec:
             # gateway listener that other namespaces (e.g. monitoring) don't,
             # for reasons not yet root-caused (see
             # project_opa_hubble_ui_broken.md's sibling finding). Direct
-            # pod-to-pod sidesteps it. Keycloak's KC_HOSTNAME is a full
+            # pod-to-pod sidesteps it.
+            #
+            # Partially re-investigated 2026-09-20 chasing an unrelated Argo
+            # Workflows SSO timeout: reaching the Gateway's own ClusterIP
+            # (not its external LAN IP) with the right Host header DOES work
+            # from a locked-down namespace with no other cross-namespace
+            # egress (backup-system) -- confirmed live, 200 OK against
+            # Keycloak's discovery endpoint -- once the request targets the
+            # https listener's real backend port (10443, the Service's own
+            # targetPort) rather than the 443 the Service publishes. Also
+            # checked OPA's policy directly (security/opa-policies
+            # ConfigMap): the gateway-wide extAuth SecurityPolicy's Rego
+            # only returns 403 for a *valid* JWT failing an admin check
+            # (Grafana admin paths, admin_only_apps) -- a plain request with
+            # no Authorization header, which is what any OIDC discovery/token
+            # call is, falls through to the default-allow rule. So OPA's own
+            # logic doesn't explain a 403 here, and Envoy calls OPA itself
+            # regardless of which namespace originated the client request,
+            # which doesn't fit a namespace-dependent symptom either. Neither
+            # of those rules out something else entirely (this was reached
+            # via Keycloak's route specifically, not Paperless's own, and
+            # without an actual repro of the original 403 to compare
+            # against) -- left as direct pod-to-pod, which already works and
+            # carries no reason to change. Recorded so the next person
+            # chasing this starts from what's now actually known rather
+            # than re-deriving it.
+            #
+            # Keycloak's KC_HOSTNAME is a full
             # https:// URL, so the discovery document still returns correct
             # https:// endpoint URLs despite being fetched over plain internal
             # HTTP — required since the authorization_endpoint is handed to
