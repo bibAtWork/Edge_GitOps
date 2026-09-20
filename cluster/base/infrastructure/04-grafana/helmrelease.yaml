@@ -33,8 +33,8 @@ spec:
       userKey: admin-user
       passwordKey: admin-password
     # Stateless. /var/lib/grafana is an emptyDir, so everything Grafana serves
-    # comes from this file on every start: datasources, the eight gnetId
-    # dashboards, all twenty-six alert rules, and the admin user from
+    # comes from this file on every start: datasources, provisioned
+    # dashboards, alert rules, and the admin user from
     # grafana-admin.
     #
     # The volume was removed rather than moved to Longhorn because it had
