@@ -65,6 +65,16 @@ spec:
 # from Cilium's gateway listener that others (monitoring) don't, for
 # reasons not yet root-caused. Direct pod-to-pod sidesteps it entirely,
 # matching the same pattern already proven for OPA above.
+#
+# Partially re-investigated 2026-09-20 (see 17-paperless-ngx/deployment.yaml's
+# matching comment for the full account): reaching the Gateway's ClusterIP
+# with the correct backend port works fine from a namespace with no other
+# cross-namespace egress, and this file's own extAuth SecurityPolicy Rego
+# (security/opa-policies) allows an unauthenticated request -- what any OIDC
+# discovery/token call is -- through its default rule regardless of source
+# namespace. Neither finding reproduces the original 403 or rules out
+# something else being the real cause; kept as direct pod-to-pod, which
+# already works.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
