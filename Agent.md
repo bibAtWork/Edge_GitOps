@@ -1,7 +1,8 @@
 # Agent Knowledge Base
 
 Architectural lessons, debugging patterns, and hard-won invariants for this cluster.
-Read this before touching Cilium network policies, the Gateway API stack, or Tailscale routing.
+Read this before touching Cilium network policies, the Gateway API stack, Tailscale routing,
+or the ADR-012 recovery system's Argo Workflow templates.
 See `CLAUDE.md` for git and workflow rules.
 
 ---
@@ -820,6 +821,86 @@ Service used to explore this exact failure mode should always be deleted immedia
 use — do not leave orphaned `lb-test`/`eg-probe`-style resources around; check `kubectl get
 ciliumloadbalancerippool,ciliuml2announcementpolicy -A` for anything not named
 `gateway-pool`/`gateway-announce` before ending a session that touched this area.
+
+---
+
+## A Longhorn-backed scratch volume is root-owned — a non-root pod writing to one needs `fsGroup`, not just `runAsUser`/`runAsGroup`
+
+**Broke silently for days, fixed 2026-09-20 (`fix(recovery): permit restore scratch writes`, #692,
+`25721ee`).** Applies to any future Argo Workflow template (or any Pod) in this cluster that
+provisions a fresh Longhorn-backed volume — a generic ephemeral volume, a static PV/PVC, a
+`volumeClaimTemplate` — and writes to it as a non-root `runAsUser`.
+
+### What broke
+
+`restic-dataset.yaml`'s `restore-test` step restores a backup snapshot into a freshly
+provisioned `longhorn-scratch` ephemeral volume, then SHA-256-verifies every file. The
+container ran as `runAsUser: 1000` / `runAsGroup: 1000` with **no `fsGroup`**. A brand-new
+Longhorn volume is mounted root-owned, so uid 1000 had no write permission on it at all —
+`restic restore --target /restore` failed outright, every single run, for both `restic-volume`
+datasets in the recovery policy (`immich-media`, `paperless-media`).
+
+This was **not** intermittent and **not** a resource/capacity issue — it was a deterministic
+permission failure that could only ever fail the same way. It went unnoticed as "database and
+sqlite datasets are fine, only these two keep failing" for several days of hourly reconcile
+attempts (`recovery-point-<app>-reconcile-*`, all `Failed`, all `main: Error (exit code 1)`)
+before being root-caused, because:
+
+- the failure exits cleanly with code 1 (not 137/143), so `retryStrategy`'s
+  `lastRetry.status == 'Error' || lastRetry.exitCode == '137' || lastRetry.exitCode == '143'`
+  expression never matched — no automatic retry masked or surfaced it differently;
+- the *backup* step (reading the same clone as uid 1000, no `fsGroup`) succeeded every time,
+  because reading an existing, already-correctly-owned source file needs no group write
+  access — only the restore-test's *write* to a brand-new destination volume did. Don't infer
+  "permissions are fine here" from the backup step passing; it is not proof the restore-test's
+  destination volume will be writable.
+
+### The fix
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  # The generic ephemeral Longhorn volume is mounted root-owned. Grant this
+  # pod's existing group access to that scratch destination. The mismatch
+  # guard avoids a recursive ownership walk when the volume root already has
+  # the requested group.
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+```
+
+`fsGroupChangePolicy: OnRootMismatch` matters beyond being tidy: without it, kubelet
+recursively `chown`s the entire volume on every mount, which scales with dataset size and
+would quietly reintroduce a real multi-minute-to-multi-hour cost on a large volume for no
+reason once `fsGroup` is added.
+
+### Why `sqlite-dataset.yaml` and `cnpg-dataset.yaml` never hit this
+
+Both use `emptyDir` exclusively for scratch space, never a Longhorn-backed volume — checked
+directly (`grep -n fsGroup\|emptyDir\|persistentVolumeClaim` across all three `*-dataset.yaml`
+templates) as part of root-causing this, to rule out the same bug lurking elsewhere. Only
+`restic-dataset.yaml`'s `restore-test` provisions an actual Longhorn CSI volume as its
+destination, which is why it was the only one affected. **Any new dataset adapter that writes
+its own scratch data to a Longhorn-backed volume (not `emptyDir`) as a non-root user needs
+the same `fsGroup` treatment — check for it explicitly, the failure mode gives no useful signal
+beyond a generic exit code 1.**
+
+### Where a recurrence would show up
+
+- `recovery_point_validated` / `recovery_dataset_validated_timestamp` (VictoriaMetrics) —
+  `RecoveryPointFailed` / `RecoveryPointStale` alerts (`04-grafana/helmrelease.yaml`) already
+  page on this; they did their job here, this section exists to shortcut the root-cause step
+  next time, not to add new alerting.
+- Argo Workflow node message `main: Error (exit code 1)` on a `*-restore-test` node, with the
+  **backup step for the same dataset having succeeded** — that split is the tell.
+- Pod logs do not survive long: this cluster's terminated-pod GC threshold is low, and a failed
+  pod from even a few hours ago is often already gone by the time you go looking. Reproduce
+  live instead of hunting for old logs — these workflows are read-only against a disposable
+  snapshot clone, so re-submitting one from its `CronWorkflow`'s `workflowSpec` to catch the
+  failure in the act is safe and fast (a full run is a few minutes).
 
 ---
 
