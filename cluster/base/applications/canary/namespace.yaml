@@ -4,7 +4,7 @@ metadata:
   name: platform-canary
   labels:
     homelab.local/application: "true"
-    homelab.local/gateway-access: "false"
+    homelab.local/gateway-access: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
   annotations:
