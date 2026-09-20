@@ -1488,7 +1488,7 @@ it is empty a few days after 2026-10-04.
 - plan, expecting only the buckets, the KMS key and alias, and that admin policy to be destroyed;
   then apply. The KMS key then waits out its 14-day deletion window.
 
-## Open: a new volume is not backed up until it is added to the recovery policy
+## Addressed: a new volume is not backed up until it is added to the recovery policy
 
 Recorded 2026-09-13, at the ADR-012 cutover. Longhorn's recurring jobs used to back up every volume
 by default: a new volume was protected before anyone classified it, and `BackupDatasetUnclassified`
@@ -1499,9 +1499,10 @@ is a dataset in `37-backup-system/recovery-policy.yaml`.
 (`derived` / `known-gap`, mirroring ADR-011's old `not-backed-up` table), so a volume that is
 deliberately not a dataset is at least written down, distinct from one nobody has classified yet.
 
-Still open: nothing automated checks a PVC against either list. Worth an alert of the same
-shape as `BackupDatasetUnclassified`: fire on a Longhorn-backed PVC that is neither a dataset in
-`recovery-policy.yaml` nor listed in its `excluded-volumes` table.
+Addressed 2026-09-20: `scripts/check-recovery-volume-coverage.py` renders both deployment profiles
+in CI and fails when a declared Longhorn PVC is absent from both lists. It also rejects a policy
+entry that is stale or appears in both lists, so classification cannot silently drift away from
+the manifests it is meant to cover.
 
 ---
 
