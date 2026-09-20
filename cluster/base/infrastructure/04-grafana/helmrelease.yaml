@@ -151,6 +151,92 @@ spec:
           gnetId: 7249
           revision: 1
           datasource: VictoriaMetrics
+        resource-efficiency:
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+                  "id": 1,
+                  "title": "Cluster CPU: usage and requests",
+                  "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\",image!=\"\"}[$__rate_interval]))", "legendFormat": "usage", "refId": "A"},
+                    {"expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\"})", "legendFormat": "requests", "refId": "B"}
+                  ]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+                  "id": 2,
+                  "title": "Cluster memory: working set and requests",
+                  "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum(container_memory_working_set_bytes{container!=\"\",image!=\"\"})", "legendFormat": "working set", "refId": "A"},
+                    {"expr": "sum(kube_pod_container_resource_requests{resource=\"memory\"})", "legendFormat": "requests", "refId": "B"}
+                  ]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+                  "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+                  "id": 3,
+                  "title": "CPU usage by namespace",
+                  "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\",image!=\"\"}[$__rate_interval]))", "legendFormat": "{{namespace}}", "refId": "A"}
+                  ]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                  "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+                  "id": 4,
+                  "title": "Memory working set by namespace",
+                  "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\",image!=\"\"})", "legendFormat": "{{namespace}}", "refId": "A"}
+                  ]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0}, "overrides": []},
+                  "gridPos": {"h": 9, "w": 12, "x": 0, "y": 17},
+                  "id": 5,
+                  "title": "CPU usage / request by namespace",
+                  "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\",image!=\"\"}[$__rate_interval])) / sum by (namespace) (kube_pod_container_resource_requests{resource=\"cpu\"})", "legendFormat": "{{namespace}}", "refId": "A"}
+                  ]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0}, "overrides": []},
+                  "gridPos": {"h": 9, "w": 12, "x": 12, "y": 17},
+                  "id": 6,
+                  "title": "Memory working set / request by namespace",
+                  "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\",image!=\"\"}) / sum by (namespace) (kube_pod_container_resource_requests{resource=\"memory\"})", "legendFormat": "{{namespace}}", "refId": "A"}
+                  ]
+                }
+              ],
+              "refresh": "1m",
+              "schemaVersion": 39,
+              "tags": ["capacity", "efficiency", "rightsizing"],
+              "templating": {"list": []},
+              "time": {"from": "now-7d", "to": "now"},
+              "timezone": "browser",
+              "title": "Resource efficiency",
+              "uid": "resource-efficiency",
+              "version": 1
+            }
     alerting:
       rules.yaml:
         apiVersion: 1
