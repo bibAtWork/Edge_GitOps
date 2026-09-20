@@ -12,10 +12,9 @@ spec:
     - Ingress
     - Egress
 ---
-# The public Gateway VIP is inside the LAN CIDR, so Cilium does not classify it
-# as world and the shared HTTPS egress policy does not match it. Permit only the
-# synthetic probe to reach that fixed VIP on TLS; all other LAN addresses stay
-# denied.
+# The public Gateway VIP is inside the LAN CIDR, and Cilium evaluates its
+# service flow after translating it to the Envoy backend. Permit only the
+# synthetic probe to reach that proxy on its TLS target port.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -26,9 +25,12 @@ spec:
     matchLabels:
       app.kubernetes.io/name: platform-canary-synthetic
   egress:
-    - toCIDR:
-        - 192.168.178.200/32
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: proxy
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
       toPorts:
         - ports:
-            - port: "443"
+            - port: "10443"
               protocol: TCP
