@@ -4,6 +4,23 @@
 # restricted, like every namespace that runs no privileged workload. Nothing
 # here needs more: data is read from Longhorn snapshot clones mounted as
 # ordinary PVCs, and workflow pods run as a non-root user.
+#
+# homelab.local/gateway-access: the Gateway's https listener only accepts
+# HTTPRoutes from namespaces carrying this label (allowedRoutes.namespaces,
+# selector match) -- config/httproute.yaml's argo-workflows route was
+# otherwise silently rejected: NotAllowedByListeners, which also meant
+# external-dns never saw it as Accepted and never created a DNS record.
+#
+# homelab.local/application travels with it, required by
+# scripts/check-platform-contracts.py: any namespace gaining gateway-access
+# beyond the pre-existing grandfathered set must also be a declared
+# application ("New gateway capability must belong to an application").
+# This does NOT grant the oidc:app-operator RoleBinding immich/paperless
+# have -- that check (check_profile's `bindings`) keys on an actual
+# RoleBinding naming that subject, which nothing here creates. This
+# namespace keeps its own RBAC (rbac.yaml, rbac-cnpg.yaml,
+# rbac-reconciler.yaml) unchanged; the label only satisfies the gateway
+# capability's own bookkeeping, not a broader application designation.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -12,3 +29,5 @@ metadata:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
+    homelab.local/gateway-access: "true"
+    homelab.local/application: "true"
