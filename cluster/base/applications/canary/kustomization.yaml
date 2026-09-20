@@ -6,3 +6,6 @@ resources:
   - workload.yaml
   - networkpolicy.yaml
   - route.yaml
+  - access.yaml
+  - edge-client-secret.yaml
+  - securitypolicy.yaml

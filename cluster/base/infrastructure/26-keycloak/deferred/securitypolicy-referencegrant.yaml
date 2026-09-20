@@ -17,6 +17,9 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: kubeopencode-system
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: platform-canary
   to:
     - group: ""
       kind: Service

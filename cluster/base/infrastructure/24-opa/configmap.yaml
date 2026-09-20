@@ -60,6 +60,7 @@ data:
     # Apps that require an admin JWT even for browser (non-Bearer) access.
     # These have no native OIDC integration, so OPA is the only auth layer.
     admin_only_apps := {
+        "canary.homelab.data-harness.org",
         "hubble.homelab.data-harness.org",
         "kubeopencode.homelab.data-harness.org",
     }
