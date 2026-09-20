@@ -12,12 +12,16 @@ data:
     CONSUME_DIR = "/consume"
 
 
+    def scan_error(error):
+        raise error
+
+
     def metrics():
         now = time.time()
         files = 0
         oldest = 0.0
         try:
-            for root, _, names in os.walk(CONSUME_DIR):
+            for root, _, names in os.walk(CONSUME_DIR, onerror=scan_error):
                 for name in names:
                     path = os.path.join(root, name)
                     if os.path.isfile(path):
