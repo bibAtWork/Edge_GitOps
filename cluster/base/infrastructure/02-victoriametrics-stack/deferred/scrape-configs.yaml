@@ -237,3 +237,52 @@ spec:
   endpoints:
     - port: manager
       path: /metrics
+---
+# Both collector tiers expose their internal pipeline counters on this port.
+# Keeping one scrape resource and a stable job label per tier lets alerts cover
+# every replica without coupling them to generated pod names.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: otel-collectors
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - monitoring
+      - monitoring-agents
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - otel-agent
+          - otel-collector-gateway
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      relabelConfigs:
+        - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+          targetLabel: job
+---
+# CloudNativePG recommends owning the monitor instead of using the deprecated
+# per-Cluster enablePodMonitor switch. One selector discovers every current and
+# future application database without editing each Cluster resource.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cloudnative-pg-instances
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: Exists
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      relabelConfigs:
+        - targetLabel: job
+          replacement: cloudnative-pg
