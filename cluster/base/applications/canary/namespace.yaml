@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-canary
+  labels:
+    homelab.local/application: "true"
+    homelab.local/gateway-access: "false"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    homelab.local/recovery: stateless
+    homelab.local/recovery-reason: Recreated from Git; no persistent application data.

@@ -1,0 +1,11 @@
+# DNS and same-namespace traffic are supplied by shared platform policies.
+# The empty application policy makes every additional path an explicit opt-in.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: platform-canary-isolation
+  namespace: platform-canary
+spec:
+  endpointSelector: {}
+  ingress: []
+  egress: []
