@@ -129,11 +129,12 @@ enforced" — confirmed live 2026-08-16 by reading `"result":{"allowed":...}` pe
 not by HTTP status code alone, since a generic Cilium network block and an OPA JSON
 `403` are otherwise indistinguishable from `curl` output.
 
-**Known gap, not yet closed:** neither Hubble UI nor KubeOpenCode has real per-user OIDC.
-`admin_only_apps` is a coarse Rego allow/deny, not identity-aware. An `oauth2-proxy`
-attempt in front of Hubble UI (2026-08-12) hit an unrelated Cilium policy-realization bug
-and was abandoned; a `SecurityPolicy.oidc` block against Keycloak is the intended fix and
-is not yet implemented.
+Hubble UI and KubeOpenCode use route-scoped Envoy Gateway `SecurityPolicy.oidc`
+policies for per-user Keycloak login. Each policy forwards the access token to the
+same fail-closed OPA `extAuth` check, where `admin_only_apps` evaluates the token's
+email and group claims. The shared `homelab-edge` confidential client uses PKCE and
+route-specific callback URLs. Both policies were Accepted and their unauthenticated
+redirects were verified live on 2026-09-20.
 
 ## 3. East-West microsegmentation model
 
