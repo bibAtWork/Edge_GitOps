@@ -203,6 +203,44 @@ spec:
               mountPath: /usr/src/paperless/consume
             - name: tmp
               mountPath: /tmp
+        # Files normally leave consume within minutes. A failed import can
+        # leave the only copy here indefinitely, so expose its age for an
+        # alert. Keeping this reader in the application pod avoids a second
+        # pod contending for the ReadWriteOnce claim.
+        - name: consume-monitor
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.1.3
+          command: ["python3", "/monitor/monitor.py"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          ports:
+            - name: consume-metrics
+              containerPort: 9101
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: consume-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: consume
+              mountPath: /consume
+              readOnly: true
+            - name: consume-monitor
+              mountPath: /monitor
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -221,3 +259,6 @@ spec:
         - name: rbac-script
           configMap:
             name: paperless-rbac-groups-script
+        - name: consume-monitor
+          configMap:
+            name: paperless-consume-monitor

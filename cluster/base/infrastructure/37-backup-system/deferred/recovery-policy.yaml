@@ -56,12 +56,12 @@ data:
   #   status
   #     derived        reconstructable from a dataset above; losing it costs
   #                    time, not data
-  #     known-gap      NOT safely excludable -- real risk, written down
-  #                    rather than left silent
+  #     monitored      transient unique data with a dedicated age alert;
+  #                    intervention is required before it can be lost
   excluded-volumes: |
     # volume                              status      reason
     pvc:paperless/paperless-export-lh     derived     document_exporter output, regenerable from paperless-media + paperless-db; only populated by a manual export, not by normal operation
-    pvc:paperless/paperless-consume-lh    known-gap   meant to be transient (files are consumed and removed on successful ingest), but a document that FAILS ingestion stays here -- unique, never backed up, and nothing currently reports one sitting unconsumed
+    pvc:paperless/paperless-consume-lh    monitored   files are transient but unique until ingestion; PaperlessConsumeFileStalled reports any file left here for six hours
     pvc:immich/immich-valkey-lh           derived     Valkey job queue/cache; rebuilds itself from Immich's own state on restart, holds nothing that does not already exist elsewhere
     pvc:immich/immich-ml-cache-lh         derived     ML model weights and computed embeddings cache; models re-download, embeddings recompute from immich-media + immich-db, which are both protected
     pvc:paperless/paperless-valkey-lh     derived     Valkey task queue/cache for Paperless' Celery workers; rebuilds itself on restart, holds nothing that does not already exist elsewhere

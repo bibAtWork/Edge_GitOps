@@ -1203,6 +1203,101 @@ spec:
             folder: Infrastructure
             interval: 10m
             rules:
+              # Paperless removes a successfully ingested file from consume,
+              # usually within minutes. Until then this PVC holds the only
+              # copy, so age rather than mere presence is the useful signal.
+              - uid: paperless-consume-file-stalled
+                title: PaperlessConsumeFileStalled
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max(paperless_consume_oldest_file_age_seconds) or vector(0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [21600]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: >-
+                    A unique Paperless input has not been consumed for six hours
+                  description: >-
+                    A file in paperless-consume-lh is older than six hours. Until Paperless ingests it, this is the only copy and it is not part of a recovery dataset. Inspect `/usr/src/paperless/consume` and Paperless task logs; preserve the file before retrying or removing it.
+                labels:
+                  severity: warning
+                isPaused: false
+              - uid: paperless-consume-monitor-failed
+                title: PaperlessConsumeMonitorFailed
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(paperless_consume_scan_success)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 10m
+                annotations:
+                  summary: >-
+                    Paperless consume directory is no longer monitored
+                  description: >-
+                    The consume monitor cannot scan paperless-consume-lh or its metrics target disappeared. Check the Paperless pod's consume-monitor container, its PVC mount, and the paperless-consume VMPodScrape. Stalled unique inputs are invisible while this alert is active.
+                labels:
+                  severity: warning
+                isPaused: false
               # The recovery system (ADR-012). Its workflows push these metrics to
               # vmsingle themselves, once per run, so every rule wraps them in
               # last_over_time(): an instant query sees a series only within

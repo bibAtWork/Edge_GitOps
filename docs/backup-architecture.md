@@ -25,9 +25,9 @@ What has to be recoverable, and how well, is stated in one place:
 - caches, including Zot's copies of upstream images;
 - etcd (below);
 - specific whole volumes, listed with a reason in recovery-policy's `excluded-volumes` --
-  currently `paperless-export-lh` (regenerable) and `paperless-consume-lh` (a known gap, not
-  actually safe to exclude: a document that fails ingestion stays there, unbacked-up, with
-  nothing reporting it).
+  including `paperless-export-lh` (regenerable) and `paperless-consume-lh`. Consume files are
+  unique until ingestion, so `PaperlessConsumeFileStalled` alerts when one remains for six hours;
+  its monitor also alerts when the directory cannot be scanned.
 
 **Not protected by accident:** a volume that is in neither `datasets` nor `excluded-volumes`.
 Nothing reports one yet (docs/backlog.md) -- `excluded-volumes` exists so that check has
