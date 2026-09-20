@@ -73,6 +73,15 @@ spec:
                 # a missed one.
                 - name: MAX_POINT_AGE_HOURS
                   value: "26"
+                # kuberlr (this image's kubectl wrapper, picking the binary that
+                # matches the server) and kubectl's own discovery cache both
+                # write under $HOME by default -- /home/kuberlr, which
+                # readOnlyRootFilesystem below makes unwritable. Redirecting
+                # HOME at the emptyDir already mounted at /tmp for the script's
+                # own /tmp/points and /tmp/promotions avoids adding a second
+                # volume for the same purpose.
+                - name: HOME
+                  value: /tmp
               volumeMounts:
                 - name: scripts
                   mountPath: /scripts
@@ -90,6 +99,7 @@ spec:
                   memory: 512Mi
               securityContext:
                 allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
                 capabilities:
                   drop:
                     - ALL
