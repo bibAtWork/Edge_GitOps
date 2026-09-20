@@ -23,33 +23,44 @@ spec:
     - toEndpoints:
         - {}
 ---
-# argo-server authenticates nothing (authModes: [server], argo-workflows.yaml)
-# -- every caller acts with the server's own namespaced Role, which can
-# create, update and delete Workflows, WorkflowTemplates and CronWorkflows.
-# It's meant to be reached only by a human via `kubectl port-forward
-# svc/argo-workflows-server 2746`, which enters through the kubelet and does
-# not cross the CNI datapath Cilium enforces -- but allow-intra-namespace
-# above also lets every OTHER pod in this namespace reach it over the pod
-# network, which was never the intent, and this namespace also runs scratch
-# PostgreSQL restored from production data. Found on code review.
+# Superseded 2026-09-20 (argo-workflows.yaml's SSO change): this was written
+# when argo-server authenticated nothing (authModes: [server]) and every
+# caller acted with the server's own namespaced Role -- allow-intra-namespace
+# above also let every OTHER pod in this namespace reach it over the pod
+# network, which was never the intent, given this namespace also runs
+# scratch PostgreSQL restored from production data. A blanket ingressDeny
+# closed that regardless of source, since there was no legitimate source to
+# carve out: the only intended path was `kubectl port-forward`, which enters
+# through the kubelet and never crosses this CNI datapath at all.
 #
-# ingressDeny overrides any Allow for the same endpoint (unlike two Allow
-# policies, which OR) -- see restrict-vmsingle-ingress in
-# 10-network-policies/allow-monitoring.yaml for the same pattern -- so this
-# closes the pod-network path regardless of what allow-intra-namespace grants,
-# without narrowing what allow-intra-namespace does for anything else.
+# Now that path is no longer the only one: the UI is routed through the
+# Gateway (config/httproute.yaml) behind Keycloak SSO. ingressDeny would
+# override that Allow unconditionally too (it beats any Allow for the same
+# endpoint, unlike two Allows, which OR -- see restrict-vmsingle-ingress in
+# 10-network-policies/allow-monitoring.yaml for the same pattern), so it had
+# to become a scoped Allow instead of staying a blanket Deny. The original
+# intent -- no OTHER pod in this namespace reaching the server directly --
+# is preserved: only the Gateway's own proxy is allowed in, so a workflow
+# pod attempting the same pod-network shortcut this policy was written to
+# close still gets nothing.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: deny-argo-server-ingress
+  name: allow-argo-server-gateway-ingress
   namespace: backup-system
 spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: argo-workflows-server
-  ingressDeny:
+  ingress:
     - fromEndpoints:
-        - {}
+        - matchLabels:
+            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "2746"
+              protocol: TCP
 ---
 # The local repository. S3 on the filer, and nothing else in SeaweedFS. The
 # matching ingress side is in 10-network-policies/allow-seaweedfs-internal.yaml,
@@ -107,4 +118,48 @@ spec:
       toPorts:
         - ports:
             - port: "8428"
+              protocol: TCP
+---
+# Until the SSO change (server.sso.issuer, argo-workflows.yaml), argo-workflows-
+# server never needed any east-west egress: it only ever served the UI/API to
+# `kubectl port-forward`, using the in-cluster Kubernetes API (already allowed
+# -- default-deny-egress's own toEntities: [host, kube-apiserver]). SSO adds a
+# genuinely new requirement: the server fetches Keycloak's OIDC discovery
+# document at startup and validates tokens against it per-request, both
+# server-to-server calls with no allow for them anywhere. Found live: the new
+# pod crash-looped on every rollout attempt with
+#   Error: Get "https://keycloak.homelab.data-harness.org/.../openid-configuration":
+#   dial tcp 192.168.178.200:443: i/o timeout
+# -- the external hostname's own reachability problem (same one Paperless and
+# OPA hit, per 26-keycloak/deferred/cilium-policy.yaml's comments; never
+# root-caused there either), which is why server.sso.issuer points at
+# Keycloak's plain in-cluster Service instead, sidestepping the Gateway
+# entirely rather than chasing that further. That address needed its own rule
+# too, though: this namespace has no general cross-namespace egress (see this
+# file's header), so the internal address timed out exactly the same way
+# until this rule and its ingress counterpart (allow-argo-workflows-ingress,
+# in 26-keycloak/deferred/cilium-policy.yaml) both existed.
+#
+# Scoped to the argo-workflows-server pod specifically (not the whole
+# namespace) and to Keycloak specifically (not a general cross-namespace
+# allow), matching the same narrow, single-destination shape as
+# allow-seaweedfs-s3-egress and allow-vmsingle-egress above -- the least this
+# namespace's workflows' reachability needs to grow to make SSO work.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-argo-server-keycloak-egress
+  namespace: backup-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: argo-workflows-server
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app: keycloak
+            io.kubernetes.pod.namespace: keycloak
+      toPorts:
+        - ports:
+            - port: "8080"
               protocol: TCP
