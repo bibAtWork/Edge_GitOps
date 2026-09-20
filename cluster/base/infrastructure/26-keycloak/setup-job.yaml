@@ -102,6 +102,7 @@ data:
     zot_uuid = client_uuid("zot")
     immich_uuid = client_uuid("immich")
     kubernetes_uuid = client_uuid("kubernetes")
+    argo_uuid = client_uuid("argo-workflows")
     print("✓ Resolved client UUIDs (clients themselves come from keycloak-config-cli)")
 
     def ensure_client_scope(name, mapper):
@@ -152,7 +153,8 @@ data:
     link_optional_scope(grafana_uuid, groups_scope_id)
     link_optional_scope(paperless_uuid, groups_scope_id)
     link_optional_scope(zot_uuid, groups_scope_id)
-    print("✓ 'groups' scope linked to grafana, paperless and zot clients")
+    link_optional_scope(argo_uuid, groups_scope_id)
+    print("✓ 'groups' scope linked to grafana, paperless, zot and argo-workflows clients")
 
     # Default, not optional, for kubernetes specifically: RBAC depends on
     # this claim being present, and a CLI OIDC plugin can't be relied on to
