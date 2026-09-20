@@ -11,10 +11,17 @@ spec:
       # Pinned. Every other HelmRelease in this repo names a version; these two
       # did not, which meant Flux resolved `*` and would take whatever the
       # index offered -- including a major app version -- with no PR, no
-      # review and no major-update checklist. It had not happened yet only
-      # because the cached index was stale: chart 0.13.1 (appVersion v3.0.0)
-      # has been published since 2026-07-03 while this ran 0.12.0 (v2.6.3).
-      # A refresh would have jumped Immich v2 -> v3 unattended.
+      # review and no major-update checklist.
+      #
+      # Corrected 2026-09-19: this comment previously claimed chart 0.13.1
+      # (appVersion v3.0.0) had been published since 2026-07-03. Checked
+      # against the real index (immich-app.github.io/immich-charts/index.yaml,
+      # parsed directly, not summarised) -- that chart version does not exist.
+      # 0.12.0 (appVersion v2.6.3) is and has always been the newest chart the
+      # immich-charts repo has ever published; that repo's own git tags do
+      # include a later 0.12.1 (appVersion v3.0.0), but it was tagged and
+      # never packaged to the index, so Flux/Renovate can never see it through
+      # this HelmRepository. See docs/backlog.md for the full trail.
       #
       # Pinned to what is actually running, so this commit changes nothing at
       # runtime. Renovate reads this field, so the upgrade becomes a reviewable
@@ -42,6 +49,26 @@ spec:
       main:
         containers:
           main:
+            # Chart 0.12.0's own default here is v2.6.3 (its Chart.yaml appVersion),
+            # which this overrides. v2.6.3 was never the last v2.x release: upstream
+            # kept shipping bugfix-only 2.x releases after it -- v2.7.0 through
+            # v2.7.5 (2026-04-07 to 2026-04-13) -- before jumping to v3.0.0. The chart
+            # simply never got a release in between to carry that forward; nothing
+            # about the chart's own version needs to move for this, since this field
+            # is a plain image tag, read by both server and machine-learning below
+            # (bjw-s's shared top-level image default -- same mechanism as the DB_*
+            # env vars above).
+            #
+            # v2.7.5 checked against every 2.7.x release's notes: bugfixes and
+            # translations only (rate-limited version check, a library-import batch
+            # size fix, mobile image-loading fixes, an ML-container CPU-compat fix
+            # that only helps, not hurts). No schema change, no config change that
+            # touches anything this HelmRelease sets (OAuth config file, CNPG DB
+            # connection, resource sizing). Does not touch the version: pin above,
+            # or the v2 -> v3 decision in docs/backlog.md -- that is still a
+            # separate, deliberate call.
+            image:
+              tag: v2.7.5
             env:
               # The CloudNativePG cluster (postgres-cluster.yaml), since the
               # migration of 2026-09-13.
