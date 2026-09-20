@@ -77,9 +77,14 @@ spec:
         message: >-
           This pod mounts a generic ephemeral volume (spec.volumes[].ephemeral)
           and runs as non-root, but sets no securityContext.fsGroup. A brand-new
-          Longhorn volume behind a generic ephemeral volume is root-owned, so a
-          non-root process cannot write to it -- see Agent.md, "A Longhorn-backed
-          scratch volume is root-owned...".
+          Longhorn volume behind a generic ephemeral volume is created root-owned,
+          so a non-root process has no permission to write to it -- the write
+          will fail, typically surfacing as a plain, unhelpful exit code rather
+          than a clear permission error. Fix: add securityContext.fsGroup (match
+          it to runAsGroup) alongside fsGroupChangePolicy: OnRootMismatch -- the
+          latter matters, not just tidiness: without it, kubelet recursively
+          chowns the entire volume on every mount, which turns into real added
+          latency once the volume holds any meaningful amount of data.
         pattern:
           spec:
             securityContext:
