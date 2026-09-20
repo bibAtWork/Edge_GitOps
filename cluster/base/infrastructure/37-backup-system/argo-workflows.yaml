@@ -174,39 +174,34 @@ spec:
         - sso
       sso:
         enabled: true
-        # issuer is the URL the server actually connects to for discovery
-        # (<issuer>/.well-known/openid-configuration) and, without
-        # issuerAlias, the value it demands back in that document's own
-        # "issuer" field. The external hostname fails both: found live,
-        # the pod crash-looped on
-        #   Error: Get "https://keycloak.homelab.data-harness.org/...
-        #   openid-configuration": dial tcp 192.168.178.200:443: i/o timeout
-        # -- confirmed independent of DNS/TLS, since the plain in-cluster
-        # Service (http://keycloak.keycloak.svc) timed out identically until
-        # allow-argo-server-keycloak-egress/allow-argo-workflows-ingress
-        # (this change) opened that specific east-west path; backup-system
-        # has no general cross-namespace egress by design.
+        # Plain external issuer -- no issuerAlias trick. An earlier version of
+        # this pinned issuer at Keycloak's internal Service instead, to dodge
+        # `dial tcp 192.168.178.200:443: i/o timeout` fetching discovery over
+        # the external hostname. That masked a bigger problem: go-oidc takes
+        # every endpoint (authURL, tokenURL, userInfoURL, jwksURL) verbatim
+        # from the discovery document (oidc.go's NewProvider: `tokenURL:
+        # p.TokenURL`, no rewriting) -- and Keycloak's KC_HOSTNAME pins ALL of
+        # them to the external hostname regardless of how discovery itself
+        # was reached. issuerAlias only relaxes the issuer STRING check
+        # (oidc.InsecureIssuerURLContext); it does nothing for tokenURL, so
+        # the token exchange after login still tried the external hostname
+        # and hung -- confirmed live as the "upstream request timeout" 504
+        # right after a successful Keycloak sign-in.
         #
-        # 17-paperless-ngx/deployment.yaml solved the identical problem
-        # already (its own comment: "Paperless's namespace gets a 403 ...
-        # for reasons not yet root-caused... Direct pod-to-pod sidesteps
-        # it") by pointing straight at the internal Service. Confirmed live
-        # here too: fetching discovery over that internal URL still returns
-        # "issuer": "https://keycloak.homelab.data-harness.org/realms/homelab"
-        # -- Keycloak's KC_HOSTNAME pins every declared endpoint to the
-        # public hostname regardless of how the document was reached, so the
-        # only remaining problem is the mismatch between that declared
-        # issuer and the (internal) URL used to fetch it. issuerAlias is
-        # argo-workflows' own name for exactly this: server/auth/sso/sso.go
-        # wraps the OIDC context with oidc.InsecureIssuerURLContext(...,
-        # IssuerAlias) precisely to accept a discovery document whose issuer
-        # differs from the URL it was fetched from -- "Some offspec
-        # providers... have oidc discovery url different from issuer url",
-        # per that file's own comment. issuer here is the address to reach;
-        # issuerAlias is the value already everywhere else (Keycloak's own
-        # declaration, every token's iss claim) -- unchanged.
-        issuer: http://keycloak.keycloak.svc.cluster.local/realms/homelab
-        issuerAlias: https://keycloak.homelab.data-harness.org/realms/homelab
+        # The actual fix is hostAliases below: keycloak.homelab.data-harness.org
+        # resolves, from this pod only, straight to the Gateway's own
+        # ClusterIP rather than through DNS to its external LAN IP. Every
+        # endpoint above keeps using that one hostname either way, so this
+        # fixes discovery, token exchange and userinfo/jwks in one place
+        # instead of needing a workaround per endpoint -- and the request
+        # still goes through the real Gateway (TLS termination, routing to
+        # Keycloak's HTTPRoute), it just skips whatever makes the external,
+        # LAN-announced IP specifically unreachable from inside the cluster
+        # (confirmed live: same request against the Gateway's ClusterIP,
+        # correct Host header, real backend port 10443 -- see the Service's
+        # own port mapping, not 443 -- returns 200 with Keycloak's normal
+        # discovery document).
+        issuer: https://keycloak.homelab.data-harness.org/realms/homelab
         clientId:
           name: argo-workflows-sso
           key: client-id
@@ -231,6 +226,22 @@ spec:
         # this safely.
         rbac:
           enabled: false
+      # Makes every one of the sso.issuer endpoints above (discovery, token,
+      # userinfo, jwks) resolve straight to the Gateway's own ClusterIP
+      # instead of through DNS to its externally-announced LAN IP -- see the
+      # sso block's comment for why that specific address is unreachable
+      # from this pod and confirmed reachable via this one instead.
+      #
+      # A ClusterIP, not a DNS name: Kubernetes hostAliases only accepts a
+      # literal IP. It's stable for the life of the Service object (Envoy
+      # Gateway's own, auto-created per Gateway resource) but would go stale
+      # if that Service were ever deleted and recreated -- checked live
+      # (kubectl get svc -n envoy-gateway-system) at merge time, not copied
+      # from an old value.
+      hostAliases:
+        - ip: 10.110.52.100
+          hostnames:
+            - keycloak.homelab.data-harness.org
       # On by default, and the one grant singleNamespace does not scope: a
       # ClusterRoleBinding for cluster-wide workflow templates, which this
       # namespace-bound engine does not use.
