@@ -81,7 +81,9 @@ def check_profile(profile: str) -> list[str]:
         if doc.get("kind") != "PersistentVolumeClaim":
             continue
         storage_class = doc.get("spec", {}).get("storageClassName", "")
-        if not storage_class.startswith("longhorn"):
+        # Longhorn is the cluster default. An omitted class therefore needs
+        # the same recovery decision as an explicitly Longhorn-backed claim.
+        if storage_class and not storage_class.startswith("longhorn"):
             continue
         metadata = doc.get("metadata", {})
         namespace = metadata.get("namespace", "default")
