@@ -341,6 +341,22 @@ clients:
       # but the config.
       - https://immich.homelab.data-harness.org
     secret: $(env:IMMICH_CLIENT_SECRET)
+  - clientId: argo-workflows
+    name: Argo Workflows
+    description: Native SSO for the Argo Workflows UI (37-backup-system) -- kept as its own client, not homelab-edge, because Argo has real native OIDC support (server.sso), unlike the no-native-login apps homelab-edge exists for.
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    authorizationServicesEnabled: false
+    redirectUris:
+      - https://argo.homelab.data-harness.org/oauth2/callback
+    webOrigins:
+      - https://argo.homelab.data-harness.org
+    secret: $(env:ARGO_CLIENT_SECRET)
   - clientId: kubernetes
     name: Kubernetes
     enabled: true

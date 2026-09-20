@@ -8,6 +8,7 @@ resources:
   - paperless-client-secret.yaml
   - zot-client-secret.yaml
   - immich-client-secret.yaml
+  - argo-workflows-client-secret.yaml
   - setup-job.yaml
   - config-cli-job.yaml
   - google-idp-secret.yaml

@@ -157,14 +157,48 @@ spec:
           drop:
             - ALL
 
-    # The UI and API, for reading run history. ClusterIP only and not routed:
-    # reached by `kubectl port-forward -n backup-system svc/argo-workflows-server
-    # 2746`, which already requires cluster access. "server" auth mode means the
-    # UI acts with the server's own namespaced permissions.
+    # The UI and API, for reading run history. Routed at
+    # https://argo.homelab.data-harness.org (config/httproute.yaml) behind
+    # Keycloak SSO -- previously ClusterIP-only, reached by `kubectl
+    # port-forward -n backup-system svc/argo-workflows-server 2746`, which
+    # already required cluster access and made a login redundant. Once routed
+    # through the Gateway that stops being true: the Gateway itself is
+    # allowed into every namespace (10-network-policies/allow-gateway-
+    # ingress.yaml), so "reachable from cluster access" no longer holds and
+    # authModes: [server] (no login, UI acts with the server's own
+    # permissions) would mean anyone on the LAN gets full read access to
+    # every workflow's history and logs.
     server:
       enabled: true
       authModes:
-        - server
+        - sso
+      sso:
+        enabled: true
+        issuer: https://keycloak.homelab.data-harness.org/realms/homelab
+        clientId:
+          name: argo-workflows-sso
+          key: client-id
+        clientSecret:
+          name: argo-workflows-sso
+          key: client-secret
+        redirectUrl: https://argo.homelab.data-harness.org/oauth2/callback
+        scopes:
+          - groups
+        # rbac.enabled defaults to true upstream ("Adds ServiceAccount Policy
+        # to server (Cluster)Role"), which requires mapping OIDC claims to
+        # per-user ServiceAccounts via workflows.argoproj.io/rbac-rule
+        # annotations -- none exist here. Left enabled, every SSO login would
+        # get NO permissions at all (no matching ServiceAccount rule), a
+        # silent regression from today's working access. Explicitly disabled
+        # instead: a logged-in user gets exactly what authModes: [server]
+        # already granted everyone -- the server's own namespaced
+        # permissions -- so this change adds the login gate the Gateway
+        # requires without changing who can see what once inside. Per-user
+        # RBAC (mapping the ADR-002 group tiers to different Argo permission
+        # levels) is a real, separate feature, not required just to expose
+        # this safely.
+        rbac:
+          enabled: false
       # On by default, and the one grant singleNamespace does not scope: a
       # ClusterRoleBinding for cluster-wide workflow templates, which this
       # namespace-bound engine does not use.
