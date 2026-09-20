@@ -1,0 +1,71 @@
+# This first enforcement step is intentionally limited to the six controllers
+# in flux-system. Every exact image currently rendered by the bootstrap
+# manifest was verified with Cosign before this policy was enabled. Other
+# namespaces and image repositories remain unaffected until their publishers
+# and signatures have been checked the same way.
+#
+# Flux signs through a reusable workflow. Admission trusts the exact reusable
+# workflow tag, GitHub Actions issuer, and official ghcr.io/fluxcd repositories.
+# Kyverno 1.19's CEL verifier does not enforce the certificate's caller-repo
+# extension, so CI additionally checks that claim and the release tag/ref for
+# every rendered image. If Flux changes the workflow tag, update this file only
+# after that check verifies the replacement signer.
+#
+# failurePolicy Fail is deliberate enforcement: an unverified controller does
+# not start. The availability cost is that a cold start also needs GHCR and the
+# public Sigstore trust material. Existing running controllers are unaffected
+# by a registry outage; keep their images cached on nodes for recovery.
+apiVersion: policies.kyverno.io/v1
+kind: NamespacedImageValidatingPolicy
+metadata:
+  name: verify-flux-controller-images
+  namespace: flux-system
+  annotations:
+    policies.kyverno.io/title: Verify Flux Controller Images
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Only admit the six Flux controller images when signed by the pinned Flux
+      release workflow through GitHub Actions OIDC.
+spec:
+  failurePolicy: Fail
+  validationActions: [Deny]
+  webhookConfiguration:
+    timeoutSeconds: 30
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  matchImageReferences:
+    - glob: ghcr.io/fluxcd/source-controller:*
+    - glob: ghcr.io/fluxcd/source-controller@sha256:*
+    - glob: ghcr.io/fluxcd/kustomize-controller:*
+    - glob: ghcr.io/fluxcd/kustomize-controller@sha256:*
+    - glob: ghcr.io/fluxcd/helm-controller:*
+    - glob: ghcr.io/fluxcd/helm-controller@sha256:*
+    - glob: ghcr.io/fluxcd/notification-controller:*
+    - glob: ghcr.io/fluxcd/notification-controller@sha256:*
+    - glob: ghcr.io/fluxcd/image-reflector-controller:*
+    - glob: ghcr.io/fluxcd/image-reflector-controller@sha256:*
+    - glob: ghcr.io/fluxcd/image-automation-controller:*
+    - glob: ghcr.io/fluxcd/image-automation-controller@sha256:*
+  attestors:
+    - name: fluxRelease
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.11.0
+        ctlog:
+          url: https://rekor.sigstore.dev
+  validationConfigurations:
+    mutateDigest: true
+    required: true
+    verifyDigest: true
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.fluxRelease])).all(result, result > 0)
+      message: Flux controller image must be signed by the pinned release workflow
