@@ -105,6 +105,11 @@ Also add the device tag (e.g. `tag:k8s`) to your tailnet ACL `tagOwners` before 
 
 Ensure you have an AWS account with permissions to create S3 buckets, IAM users and a budget. Bootstrap runs Terraform to provision the recovery vault ([ADR-012](./docs/adr/0012-recovery-system.md)); export `TF_VAR_budget_alert_email`, the address for its cost alerts, before running it.
 
+#### Optional integrations
+
+- Add a Telegram bot token and chat ID to receive Grafana and security notifications.
+- Add a Google OAuth web client to enable Google federation through Keycloak. Its redirect URI is `https://keycloak.<your-domain>/realms/homelab/broker/google/endpoint`.
+
 ---
 
 ### 3. Configure config.json
@@ -128,11 +133,17 @@ $EDITOR bootstrap/config.json
   "cloudflare":{ "api_token": "..." },
   "tailscale": { "oauth_client_id": "...", "oauth_client_secret": "..." },
   "grafana":   { "admin_password": "..." },
+  "telegram":  { "bot_token": "", "chat_id": "" },
+  "google_oidc": { "client_id": "", "client_secret": "" },
   "seaweedfs": { "admin_access_key_id": "", "admin_secret_access_key": "" }
 }
 ```
 
-`seaweedfs` credentials are auto-generated and saved back to `config.json` if left empty. Disks
+Internal application, database, restic and Keycloak client credentials are auto-generated once,
+saved back to `config.json`, and copied to every namespace that consumes the same value. Keep the
+resulting `config.json` and its restic password in an offline password manager; the file is the
+reproducible source for rebuilding the encrypted Secrets. Telegram and Google OIDC are optional and
+remain unavailable when their fields are empty. Disks
 are selected automatically by Talos (`cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml`'s
 `UserVolumeConfig` selectors) — no disk path is needed in `config.json`.
 
@@ -175,8 +186,8 @@ No environment variables to export — everything comes from `config.json`. `boo
 
 The bootstrap handles end-to-end:
 
-1. **All `REPLACE_WITH_*` placeholders** filled from `config.json` via `apply-config.py`
-2. **SOPS encryption** of every secret file in `cluster/`
+1. **All application Secrets and `REPLACE_WITH_*` placeholders** generated from `config.json` via `apply-config.py`
+2. **SOPS encryption** of every Kubernetes Secret manifest in `cluster/`
 3. **Talos machine config** generation, apply, etcd bootstrap, kubeconfig retrieval
 4. **talosconfig** injected into the system-upgrade-controller secret automatically
 5. **Flux bootstrap** from the GitHub repo
