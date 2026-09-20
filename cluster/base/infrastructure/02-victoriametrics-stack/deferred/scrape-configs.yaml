@@ -271,6 +271,25 @@ spec:
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:
+  name: paperless-consume
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - paperless
+  selector:
+    matchLabels:
+      app: paperless-ngx
+  podMetricsEndpoints:
+    - port: consume-metrics
+      path: /metrics
+      relabelConfigs:
+        - targetLabel: job
+          replacement: paperless-consume
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
   name: cloudnative-pg-instances
   namespace: monitoring
 spec:

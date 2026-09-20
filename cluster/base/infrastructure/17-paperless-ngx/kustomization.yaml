@@ -6,6 +6,7 @@ resources:
   - pvc.yaml
   - valkey.yaml
   - deployment.yaml
+  - consume-monitor.yaml
   - service.yaml
   - rbac-groups-configmap.yaml
   - app-operator-rolebinding.yaml
