@@ -200,7 +200,7 @@ the metrics change with a specific saving until it has been stable for a day.
 
 ---
 
-## system-upgrade-controller has never created a single Job
+## Closed: system-upgrade-controller has never created a single Job
 
 Found 2026-08-26 while triggering an on-demand Talos upgrade. The node was on
 v1.13.6 against a v1.13.9 pin, a node was labelled for the windowless on-demand Plan, and
@@ -223,7 +223,7 @@ its leader lease, starts the Node/Job/Plan controllers, and goes silent. The onl
 symptom is a version pin that never takes effect, which reads as "the window has not come
 round yet".
 
-Ruled out so far:
+Ruled out at the time:
 
 - **Namespace** -- Plans are in `cattle-system` with the controller (fixed in #335)
 - **Node selector** -- `kubectl get nodes -l talos.homelab/upgrade-now` returns 1
@@ -231,19 +231,37 @@ Ruled out so far:
 - **Taints** -- the node has none, and the Plan tolerates everything anyway
 - **Node completion label** -- the node carries no `plan.upgrade.cattle.io/*` label
 - **serviceAccountName** -- was genuinely missing from all three Plans and is now set;
-  adding it did not change the behaviour
+  adding it alone did not change the behaviour
 - **Stale watches** -- SUC was restarted, re-listed the node, and stayed silent
 
-Still unexplained. Worth checking next: whether SUC v0.20.1 needs `--kubeconfig`/RBAC it does
-not have for the Plan CRD specifically, whether its `Complete` condition is sticky and
-suppresses re-evaluation, and whether the drain/cordon prerequisites it evaluates silently
-exclude a single-node control plane.
+**Root cause, found later: `spec.concurrency` was unset on all three Plans.** The Plan CRD
+defines no default for it, so an unset field is `0` -- "the maximum number of concurrent
+nodes to apply this update on" is therefore none. SUC then has genuinely nothing to do: it
+reports `Complete=True` because there is nothing left to schedule, creates no Job, and logs
+nothing, which is exactly the silent-but-healthy signature above. `serviceAccountName` being
+missing was real but not sufficient on its own -- both had to be fixed together, which is why
+adding just the service account "did not change the behaviour" when it was tried first.
 
-Until it is understood, upgrades must be driven by hand:
+A second, independent fault was hiding behind the first: the upgrade Job's `command:
+[/bin/sh, -c, ...]` could never have run at all -- the `talosctl` image's entrypoint is
+`/talosctl` and contains no shell (`exec: "/bin/sh": stat /bin/sh: no such file or directory`).
+With `concurrency: 0` no Job was ever created to expose this, so the two faults were found and
+fixed together (`cluster/base/infrastructure/15-system-upgrade-controller/config/plans/*.yaml`,
+now `concurrency: 1`, `serviceAccountName: system-upgrade-controller`, no `command:`).
 
-```
-talosctl upgrade --nodes <ip>   --image factory.talos.dev/installer/<schematic>:<version> --preserve=true --wait=true
-```
+Confirmed fixed live, 2026-09-20: all three Plans (`talos-controlplane`, `talos-worker`,
+`talos-kubernetes`) now correctly evaluate their `nodeSelector`/window gates and report
+`COMPLETE: True` for the right reason -- the node's own Talos/Kubernetes versions genuinely
+match the target, not "nothing was ever scheduled". Confirmed by tracing an actual missed
+upgrade window: the weekly `upgrade-backup-gate` CronJob (a *different*, correctly-working
+prerequisite gate) had failed that week, so the Plans correctly declined to act -- the
+mechanism itself is sound.
+
+Also found and fixed separately, 2026-09-03: `talosctl upgrade`'s default `--drain=true`
+evicts every pod on the node before rebooting, which on this single-node cluster took down
+Kyverno's admission webhook (fails closed) and, with nowhere for evicted pods to go, blocked
+the node's own upgrade Job from ever completing its own reboot. Fixed with `--drain=false`
+-- `cordon: true` already does the only thing drain buys on a single node.
 
 The wider lesson is the one this repo keeps relearning: a component reporting healthy is not
 the same as a component doing its job. This one reported `Complete` for 45 days.

@@ -266,8 +266,9 @@ jobs:
           # mid-PR). Both currently print the same "nothing to compare
           # against" and exit 0 -- the same fail-open shape as the `|| true`-
           # guarded grep and the hardcoded Plan-name loop fixed earlier in
-          # this PR. Failing loudly on the first case and treating only the
-          # second as a legitimate no-op restores that distinction.
+          # this PR. Failing loudly when base_ref itself doesn't resolve, and
+          # treating only a missing KUBERNETES_VERSION on an otherwise-valid
+          # base_ref as the legitimate no-op, restores that distinction.
           git rev-parse --verify --quiet "$base_ref" >/dev/null \
             || { echo "::error::base ref '$base_ref' does not resolve; the minor-skip guard cannot compare anything."; exit 1; }
 
@@ -458,8 +459,19 @@ jobs:
           export CRON=$(yq -r 'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.schedule' "$RENDERED")
           echo "fleet-health schedule: $CRON"
 
+          # CronJob spec.timeZone (blank when unset, which Kubernetes treats
+          # as UTC) alongside the schedule itself: the whole point of this
+          # guard is comparing fire times against window times, and that
+          # comparison is only meaningful if both sides actually run in the
+          # same zone. Checked, not assumed -- this guard used to silently
+          # assume UTC on both sides with nothing enforcing it, which is
+          # exactly the kind of undocumented invariant this repo's own
+          # DST-drift fix (talos-controlplane-upgrade.yaml's window comment)
+          # was written to warn against repeating.
+          export CRON_TZ=$(yq -r 'select(.kind=="CronJob" and .metadata.name=="talos-fleet-health") | .spec.timeZone // ""' "$RENDERED")
+
           export WINDOWS=$(yq -r 'select(.kind=="Plan" and .spec.window != null)
-            | [.metadata.name, (.spec.window.days | join(",")), .spec.window.startTime, .spec.window.endTime]
+            | [.metadata.name, (.spec.window.days | join(",")), .spec.window.startTime, .spec.window.endTime, (.spec.window.timeZone // "")]
             | join("|")' "$RENDERED")
           echo "windowed Plans:"
           echo "$WINDOWS"
@@ -556,6 +568,7 @@ jobs:
                   die(f"{what} is '{hhmm}', not HH:MM.")
 
           cron = os.environ['CRON'].strip()
+          cron_tz = os.environ['CRON_TZ'].strip()
           windows_raw = os.environ['WINDOWS'].strip()
 
           if not cron:
@@ -565,6 +578,15 @@ jobs:
               die("found no Plan with a spec.window in the rendered output. Either every windowed Plan was "
                   "renamed/removed, or the yq selector is wrong -- this guard must not pass without "
                   "comparing anything.")
+          # Kubernetes treats an unset CronJob spec.timeZone as UTC; every
+          # other value is a real, different zone this guard does not
+          # account for.
+          if cron_tz not in ('', 'UTC'):
+              die(f"talos-fleet-health's CronJob sets spec.timeZone: '{cron_tz}'. This guard compares its "
+                  f"fire times against every windowed Plan's spec.window.timeZone as UTC minutes-of-day; "
+                  f"a differently-zoned CronJob makes that comparison meaningless. Either revert it to UTC "
+                  f"(every other CronJob in this cluster is unset/UTC) or extend this guard to convert "
+                  f"zones before comparing.")
 
           fires_by_day = cron_fires(cron)
           fail = False
@@ -575,12 +597,19 @@ jobs:
               if not line:
                   continue
               try:
-                  name, days, start, end = line.split('|')
+                  name, days, start, end, tz = line.split('|')
               except ValueError:
                   die(f"malformed window record '{line}'.")
               if not days or not start or not end:
                   die(f"Plan '{name}' has a spec.window with missing days/startTime/endTime "
                       f"(days='{days}' start='{start}' end='{end}').")
+              if tz != 'UTC':
+                  die(f"Plan '{name}' has spec.window.timeZone '{tz}' (expected 'UTC', explicitly -- this "
+                      f"field has no Kubernetes-side default the way a CronJob's does). This guard treats "
+                      f"every window's startTime/endTime as UTC minutes-of-day; a differently-zoned window "
+                      f"would be compared against the wrong fire times without anyone noticing, which is "
+                      f"exactly the DST-drift class of bug talos-controlplane-upgrade.yaml's own window "
+                      f"comment already had to fix once.")
               s, e = to_minutes(start, f"{name} startTime"), to_minutes(end, f"{name} endTime")
               if e < s:
                   die(f"Plan '{name}' window {start}-{end} wraps past midnight; this guard does not model "
