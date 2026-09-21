@@ -194,12 +194,37 @@ def preflight_cluster_reachable(runner: Runner, node_ip: str) -> None:
         warn("kubectl cannot reach cluster — expected for full rebuild scenario")
 
 
+def current_git_branch(repo_root: Path) -> Optional[str]:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=False,
+    )
+    branch = result.stdout.strip()
+    return branch if result.returncode == 0 and branch and branch != "HEAD" else None
+
+
+def read_versions_env(repo_root: Path) -> dict:
+    """versions.env's TALOS_VERSION/KUBERNETES_VERSION -- the same file the
+    live cluster's own upgrade Plans read (15-system-upgrade-controller).
+    A rebuilt cluster that skips this boots whatever the operator's
+    workstation happens to have `talosctl` default to, which drifts from
+    what Git says the cluster should run the moment either one is bumped."""
+    path = repo_root / "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env"
+    values = {}
+    for line in path.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if "=" in line:
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+    return values
+
+
 # ── Scenario: full cluster rebuild ────────────────────────────────────────────
 
 def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
     phase("Scenario: Full Cluster Rebuild")
 
-    repo_root = Path(__file__).parent.parent
+    repo_root = Path(__file__).resolve().parent.parent.parent
     profile   = args.profile
 
     # ── Gather required inputs ────────────────────────────────────────────────
@@ -208,6 +233,21 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
     github_owner = args.github_owner    or ask("GitHub owner")
     github_repo  = args.github_repo     or ask("GitHub repo", "Edge_GitOps")
     github_token = args.github_token    or os.environ.get("GITHUB_TOKEN") or ask("GitHub token")
+    # No --branch given -> `flux bootstrap` defaults to the repository's
+    # default branch (main), not whatever this checkout is actually on. This
+    # repo's live config lives on ops/talos_linux; main's copy of cluster/ is
+    # months stale. Falling back to the CURRENT checkout's branch (same
+    # pattern as bootstrap-1node.sh/bootstrap-3node.sh's GITHUB_BRANCH) rather
+    # than hardcoding a name: whichever branch this script is actually being
+    # run from is the one the operator means to deploy. Aborts rather than
+    # silently defaulting to main if that can't be determined at all (a
+    # detached HEAD, or dr.py copied out of a git checkout).
+    github_branch = args.branch or current_git_branch(repo_root)
+    if not github_branch:
+        abort(
+            "Could not determine which branch to bootstrap (not run from a git checkout, "
+            "or HEAD is detached). Pass --branch explicitly."
+        )
 
     if profile == "3-node":
         node1 = args.node1_ip or ask("Node 1 IP")
@@ -234,7 +274,7 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
   Nodes     : {', '.join(nodes)}
   Endpoint  : {endpoint}
   Flux path : {overlay_path}
-  GitHub    : {github_owner}/{github_repo}
+  GitHub    : {github_owner}/{github_repo}@{github_branch}
     """)
 
     if not confirm("This will WIPE and re-provision the nodes. Continue?"):
@@ -246,10 +286,18 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         # ── Phase 1: Talos config generation ─────────────────────────────────
 
         phase("Phase 1: Generate Talos machine configs")
+        versions = read_versions_env(repo_root)
+        talos_version = versions.get("TALOS_VERSION")
+        kubernetes_version = versions.get("KUBERNETES_VERSION")
+        if not talos_version or not kubernetes_version:
+            abort(f"Could not read TALOS_VERSION/KUBERNETES_VERSION from versions.env: {versions}")
+        info(f"Pinning generated config to versions.env: Talos {talos_version}, Kubernetes {kubernetes_version}")
         generated = tmp / "generated"
         runner.run([
             "talosctl", "gen", "config", "homelab", endpoint,
             "--with-secrets", str(secrets),
+            "--talos-version", talos_version,
+            "--kubernetes-version", kubernetes_version.lstrip("v"),
             "--config-patch-control-plane", f"@{machineconfig}",
             "--output-dir", str(generated),
         ])
@@ -278,10 +326,18 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         # A fresh etcd: everything in it is declared in Git and rebuilt by
         # Flux. Application data comes back from the recovery system instead
         # (phase 7).
+        #
+        # --endpoints is required, not redundant with --nodes: talosctl reads
+        # its endpoint list from the talosconfig context if none is given on
+        # the command line, and a freshly `gen config`'d one has none (checked
+        # live -- `endpoints: []`). Without it, talosctl has nothing to dial
+        # and fails with "failed to determine endpoints" before ever reaching
+        # the node.
         phase("Phase 3: Bootstrap etcd")
         runner.run([
             "talosctl", "bootstrap",
             "--nodes", nodes[0],
+            "--endpoints", nodes[0],
             "--talosconfig", str(talosconfig),
         ])
 
@@ -295,6 +351,7 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         runner.run([
             "talosctl", "kubeconfig",
             "--nodes", nodes[0],
+            "--endpoints", nodes[0],
             "--talosconfig", str(talosconfig),
             "--force",
         ])
@@ -331,6 +388,7 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
             "flux", "bootstrap", "github",
             "--owner", github_owner,
             "--repository", github_repo,
+            "--branch", github_branch,
             "--path", overlay_path,
             "--personal",
             "--components-extra=image-reflector-controller,image-automation-controller",
@@ -342,14 +400,50 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
         # point would promote it to AWS (runbook A7). Git does not set
         # `suspend`, so the patch holds until it is lifted by hand.
         phase("Phase 6: Pause the recovery system's schedules")
-        step("Waiting for the Argo Workflows controller (up to 15 min)")
+        # Two waits, not one: `kubectl wait` on a condition errors out
+        # immediately if the object doesn't exist yet rather than waiting for
+        # it to appear, and Flux has only just been (re)bootstrapped -- it
+        # has not necessarily created this Deployment the moment `flux
+        # bootstrap` returns. --for=create waits for the object itself to
+        # show up; only once it exists does waiting for Available mean
+        # anything.
+        step("Waiting for the Argo Workflows controller to exist (up to 15 min)")
+        runner.run([
+            "kubectl", "wait", "--for=create", "deployment",
+            "argo-workflows-workflow-controller", "-n", "backup-system", "--timeout=900s",
+        ])
+        step("Waiting for the Argo Workflows controller to become available (up to 15 min)")
         runner.run([
             "kubectl", "wait", "--for=condition=available", "deployment",
             "argo-workflows-workflow-controller", "-n", "backup-system", "--timeout=900s",
         ])
-        crons = runner.output([
-            "kubectl", "get", "cronworkflows", "-n", "backup-system", "-o", "name",
-        ]).split()
+
+        # The Deployment existing does not mean every CronWorkflow does too --
+        # they're separate objects in the same Flux Kustomization, applied in
+        # whatever order the API server happens to process them. An empty
+        # list here is not "nothing to suspend", it's "asked too early": Git
+        # does not set suspend:true on any of them, so an empty result would
+        # report false success while `reconcile` (fires hourly at :30) and
+        # every recovery-point/promote CronWorkflow sit unsuspended and live.
+        # Retry until the expected set is actually there rather than trust a
+        # single read.
+        step("Waiting for CronWorkflows to exist (up to 5 min)")
+        crons: List[str] = []
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            crons = runner.output([
+                "kubectl", "get", "cronworkflows", "-n", "backup-system", "-o", "name",
+            ]).split()
+            if crons or runner.dry_run:
+                break
+            time.sleep(10)
+        if not crons and not runner.dry_run:
+            abort(
+                "No CronWorkflows found in backup-system after 5 minutes -- Flux has not "
+                "created them yet, or the Kustomization is failing. Suspending nothing here "
+                "would leave the recovery system live against still-empty applications; "
+                "investigate (`flux get kustomizations -A`) before continuing by hand."
+            )
         for cron in crons:
             runner.run([
                 "kubectl", "patch", "-n", "backup-system", cron,
@@ -383,7 +477,7 @@ def scenario_full(runner: Runner, args: argparse.Namespace) -> None:
 def scenario_add_node(runner: Runner, args: argparse.Namespace) -> None:
     phase("Scenario: Add / Replace Node (3-node)")
 
-    repo_root = Path(__file__).parent.parent
+    repo_root = Path(__file__).resolve().parent.parent.parent
 
     existing_ip = args.existing_node_ip or ask("IP of an existing, healthy node")
     new_ip      = args.new_node_ip      or ask("IP of the new/replacement node")
@@ -414,12 +508,20 @@ def scenario_add_node(runner: Runner, args: argparse.Namespace) -> None:
     # ── Generate config using the original secrets bundle ─────────────────────
 
     phase("Phase 1: Generate machine config with original secrets")
+    versions = read_versions_env(repo_root)
+    talos_version = versions.get("TALOS_VERSION")
+    kubernetes_version = versions.get("KUBERNETES_VERSION")
+    if not talos_version or not kubernetes_version:
+        abort(f"Could not read TALOS_VERSION/KUBERNETES_VERSION from versions.env: {versions}")
+    info(f"Pinning generated config to versions.env: Talos {talos_version}, Kubernetes {kubernetes_version}")
     with tempfile.TemporaryDirectory(prefix="dr-addnode-") as tmpdir:
         tmp = Path(tmpdir)
 
         runner.run([
             "talosctl", "gen", "config", "homelab", endpoint,
             "--with-secrets", str(secrets),
+            "--talos-version", talos_version,
+            "--kubernetes-version", kubernetes_version.lstrip("v"),
             f"--config-patch-control-plane=@{machineconfig_path}",
             "--output-dir", str(tmp),
         ])
@@ -446,8 +548,13 @@ def scenario_add_node(runner: Runner, args: argparse.Namespace) -> None:
         # ── Verify etcd membership expanded ───────────────────────────────────
 
         phase("Phase 3: Verify etcd membership")
+        # -e/--endpoints, not just -n/--nodes: a freshly `gen config`'d
+        # talosconfig has no endpoints of its own (checked live -- `endpoints:
+        # []`), and -n alone selects which node the query is ABOUT, not which
+        # node's Talos API to dial. Without -e, talosctl fails with "failed to
+        # determine endpoints" before this ever reaches existing_ip.
         runner.run([
-            "talosctl", "-n", existing_ip,
+            "talosctl", "-n", existing_ip, "-e", existing_ip,
             "--talosconfig", str(talosconfig),
             "etcd", "members",
         ])
@@ -488,6 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--github-owner",  help="GitHub repository owner")
     fl.add_argument("--github-repo",   help="GitHub repository name")
     fl.add_argument("--github-token",  help="GitHub token (default: $GITHUB_TOKEN)")
+    fl.add_argument("--branch",        help="Branch to bootstrap Flux from (default: this checkout's current branch)")
     fl.add_argument("--node1-ip",      dest="node1_ip")
     fl.add_argument("--node2-ip",      dest="node2_ip")
     fl.add_argument("--node3-ip",      dest="node3_ip")
