@@ -6,7 +6,7 @@
 #      scheduled is a backdoor around Object Lock -- schedule the key for
 #      deletion and the locked objects become permanently unreadable while every
 #      retention setting still reports healthy. ADR-005 rejects SSE-KMS for this
-#      reason. The older buckets predate that decision and are left alone.
+#      reason. The older KMS-encrypted buckets were removed after decommissioning.
 #   2. Object Lock in Governance mode. Compliance mode is rejected because no
 #      override exists, including for account root -- a fat-fingered retention
 #      value would be unfixable for its full duration.
