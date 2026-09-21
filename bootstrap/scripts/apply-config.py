@@ -54,6 +54,7 @@ APPLY_CONFIG_SECRET_FILES = {
     "cluster/base/infrastructure/17-paperless-ngx/oidc-secret.yaml",
     "cluster/base/infrastructure/17-paperless-ngx/secret.yaml",
     "cluster/base/infrastructure/21-flux-notifications/github-token.yaml",
+    "cluster/base/infrastructure/26-keycloak/argo-workflows-client-secret.yaml",
     "cluster/base/infrastructure/26-keycloak/edge-client-secret.yaml",
     "cluster/base/infrastructure/26-keycloak/google-idp-secret.yaml",
     "cluster/base/infrastructure/26-keycloak/immich-client-secret.yaml",
@@ -63,6 +64,7 @@ APPLY_CONFIG_SECRET_FILES = {
     "cluster/base/infrastructure/26-keycloak/recovery-object-store.yaml",
     "cluster/base/infrastructure/26-keycloak/zot-client-secret.yaml",
     "cluster/base/infrastructure/27-kubeopencode/config/edge-client-secret.yaml",
+    "cluster/base/infrastructure/37-backup-system/argo-workflows-sso-secret.yaml",
     "cluster/base/infrastructure/37-backup-system/restic-secret.yaml",
 }
 
@@ -305,6 +307,7 @@ def main() -> None:
     keycloak_values = {"grafana_client_secret": grafana_oidc_secret}
     for key, length, path, secret_key in [
         ("edge_client_secret", 43, "26-keycloak/edge-client-secret.yaml", "client-secret"),
+        ("argo_workflows_client_secret", 43, "26-keycloak/argo-workflows-client-secret.yaml", "argo-workflows-client-secret"),
         ("immich_client_secret", 43, "26-keycloak/immich-client-secret.yaml", "immich-client-secret"),
         ("paperless_client_secret", 32, "26-keycloak/paperless-client-secret.yaml", "paperless-client-secret"),
         ("zot_client_secret", 43, "26-keycloak/zot-client-secret.yaml", "zot-client-secret"),
@@ -492,6 +495,7 @@ def main() -> None:
     # ── Generated application Secrets ─────────────────────────────────────────
 
     edge_secret = keycloak_values["edge_client_secret"]
+    argo_workflows_secret = keycloak_values["argo_workflows_client_secret"]
     immich_secret = keycloak_values["immich_client_secret"]
     paperless_oidc_secret = keycloak_values["paperless_client_secret"]
     zot_oidc_secret = keycloak_values["zot_client_secret"]
@@ -541,6 +545,8 @@ def main() -> None:
             "PAPERLESS_SECRET_KEY": application_credentials[("paperless", "secret_key")],
             "PAPERLESS_ADMIN_PASSWORD": application_credentials[("paperless", "admin_password")]}),
         "base/infrastructure/21-flux-notifications/github-token.yaml": secret_yaml("flux-github-token", "flux-system", {"token": flux_gh_token}),
+        "base/infrastructure/26-keycloak/argo-workflows-client-secret.yaml": secret_yaml("keycloak-argo-workflows-oidc", "keycloak", {
+            "argo-workflows-client-secret": argo_workflows_secret}),
         "base/infrastructure/26-keycloak/keycloak-admin-user-secret.yaml": secret_yaml("keycloak-admin-user", "keycloak", {
             "password": keycloak_values["admin_user_password"]}),
         "base/infrastructure/26-keycloak/keycloak-secret.yaml": secret_yaml("keycloak-secrets", "keycloak", {
@@ -555,6 +561,8 @@ def main() -> None:
             "zot-client-secret": zot_oidc_secret}),
         "base/infrastructure/26-keycloak/recovery-object-store.yaml": secret_yaml("recovery-object-store", "keycloak", {
             "admin_access_key_id": sw_key, "admin_secret_access_key": sw_sec}),
+        "base/infrastructure/37-backup-system/argo-workflows-sso-secret.yaml": secret_yaml("argo-workflows-sso", "backup-system", {
+            "client-id": "argo-workflows", "client-secret": argo_workflows_secret}),
         "base/infrastructure/37-backup-system/restic-secret.yaml": secret_yaml("restic-local", "backup-system", {
             "RESTIC_REPOSITORY": "s3:http://seaweedfs-s3.seaweedfs.svc:8333/recovery/restic",
             "RESTIC_PASSWORD": restic_password, "AWS_ACCESS_KEY_ID": sw_key, "AWS_SECRET_ACCESS_KEY": sw_sec}),
