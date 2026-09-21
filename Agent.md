@@ -421,7 +421,9 @@ writeup (kept for the full diagnostic trail); the narrower, corrected finding fo
 9. **Cluster-wide `default-deny-ingress` CiliumClusterwideNetworkPolicy itself** — deleted
    entirely (backed up first, restored immediately after, with explicit user sign-off since
    this is a real security-boundary removal) as the most direct possible test. **Identical
-   timeout, unchanged.** Caveat: `allow-cluster-internal` (a separate, pre-existing
+   timeout, unchanged.** Caveat, true as of this 2026-08-14 investigation but not since
+   2026-08-17 (`allow-cluster-internal` was removed that day, `docs/network-architecture.md`
+   / `docs/backlog.md`): `allow-cluster-internal` (a separate, pre-existing
    CiliumClusterwideNetworkPolicy, ingress-only, `fromEntities: [cluster]`) was still present
    and still selects every non-`reserved:ingress` endpoint — so this wasn't a true
    zero-policy test, just a test with the *deny* baseline removed. Worth redoing with
@@ -456,8 +458,9 @@ writeup (kept for the full diagnostic trail); the narrower, corrected finding fo
 
 1. Reproduce with the **cleanest possible minimal case**: two freshly-created pods in a
    fresh namespace, zero custom policy, one single `CiliumNetworkPolicy` granting exactly
-   one direction — and remove `allow-cluster-internal` too (point 9's caveat) to get a truly
-   policy-free baseline reading.
+   one direction. `allow-cluster-internal` (point 9's caveat) no longer exists as of
+   2026-08-17, so this no longer needs a separate removal step to get a policy-free baseline
+   — check `kubectl get ccnp` for anything else unexpected instead.
 2. Test direct pod-IP-to-pod-IP traffic (bypassing any Service/ClusterIP/DNAT) to isolate
    whether `kubeProxyReplacement`/socket-LB is a variable.
 3. Search Cilium's GitHub issues for the exact drop signature
