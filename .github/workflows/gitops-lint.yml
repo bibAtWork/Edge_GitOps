@@ -484,6 +484,14 @@ jobs:
       - name: Verify RBAC, Flux dependencies, telemetry and application template
         run: python3 scripts/check-platform-contracts.py
 
+  secret-bootstrap-coverage:
+    name: SOPS bootstrap coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify every encrypted Secret has a generator
+        run: python3 scripts/check-secret-bootstrap.py
+
   recovery-policy-drills:
     name: Recovery policy / restore drill consistency
     runs-on: ubuntu-latest

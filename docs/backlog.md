@@ -1524,7 +1524,14 @@ the manifests it is meant to cover.
 
 ---
 
-## Open: most SOPS secrets have no bootstrap generator
+## Resolved: every SOPS secret has a bootstrap generator
+
+Resolved 2026-09-20. `apply-config.py` now generates every application-owned
+Secret from `bootstrap/config.json`, including both sides of each shared OIDC,
+database and object-store credential. The AWS recovery identities remain owned
+by `make-recovery-credentials.sh`. `check-secret-bootstrap.py` compares those
+two explicit inventories with every manifest carrying a `sops:` block, so a
+new encrypted Secret without a bootstrap owner fails CI.
 
 Found during a repository review, 2026-09-14. The repo is published as a template, so a fresh
 deployment is a real use case, not just a hypothetical -- and `bootstrap/scripts/apply-config.py`
