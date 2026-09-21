@@ -25,8 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         # The two -config overlays validate standalone: kubeconform checks
-        # resource shape against its own schema catalog (default + the
-        # datreeio CRDs-catalog for CRDs like cilium.io/gateway.networking.k8s.io),
+        # resource shape against its own schema catalog (default + generated
+        # Argo schemas + datreeio for the remaining third-party CRDs),
         # not against CRDs actually present in the same build, so the
         # base overlay's operators don't need to be in this same pass.
         overlay: [1-node, 3-node, 1-node-config, 3-node-config]
@@ -50,6 +50,40 @@ jobs:
             | tar -xz -C /usr/local/bin kubeconform
           echo "kubeconform $(kubeconform -v)"
 
+      - name: Generate schemas for the pinned Argo Workflows release
+        shell: bash
+        run: |
+          set -euo pipefail
+          chart_file=cluster/base/infrastructure/37-backup-system/argo-workflows.yaml
+          chart_version="$(yq -r 'select(.kind == "HelmRelease" and .metadata.name == "argo-workflows") | .spec.chart.spec.version' "$chart_file")"
+          test -n "$chart_version"
+          test "$chart_version" != "null"
+
+          # The chart's full-CRD installer defaults to Chart.appVersion, so
+          # resolving it from the exact chart pin gives CI the same CRDs that
+          # Helm installs in the cluster.  Argo v4 release manifests contain
+          # the full OpenAPI schemas used by that installer image.
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update argo
+          app_version="$(helm show chart argo/argo-workflows --version "$chart_version" | yq -r '.appVersion')"
+          test -n "$app_version"
+          test "$app_version" != "null"
+          echo "Argo Workflows chart $chart_version uses application $app_version"
+
+          crd_manifest="$RUNNER_TEMP/argo-workflows-$app_version-install.yaml"
+          curl --fail --show-error --silent --location --retry 3 \
+            "https://github.com/argoproj/argo-workflows/releases/download/$app_version/install.yaml" \
+            --output "$crd_manifest"
+          schema_dir="$RUNNER_TEMP/crd-schemas"
+          yq eval-all -o=json -I=0 '[.]' "$crd_manifest" \
+            | python scripts/generate-crd-schemas.py \
+                --group argoproj.io \
+                --output "$schema_dir"
+          echo "CRD_SCHEMA_DIR=$schema_dir" >> "$GITHUB_ENV"
+
+      - name: Test CRD schema generator
+        run: python scripts/test-generate-crd-schemas.py
+
       - name: Build and validate ${{ matrix.overlay }} overlay
         run: |
           # pipefail so a failed render fails the step. Without it the pipeline's
@@ -66,6 +100,7 @@ jobs:
             | yq 'select(.sops == null)' \
             | kubeconform \
                 -schema-location default \
+                -schema-location "$CRD_SCHEMA_DIR/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
                 -ignore-missing-schemas \
                 -strict \
