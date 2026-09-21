@@ -17,13 +17,6 @@ it names live, unremediated weaknesses in a public repository, which must not be
 regardless of severity. Do not copy findings, resource names, or exploit specifics from it into
 this file, commit messages, or PR descriptions.
 
-As of the last review (2026-08-14), fixes exist for every finding except the two explicitly
-deferred ones (Kubernetes-native RBAC via Talos OIDC, both
-still tracked below) — H3 (kube-proxy/flannel disabled) was fixed live in-session; C1, H1, H2,
-M1 (partial), M2, M3, M4, L1, and L2 each have an open PR against `ops/talos_linux` pending
-review/merge. Ask to see the actual review locally if you need the specifics — they're
-intentionally not reproduced here.
-
 ---
 
 ## Trivy CVE gate auto-merges non-zero-CVSS images, and runs 5x redundantly per PR
@@ -82,12 +75,6 @@ alongside the removal.
 Worth keeping in mind: a guard that has never once fired is indistinguishable from a guard
 that has nothing to catch. This one was checked by hand only because an audit went looking
 for what Renovate did not cover.
-
----
-
-## Kubernetes-native RBAC (`kubectl`/`kubeoc` CLI access) has no identity layer
-
-Every app behind the Gateway now has real per-user auth (Keycloak OIDC, either native or via Envoy Gateway's `SecurityPolicy.oidc`) or OPA's coarser Rego gate. `kubectl`/`kubeoc` access to the API server itself is still cert-based only — no OIDC trust configured at all. Scoped 2026-08-12 against the CNCF IAM whitepaper's "Administrator" actor: requires `cluster.apiServer.extraArgs` (`oidc-issuer-url`/`oidc-client-id`/`oidc-groups-claim`) in `cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml` (currently absent), applied via `talosctl apply-config` — a brief kube-apiserver restart on this single control-plane node. Cert-based admin access stays untouched either way, so it remains the safety net regardless of when/whether this lands. Not started.
 
 ---
 
@@ -1485,121 +1472,6 @@ raise before.
 - a restic upgrade that changes `copy` or the pack format;
 - a restore from AWS that turns up damage;
 - the quarterly drills lapsing.
-
-## Scheduled: delete the old backup buckets once they are empty
-
-Recorded 2026-09-13, at the ADR-012 cutover. #620 removed the old pipeline's AWS identities and set
-lifecycle rules that expire every version in its three buckets: the ADR-005 vault, and the older
-etcd and Velero buckets. The etcd and Velero buckets empty within days. The vault keeps each version
-under Object Lock until its 21-day retention ends; its last objects were written on 2026-09-13, so
-it is empty a few days after 2026-10-04.
-
-**After 2026-10-07**, confirm that all three are empty, for example with
-`aws s3api list-object-versions --bucket <bucket> --max-items 1`. Then, in `bootstrap/terraform`:
-
-- move `data.aws_caller_identity.current` and `aws_iam_user.backup_admin` into
-  `recovery-vault.tf`, without renaming them, since the recovery vault uses both;
-- delete the following, with their outputs and `vault_object_lock_days`:
-  - `backup-vault.tf`, `backup-vault-policy.tf` and `backup-vault-lifecycle.tf`;
-  - the rest of `backup-vault-iam.tf`, which is the admin's policy for the old vault;
-  - `s3-buckets.tf`, `lifecycle.tf` and `kms.tf`;
-- plan, expecting only the buckets, the KMS key and alias, and that admin policy to be destroyed;
-  then apply. The KMS key then waits out its 14-day deletion window.
-
-## Addressed: a new volume is not backed up until it is added to the recovery policy
-
-Recorded 2026-09-13, at the ADR-012 cutover. Longhorn's recurring jobs used to back up every volume
-by default: a new volume was protected before anyone classified it, and `BackupDatasetUnclassified`
-flagged the ones nobody had. Both went with the old pipeline. A volume is now protected only once it
-is a dataset in `37-backup-system/recovery-policy.yaml`.
-
-**Partly addressed since:** `recovery-policy.yaml` now carries an `excluded-volumes` table
-(`derived` / `known-gap`, mirroring ADR-011's old `not-backed-up` table), so a volume that is
-deliberately not a dataset is at least written down, distinct from one nobody has classified yet.
-
-Addressed 2026-09-20: `scripts/check-recovery-volume-coverage.py` renders both deployment profiles
-in CI and fails when a declared Longhorn PVC is absent from both lists. It also rejects a policy
-entry that is stale or appears in both lists, so classification cannot silently drift away from
-the manifests it is meant to cover.
-
----
-
-## Resolved: every SOPS secret has a bootstrap generator
-
-Resolved 2026-09-20. `apply-config.py` now generates every application-owned
-Secret from `bootstrap/config.json`, including both sides of each shared OIDC,
-database and object-store credential. The AWS recovery identities remain owned
-by `make-recovery-credentials.sh`. `check-secret-bootstrap.py` compares those
-two explicit inventories with every manifest carrying a `sops:` block, so a
-new encrypted Secret without a bootstrap owner fails CI.
-
-Found during a repository review, 2026-09-14. The repo is published as a template, so a fresh
-deployment is a real use case, not just a hypothetical -- and `bootstrap/scripts/apply-config.py`
-does not get it all the way there.
-
-Counted directly: 31 files under `cluster/` carry a `sops:` block. Of those, `apply-config.py`
-fills in 10 (Cloudflare's token for both cert-manager and external-dns, Tailscale OAuth,
-SeaweedFS's and Zot's S3 credentials, Zot's htpasswd, Grafana's admin password and its Keycloak
-OAuth client secret, the optional Flux GitHub-status token, and system-upgrade-controller's
-talosconfig when `--talosconfig` is passed), and `scripts/make-recovery-credentials.sh` fills in
-2 more from Terraform's outputs (`recovery-aws-promoter.yaml`, `recovery-aws-retention.yaml`).
-The remaining **19** have no generator anywhere in `bootstrap/scripts/` or `scripts/` -- they must
-be created and SOPS-encrypted by hand before a fresh bootstrap's Flux reconciliation can succeed:
-
-```
-04-grafana/config/telegram-secret.yaml       12-zot/operator/oidc-credentials-secret.yaml
-05-cilium/config/edge-client-secret.yaml     16-immich/db-secret.yaml
-16-immich/oauth-config-secret.yaml           16-immich/pg-owner-secret.yaml
-16-immich/recovery-object-store.yaml         17-paperless-ngx/oidc-secret.yaml
-17-paperless-ngx/secret.yaml                 26-keycloak/edge-client-secret.yaml
-26-keycloak/google-idp-secret.yaml           26-keycloak/immich-client-secret.yaml
-26-keycloak/keycloak-admin-user-secret.yaml  26-keycloak/keycloak-secret.yaml
-26-keycloak/paperless-client-secret.yaml     26-keycloak/recovery-object-store.yaml
-26-keycloak/zot-client-secret.yaml           27-kubeopencode/config/edge-client-secret.yaml
-37-backup-system/restic-secret.yaml
-```
-
-`26-keycloak/keycloak-secret.yaml` is a specific, concrete instance of this: it holds
-`grafana-client-secret`, the same value `apply-config.py` now generates and writes into
-`04-grafana/grafana-oauth-secret.yaml` as `keycloak.grafana_client_secret` in `config.json` (see
-the bootstrap disk-prompt/Dex cleanup, 2026-09-14). The two sides of that shared secret can drift
-if whoever fills in `keycloak-secret.yaml` by hand does not copy the same value `config.json`
-already holds -- worth fixing first, and closest to already being solved, since half of it is
-already automated.
-
-Not scoped here: writing 19 generators is a much larger effort than documenting the gap, and
-several of these (the Keycloak per-app client secrets, the `recovery-object-store.yaml` pair)
-depend on each other in ways that would need to be worked out first -- e.g. whether the
-Keycloak realm import job or `apply-config.py` should own generating them. Recorded so the gap
-is visible to whoever next does a fresh deployment, rather than discovered mid-bootstrap.
-
----
-
-## Resolved 2026-09-21: vault bucket policy MFA fix is live
-
-Found on review of #640, 2026-09-14; commit attribution corrected on a later review of that
-same finding. Two commits, both via #629/#632's review cycle:
-
-- `b577284` (#629, round-1 fix) removed the vault bucket policies' deny-destructive exemption
-  outright -- it used to cover `data.aws_caller_identity.current.arn`, whoever last ran
-  `terraform apply`, with no MFA condition at all.
-- `19943669` (#632, round-2 fix, correcting a gap the round-1 fix introduced) put a narrower
-  exemption back, this time genuinely MFA-gated (`BoolIfExists` on
-  `aws:MultiFactorAuthPresent` -- `backup-vault-policy.tf`, `recovery-vault.tf`).
-
-The original review concluded that neither fix had reached AWS. A live read-back on 2026-09-21
-showed that conclusion had become stale: both `homelab-backup-vault` and
-`homelab-recovery-vault` now have `DenyDestructiveExceptAdminAndRoot`, the expected
-`StringNotLike` principal restriction, and `BoolIfExists` on
-`aws:MultiFactorAuthPresent = false`. A refreshed Terraform plan proposed zero changes to
-either bucket policy, confirming that the live documents match the repository configuration.
-
-The plan was deliberately not applied because it also proposed recreating the decommissioned
-`homelab-etcd-backups-offsite` and `homelab-velero-backups-offsite` buckets plus eight dependent
-resources. That is separate Terraform state/configuration debt; it does not weaken the two live
-Object Lock vault policies verified here.
-
----
 
 ## Open: kubeconform validates Argo objects against a schema two major versions behind
 
