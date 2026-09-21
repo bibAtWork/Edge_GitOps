@@ -422,6 +422,12 @@ back at each quarterly drill (A9).
 
 **Required -- unrecoverable if lost:**
 
+- **Talos `secrets.yaml`** (`.talos/secrets.yaml`, generated once by `talosctl gen secrets` at
+  first bootstrap -- see `bootstrap-1node.sh`/`bootstrap-3node.sh`). It is the cluster's PKI: the
+  CA and member identity every node config is signed against. `dr.py`'s full-rebuild scenario
+  requires it and aborts outright if it's missing (`preflight_secrets_bundle`) -- without it, a
+  rebuild's nodes would form a *different* cluster with different certificates, not rejoin this
+  one's identity.
 - **`.age.key`**, the SOPS/age private key. Without it every encrypted manifest in the repository
   is noise, including the vault credentials below. Identify it by its public half, the recipient
   in `.sops.yaml`.
