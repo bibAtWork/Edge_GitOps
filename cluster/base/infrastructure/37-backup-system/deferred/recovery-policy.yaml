@@ -99,9 +99,11 @@ data:
   #                     ransomware looks like to a backup. The floor keeps one
   #                     new document in a small library from counting as 50%.
   #   forget-*          ENFORCED by retention, on its dry run, before anything is
-  #                     deleted: one run may remove at most forget-max snapshots
-  #                     from a dataset, and release at most forget-loss-percent of
-  #                     its repository's data once that exceeds forget-loss-floor.
+  #                     deleted: a full plan over forget-plan-max is refused. A
+  #                     valid backlog is drained oldest-first, and one run may
+  #                     remove at most forget-max snapshots from a dataset and
+  #                     release at most forget-loss-percent of its repository's
+  #                     data once that exceeds forget-loss-floor.
   #                     A schedule typo, a clock gone wrong, or photos deleted
   #                     months ago leaving the last monthly snapshot all show up
   #                     as a run that thins far more than usual. Letting one
@@ -115,9 +117,12 @@ data:
     growth-percent      50
     growth-floor        100MiB
     # A verified weekly AWS catch-up reached 11 removals per Paperless dataset
-    # on 2026-09-20. Twelve clears that bounded backlog while still refusing a
-    # two-week daily-snapshot loss; the independent data-loss cap still applies.
+    # on 2026-09-20. Twelve bounds each mutation. A delayed local convergence may
+    # need two batches, while plans beyond 24 still signal an abnormal schedule,
+    # clock, or retention change and are refused. The data-loss cap applies to
+    # every staged batch independently.
     forget-max          12
+    forget-plan-max     24
     forget-loss-percent 20
     forget-loss-floor   1GiB
 
