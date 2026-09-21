@@ -503,7 +503,19 @@ spec:
                 rclone cat "$F" | cmp -s - /tmp/v.json || { echo "the record of $RP did not read back"; exit 1; }
                 echo "$RP: some datasets EXPIRED, the rest still restorable"
               else
-                rclone deletefile "$F"
+                # A retry or overlapping cleanup may have already removed this
+                # record. Only rclone's file-not-found exit code is benign;
+                # authentication, transport and other remote failures must fail.
+                if rclone deletefile "$F"; then
+                  :
+                else
+                  rc=$?
+                  if [ "$rc" -ne 4 ]; then
+                    echo "$RP: record deletion failed (rclone exit $rc)" >&2
+                    exit "$rc"
+                  fi
+                  echo "$RP: record already absent"
+                fi
                 rclone purge "$PREFIX/$APP/$RP" 2>/dev/null || true
                 echo "$RP: nothing left to restore in this repository; record and evidence removed"
               fi
