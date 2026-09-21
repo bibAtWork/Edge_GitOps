@@ -1575,7 +1575,7 @@ is visible to whoever next does a fresh deployment, rather than discovered mid-b
 
 ---
 
-## Open: the vault bucket policy MFA fix has not been applied
+## Resolved 2026-09-21: vault bucket policy MFA fix is live
 
 Found on review of #640, 2026-09-14; commit attribution corrected on a later review of that
 same finding. Two commits, both via #629/#632's review cycle:
@@ -1587,21 +1587,17 @@ same finding. Two commits, both via #629/#632's review cycle:
   exemption back, this time genuinely MFA-gated (`BoolIfExists` on
   `aws:MultiFactorAuthPresent` -- `backup-vault-policy.tf`, `recovery-vault.tf`).
 
-Both are real fixes in Git. Neither is a real fix in AWS: nobody has run `terraform apply`
-against the live account since `b577284`, so the bucket policies currently enforcing
-`DeleteObjectVersion`/`BypassGovernanceRetention` on both vaults are still the pre-#629
-version -- whichever identity last applied is still exempt, with no MFA requirement at all.
-The code review that found and fixed this treated the fix as done; it isn't, until the apply
-happens.
+The original review concluded that neither fix had reached AWS. A live read-back on 2026-09-21
+showed that conclusion had become stale: both `homelab-backup-vault` and
+`homelab-recovery-vault` now have `DenyDestructiveExceptAdminAndRoot`, the expected
+`StringNotLike` principal restriction, and `BoolIfExists` on
+`aws:MultiFactorAuthPresent = false`. A refreshed Terraform plan proposed zero changes to
+either bucket policy, confirming that the live documents match the repository configuration.
 
-This is not hypothetical or low-stakes: it is the live state of both S3 Object Lock vaults this
-whole recovery system depends on for immutability. To close it: `cd bootstrap/terraform &&
-terraform plan`. If it shows anything beyond the two bucket policies, stop and find out why
-before applying -- it isn't known whether other Terraform changes made since the vaults were
-last applied are also sitting unapplied. Once the plan is confirmed to be just the two policy
-documents (no resource replacement), `terraform apply` with an MFA-authenticated session --
-applying it with the same long-lived, no-MFA key the exemption used to cover would be applying
-the fix from the identity the fix is meant to stop trusting.
+The plan was deliberately not applied because it also proposed recreating the decommissioned
+`homelab-etcd-backups-offsite` and `homelab-velero-backups-offsite` buckets plus eight dependent
+resources. That is separate Terraform state/configuration debt; it does not weaken the two live
+Object Lock vault policies verified here.
 
 ---
 
