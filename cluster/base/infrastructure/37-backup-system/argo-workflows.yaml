@@ -86,9 +86,12 @@ spec:
       # Closes the path where recovery-reconciler's narrow "create workflows"
       # grant (rbac-reconciler.yaml) could otherwise submit a Workflow that
       # points at an attacker-controlled template or pod spec. Doesn't close
-      # the argo-server path (deny-argo-server-ingress, networkpolicy.yaml,
-      # covers that): the server can edit templates and WorkflowTemplates
-      # directly, which this setting does not restrict.
+      # the argo-server path: server access is instead gated by SSO
+      # (server.sso, above) and per-user RBAC (sso-rbac.yaml), plus
+      # allow-argo-server-gateway-ingress (deferred/networkpolicy.yaml)
+      # restricting network access to the Gateway only -- the server can
+      # still edit templates and WorkflowTemplates directly for whoever
+      # authenticates, which this setting does not restrict.
       #
       # Every Workflow this repo submits itself already fits: the reconciler
       # and every CronWorkflow use workflowTemplateRef with only `arguments`
