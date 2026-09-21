@@ -12,11 +12,13 @@
 #            push the last good one out.
 #   thin     DRY-RUN CAP. `restic forget --dry-run` first, and the plan is
 #            refused if, for any dataset, it would not keep the newest snapshot
-#            or would remove more than `forget-max`; or if it would release more
-#            of the repository's data than `forget-loss-percent` (once above
+#            or would remove more than `forget-plan-max`. A valid backlog is
+#            drained oldest-first, at no more than `forget-max` snapshots per
+#            dataset and run. The staged batch is also refused if it would release
+#            more than `forget-loss-percent` of the repository's data (once above
 #            `forget-loss-floor`), measured before anything is deleted. Only then
-#            are exactly the planned snapshots forgotten -- by ID, so the real
-#            run cannot differ from the dry run -- and the repository pruned and
+#            are exactly the staged snapshots forgotten -- by ID, so the real run
+#            cannot differ from the dry run -- and the repository pruned and
 #            checked.
 #   records  a record describes what its repository can restore: a dataset whose
 #            snapshot was forgotten becomes EXPIRED, and a record with nothing
@@ -291,6 +293,7 @@ spec:
             PUSH="http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus"
             mkdir -p /tmp/out
             : > /tmp/out/removed
+            : > /tmp/planned
             : > /tmp/remove
             lim() { sed 's/#.*//' /policy/limits | awk -v k="$1" '
               function bytes(v,   n, u) { n = v + 0; u = v; sub(/^[0-9.]+/, "", u)
@@ -298,8 +301,10 @@ spec:
                 if (u == "GiB") return n * 1073741824; if (u == "TiB") return n * 1099511627776
                 return n }
               $1 == k { printf "%.0f", bytes($2); found = 1 } END { if (!found) exit 1 }'; }
-            FMAX="$(lim forget-max)" && LPCT="$(lim forget-loss-percent)" && LFLOOR="$(lim forget-loss-floor)" \
+            FMAX="$(lim forget-max)" && PMAX="$(lim forget-plan-max)" && LPCT="$(lim forget-loss-percent)" && LFLOOR="$(lim forget-loss-floor)" \
               || { echo "the policy lacks a forget-* limit; refusing to thin without one"; exit 1; }
+            [ "$FMAX" -le "$PMAX" ] \
+              || { echo "forget-max $FMAX exceeds forget-plan-max $PMAX; refusing an invalid policy"; exit 1; }
             REFUSE=""
 
             for L in $(echo "{{inputs.parameters.eligible}}" | tr ';' ' '); do
@@ -317,33 +322,55 @@ spec:
               N="$(wc -l < /tmp/rm | tr -d ' ')"
               echo "$DS ($F): keep $(wc -l < /tmp/keep | tr -d ' '), remove $N"
               grep -qx "$ID" /tmp/keep || REFUSE="$REFUSE; $DS would lose its newest snapshot"
-              [ "$N" -le "$FMAX" ] || REFUSE="$REFUSE; $DS would lose $N snapshots, more than forget-max $FMAX"
+              [ "$N" -le "$PMAX" ] || REFUSE="$REFUSE; $DS would lose $N snapshots, more than forget-plan-max $PMAX"
+              if [ "$N" -gt 0 ] && [ "$FMAX" -eq 0 ]; then
+                REFUSE="$REFUSE; $DS has snapshots to remove but forget-max is zero"
+              fi
+              : > /tmp/candidates
               for S in $(cat /tmp/rm); do
                 $R cat snapshot "$S" --no-lock > /tmp/snap.json
+                TAKEN="$(grep -oE '"time": ?"[^"]*"' /tmp/snap.json | head -n 1 | cut -d'"' -f4)"
+                [ -n "$TAKEN" ] || { echo "$DS snapshot $S has no time; refusing an unordered batch"; exit 1; }
                 RP="$(grep -o '"rp=[^"]*"' /tmp/snap.json | cut -d= -f2 | tr -d '"')"
                 ORIG="$(grep -oE '"original": ?"[0-9a-f]{64}"' /tmp/snap.json | grep -oE '[0-9a-f]{64}')" || true
-                echo "$S ${ORIG:-$S} ${RP:-} $APP $DS" >> /tmp/remove
+                echo "$TAKEN $S ${ORIG:-$S} ${RP:-} $APP $DS" >> /tmp/candidates
               done
+              sort -k1,1 -k2,2 /tmp/candidates | cut -d' ' -f2- >> /tmp/planned
+              # A large but still credible backlog converges over several runs.
+              # Sorting by snapshot time makes every stage deterministic and
+              # discards the oldest eligible recovery history first.
+              sort -k1,1 -k2,2 /tmp/candidates | head -n "$FMAX" | cut -d' ' -f2- >> /tmp/remove
+              if [ "$N" -gt "$FMAX" ]; then
+                echo "$DS: staging the oldest $FMAX of $N planned removals; the remainder stays for a later run"
+              fi
             done
 
-            # What the plan would release for good: the repository's unique data
-            # now, minus what the snapshots it keeps still reference. Measured
-            # before anything is deleted.
-            if [ -s /tmp/remove ]; then
+            # What both the full plan and this run's staged batch would release
+            # for good: the repository's unique data now, minus what the
+            # snapshots they keep still reference. Measuring both preserves the
+            # anomaly guard while the per-run cap makes convergence bounded.
+            if [ -s /tmp/planned ]; then
               TOTAL="$($R stats --mode raw-data --json --no-lock | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
               $R snapshots --json --no-lock | grep -oE '"id":"[0-9a-f]{64}"' | cut -d'"' -f4 > /tmp/all
-              cut -d' ' -f1 /tmp/remove > /tmp/rmids
-              grep -vxFf /tmp/rmids /tmp/all > /tmp/rest || true
-              # Never measured with no IDs: `restic stats` with none means every
-              # snapshot, and a plan removing all of them would read as no loss.
-              [ -s /tmp/rest ] || { echo "RETENTION REFUSED: the plan would remove every snapshot. Nothing was forgotten."; exit 64; }
-              # shellcheck disable=SC2046
-              AFTER="$($R stats --mode raw-data --json --no-lock $(cat /tmp/rest) | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
-              LOSS=$((TOTAL - AFTER))
-              echo "the plan releases $LOSS of $TOTAL bytes"
-              if awk -v l="$LOSS" -v t="$TOTAL" -v p="$LPCT" -v f="$LFLOOR" 'BEGIN { exit !(l > f && l * 100 > t * p) }'; then
-                REFUSE="$REFUSE; it would release $LOSS of $TOTAL bytes, more than forget-loss-percent $LPCT"
-              fi
+              release_guard() {
+                FILE="$1"; LABEL="$2"
+                [ -s "$FILE" ] || return 0
+                cut -d' ' -f1 "$FILE" > /tmp/rmids
+                grep -vxFf /tmp/rmids /tmp/all > /tmp/rest || true
+                if [ ! -s /tmp/rest ]; then
+                  REFUSE="$REFUSE; the $LABEL would remove every snapshot"
+                  return 0
+                fi
+                # shellcheck disable=SC2046
+                AFTER="$($R stats --mode raw-data --json --no-lock $(cat /tmp/rest) | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
+                LOSS=$((TOTAL - AFTER))
+                echo "the $LABEL releases $LOSS of $TOTAL bytes"
+                if awk -v l="$LOSS" -v t="$TOTAL" -v p="$LPCT" -v f="$LFLOOR" 'BEGIN { exit !(l > f && l * 100 > t * p) }'; then
+                  REFUSE="$REFUSE; the $LABEL would release $LOSS of $TOTAL bytes, more than forget-loss-percent $LPCT"
+                fi
+              }
+              release_guard /tmp/planned "full plan"
+              release_guard /tmp/remove "staged batch"
             fi
 
             if [ -n "$REFUSE" ]; then

@@ -74,7 +74,8 @@ flowchart LR
   the data it describes, and is promoted with it, so a recovery from AWS alone can find it.
 - **Retention thins each repository to its schedule behind two guards:**
   - a verification gate: it thins nothing whose newest point is unvalidated;
-  - a dry-run cap: it refuses a plan that would remove too much.
+  - dry-run caps: it refuses an anomalously large full plan, then limits a valid
+    backlog to an oldest-first batch per dataset and bounds that batch's data loss.
 
   AWS deletes are delete markers under Object Lock.
 
