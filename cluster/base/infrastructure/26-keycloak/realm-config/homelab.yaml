@@ -367,6 +367,11 @@ clients:
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
     authorizationServicesEnabled: false
+    # Native CLI client: there is no client secret to protect, so require
+    # proof that the process redeeming an authorization code initiated the
+    # browser flow. kubelogin/oidc-login supports S256.
+    attributes:
+      pkce.code.challenge.method: S256
     redirectUris:
       - http://localhost:8000/callback
       - http://localhost:18000

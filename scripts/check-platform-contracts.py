@@ -2,6 +2,7 @@
 """Render and check contracts that schema validation cannot prove (requires PyYAML)."""
 from pathlib import Path
 import subprocess
+from urllib.parse import urlparse
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,77 @@ def acyclic(graph):
         visit(node, [])
 
 
+def check_kubernetes_oidc(profile, docs):
+    """Keep the identity provider, API authenticator and RBAC grants aligned."""
+    machine_config = ROOT / f"cluster/overlays/{profile}/talos-machineconfigs/controlplane.yaml"
+    machine_docs = [d for d in yaml.safe_load_all(machine_config.read_text(encoding="utf-8")) if d]
+    configs = [d for d in machine_docs if "cluster" in d]
+    assert len(configs) == 1, f"{profile}: expected one Talos cluster machine config"
+    args = configs[0]["cluster"]["apiServer"]["extraArgs"]
+    expected_args = {
+        "oidc-issuer-url": "https://keycloak.homelab.data-harness.org/realms/homelab",
+        "oidc-client-id": "kubernetes",
+        "oidc-username-claim": "email",
+        "oidc-username-prefix": "oidc:",
+        "oidc-groups-claim": "groups",
+        "oidc-groups-prefix": "oidc:",
+    }
+    assert {key: args.get(key) for key in expected_args} == expected_args, \
+        f"{profile}: Talos Kubernetes OIDC arguments drifted"
+
+    expected_bindings = {
+        "oidc-platform-admin-cluster-admin": ("oidc:platform-admin", "cluster-admin"),
+        "oidc-viewer-view": ("oidc:viewer", "view"),
+    }
+    for name, (group, role) in expected_bindings.items():
+        binding = get(docs, "ClusterRoleBinding", name)
+        assert binding["roleRef"] == {
+            "apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": role,
+        }, f"{profile}: {name} role changed"
+        assert binding.get("subjects") == [{
+            "kind": "Group", "name": group, "apiGroup": "rbac.authorization.k8s.io",
+        }], f"{profile}: {name} subjects changed"
+
+    cluster_groups = {
+        subject.get("name")
+        for d in docs if d["kind"] == "ClusterRoleBinding"
+        for subject in d.get("subjects", []) if subject.get("kind") == "Group"
+    }
+    assert "oidc:app-operator" not in cluster_groups, \
+        f"{profile}: app operators must remain namespace-scoped"
+    assert "oidc:self-service" not in cluster_groups, \
+        f"{profile}: self-service users must not receive Kubernetes cluster access"
+
+
+def check_keycloak_kubernetes_client():
+    realm_path = ROOT / "cluster/base/infrastructure/26-keycloak/realm-config/homelab.yaml"
+    realm = yaml.safe_load(realm_path.read_text(encoding="utf-8"))
+    clients = [client for client in realm["clients"] if client.get("clientId") == "kubernetes"]
+    assert len(clients) == 1, "Keycloak must declare exactly one kubernetes client"
+    client = clients[0]
+    assert client.get("publicClient") is True, "kubectl's Kubernetes OIDC client must be public"
+    assert client.get("standardFlowEnabled") is True
+    for grant in ("implicitFlowEnabled", "directAccessGrantsEnabled",
+                  "serviceAccountsEnabled", "authorizationServicesEnabled"):
+        assert client.get(grant) is False, f"Kubernetes OIDC client unexpectedly enables {grant}"
+    assert client.get("redirectUris"), "Kubernetes OIDC client needs a loopback redirect"
+    redirects = [urlparse(uri) for uri in client["redirectUris"]]
+    assert all(uri.scheme == "http" and uri.hostname in {"localhost", "127.0.0.1"}
+               and uri.port and not uri.username and not uri.password for uri in redirects), \
+        "Kubernetes OIDC redirects must remain loopback-only"
+    assert client.get("attributes", {}).get("pkce.code.challenge.method") == "S256", \
+        "The public Kubernetes OIDC client must require PKCE S256"
+
+    setup_docs = list(yaml.safe_load_all(
+        (ROOT / "cluster/base/infrastructure/26-keycloak/setup-job.yaml").read_text(encoding="utf-8")
+    ))
+    setup = next(d for d in setup_docs if d["kind"] == "ConfigMap"
+                 and d["metadata"]["name"] == "keycloak-setup-script")
+    script = setup["data"]["setup.py"]
+    assert "link_default_scope(kubernetes_uuid, groups_scope_id)" in script, \
+        "Kubernetes tokens must receive the groups claim without relying on an optional scope"
+
+
 def check_profile(profile):
     root = render(f"cluster/overlays/{profile}")
     config = render(f"cluster/overlays/{profile}-config")
@@ -54,6 +126,7 @@ def check_profile(profile):
     assert bound_namespaces <= application_namespaces
     assert not bound_namespaces & platform_namespaces
     assert all(b["kind"] == "RoleBinding" and b["roleRef"]["name"] == "edit" for b in bindings)
+    check_kubernetes_oidc(profile, docs)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]
@@ -103,6 +176,7 @@ def check_profile(profile):
 
 
 if __name__ == "__main__":
+    check_keycloak_kubernetes_client()
     for profile in ("1-node", "3-node"):
         check_profile(profile)
     assert render("cluster/base/operator-readiness")
