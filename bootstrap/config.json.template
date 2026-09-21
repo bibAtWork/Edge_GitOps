@@ -60,6 +60,7 @@
     "_comment": "All empty values are generated once and reused for every client/server copy.",
     "grafana_client_secret": "",
     "edge_client_secret": "",
+    "argo_workflows_client_secret": "",
     "immich_client_secret": "",
     "paperless_client_secret": "",
     "zot_client_secret": "",
