@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: falco
-      version: 9.1.0
+      version: 9.2.0
       sourceRef:
         kind: HelmRepository
         name: falcosecurity
@@ -29,7 +29,7 @@ spec:
     image:
       registry: docker.io
       repository: falcosecurity/falco
-      tag: 0.44.1
+      tag: 0.45.0
 
     driver:
       kind: modern_ebpf
