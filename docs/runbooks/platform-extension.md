@@ -23,6 +23,19 @@ Both node profiles consume these compositions. Profile patches express topology.
    Use SOPS for client credentials. Register clients in Keycloak's realm config
    and use its existing role/group mapping; this shared identity registration is
    a platform change, not an edit to another application.
+
+   Then say so on the route. OPA's last rule lets a request with no
+   `Authorization` header through (browser apps sign users in themselves), so a
+   route with neither a native login nor a gateway policy is public, and nothing
+   would tell you. CI therefore fails an HTTPRoute that does not carry
+   `gitops.homelab/auth`: `native-oidc` (the app signs in against Keycloak; add
+   `gitops.homelab/auth-client` naming the realm client, whose redirect URI must
+   be on the route's host), `gateway-oidc` (Envoy's OIDC filter, with the
+   SecurityPolicy and the host listed in OPA's `admin_only_apps`, which must be
+   exactly the `gateway-oidc` hosts), or `public` (deliberately open;
+   `gitops.homelab/public-reason` must say why). `identity-provider`, `deny` and
+   `redirect` cover Keycloak itself, its refused admin path and the HTTP-to-HTTPS
+   redirect. Each claim is checked against what it names.
 4. Set `homelab.local/telemetry-client: "true"` on instrumented pods. Set a stable
    `OTEL_SERVICE_NAME`. DNS, gateway ingress and OTLP egress are shared policies.
    Add explicit application policies for database, object store and peer access.

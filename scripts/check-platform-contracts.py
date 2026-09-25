@@ -2,6 +2,7 @@
 """Render and check contracts that schema validation cannot prove (requires PyYAML)."""
 import ipaddress
 from pathlib import Path
+import re
 import subprocess
 from urllib.parse import urlparse
 import yaml
@@ -77,6 +78,109 @@ def check_kubernetes_oidc(profile, docs):
         f"{profile}: app operators must remain namespace-scoped"
     assert "oidc:self-service" not in cluster_groups, \
         f"{profile}: self-service users must not receive Kubernetes cluster access"
+
+
+ROUTE_AUTH = "gitops.homelab/auth"
+ROUTE_AUTH_CLIENT = "gitops.homelab/auth-client"
+ROUTE_PUBLIC_REASON = "gitops.homelab/public-reason"
+ROUTE_AUTH_TYPES = {
+    "native-oidc",        # the application signs users in against Keycloak itself
+    "gateway-oidc",       # Envoy's oauth2 filter signs them in, and OPA gates the host
+    "identity-provider",  # this is Keycloak, which has to be reachable to log in at all
+    "deny",               # refused at the edge for everyone
+    "redirect",           # only ever redirects, never reaches a backend
+    "public",             # deliberately unauthenticated; must say why
+}
+
+
+def realm_clients():
+    realm = yaml.safe_load(
+        (ROOT / "cluster/base/infrastructure/26-keycloak/realm-config/homelab.yaml").read_text(encoding="utf-8"))
+    return {client["clientId"]: client for client in realm["clients"]}
+
+
+def opa_admin_only_hosts(docs):
+    rego = get(docs, "ConfigMap", "opa-policies")["data"]["main.rego"]
+    block = re.search(r"admin_only_apps := [{](.*?)[}]", rego, re.S)
+    assert block, "OPA's admin_only_apps set moved or was renamed; update check_route_auth"
+    return set(re.findall(r'"([^"]+)"', block.group(1)))
+
+
+def check_route_auth(profile, docs):
+    """Every HTTPRoute states how it authenticates, and the statement is checked.
+
+    The Gateway's OPA ext_authz ends in `else := {"allowed": true}`: a request
+    with no Authorization header passes, because browser apps do their own
+    login. So a new route with neither a native login nor a gateway policy is
+    public, and nothing says so -- no error, no alert, just a working URL. This
+    makes the choice explicit and ties each claim to something that exists: the
+    Keycloak client (and its redirect URI for that host) for OIDC routes, the
+    SecurityPolicy and OPA's admin_only_apps for gateway-enforced ones, the
+    deny policy or the redirect-only rules for the rest."""
+    clients = realm_clients()
+    admin_only = opa_admin_only_hosts(docs)
+    routes = [d for d in docs if d["kind"] == "HTTPRoute"]
+    assert routes, f"{profile}: no HTTPRoutes rendered; this check would prove nothing"
+    policies = [d for d in docs if d["kind"] == "SecurityPolicy"]
+    keycloak_host = urlparse(next(
+        e["value"] for e in get(docs, "Deployment", "keycloak")["spec"]["template"]["spec"]["containers"][0]["env"]
+        if e["name"] == "KC_HOSTNAME")).hostname
+    gateway_hosts = set()
+
+    for route in routes:
+        namespace, name = route["metadata"]["namespace"], route["metadata"]["name"]
+        who = f"{profile}: HTTPRoute {namespace}/{name}"
+        annotations = route["metadata"].get("annotations", {})
+        auth = annotations.get(ROUTE_AUTH)
+        assert auth in ROUTE_AUTH_TYPES, (
+            f"{who} must declare how it authenticates: annotation {ROUTE_AUTH} set to one of "
+            f"{sorted(ROUTE_AUTH_TYPES)} (got {auth!r}). OPA lets a request with no Authorization "
+            f"header through, so without a native login or a gateway policy this route is public.")
+        hosts = route["spec"].get("hostnames", [])
+        client_id = annotations.get(ROUTE_AUTH_CLIENT)
+        mine = [p for p in policies if p["metadata"]["namespace"] == namespace and any(
+            t["kind"] == "HTTPRoute" and t["name"] == name for t in p["spec"].get("targetRefs", []))]
+        has_oidc = any("oidc" in p["spec"] for p in mine)
+
+        if auth in ("native-oidc", "gateway-oidc"):
+            assert hosts, f"{who} declares {auth} but has no hostnames"
+            assert client_id in clients, (
+                f"{who} declares {auth} with {ROUTE_AUTH_CLIENT}={client_id!r}, which is not a "
+                f"client in realm-config/homelab.yaml (register it there)")
+            registered = {urlparse(uri).hostname for uri in clients[client_id].get("redirectUris", [])
+                          if urlparse(uri).scheme in ("http", "https")}
+            assert set(hosts) <= registered, (
+                f"{who} serves {sorted(set(hosts) - registered)} but Keycloak client {client_id!r} has no "
+                f"redirect URI on that host, so nothing signs users in there")
+        else:
+            assert not client_id, f"{who} declares {auth}, which takes no {ROUTE_AUTH_CLIENT}"
+
+        if auth == "gateway-oidc":
+            assert has_oidc, f"{who} declares gateway-oidc but no SecurityPolicy.oidc targets it"
+            gateway_hosts |= set(hosts)
+        else:
+            assert not has_oidc, f"{who} has a SecurityPolicy.oidc targeting it but declares {auth!r}"
+
+        if auth == "identity-provider":
+            assert hosts == [keycloak_host], \
+                f"{who} declares identity-provider but Keycloak itself serves {keycloak_host}"
+        elif auth == "deny":
+            deny = [p["spec"]["authorization"] for p in mine if "authorization" in p["spec"]]
+            assert len(deny) == 1 and deny[0].get("defaultAction") == "Deny" and not deny[0].get("rules"), \
+                f"{who} declares deny but no SecurityPolicy refuses everything on it"
+        elif auth == "redirect":
+            assert route["spec"]["rules"] and all(
+                not rule.get("backendRefs") and rule.get("filters")
+                and all(f["type"] == "RequestRedirect" for f in rule["filters"])
+                for rule in route["spec"]["rules"]), f"{who} declares redirect but a rule reaches a backend"
+        elif auth == "public":
+            assert annotations.get(ROUTE_PUBLIC_REASON, "").strip(), \
+                f"{who} is deliberately public and must say why in {ROUTE_PUBLIC_REASON}"
+
+    assert admin_only == gateway_hosts, (
+        f"{profile}: OPA's admin_only_apps {sorted(admin_only)} must be exactly the hosts of the "
+        f"gateway-oidc routes {sorted(gateway_hosts)} -- a host listed there without the route "
+        f"declaring it (or the reverse) is gated by only one of the two layers")
 
 
 # Talos's defaults; check_no_cluster_assigned_aliases asserts the machine configs
@@ -228,6 +332,7 @@ def check_profile(profile):
     check_kubernetes_oidc(profile, docs)
     check_argo_operator_scope(profile, docs)
     check_no_cluster_assigned_aliases(profile, docs)
+    check_route_auth(profile, docs)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]

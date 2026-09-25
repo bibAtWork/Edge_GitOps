@@ -3,6 +3,16 @@ kind: HTTPRoute
 metadata:
   name: example-app
   namespace: example-app
+  annotations:
+    # Required: how this route authenticates. The gateway lets a request with no
+    # Authorization header through (browser apps sign users in themselves), so a
+    # route with neither a native login nor a gateway policy is public. Use
+    # native-oidc plus the Keycloak client id registered for this host,
+    # gateway-oidc (with an Envoy SecurityPolicy and OPA's admin_only_apps) or,
+    # for a deliberately open route, public plus gitops.homelab/public-reason.
+    # scripts/check-platform-contracts.py verifies the claim.
+    gitops.homelab/auth: native-oidc
+    gitops.homelab/auth-client: example-app
 spec:
   parentRefs:
     - name: homelab-gateway
