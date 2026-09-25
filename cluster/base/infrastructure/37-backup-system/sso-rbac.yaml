@@ -122,12 +122,23 @@ roleRef:
   kind: Role
   name: argo-viewer
 ---
-# Can run and manage Workflow instances -- submit, retry, resubmit, stop,
-# delete a run, delete its pods -- but not create, edit or delete a
+# Can start a recovery point and clear away runs -- create a Workflow, delete
+# one, delete its pods -- and read everything, but not create, edit or delete a
 # WorkflowTemplate or CronWorkflow: those define WHAT can run and on what
 # schedule, which is a platform-admin decision here (this namespace runs
 # ADR-012's recovery system, not general-purpose CI), not an operator one.
-# Everything an operator can't change, they can still read.
+#
+# "Create a Workflow" is narrower than it sounds, and has to be: RBAC cannot
+# say WHICH Workflow, and templateReferencing: Strict still lets a submitter
+# choose the entrypoint and the arguments, which the templates interpolate into
+# shell inside pods holding the restic password and the AWS keys. So creation is
+# further limited by a Kyverno policy to `recovery-point` for one known
+# application (19-kyverno/policies/argo-operator-workflow-scope.yaml, tested by
+# scripts/test-argo-operator-scope.py), and there is deliberately no update or
+# patch: a Workflow that passed that check cannot be edited into another one
+# afterwards. The cost is that an operator cannot stop or retry a run -- they
+# delete it and start again, which for a recovery point is the same thing.
+# scripts/check-platform-contracts.py fails if either half is loosened.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -145,7 +156,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: ["argoproj.io"]
     resources: ["workflows"]
-    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+    verbs: ["create", "get", "list", "watch", "delete"]
   - apiGroups: ["argoproj.io"]
     resources: ["eventsources", "sensors", "workfloweventbindings", "workflowtemplates", "cronworkflows"]
     verbs: ["get", "list", "watch"]
