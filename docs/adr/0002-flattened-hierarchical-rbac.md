@@ -57,6 +57,22 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   Maintainer), `viewer` (→ Reader) — one per tier to start. The model expects this list to
   grow (e.g. a future narrower `database-admin` under Maintainer) without ever touching
   Level 0.
+- **Argo Workflows (`backup-system`) maps the tiers by ServiceAccount, not RoleBinding:**
+  the SSO login evaluates `workflows.argoproj.io/rbac-rule` on the ServiceAccounts in
+  `37-backup-system/sso-rbac.yaml` and impersonates the match, so this mapping is invisible
+  to the Kubernetes-OIDC checks above. `viewer` reads everything and changes nothing;
+  `platform-admin` gets the server's own Role; `app-operator` **may start a recovery point
+  and nothing else**. That is deliberately narrower than "may create Workflows": the tier
+  is kept out of platform namespaces, and `backup-system` holds the restic password and the
+  AWS vault keys, while `templateReferencing: Strict` still lets a submitter choose a
+  template's `entrypoint` and `arguments` — which the templates interpolate into shell inside
+  pods that mount those credentials. So an operator may create only a `recovery-point`
+  Workflow for one application the recovery policy lists (Kyverno
+  `argo-operator-workflow-scope`), has no `update`/`patch` to edit it afterwards, and can
+  neither stop nor retry a run (deleting and starting again is the same thing for a recovery
+  point). `scripts/check-platform-contracts.py` fails if either half is loosened or the
+  policy's application list drifts from `recovery-policy`;
+  `scripts/test-argo-operator-scope.py` and `scripts/test-argo-sso-rbac.py` exercise it live.
 - **Guardrail:** an OPA/Rego policy — reusing the policy engine already deployed for the
   Gateway's `admin_only_apps` gate, rather than a bespoke script — walks the Keycloak group
   tree and fails the check if any Level 1 group has more than one Level 0 parent, or any
