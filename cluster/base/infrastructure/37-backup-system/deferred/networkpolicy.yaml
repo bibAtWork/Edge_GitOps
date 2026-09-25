@@ -136,12 +136,15 @@ spec:
 # from Keycloak's own KC_HOSTNAME-pinned discovery document regardless of
 # which address fetched it, so pointing at Keycloak directly only fixed
 # discovery and left the token exchange hanging (the "upstream request
-# timeout" 504 right after a successful Keycloak sign-in). See
-# argo-workflows.yaml's sso block and its hostAliases for the actual fix:
-# keycloak.homelab.data-harness.org resolves to the Gateway's ClusterIP for
-# every one of those calls, so this rule now targets the Gateway instead of
-# Keycloak -- the real backend port (10443) is the Service's own targetPort
-# for its https listener, not the 443 the Service itself publishes.
+# timeout" 504 right after a successful Keycloak sign-in). The fix is for
+# every one of those calls to go to the Gateway, so this rule targets the
+# Gateway instead of Keycloak -- on the real backend port (10443), the
+# Service's own targetPort for its https listener, not the 443 the Service
+# itself publishes. Cilium translates the Service address to the data-plane
+# pod before a policy is applied, so a rule naming 443 matches nothing and
+# drops silently. With this rule, keycloak.homelab.data-harness.org resolves
+# by ordinary DNS to the Gateway's LAN address and works from this pod (see
+# argo-workflows.yaml's sso block, which used to pin a ClusterIP for it).
 #
 # Scoped to the argo-workflows-server pod specifically (not the whole
 # namespace), matching the same narrow, single-destination shape as
