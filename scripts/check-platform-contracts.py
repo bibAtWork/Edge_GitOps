@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Render and check contracts that schema validation cannot prove (requires PyYAML)."""
+import ipaddress
 from pathlib import Path
 import subprocess
 from urllib.parse import urlparse
@@ -76,6 +77,46 @@ def check_kubernetes_oidc(profile, docs):
         f"{profile}: app operators must remain namespace-scoped"
     assert "oidc:self-service" not in cluster_groups, \
         f"{profile}: self-service users must not receive Kubernetes cluster access"
+
+
+# Talos's defaults; check_no_cluster_assigned_aliases asserts the machine configs
+# do not override them, so these stay the truth about what the API server hands out.
+CLUSTER_ASSIGNED = [ipaddress.ip_network("10.96.0.0/12"), ipaddress.ip_network("10.244.0.0/16")]
+
+
+def host_aliases(node):
+    """Every hostAliases entry anywhere in a manifest, HelmRelease values included."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "hostAliases":
+                yield from value
+            else:
+                yield from host_aliases(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from host_aliases(item)
+
+
+def check_no_cluster_assigned_aliases(profile, docs):
+    """No hostAliases in Git may name an address the API server assigns.
+
+    hostAliases takes only a literal IP, which tempts a pin of a Service's
+    ClusterIP -- but that is handed out when the Service is created, so a
+    rebuild (exactly when the alias matters most) would ship a stale one with
+    nothing to notice. argo-workflows.yaml did this for the Gateway's Service
+    until its egress policy was fixed and the alias found unnecessary."""
+    machine_config = ROOT / f"cluster/overlays/{profile}/talos-machineconfigs/controlplane.yaml"
+    cluster = next(d["cluster"] for d in yaml.safe_load_all(machine_config.read_text(encoding="utf-8"))
+                   if d and "cluster" in d)
+    assert not {"podSubnets", "serviceSubnets"} & set(cluster.get("network", {})), \
+        f"{profile}: the machine config overrides Talos's pod/service subnets; update CLUSTER_ASSIGNED"
+    for d in docs:
+        for alias in host_aliases(d):
+            address = ipaddress.ip_address(alias["ip"])
+            assert not any(address in network for network in CLUSTER_ASSIGNED), \
+                (f"{profile}: {d['kind']}/{d['metadata']['name']} pins hostAliases {alias['ip']}, an "
+                 f"address inside the cluster's service or pod range that is reassigned when the "
+                 f"object behind it is recreated. Fix the network path instead of pinning it.")
 
 
 def check_argo_operator_scope(profile, docs):
@@ -186,6 +227,7 @@ def check_profile(profile):
     assert all(b["kind"] == "RoleBinding" and b["roleRef"]["name"] == "edit" for b in bindings)
     check_kubernetes_oidc(profile, docs)
     check_argo_operator_scope(profile, docs)
+    check_no_cluster_assigned_aliases(profile, docs)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]
