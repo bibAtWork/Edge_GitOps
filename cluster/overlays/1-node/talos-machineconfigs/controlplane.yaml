@@ -410,7 +410,7 @@ cluster:
                     # HelmRelease. Without it the CLI's own built-in default
                     # decides which Cilium gets installed at bootstrap, so a CLI
                     # bump would silently change the cluster's CNI version.
-                    - --version=v1.20.1
+                    - --version=v1.20.2
                     # Makes the Job's exit code mean "CNI is actually up" rather
                     # than "the helm release was created".
                     - --wait
