@@ -3,6 +3,11 @@ kind: HTTPRoute
 metadata:
   name: grafana
   namespace: monitoring
+  annotations:
+    # How this route authenticates -- checked against Keycloak, the
+    # SecurityPolicies and OPA by scripts/check-platform-contracts.py.
+    gitops.homelab/auth: native-oidc
+    gitops.homelab/auth-client: grafana
 spec:
   parentRefs:
     - name: homelab-gateway
