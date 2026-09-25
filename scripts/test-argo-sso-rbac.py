@@ -13,14 +13,13 @@ recovery point of keycloak is really started per run and finishes on its own;
 every other create is refused. The policy's own wider case matrix, without the
 SSO round trip and without starting anything, is scripts/test-argo-operator-scope.py.
 
-Not runnable from a laptop: needs (a) the Gateway's ClusterIP reachable
-directly (hostAliases below resolve both hostnames straight to it,
-bypassing external DNS/LAN routing, the way argo-workflows.yaml's own
-server.sso pod does) and (b) direct egress to Keycloak's admin API for
-test-user setup, which nothing outside the keycloak namespace has by
-default (allow-argo-server-gateway-egress only opens port 10443 to
-Envoy, not Keycloak). Run from inside the cluster, temporarily granted
-both:
+Not runnable from a laptop: needs (a) the Gateway reachable on the ports the
+cluster uses for it (a pod carrying the argo-workflows-server label gets that
+from allow-argo-server-gateway-egress, and resolves both hostnames by
+ordinary DNS, exactly as the server itself does) and (b) direct egress to
+Keycloak's admin API for test-user setup, which nothing outside the keycloak
+namespace has by default (that policy only opens port 10443 to Envoy, not
+Keycloak). Run from inside the cluster, temporarily granted (b):
 
   kubectl run rbac-test -n backup-system --restart=Never \
     --image=python:3.12-slim \
@@ -64,6 +63,7 @@ deleted after each run.
 
 Requires env vars: KEYCLOAK_ADMIN_USER, KEYCLOAK_ADMIN_PASSWORD
 (the permanent realm admin, e.g. admin@homelab.internal + its secret).
+Set SKIP_START_RECOVERY_POINT=1 to skip the one real recovery point it starts.
 """
 import http.client
 import json
@@ -396,10 +396,13 @@ def main():
             # after itself like every nightly one. Left to finish rather than
             # deleted: deleting a running Workflow skips its exit handler and
             # orphans its snapshot clones.
-            status, body = submit_template(auth_cookie, "recovery-point", ["application=keycloak"])
-            all_ok &= report("submit a recovery point for keycloak, as the UI does (really runs)", status, expect_ok=True)
-            if status < 400 and isinstance(body, dict):
-                print(f"         started {body.get('metadata', {}).get('name')}; it finishes and cleans up on its own")
+            if os.environ.get("SKIP_START_RECOVERY_POINT") == "1":
+                print("  [skip] submit a recovery point for keycloak (SKIP_START_RECOVERY_POINT=1)")
+            else:
+                status, body = submit_template(auth_cookie, "recovery-point", ["application=keycloak"])
+                all_ok &= report("submit a recovery point for keycloak, as the UI does (really runs)", status, expect_ok=True)
+                if status < 400 and isinstance(body, dict):
+                    print(f"         started {body.get('metadata', {}).get('name')}; it finishes and cleans up on its own")
 
         status, body = argo_api("POST", "/api/v1/workflow-templates/backup-system", auth_cookie, data={
             "template": {"metadata": {"generateName": "rbac-test-"}, "spec": valid_spec}
