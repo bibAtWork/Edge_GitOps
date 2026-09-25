@@ -78,6 +78,64 @@ def check_kubernetes_oidc(profile, docs):
         f"{profile}: self-service users must not receive Kubernetes cluster access"
 
 
+def check_argo_operator_scope(profile, docs):
+    """Argo's app-operator tier may start a recovery point, and nothing more.
+
+    sso-rbac.yaml has to grant `create` on workflows and RBAC cannot say which
+    one, so the boundary is two halves: the Role (what verbs exist at all) and
+    Kyverno's argo-operator-workflow-scope (which Workflow a `create` may be).
+    Argo's SSO mapping is a ServiceAccount annotation, not a RoleBinding, so
+    check_kubernetes_oidc cannot see it -- this is what pins it instead."""
+    role = get(docs, "Role", "argo-operator")
+    for rule in role["rules"]:
+        groups, resources, verbs = set(rule.get("apiGroups", [])), set(rule.get("resources", [])), set(rule["verbs"])
+        assert "*" not in resources and "*" not in verbs and "*" not in groups, \
+            f"{profile}: argo-operator must not use wildcards"
+        assert not resources & {"secrets", "serviceaccounts", "roles", "rolebindings"}, \
+            f"{profile}: argo-operator must not touch secrets or RBAC objects"
+        if "argoproj.io" in groups:
+            allowed = {"workflows": {"create", "get", "list", "watch", "delete"}}
+            for resource in resources:
+                assert verbs <= allowed.get(resource, {"get", "list", "watch"}), \
+                    (f"{profile}: argo-operator may only create/delete workflows and read the "
+                     f"rest of argoproj.io (update/patch would let an admitted Workflow be "
+                     f"edited into another), got {sorted(verbs)} on {resource}")
+    grants = [d for d in docs if d["kind"] in ("RoleBinding", "ClusterRoleBinding")
+              and any(s.get("kind") == "ServiceAccount" and s.get("name") == "argo-operator"
+                      for s in d.get("subjects", []))]
+    assert [(g["kind"], g["roleRef"]["name"]) for g in grants] == [("RoleBinding", "argo-operator")], \
+        f"{profile}: argo-operator must be bound to nothing but its own Role"
+
+    argo = get(docs, "HelmRelease", "argo-workflows")["spec"]["values"]
+    assert argo["controller"]["workflowRestrictions"]["templateReferencing"] == "Strict", \
+        f"{profile}: the operator scope assumes templateReferencing: Strict"
+
+    policy = get(docs, "ClusterPolicy", "argo-operator-workflow-scope")["spec"]
+    assert policy["validationFailureAction"] == "Enforce", f"{profile}: operator scope must Enforce"
+    assert len(policy["rules"]) >= 2, f"{profile}: operator scope lost a rule"
+    for rule in policy["rules"]:
+        [entry] = rule["match"]["any"]
+        assert entry["subjects"] == [{"kind": "ServiceAccount", "name": "argo-operator",
+                                      "namespace": "backup-system"}], \
+            f"{profile}: {rule['name']} must judge argo-operator, and only it"
+        assert entry["resources"]["kinds"] == ["argoproj.io/v1alpha1/Workflow"], \
+            f"{profile}: {rule['name']} must match Workflows"
+        assert entry["resources"]["operations"] == ["CREATE"], \
+            f"{profile}: {rule['name']} must judge CREATE (argo-operator has no update or patch)"
+    [pattern] = [r["validate"]["pattern"] for r in policy["rules"] if "pattern" in r.get("validate", {})]
+    assert pattern["spec"]["workflowTemplateRef"] == {"name": "recovery-point"}, \
+        f"{profile}: an operator may start recovery-point and nothing else"
+    [parameter] = pattern["spec"]["arguments"]["parameters"]
+    assert parameter["name"] == "application", f"{profile}: the one permitted argument is application"
+
+    table = get(docs, "ConfigMap", "recovery-policy")["data"]["applications"]
+    declared = {line.split("#")[0].split()[0] for line in table.splitlines() if line.split("#")[0].strip()}
+    permitted = {name.strip() for name in parameter["value"].split("|")}
+    assert permitted == declared, \
+        (f"{profile}: argo-operator-workflow-scope permits {sorted(permitted)} but "
+         f"recovery-policy declares {sorted(declared)} -- keep them the same")
+
+
 def check_keycloak_kubernetes_client():
     realm_path = ROOT / "cluster/base/infrastructure/26-keycloak/realm-config/homelab.yaml"
     realm = yaml.safe_load(realm_path.read_text(encoding="utf-8"))
@@ -127,6 +185,7 @@ def check_profile(profile):
     assert not bound_namespaces & platform_namespaces
     assert all(b["kind"] == "RoleBinding" and b["roleRef"]["name"] == "edit" for b in bindings)
     check_kubernetes_oidc(profile, docs)
+    check_argo_operator_scope(profile, docs)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]

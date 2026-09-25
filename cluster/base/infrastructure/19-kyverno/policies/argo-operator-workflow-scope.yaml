@@ -1,0 +1,129 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: argo-operator-workflow-scope
+  annotations:
+    policies.kyverno.io/title: Argo operators may only start recovery points
+    policies.kyverno.io/category: Backup
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      The Argo Workflows `app-operator` tier (sso-rbac.yaml, ADR-002) may
+      create Workflows, and RBAC cannot say which. This policy can: for that
+      identity only, a Workflow must be a recovery point -- `recovery-point`
+      run for one application the recovery policy lists -- and nothing else.
+spec:
+  validationFailureAction: Enforce
+  # Admission only: it judges requests by who makes them, which has no meaning
+  # for a background scan of existing objects.
+  background: false
+  # Why this exists, and why "may create Workflows" is not a harmless grant:
+  #
+  # `templateReferencing: Strict` (argo-workflows.yaml) stops a submitter
+  # writing their own templates, but its allow-list still lets them set
+  # `entrypoint` and `arguments` on any WorkflowTemplate in backup-system. The
+  # templates interpolate arguments straight into shell -- promote.yaml and
+  # recovery-point.yaml both begin `APP="{{workflow.parameters.application}}"`
+  # -- inside pods that mount the restic password, the SeaweedFS admin key and
+  # the AWS promoter and retention keys. A submitter who controls that string
+  # controls a shell holding those credentials, and `entrypoint` additionally
+  # reaches templates that were never meant to be entry points (volume-clone,
+  # restic-dataset, drill-filer-aws's purge-aws-prefix). So an operator who
+  # could submit arbitrary Workflows could reach the recovery vault -- a
+  # platform boundary, granted to a tier that ADR-002 keeps out of platform
+  # namespaces.
+  #
+  # What an operator legitimately needs is "take a backup now, before I touch
+  # my app". That is exactly `recovery-point` for one application, so that is
+  # exactly what this admits. Every other template, every entrypoint override
+  # and every extra spec field is refused, and the one free-text argument is
+  # checked against the applications the recovery policy declares
+  # (scripts/check-platform-contracts.py keeps the list below in step with
+  # recovery-policy.yaml, so a new application cannot be added to one and
+  # forgotten in the other).
+  #
+  # The RBAC half is in sso-rbac.yaml: argo-operator has no update or patch on
+  # workflows, so a Workflow this policy admitted cannot be edited into
+  # something else afterwards, and creation is the only door.
+  rules:
+    - name: recovery-point-of-a-known-application
+      match:
+        any:
+          - resources:
+              kinds:
+                - argoproj.io/v1alpha1/Workflow
+              operations:
+                - CREATE
+            subjects:
+              - kind: ServiceAccount
+                name: argo-operator
+                namespace: backup-system
+      validate:
+        message: >-
+          The app-operator tier may only start a recovery point: a Workflow
+          with workflowTemplateRef.name recovery-point and exactly one
+          argument, application, set to one of immich, keycloak, paperless or
+          seaweedfs. Anything else -- another template, a different
+          application, extra arguments -- needs platform-admin.
+        pattern:
+          spec:
+            workflowTemplateRef:
+              name: recovery-point
+            arguments:
+              parameters:
+                - name: application
+                  value: "immich | keycloak | paperless | seaweedfs"
+    - name: nothing-else-in-the-spec
+      match:
+        any:
+          - resources:
+              kinds:
+                - argoproj.io/v1alpha1/Workflow
+              operations:
+                - CREATE
+            subjects:
+              - kind: ServiceAccount
+                name: argo-operator
+                namespace: backup-system
+      validate:
+        message: >-
+          The app-operator tier may not set anything on a Workflow beyond the
+          template reference and the single application argument -- not
+          entrypoint, not a service account, not extra or differently-shaped
+          arguments. Strict template referencing allows entrypoint and
+          arguments to be overridden, which is why this is checked here.
+        deny:
+          conditions:
+            any:
+              - key: "{{ length(keys(request.object.spec || `{}`)[?@ != 'workflowTemplateRef' && @ != 'arguments']) }}"
+                operator: GreaterThan
+                value: 0
+              - key: "{{ length(keys(request.object.spec.workflowTemplateRef || `{}`)[?@ != 'name']) }}"
+                operator: GreaterThan
+                value: 0
+              - key: "{{ length(keys(request.object.spec.arguments || `{}`)[?@ != 'parameters']) }}"
+                operator: GreaterThan
+                value: 0
+              - key: "{{ length(request.object.spec.arguments.parameters || `[]`) }}"
+                operator: NotEquals
+                value: 1
+              - key: "{{ length(keys(request.object.spec.arguments.parameters[0] || `{}`)[?@ != 'name' && @ != 'value']) }}"
+                operator: GreaterThan
+                value: 0
+---
+# Kyverno warns at admission of the policy above that its reports controller
+# "requires permissions get,list,watch for resource argoproj.io/v1alpha1/
+# Workflow": a policy that matches a kind produces reports about it, and the
+# controller that aggregates them cannot read a kind it has no RBAC for -- its
+# ClusterRole covers core resources and Kyverno's own, nothing from other
+# CRDs. Read-only, and only for the one resource this policy is about; the
+# label is what Kyverno's chart aggregates into kyverno:reports-controller.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno:reports-controller:argo-workflows
+  labels:
+    rbac.kyverno.io/aggregate-to-reports-controller: "true"
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs: ["get", "list", "watch"]

@@ -6,7 +6,12 @@ Reproducible end-to-end test of Argo Workflows' SSO RBAC tiers
 Creates (idempotently) one test user per non-admin ADR-002 tier, logs
 each one in through the REAL Keycloak authorization-code flow against
 the REAL argo-workflows OIDC client, and checks the REAL K8s-backed API
-responses Argo returns for a read and a write in two resource types.
+responses Argo returns for a read and a write in two resource types --
+and, for the operator tier, that it can start a recovery point and
+nothing else (19-kyverno/policies/argo-operator-workflow-scope.yaml). One
+recovery point of keycloak is really started per run and finishes on its own;
+every other create is refused. The policy's own wider case matrix, without the
+SSO round trip and without starting anything, is scripts/test-argo-operator-scope.py.
 
 Not runnable from a laptop: needs (a) the Gateway's ClusterIP reachable
 directly (hostAliases below resolve both hostnames straight to it,
@@ -84,7 +89,7 @@ CTX.verify_mode = ssl.CERT_NONE
 TIERS = [
     # (group path, username/email, expected Role -- for the printed report only)
     ("/reader/viewer", "test-viewer@homelab.internal", "argo-viewer (read-only)"),
-    ("/maintainer/app-operator", "test-operator@homelab.internal", "argo-operator (run workflows, cannot edit templates)"),
+    ("/maintainer/app-operator", "test-operator@homelab.internal", "argo-operator (start recovery points only)"),
 ]
 
 
@@ -263,6 +268,47 @@ def report(label, status, expect_ok):
     return ok
 
 
+POLICY = "argo-operator-workflow-scope"
+
+
+def report_policy_denied(label, status, body):
+    """Refused by Kyverno's operator-scope policy, not merely by RBAC: the
+    request reached admission, and admission named the policy."""
+    ok = status in (400, 403) and POLICY in json.dumps(body)
+    print(f"  [{'PASS' if ok else 'FAIL'}] {label}: HTTP {status} (expected refusal by {POLICY})")
+    if not ok:
+        print(f"         body: {str(body)[:300]}")
+    return ok
+
+
+def recovery_point(application="immich"):
+    return {"workflowTemplateRef": {"name": "recovery-point"},
+            "arguments": {"parameters": [{"name": "application", "value": application}]}}
+
+
+def create_workflow(auth_cookie, spec):
+    """A real create. Argo's own createOptions.dryRun is no use here: the API
+    server answers a dry run itself, after its own validation, without ever
+    sending the create to Kubernetes -- so neither RBAC nor admission runs and
+    even a viewer gets a 200 (found live). Every case that expects a refusal
+    is chosen to be harmless if it were wrongly admitted."""
+    return argo_api("POST", "/api/v1/workflows/backup-system", auth_cookie, data={
+        "workflow": {"metadata": {"generateName": "rbac-test-"}, "spec": spec},
+    })
+
+
+def submit_template(auth_cookie, template, parameters, entry_point=None):
+    """What the UI's Submit button calls -- the server builds the Workflow
+    itself from the template and the submit options, so this exercises a
+    different Workflow shape than a hand-written create does."""
+    options = {"parameters": parameters, "labels": "submit-from-ui=true"}
+    if entry_point:
+        options["entryPoint"] = entry_point
+    return argo_api("POST", "/api/v1/workflows/backup-system/submit", auth_cookie, data={
+        "resourceKind": "WorkflowTemplate", "resourceName": template, "submitOptions": options,
+    })
+
+
 def main():
     admin_tok = get_admin_token()
     print("Authenticated to Keycloak as", ADMIN_USER)
@@ -308,22 +354,52 @@ def main():
             "templates": [{"name": "main", "container": {"image": "docker.io/library/alpine:3.24", "command": ["true"]}}],
         }
 
-        status, body = argo_api("POST", "/api/v1/workflows/backup-system", auth_cookie, data={
-            "workflow": {"metadata": {"generateName": "rbac-test-"}, "spec": valid_spec}
-        })
-        # Viewer lacks create on workflows -> 403. Operator has it, but
-        # workflowRestrictions.templateReferencing: Strict rejects a raw
-        # inline workflow with 400 -- still proves RBAC let it past the
-        # authorization check, which is what this is actually testing.
+        status, body = create_workflow(auth_cookie, valid_spec)
         if is_viewer:
+            # Viewer lacks create on workflows -> 403 from RBAC.
             all_ok &= report("submit a raw workflow (RBAC should block)", status, expect_ok=False)
         else:
-            ok = status in (400, 200, 201)
-            print(f"  [{'PASS' if ok else 'FAIL'}] submit a raw workflow (RBAC should allow the attempt): HTTP {status}"
-                  + (" (rejected by Strict template referencing, not RBAC -- expected)" if status == 400 else ""))
-            all_ok &= ok
-            if status in (200, 201) and isinstance(body, dict) and "metadata" in body:
-                argo_api("DELETE", f"/api/v1/workflows/backup-system/{body['metadata']['name']}", auth_cookie)
+            # Operator has create, so RBAC lets it through -- and the operator
+            # scope policy is what refuses anything that is not a recovery
+            # point (an inline workflow here; Strict template referencing
+            # alone only rejects it later, at run time, which is too late).
+            all_ok &= report_policy_denied("submit a raw workflow (operator-scope policy should refuse)", status, body)
+
+        if is_operator:
+            # A dry-run retention: were the policy wrong, this plans and stops.
+            status, body = create_workflow(auth_cookie, {
+                "workflowTemplateRef": {"name": "retention"},
+                "arguments": {"parameters": [{"name": "repository", "value": "local"},
+                                             {"name": "dry-run", "value": "true"}]},
+            })
+            all_ok &= report_policy_denied("start retention (operator-scope policy should refuse)", status, body)
+
+            status, body = create_workflow(auth_cookie, recovery_point('keycloak"; true; "'))
+            all_ok &= report_policy_denied("inject shell via the application argument (should refuse)", status, body)
+
+            # The UI's entrypoint dropdown offers every template in the
+            # WorkflowTemplate, including ones never meant as entry points --
+            # remove-clones and purge-restore-archives among them, which need
+            # no inputs and so pass Argo's own validation. `plan` is the
+            # harmless one to try: read-only if the policy were ever wrong.
+            # (The dangerous ones are in test-argo-operator-scope.py, which
+            # only dry-runs.)
+            status, body = submit_template(auth_cookie, "recovery-point", ["application=keycloak"],
+                                           entry_point="plan")
+            all_ok &= report_policy_denied("submit with another entrypoint (should refuse)", status, body)
+
+            status, body = submit_template(auth_cookie, "retention", ["repository=local", "dry-run=true"])
+            all_ok &= report_policy_denied("submit retention (should refuse)", status, body)
+
+            # The one thing an operator may do -- and it really runs: a normal
+            # recovery point of the smallest application, which cleans up
+            # after itself like every nightly one. Left to finish rather than
+            # deleted: deleting a running Workflow skips its exit handler and
+            # orphans its snapshot clones.
+            status, body = submit_template(auth_cookie, "recovery-point", ["application=keycloak"])
+            all_ok &= report("submit a recovery point for keycloak, as the UI does (really runs)", status, expect_ok=True)
+            if status < 400 and isinstance(body, dict):
+                print(f"         started {body.get('metadata', {}).get('name')}; it finishes and cleans up on its own")
 
         status, body = argo_api("POST", "/api/v1/workflow-templates/backup-system", auth_cookie, data={
             "template": {"metadata": {"generateName": "rbac-test-"}, "spec": valid_spec}
