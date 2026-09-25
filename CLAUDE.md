@@ -26,3 +26,9 @@ If the credential needs rotating, use:
   --file cluster/base/infrastructure/01-seaweedfs/s3-secret.yaml \
   --key admin_access_key_id
 ```
+
+### CI checks are scripts, not workflow YAML
+
+Logic for a CI guardrail lives in `scripts/` (the workflow-lint and Talos checks in `scripts/ci/`), never inline in a workflow's `run:` block. A workflow step is one line that runs the script. Inline shell and Python cannot be run locally or tested, and that is where every defect in this repo's guardrails has turned out to be: a `grep` that missed list items and passed on everything for months, a schedule guard that "checked" nothing when a name changed.
+
+For a check in `scripts/ci/`: write the rule as a pure function over what it checks, keep `main()` to rendering and printing, and add a test in `scripts/ci/tests/` for each failure the check exists to catch and each false pass it once had. Then break the rule on purpose and confirm a test fails. A check that has only ever been seen passing has not been shown to work. Job ids and `name:` values in `gitops-lint.yml` are the required status checks' names; renaming one leaves the ruleset waiting on a check that never reports.
