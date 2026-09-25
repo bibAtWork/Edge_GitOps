@@ -18,463 +18,63 @@ on:
 permissions:
   contents: read
 
+# Each check is a script under scripts/ (the ones in scripts/ci/ have unit tests
+# in scripts/ci/tests, run by the last job here). They used to be shell and
+# Python embedded in this file, which nothing could test or run locally, and
+# which is where every defect in these guardrails so far turned out to be. The
+# reasoning behind each rule lives in that script's docstring and comments, next
+# to the code it explains.
+#
+# The job ids and names below are the required status checks' names. Renaming
+# one leaves the ruleset waiting on a check that never reports.
 jobs:
-  # ── Job 1: every Secret with data must be SOPS-encrypted ─────────────────────
   sops-enforcement:
     name: SOPS encryption
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - name: Verify all Secrets with data are SOPS-encrypted
-        run: |
-          python3 - <<'PY'
-          import sys, pathlib, yaml
+        run: python3 scripts/ci/sops_enforcement.py
 
-          SKIP_ANNOTATION = 'gitops.homelab/sops-skip'
-          errors = []
-          for path in sorted(pathlib.Path('cluster').rglob('*.yaml')):
-              try:
-                  content = path.read_text(encoding='utf-8')
-              except Exception:
-                  continue
-              try:
-                  for doc in yaml.safe_load_all(content):
-                      if not doc or doc.get('kind') != 'Secret':
-                          continue
-                      annotations = (doc.get('metadata') or {}).get('annotations') or {}
-                      if annotations.get(SKIP_ANNOTATION) == 'true':
-                          continue
-                      has_data = bool(doc.get('data') or doc.get('stringData'))
-                      encrypted = 'sops' in doc
-                      if has_data and not encrypted:
-                          errors.append(str(path))
-              except yaml.YAMLError:
-                  # SOPS-encrypted files may not parse cleanly — skip them
-                  pass
-
-          if errors:
-              print('The following Secrets have data but are not SOPS-encrypted:')
-              for e in errors:
-                  print(f'  {e}')
-              print()
-              print('Encrypt with: sops --encrypt --in-place <file>')
-              sys.exit(1)
-          else:
-              print('All Secrets are SOPS-encrypted.')
-          PY
-
-  # ── Job 2: no :latest image tags in either rendered overlay ──────────────────
   no-latest-tags:
     name: No :latest image tags
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - name: Reject :latest image tags in rendered overlays
-        run: |
-          FAIL=0
-          for overlay in 1-node 3-node 1-node-config 3-node-config; do
-            # The `-?` is load-bearing. Container specs render as list items
-            # (`      - image: foo:latest`), and the previous pattern required
-            # whitespace immediately before `image:`, so the leading dash broke
-            # every match. This gate passed on everything for as long as it has
-            # existed, including on the one image in this repo that did use
-            # :latest -- which is exactly what it was written to catch.
-            # Render to a file first. Piping straight into grep hides the build's
-            # own exit status behind `|| true`, so a failed render reads as "no
-            # violations found" and the gate passes on nothing at all.
-            rendered=$(mktemp)
-            # LoadRestrictionsNone: the 1-node-config overlay's 19-kyverno/config
-            # reads its policies from outside its own component directory. Flux
-            # renders that fine, but plain kubectl kustomize refuses it.
-            if ! kubectl kustomize --load-restrictor LoadRestrictionsNone "cluster/overlays/${overlay}" > "$rendered"; then
-              echo "ERROR: kubectl kustomize failed for ${overlay}"
-              FAIL=1; rm -f "$rendered"; continue
-            fi
-            if [ ! -s "$rendered" ]; then
-              echo "ERROR: ${overlay} rendered empty"
-              FAIL=1; rm -f "$rendered"; continue
-            fi
-            hits=$(grep -E '^\s*-?\s*image:\s+\S+:latest(\s|$)' "$rendered" || true)
-
-            # An image with NO tag is :latest too, and says so nowhere -- the
-            # check above cannot see it. local-path-provisioner's helper pod
-            # carried a bare `busybox` for the life of this repo, inside a
-            # ConfigMap, so neither this gate nor schema validation touched it.
-            # A digest pin is fine; a bare repository name is not.
-            # Kyverno policies also use an `image:` match key with wildcard
-            # values such as docker.io/*. Those are policy expressions rather
-            # than pullable container references, so exclude wildcard values.
-            untagged=$(grep -E '^[[:space:]]*-?[[:space:]]*image:' "$rendered" | sed -E 's/^.*image:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/' | grep -v '@sha256:' | grep -v '\*' | awk -F/ '$NF !~ /:/' || true)
-            rm -f "$rendered"
-            if [ -n "$untagged" ]; then
-              echo "ERROR: untagged images in ${overlay} overlay (resolve to :latest at pull time):"
-              echo "$untagged"
-              FAIL=1
-            fi
-            if [ -n "$hits" ]; then
-              echo "ERROR: :latest tags found in ${overlay} overlay (bypasses Trivy gate and Renovate tracking):"
-              echo "$hits"
-              FAIL=1
-            fi
-          done
-
-          # The loop above only sees what Kustomize renders. Talos machine
-          # configs are not in any kustomization -- they are applied by hand via
-          # talosctl -- so an image pinned in an inlineManifest is invisible to
-          # it. That blind spot is not hypothetical: the CNI bootstrap Job sat
-          # on cilium-cli-ci:latest until that tag went distroless and broke a
-          # fresh bootstrap outright, and this gate passed on every run in
-          # between. Grep the files directly, since there is nothing to render.
-          mc_hits=$(grep -rnE 'image:[[:space:]]*[^[:space:]]+:latest([[:space:]]|$)' cluster/overlays/*/talos-machineconfigs/*.yaml || true)
-          if [ -n "$mc_hits" ]; then
-            echo "ERROR: :latest tags found in Talos machine configs (applied out-of-band, so nothing else tracks them):"
-            echo "$mc_hits"
-            FAIL=1
-          fi
-
-          [ "$FAIL" -eq 0 ] && echo "No :latest tags found."
-          exit $FAIL
+        run: python3 scripts/ci/no_latest_tags.py
 
   unreplaced-sentinels:
     name: No unreplaced sentinels
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      # The version pins in the SUC Plans and the fleet-health CronJob are
-      # Kustomize `replacements` targets sourced from versions.env. Their
-      # literals in git are the sentinel REPLACED-BY-KUSTOMIZE, never a
-      # version.
-      #
-      # They used to be real versions, on the reasoning that a build should
-      # still "produce something sane" if a replacement were dropped. That is
-      # backwards: it produced a Plan pinned to a stale but perfectly
-      # installable version, with nothing reporting anything -- the Plans said
-      # v1.13.9 and one said v1.32.3 while the cluster ran v1.13.0/v1.36.0, and
-      # Renovate read those literals as if they were real pins.
-      #
-      # A sentinel cannot be pulled, so a dropped replacement fails. This makes
-      # it fail HERE, before merge, rather than at image-pull time on a node
-      # that has already been cordoned.
       - name: Reject sentinels surviving a render
-        run: |
-          FAIL=0
-          # The *-config overlays, NOT the base ones. The Plans and the gate
-          # CronJobs are CRD-dependent and live in each profile's config
-          # overlay; the base overlays pull in only the SUC operator.
-          # Checking a base overlay would render nothing containing a
-          # sentinel and pass unconditionally -- which is exactly what the
-          # first draft of this job did for 1-node, and what checking
-          # "3-node" instead of "3-node-config" would silently start doing
-          # again once 3-node gained its own operator/config split
-          # (2026-09-15, docs/backlog.md "3-node overlay would not produce a
-          # working cluster") -- before that, 3-node's base overlay held the
-          # Plans directly, which is the only reason "3-node" ever caught
-          # anything here.
-          #
-          # LoadRestrictionsNone because 1-node-config references a file
-          # outside its own directory (19-kyverno/policies), which plain
-          # kubectl kustomize refuses.
-          for overlay in 1-node-config 3-node-config; do
-            rendered=$(mktemp)
-            if ! kubectl kustomize --load-restrictor LoadRestrictionsNone "cluster/overlays/${overlay}" > "$rendered"; then
-              echo "ERROR: kubectl kustomize failed for ${overlay}"
-              FAIL=1; rm -f "$rendered"; continue
-            fi
-            if [ ! -s "$rendered" ]; then
-              echo "ERROR: ${overlay} rendered empty"
-              FAIL=1; rm -f "$rendered"; continue
-            fi
-            hits=$(grep -n 'REPLACED-BY-KUSTOMIZE' "$rendered" || true)
-            rm -f "$rendered"
-            if [ -n "$hits" ]; then
-              echo "ERROR: sentinel survived the ${overlay} render -- a replacements target is missing or mis-pathed:"
-              echo "$hits"
-              FAIL=1
-            fi
-          done
-          [ "$FAIL" -eq 0 ] && echo "No unreplaced sentinels."
-          exit $FAIL
+        run: python3 scripts/ci/unreplaced_sentinels.py
 
-  # ── Job 3: HelmRelease sourceRef and dependsOn references must resolve ───────
   flux-references:
     name: Flux reference integrity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - name: Verify HelmRelease sourceRef and dependsOn references resolve
-        run: |
-          python3 - <<'PY'
-          import subprocess, sys, yaml
+        run: python3 scripts/ci/flux_references.py
 
-          errors = []
-
-          for overlay in ('1-node-config', '3-node-config'):
-              result = subprocess.run(
-                  ['kubectl', 'kustomize', '--load-restrictor',
-                   'LoadRestrictionsNone', f'cluster/overlays/{overlay}'],
-                  capture_output=True, text=True,
-              )
-              if result.returncode != 0:
-                  errors.append(f'[{overlay}] kubectl kustomize failed:\n{result.stderr.strip()}')
-                  continue
-
-              docs = [d for d in yaml.safe_load_all(result.stdout) if d]
-
-              helm_repos = {
-                  d['metadata']['name']
-                  for d in docs if d.get('kind') == 'HelmRepository'
-              }
-              helm_releases = {
-                  d['metadata']['name']
-                  for d in docs if d.get('kind') == 'HelmRelease'
-              }
-
-              for doc in docs:
-                  if doc.get('kind') != 'HelmRelease':
-                      continue
-                  name = doc['metadata']['name']
-
-                  # sourceRef — the chart source must exist in the same overlay
-                  source = (
-                      doc.get('spec', {})
-                         .get('chart', {})
-                         .get('spec', {})
-                         .get('sourceRef', {})
-                  )
-                  if source.get('kind') == 'HelmRepository':
-                      ref = source.get('name', '')
-                      if ref not in helm_repos:
-                          errors.append(
-                              f'[{overlay}] HelmRelease/{name}: sourceRef '
-                              f'HelmRepository/{ref} not found in overlay'
-                          )
-
-                  # dependsOn — every named dependency must exist
-                  for dep in doc.get('spec', {}).get('dependsOn', []):
-                      dep_name = dep.get('name', '')
-                      if dep_name and dep_name not in helm_releases:
-                          errors.append(
-                              f'[{overlay}] HelmRelease/{name}: dependsOn '
-                              f'HelmRelease/{dep_name} not found in overlay'
-                          )
-
-          if errors:
-              print(f'{len(errors)} reference error(s) found:\n')
-              for e in errors:
-                  print(f'  ERROR: {e}')
-              sys.exit(1)
-          else:
-              print('All HelmRelease references resolve correctly.')
-          PY
-
-  # ── Job 4: recovery-policy applications must have a matching CronWorkflow ───
-  #
-  # Restores a narrower version of a check 598beee removed: that one bound
-  # the OLD backup pipeline's policy file to the jobs implementing it, and
-  # was removed because both had stopped existing (ADR-012 cutover). This
-  # one binds the CURRENT policy (recovery-policy.yaml) to the CURRENT
-  # implementation. Nothing else does: the reconciler reads the policy
-  # directly and would back up an application added to it with no matching
-  # CronWorkflow, but the pre-upgrade gate used to derive its own list of
-  # applications from the CronWorkflows' names, so that same application
-  # would silently never be proven before an upgrade (fixed alongside this,
-  # upgrade-gate-script.yaml -- the gate now also reads the policy directly,
-  # which makes a missing CronWorkflow fail gate proof for that application
-  # instead of hiding it; this check exists to catch the mismatch at PR time
-  # instead of at 11:00 the following Sunday).
   recovery-policy-cronworkflows:
     name: Recovery policy / CronWorkflow consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - name: Verify every policy application has a recovery-point CronWorkflow, and vice versa
-        run: |
-          python3 - <<'PY'
-          import re, subprocess, sys, yaml
+        run: python3 scripts/ci/recovery_policy_cronworkflows.py
 
-          errors = []
-          # Recovery policy and CronWorkflows are CRD-dependent resources and
-          # therefore live in each profile's config overlay. An overlay with
-          # no policy is skipped; every overlay skipping fails closed below.
-          checked_overlays = []
-
-          for overlay in ('1-node-config', '3-node-config'):
-              result = subprocess.run(
-                  ['kubectl', 'kustomize', '--load-restrictor',
-                   'LoadRestrictionsNone', f'cluster/overlays/{overlay}'],
-                  capture_output=True, text=True,
-              )
-              if result.returncode != 0:
-                  errors.append(f'[{overlay}] kubectl kustomize failed:\n{result.stderr.strip()}')
-                  continue
-
-              docs = [d for d in yaml.safe_load_all(result.stdout) if d]
-
-              policy = next(
-                  (d for d in docs if d.get('kind') == 'ConfigMap'
-                   and d.get('metadata', {}).get('name') == 'recovery-policy'),
-                  None,
-              )
-              if policy is None:
-                  print(f'[{overlay}] no ConfigMap/recovery-policy found -- this overlay does not run '
-                        f'the recovery system, skipping')
-                  continue
-              checked_overlays.append(overlay)
-
-              apps_table = policy.get('data', {}).get('applications', '')
-              policy_apps = set()
-              for line in apps_table.splitlines():
-                  line = line.split('#', 1)[0].strip()
-                  if not line:
-                      continue
-                  policy_apps.add(line.split()[0])
-              if not policy_apps:
-                  errors.append(f'[{overlay}] recovery-policy\'s applications table is empty -- cannot compare anything')
-                  continue
-
-              cron_apps = {
-                  m.group(1)
-                  for d in docs
-                  if d.get('kind') == 'CronWorkflow'
-                  and d.get('metadata', {}).get('namespace') == 'backup-system'
-                  and (m := re.match(r'^recovery-point-(.+)$', d['metadata']['name']))
-              }
-
-              for app in sorted(policy_apps - cron_apps):
-                  errors.append(
-                      f'[{overlay}] recovery-policy declares application "{app}" but there is no '
-                      f'recovery-point-{app} CronWorkflow in backup-system -- it will never be proven '
-                      f'by the pre-upgrade gate'
-                  )
-              for app in sorted(cron_apps - policy_apps):
-                  errors.append(
-                      f'[{overlay}] recovery-point-{app} CronWorkflow exists but "{app}" is not in '
-                      f'recovery-policy\'s applications table -- it is running unplanned, or the '
-                      f'policy is stale'
-                  )
-
-          if not checked_overlays and not errors:
-              errors.append(
-                  'no overlay has a recovery-policy ConfigMap -- this check compared nothing. '
-                  'If the recovery system was removed intentionally, remove this job; if not, '
-                  'something broke every overlay\'s reference to 37-backup-system.'
-              )
-
-          if errors:
-              print(f'{len(errors)} consistency error(s) found:\n')
-              for e in errors:
-                  print(f'  ERROR: {e}')
-              sys.exit(1)
-          else:
-              print(f'Every recovery-policy application has a matching CronWorkflow, and vice versa '
-                    f'(checked: {", ".join(checked_overlays)}).')
-          PY
-
-  # ── Job 5: the 1-node and 3-node profiles must reference the same components ─
-  #
-  # docs/backlog.md, "The 3-node overlay would not produce a working cluster":
-  # found 2026-08-25 with 1-node listing 33 infrastructure components and
-  # 3-node listing 16 -- an 18-component gap nothing caught, because
-  # kubeconform and kustomize build both succeed on an incomplete-but-valid
-  # overlay just as readily as a complete one. Fixed 2026-09-15 by porting
-  # the missing components and adding 3-node-config (mirroring 1-node-config's
-  # operator/config split), but a fix with nothing to stop it recurring is
-  # exactly how it happened the first time: 3-node's overlay was simply not
-  # touched as new components were added to 1-node over three weeks.
-  #
-  # This compares the SET of base/infrastructure/<NN-name> components each
-  # profile references -- across both its base overlay and its own -config
-  # overlay together, since a component split into operator/config (the
-  # pattern every CRD-dependent component uses) is only "present" once both
-  # halves are counted. A component intentionally exclusive to one profile
-  # is not expected to exist yet -- if one ever is, add it to
-  # INTENTIONAL_ONLY_IN below with a comment saying why, rather than loosening
-  # the check itself.
   overlay-component-parity:
     name: 1-node / 3-node component parity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - name: Verify both profiles reference the same base/infrastructure components
-        run: |
-          python3 - <<'PY'
-          import re, sys
-
-          # profile -> components intentionally present in ONLY that profile.
-          # Empty on both sides today -- as of 2026-09-15 the two profiles are
-          # full parity. A real, permanent difference should be rare: these
-          # are infrastructure components, not profile-specific tuning (that
-          # belongs in each overlay's own patches/, which this check does not
-          # touch at all).
-          INTENTIONAL_ONLY_IN = {
-              '1-node': set(),
-              '3-node': set(),
-          }
-
-          def components(profile):
-              from pathlib import Path
-              import yaml
-              names, visited = set(), set()
-              def visit(path):
-                  path = path.resolve()
-                  if path in visited:
-                      return
-                  visited.add(path)
-                  for part in path.parts:
-                      if re.fullmatch(r'[0-9]{2}-[a-z0-9-]+', part):
-                          names.add(part)
-                  data = yaml.safe_load(path.read_text(encoding='utf-8-sig'))
-                  for resource in data.get('resources', []):
-                      child = path.parent / resource
-                      if child.is_dir():
-                          visit(child / 'kustomization.yaml')
-              for suffix in ('', '-config'):
-                  visit(Path(f'cluster/overlays/{profile}{suffix}/kustomization.yaml'))
-              return names
-
-          one = components('1-node')
-          three = components('3-node')
-
-          if not one or not three:
-              print('ERROR: found zero components in one or both profiles -- the extraction '
-                    'regex or the overlay paths are wrong, not that either overlay is truly empty')
-              sys.exit(1)
-
-          errors = []
-          only_in_one = (one - three) - INTENTIONAL_ONLY_IN['1-node']
-          only_in_three = (three - one) - INTENTIONAL_ONLY_IN['3-node']
-          # An allowlist entry for a component BOTH profiles actually reference is
-          # stale, not protective -- catch it rather than let it silently do nothing.
-          stale_one = INTENTIONAL_ONLY_IN['1-node'] & three
-          stale_three = INTENTIONAL_ONLY_IN['3-node'] & one
-
-          for c in sorted(only_in_one):
-              errors.append(f'{c} is in 1-node/1-node-config but not 3-node/3-node-config')
-          for c in sorted(only_in_three):
-              errors.append(f'{c} is in 3-node/3-node-config but not 1-node/1-node-config')
-          for c in sorted(stale_one):
-              errors.append(f'INTENTIONAL_ONLY_IN["1-node"] lists {c}, but 3-node references it too -- remove the allowlist entry')
-          for c in sorted(stale_three):
-              errors.append(f'INTENTIONAL_ONLY_IN["3-node"] lists {c}, but 1-node references it too -- remove the allowlist entry')
-
-          if errors:
-              print(f'{len(errors)} divergence(s) found between the two profiles:\n')
-              for e in errors:
-                  print(f'  ERROR: {e}')
-              print()
-              print('Either port the missing component to the profile lacking it, or -- if the '
-                    'difference is genuinely intentional -- add it to INTENTIONAL_ONLY_IN in this '
-                    'job with a comment explaining why.')
-              sys.exit(1)
-          else:
-              print(f'1-node and 3-node reference the same {len(one)} infrastructure components.')
-          PY
+        run: python3 scripts/ci/overlay_component_parity.py
 
   platform-contracts:
     name: Platform extension contracts
@@ -515,3 +115,14 @@ jobs:
       - uses: actions/checkout@v7
       - name: Verify absent records are harmless and real deletion errors fail
         run: python3 scripts/test-retention-record-deletion.py
+
+  # The checks above are only as good as their logic, and that logic is now code
+  # with tests: each case is a failure a check exists to catch, or the false
+  # pass that once let it do nothing.
+  ci-script-tests:
+    name: CI script tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run the unit tests for scripts/ci
+        run: python3 -m unittest discover -s scripts/ci/tests -v
