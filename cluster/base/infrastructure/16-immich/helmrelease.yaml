@@ -68,7 +68,7 @@ spec:
             # or the v2 -> v3 decision in docs/backlog.md -- that is still a
             # separate, deliberate call.
             image:
-              tag: v2.7.5
+              tag: v3.2.2
             env:
               # The CloudNativePG cluster (postgres-cluster.yaml), since the
               # migration of 2026-09-13.
