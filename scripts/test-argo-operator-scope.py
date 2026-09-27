@@ -111,7 +111,7 @@ CASES = [
 
 def submit(identity, body):
     result = subprocess.run(
-        ["kubectl", "create", "--dry-run=server", "-o", "name", "--as", identity, "-f", "-"],
+        ["kubectl", "create", "--dry-run=server", "--validate=false", "-o", "name", "--as", identity, "-f", "-"],
         input=json.dumps(body), capture_output=True, text=True,
     )
     return result.returncode, (result.stdout + result.stderr).strip()

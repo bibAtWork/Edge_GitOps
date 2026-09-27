@@ -255,27 +255,49 @@ def check_argo_operator_scope(profile, docs):
     assert argo["controller"]["workflowRestrictions"]["templateReferencing"] == "Strict", \
         f"{profile}: the operator scope assumes templateReferencing: Strict"
 
-    policy = get(docs, "ClusterPolicy", "argo-operator-workflow-scope")["spec"]
-    assert policy["validationFailureAction"] == "Enforce", f"{profile}: operator scope must Enforce"
-    assert len(policy["rules"]) >= 2, f"{profile}: operator scope lost a rule"
-    for rule in policy["rules"]:
-        [entry] = rule["match"]["any"]
-        assert entry["subjects"] == [{"kind": "ServiceAccount", "name": "argo-operator",
-                                      "namespace": "backup-system"}], \
-            f"{profile}: {rule['name']} must judge argo-operator, and only it"
-        assert entry["resources"]["kinds"] == ["argoproj.io/v1alpha1/Workflow"], \
-            f"{profile}: {rule['name']} must match Workflows"
-        assert entry["resources"]["operations"] == ["CREATE"], \
-            f"{profile}: {rule['name']} must judge CREATE (argo-operator has no update or patch)"
-    [pattern] = [r["validate"]["pattern"] for r in policy["rules"] if "pattern" in r.get("validate", {})]
-    assert pattern["spec"]["workflowTemplateRef"] == {"name": "recovery-point"}, \
-        f"{profile}: an operator may start recovery-point and nothing else"
-    [parameter] = pattern["spec"]["arguments"]["parameters"]
-    assert parameter["name"] == "application", f"{profile}: the one permitted argument is application"
+    policy = get(docs, "ValidatingPolicy", "argo-operator-workflow-scope")["spec"]
+    assert policy["validationActions"] == ["Deny"], f"{profile}: operator scope must deny"
+    assert policy["evaluation"]["background"]["enabled"] is False, \
+        f"{profile}: identity-scoped policy must only run at admission"
+    assert policy["matchConstraints"]["resourceRules"] == [{
+        "apiGroups": ["argoproj.io"], "apiVersions": ["v1alpha1"],
+        "operations": ["CREATE"], "resources": ["workflows"],
+    }], f"{profile}: operator scope must match Workflow CREATE only"
+
+    def compact(expression):
+        return " ".join(expression.split())
+
+    assert policy["matchConditions"] == [{
+        "name": "argo-operator-only",
+        "expression": policy["matchConditions"][0]["expression"],
+    }]
+    assert compact(policy["matchConditions"][0]["expression"]) == (
+        "request.userInfo.username == "
+        "'system:serviceaccount:backup-system:argo-operator'"
+    ), f"{profile}: policy must match only argo-operator"
+    assert [v["name"] for v in policy["variables"]] == ["allowedApplications"]
+    allowed = policy["variables"][0]["expression"].strip()
+    assert allowed.startswith("[") and allowed.endswith("]"), \
+        f"{profile}: allowed applications must be a CEL list"
+    permitted = {value.strip().strip("'") for value in allowed[1:-1].split(",")}
+    assert len(policy["validations"]) == 3, f"{profile}: operator scope lost a validation"
+    expected = [
+        "has(object.spec.workflowTemplateRef) && object.spec.workflowTemplateRef.name == 'recovery-point'",
+        "has(object.spec.arguments) && has(object.spec.arguments.parameters) && "
+        "object.spec.arguments.parameters.size() == 1 && "
+        "object.spec.arguments.parameters[0].name == 'application' && "
+        "has(object.spec.arguments.parameters[0].value) && "
+        "object.spec.arguments.parameters[0].value in variables.allowedApplications",
+        "object.spec.all(k, v, k in ['workflowTemplateRef', 'arguments']) && "
+        "object.spec.workflowTemplateRef.all(k, v, k == 'name') && "
+        "object.spec.arguments.all(k, v, k == 'parameters') && "
+        "object.spec.arguments.parameters[0].all(k, v, k in ['name', 'value'])",
+    ]
+    assert [compact(v["expression"]) for v in policy["validations"]] == expected, \
+        f"{profile}: operator scope must reject unknown templates, arguments and spec fields"
 
     table = get(docs, "ConfigMap", "recovery-policy")["data"]["applications"]
     declared = {line.split("#")[0].split()[0] for line in table.splitlines() if line.split("#")[0].strip()}
-    permitted = {name.strip() for name in parameter["value"].split("|")}
     assert permitted == declared, \
         (f"{profile}: argo-operator-workflow-scope permits {sorted(permitted)} but "
          f"recovery-policy declares {sorted(declared)} -- keep them the same")
