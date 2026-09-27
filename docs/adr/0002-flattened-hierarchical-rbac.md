@@ -1,18 +1,17 @@
 # ADR-002: Flattened Hierarchical RBAC (Max-Depth-1)
 
 **Date:** 2026-08-18
-**Status:** Accepted — rollout in progress
+**Status:** Accepted — implemented
 
 ## Context
 
-Access control up to this point has been ad hoc per app: Grafana checks Keycloak group
+At the time of this decision, access control was ad hoc per app: Grafana checked Keycloak group
 membership with a one-off JMESPath expression, Paperless syncs Keycloak groups into Django
 groups with no defined group contents yet, and Hubble UI / KubeOpenCode get a single binary
 `is_admin` check in OPA's Rego (`24-opa/configmap.yaml`) because neither has ever had a
-`groups` claim to read. `kubectl` access to the API server has no identity layer at all —
-cert-based only (tracked in `docs/backlog.md`, "Kubernetes-native RBAC has no identity
-layer"). None of this shares a model, so adding a new app or a new access tier means
-inventing the logic again from scratch, and there is no single place to answer "what can
+`groups` claim to read. `kubectl` access to the API server was cert-based only. None of this
+shared a model, so adding a new app or a new access tier meant
+inventing the logic again from scratch, and there was no single place to answer "what can
 this person actually do across the cluster."
 
 Deep hierarchical RBAC (Role D inherits C inherits B inherits A) is the standard alternative,
@@ -80,16 +79,17 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   every PR touching it, and on a schedule against Keycloak's live group tree, since the realm
   is managed by an idempotent setup Job rather than continuously Flux-reconciled the way the
   rest of the cluster is — a manual console change would otherwise go uncaught indefinitely.
-- **Scope of this rollout:** every identity-aware surface in the cluster — Grafana, Paperless
-  (already Keycloak-integrated); Hubble UI and KubeOpenCode (currently edge-authenticated via
-  Envoy `SecurityPolicy.oidc` but only binary-gated downstream); Immich and zot
-  (no Keycloak integration today — this adds it); and the Kubernetes API server itself, closing
-  the gap `docs/backlog.md` tracks as deferred, via `apiServer.extraArgs`
+- **Deployed scope:** Grafana, Paperless, Immich, zot, Argo Workflows, Hubble UI and
+  KubeOpenCode use the shared Keycloak groups through their native OIDC support or the Gateway.
+  The Kubernetes API server trusts the same realm via `apiServer.extraArgs`
   (`oidc-issuer-url`/`oidc-client-id`/`oidc-groups-claim`) in
-  `cluster/overlays/1-node/talos-machineconfigs/controlplane.yaml`. Cert-based `kubectl` admin
-  access is left untouched throughout as the break-glass path, and this piece lands last,
-  after every other surface is proven, given it is the only one that touches the control
-  plane of a single, non-HA node.
+  each profile's Talos machine configuration. `platform-admin` maps to `cluster-admin`, `viewer`
+  maps to the built-in cluster-wide `view` role, and `app-operator` receives `edit` only through
+  namespace RoleBindings. The public `kubernetes` client requires PKCE S256 and accepts only
+  loopback redirects. Cert-based `kubectl` admin access remains the break-glass path.
+- **Contract checks:** `scripts/check-platform-contracts.py` renders every profile in CI and
+  verifies the API-server OIDC flags, group prefixes, scoped bindings, loopback redirects and
+  PKCE requirement together.
 
 ## Consequences
 
@@ -108,6 +108,5 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
 - The max-depth-1 rule only holds if something enforces it — hence the OPA guardrail above;
   without it, this degrades into exactly the deep-inheritance problem it replaces the first
   time someone nests a subgroup under a subgroup for convenience.
-- Widens blast radius short-term: four services go from "no RBAC" or "binary admin gate" to
-  a real permission model in one initiative, and one stage touches the only control-plane
-  node's `kube-apiserver` flags directly.
+- OIDC adds the realm to the API server's authentication path. Certificate authentication is
+  retained independently so a Keycloak outage does not remove emergency administration.

@@ -30,14 +30,14 @@ replace the current one with it.
 | Concern | Choice |
 | --- | --- |
 | Policy | A ConfigMap of plain tables in `backup-system`, as in ADR-011. No CRD. |
-| Execution | **Argo Workflows**, with a namespaced controller that manages `backup-system` and nothing else. Each adapter is a WorkflowTemplate. Each recovery point is one DAG: backup, plausibility, integrity, restore test, VALIDATED. Promotion is a separate workflow. |
+| Execution | **Argo Workflows v4**, through a pinned Helm chart, with a namespaced controller that manages `backup-system` and nothing else. Each adapter is a WorkflowTemplate. Each recovery point is one DAG: backup, plausibility, integrity, restore test, VALIDATED. Promotion is a separate workflow. CI derives its strict validation schemas from the pinned chart's application release. |
 | Photo library, documents | **restic**, file-level, read from a Longhorn **snapshot clone** mounted in `backup-system`. That gives a crash-consistent point in time without touching the application's namespace. |
 | Paperless' SQLite | The same clone. SQLite's online backup API runs on the clone, and restic stores the consistent copy. |
 | PostgreSQL | **CNPG barman-cloud plugin**: continuous WAL archiving and base backups to the local object store. Each recovery point stages its base backup, with the WAL that makes it consistent, into restic, so PostgreSQL is validated, promoted and retained like every other dataset. Its restore test recovers a scratch cluster from that restic copy. Immich's database moved onto a CNPG cluster using the vectorchord image. |
 | Recovery Point | A JSON record per point, stored in the repository bucket next to the data it describes and promoted with it, so it survives the loss of the cluster. It carries the point's state (VALIDATED, or FAILED if any dataset failed), each dataset's state and restic snapshot, and the remote state: PROMOTION_PENDING, then REMOTE_VERIFIED, or NOT_PROMOTED if local retention removed the data first. Each validated dataset leaves an evidence object beside it. Metrics are derived from the record. |
 | Local repository | SeaweedFS bucket `recovery`. |
 | AWS repository | A **new** versioned Object-Lock bucket with two identities. The *promoter* may put, get and list, and delete only restic's own lock files. *Retention* may delete, which on a versioned bucket creates delete markers only. Anything else the bucket policy denies to everyone except `backup_admin`, root, and any other principal while using an MFA session (`aws:MultiFactorAuthPresent`) -- a long-lived key alone can never do it, regardless of what its own identity policy grants (code review, PR #632). |
-| Retention | Local 7 daily / 3 weekly / 3 monthly, AWS 1 weekly / 3 monthly, applied per repository by `restic forget` behind a verification gate and a dry-run cap. Each barman archive keeps a 7-day point-in-time window; a database's longer history is its base backups in restic. |
+| Retention | Local 7 daily / 3 weekly / 3 monthly, AWS 1 weekly / 3 monthly, applied per repository by `restic forget` behind a verification gate. A full-plan ceiling rejects anomalous thinning; a valid backlog converges in bounded, oldest-first batches with a separate data-loss guard. Record cleanup treats an already-absent object as a successful retry while surfacing every other remote error. Each barman archive keeps a 7-day point-in-time window; a database's longer history is its base backups in restic. |
 | Credentials | Every AWS credential lives in `backup-system`, and so does the local store's credential for file and SQLite data. **The exception is PostgreSQL:** the barman-cloud plugin reads its object-store credential from the database's own namespace, so each namespace with a CNPG cluster holds the local store's credential. It never holds an AWS one; only promotion, in `backup-system`, reaches AWS. |
 | Velero | Removed at the cutover (#617). GitOps recreates cluster state. |
 | Reconciler | The smallest one, built from Argo itself: an hourly CronWorkflow that submits the recovery point or promotion a missed guarantee needs (phase 11, below). Ordered catch-up after an outage needs nothing more: each run is one DAG. |
@@ -93,11 +93,11 @@ dump job. No application namespace ever holds an AWS credential.
 | 5. PostgreSQL | barman-cloud plugin; Immich onto CNPG | Done: archiving for Keycloak and the filer (#600), PostgreSQL datasets in the recovery system (#601), Immich's CNPG cluster (#603) and the switch to it (#604) |
 | 7. Restore tests | restic restore with checksums; CNPG recovery clusters with the restore checks | Done: files and SQLite (#591); PostgreSQL through a scratch cluster recovered from the restic copy (#601) |
 | 8. AWS | New bucket and identities (Terraform), promotion and remote verification | Done: vault (#592), promotion and remote verification (#596), guarantee alerts (#597) |
-| Retention | `restic forget` per repository; AWS only behind a verification gate and a dry-run cap | Done (#599) |
+| Retention | `restic forget` per repository; verification gate, bounded oldest-first convergence and idempotent record cleanup | Done (#599, #717, #718) |
 | 9. Argo | Namespaced controller | Done (#588) |
 | 10. End-to-end | Including power loss and partial promotion | Done: [recovery-system-tests.md](../recovery-system-tests.md). Five gaps found and fixed: interrupted steps were not retried, a dead restic process's lock blocked the repository, the kubectl steps ran out of memory (#610), steps that create objects could not run twice, and the exit handler left base-backup requests behind. Drift detection on the recovery path's releases followed (F5, below); the vault data check is deferred to the backlog, and its retention alert was built (F3, below) |
 | 11. Reconciler | Decided after phase 10 | Decided: the smallest reconciler, an hourly CronWorkflow (below; #612) |
-| Cutover | Old pipeline, relay, reconciler and Velero removed | Done 2026-09-13 (#617); the old AWS buckets are marked for deletion (#620). The old Immich database release, first kept as rollback, was removed earlier (#606) |
+| Cutover | Old pipeline, relay, reconciler and Velero removed | Done 2026-09-13 (#617); legacy bucket resources and their KMS key were retired from Terraform on 2026-09-21 (#716). The old Immich database release, first kept as rollback, was removed earlier (#606) |
 
 ## Phase 11: the reconciler decision
 
@@ -183,14 +183,15 @@ The recovery system has been the only backup system since #617:
   system's Workflows: every application needs a point under 26 hours old that passed its restore
   test and has a verified copy in AWS. Verified live before the merge: it passed for all four
   applications. The gate's account can read Workflows and cannot create them.
-- **AWS (#620):** the four identities that wrote to the old buckets are removed, and lifecycle
-  rules empty the three buckets. The ADR-005 vault keeps each version under Object Lock until its
-  21-day retention ends, so it is empty shortly after 2026-10-04. The buckets, their KMS key and
-  the rest of the old vault's Terraform are removed after that (docs/backlog.md).
+- **AWS (#620, #716):** the four identities that wrote to the old buckets were removed first.
+  After their data was gone, the legacy bucket resources were removed from Terraform and the
+  unused KMS key was scheduled for deletion. Terraform now owns only the active recovery vault
+  and the retained ADR-005 backup vault.
 
 **One behaviour changed on purpose.** Longhorn's recurring jobs backed up every new volume by
-default. Now a volume is protected only once it is a dataset in the recovery policy, and nothing
-yet reports one that is not (docs/backlog.md).
+default. Now a volume is protected only once it is a dataset in the recovery policy. CI renders
+both deployment profiles and rejects every declared Longhorn PVC that is neither a dataset nor an
+explicitly justified `excluded-volumes` entry; it also rejects stale and contradictory entries.
 
 ## Open
 
