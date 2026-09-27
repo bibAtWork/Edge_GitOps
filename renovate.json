@@ -93,17 +93,6 @@
     },
     {
       "customType": "regex",
-      "description": "kubeopencode's three per-role agent images (agentImage, executorImage, attachImage) -- not `image:` keys, so the built-in kubernetes manager never reads them, and they have had zero Renovate coverage. Low priority: kubeopencode is currently parked (27-kubeopencode/config/kustomization.yaml -- the controller cannot run against this cluster's controller-runtime version), so nothing is actually deployed to bump, but tracking costs nothing and stops the pins drifting further behind the chart while it's blocked. Already covered by the existing kubeopencode packageRule below: its /^ghcr[.]io/kubeopencode// pattern matches all three depNames, so no new grouping rule is needed, only extraction.",
-      "managerFilePatterns": [
-        "/cluster/base/infrastructure/27-kubeopencode/config/agent\\.yaml$/"
-      ],
-      "matchStrings": [
-        "(?:agentImage|executorImage|attachImage):\\s*(?<depName>ghcr\\.io/kubeopencode/[a-z-]+):(?<currentValue>v[\\d.]+)"
-      ],
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
       "description": "cilium-cli image used by the Talos cilium-install inlineManifest, which installs the CNI at first boot before Flux exists. This was cilium-cli-ci:latest -- an unpinned rolling CI build -- until it went distroless and broke bootstrap outright: the Job's shell form could no longer start. Pinning it is what stops the bootstrap path drifting under us again. Same file as the installer tag above and the same caveat: applied by hand via talosctl, outside Kustomize and Flux.",
       "managerFilePatterns": [
         "/cluster/overlays/.+/talos-machineconfigs/controlplane\\.yaml$/"
@@ -148,18 +137,6 @@
       ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "immich-app/immich"
-    },
-    {
-      "customType": "regex",
-      "description": "kubernetes-mcp-server's app image, values.image.version -- a non-standard field name (version, not tag), with no repository present either. The file's own 2026-08-14 security-review comment claims 'Renovate's docker datasource will now track and PR version bumps the same as every other pinned image in this repo' -- checked against the actual renovate.json on the same audit that found the immich gap above (2026-09-19): that claim was never true, nothing referenced this chart or field. Not grouped with the kubeopencode packageRule: quay.io/containers/kubernetes_mcp_server is an unrelated upstream project that happens to share this local namespace, not a kubeopencode release.",
-      "managerFilePatterns": [
-        "/cluster/base/infrastructure/27-kubeopencode/mcp-server-helmrelease\\.yaml$/"
-      ],
-      "matchStrings": [
-        "image:\\s*\\n\\s*version:\\s*(?<currentValue>v[\\d.]+)"
-      ],
-      "datasourceTemplate": "docker",
-      "depNameTemplate": "quay.io/containers/kubernetes_mcp_server"
     },
     {
       "customType": "regex",
@@ -359,15 +336,6 @@
         "/^(docker[.]io/)?tailscale//"
       ],
       "groupName": "tailscale",
-      "automerge": false
-    },
-    {
-      "description": "kubeopencode's controller and server are two roles of one binary, pinned twice from the same repository. Grouped so a bump cannot land on one and not the other.",
-      "matchPackageNames": [
-        "kubeopencode",
-        "/^ghcr[.]io/kubeopencode//"
-      ],
-      "groupName": "kubeopencode",
       "automerge": false
     },
     {
