@@ -47,14 +47,15 @@ It also exposed gaps that were real:
 **Adopt the proposal's model on the mechanisms already here, and build nothing the cluster
 already has.**
 
-1. **The policy is one ConfigMap,** [`34-backup/backup-policy.yaml`](../../cluster/base/infrastructure/34-backup/backup-policy.yaml):
+1. **The policy was one ConfigMap,** `34-backup/backup-policy.yaml` (removed at the ADR-012 cutover):
    protection profiles, applications with a criticality, the datasets that hold each
    application's state, the queries that prove a restored dump, and what is deliberately not
    backed up. The profiles are the proposal's, unchanged: RPO 24h; RTO 4h (critical) or 8h
    (important); a restore test at least weekly or monthly; offsite required; local retention
    7 daily / 3 weekly / 3 monthly; vault 1 weekly / 3 monthly.
 
-2. **A build check binds the policy to the mechanisms.** [`scripts/check-backup-policy.py`](../../scripts/check-backup-policy.py),
+2. **A build check bound the policy to the mechanisms.** `scripts/check-backup-policy.py`
+   (removed at the ADR-012 cutover),
    run by `gitops-lint`, fails when a producer runs less often than its dataset's RPO, writes
    somewhere other than where the dataset says, a retain count falls below a profile's
    minimum, or a database dataset has no restore check. The proposal's first invariant — every
@@ -161,23 +162,22 @@ Longhorn test runs within a time budget and reports volumes it could not reach i
 dropping them. The daily tier adds each day's changed blocks to the relay. The policy is a
 plain-text table parsed by shell, which is less expressive than a CRD, on purpose.
 
-## Open
+## Resolution after supersession
 
 - **The monthly tier held no backup on 2026-09-12,** although its 2026-09-01 run completed. Its
   logs have aged out and no backup older than 2026-09-04 survives on any volume. The next data
-  point is 2026-10-01. The RPO alerts do not measure tier depth.
-- **RTO has no evidence yet.** It stays an acceptance criterion until a timed restore drill
-  exists.
-- **Stale etcd snapshots** sit in a bucket nothing writes to or relays. Under this policy
-  etcd is reconstructable; they should be classified and removed.
-- **Catch-up after an outage is unordered.** When the node comes back, the CronJob controller
-  starts every missed job at once. A restore test can run before that day's dumps exist and
+  point was 2026-10-01. ADR-012 replaced this retention mechanism with restic schedules.
+- **RTO had no evidence yet.** ADR-012 added timed application restore drills and persists their
+  RPO/RTO samples in VictoriaMetrics. A complete cluster-loss rebuild still has no measured RTO.
+- **Stale etcd snapshots** were removed with the legacy backup buckets. ADR-012 continues to
+  classify etcd as reconstructable from Git and Talos configuration.
+- **Catch-up after an outage was unordered.** When the node came back, the CronJob controller
+  started every missed job at once. A restore test could run before that day's dumps existed and
   validate the previous day's points, and a Longhorn backup that fires before workloads have
-  attached their volumes skips them, because Longhorn does not back up a detached volume. The
-  next scheduled night repairs both, so the cost is up to a day of BackupRecoveryPointOverdue
-  after an outage. Closing it needs ordering the CronJob controller cannot express: the
-  proposal's own trigger for building the smallest possible reconciler, or a workflow engine.
-  A wait on host uptime in each stage would fix the first half and not the second.
+  attached their volumes skipped them, because Longhorn does not back up a detached volume. The
+  next scheduled night repaired both, so the cost was up to a day of BackupRecoveryPointOverdue
+  after an outage. ADR-012 closed this with one ordered Argo DAG per recovery point and an hourly
+  CronWorkflow that submits work only when a guarantee is missed.
 
 ## Implementation
 

@@ -47,6 +47,7 @@ The phase's own list, where the matrix does not already cover it:
 | --- | --- | --- | --- |
 | Corrupt backup | Paperless' database read from a scratch volume holding a SQLite file with torn pages (E6a) | the consistent copy refused it: `paperless-db` FAILED while `paperless-media` VALIDATED, the point FAILED and never promoted | pass |
 | Expired retention | the production local retention, dry run then for real (E9b, E9c) | 21 snapshots forgotten, repository pruned and checked; datasets whose snapshot went are EXPIRED in their record, the rest of the point still restorable; records with nothing left locally removed with their evidence, their AWS copies untouched | pass |
+| Retention backlog convergence | the production local repository after recovery testing had accumulated 20 removable Immich-media and 19 removable Paperless-media snapshots (2026-09-21) | the first run removed an oldest-first batch of 12 from each media dataset plus three expired database snapshots, then exposed a record-cleanup retry bug when an old JSON record was already absent; #718 made only that missing-object result idempotent and preserved every other remote failure. The stored removal output repaired the affected records, a second run removed the remaining 8 and 7 media snapshots, and the final dry run kept 9 snapshots for each of all six datasets with 0 proposed removals | pass |
 | Guarantee alerting | the FAILED points above | `recovery_point_validated` went to 0 for exactly the failed applications; RecoveryPointFailed fired at its next evaluation | pass |
 
 ## Findings

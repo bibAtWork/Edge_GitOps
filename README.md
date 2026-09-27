@@ -25,7 +25,7 @@ profile still has single-instance databases; it does not guarantee end-to-end av
 - **Backup**: the recovery system ([ADR-012](./docs/adr/0012-recovery-system.md)): restore-tested recovery points in restic, from Longhorn snapshot clones and CloudNativePG base backups, promoted to an Object-Lock AWS vault and orchestrated by Argo Workflows
 - **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with a Trivy/Renovate bridge that reports images carrying critical CVEs
 - **Ingress**: Envoy Gateway (Gateway API), fronting every application ([ADR-001](./docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md))
-- **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)), enforced at the Gateway: Envoy performs the OIDC flow, and OPA authorizes the resulting request via `ext_authz` ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md))
+- **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)). Applications use native OIDC or Envoy plus OPA `ext_authz` ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md)); the Kubernetes API also trusts the realm and maps prefixed groups to scoped RBAC
 - **Databases**: CloudNativePG operator (Keycloak, Immich, SeaweedFS filer metadata), with WAL archiving by the barman-cloud plugin
 - **Policy & runtime security**: Kyverno (admission policy) and OPA (request authorization) split by layer rather than by function ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md)), Falco (runtime detection), Kubescape (NSA/MITRE posture scanning)
 - **VPN**: Tailscale Kubernetes Operator
@@ -280,6 +280,11 @@ Default deny-all ingress/egress with explicit allow rules:
 - **Internet egress: TCP/443** — this L4 policy does not verify TLS or restrict destinations
 
 ## Automated Patching
+
+Pull requests render all four cluster overlays and validate them in strict mode with
+kubeconform. Argo Workflow schemas are generated from the application release belonging to the
+repository's pinned `argo-workflows` chart, so CI checks the same CRD version Helm installs rather
+than a separately maintained schema catalog.
 
 ### Normal updates (all dependencies)
 

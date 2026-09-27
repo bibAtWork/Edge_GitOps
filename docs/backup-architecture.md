@@ -77,6 +77,9 @@ flowchart LR
   - dry-run caps: it refuses an anomalously large full plan, then limits a valid
     backlog to an oldest-first batch per dataset and bounds that batch's data loss.
 
+  Recovery-record cleanup is retry-safe: an object already removed by an earlier attempt counts
+  as complete, while authentication, transport and other remote errors still fail the workflow.
+
   AWS deletes are delete markers under Object Lock.
 
 ## Schedule

@@ -176,8 +176,10 @@ controller with dead watches looks healthy in every way a probe can see. After a
 restart, `kubectl get events -A --sort-by=.lastTimestamp | tail -40` is a cheap smell test.
 
 **Untested SSO paths.** The move to declarative Keycloak clients was verified for config
-drift and for the Hubble, KubeOpenCode and zot logins. Grafana, Paperless, Immich and the
-`kubernetes` client (kubectl OIDC) have not been signed into since. Grafana is the one to
+drift and for the Hubble, KubeOpenCode and zot login paths. The Kubernetes API's live
+authenticator flags, RBAC and PKCE client setting were verified independently, but an end-to-end
+CLI login has not been repeated since the client moved. Grafana, Paperless and Immich have not
+been signed into since. Grafana is the one to
 check first: `role_attribute_strict: true` with no Viewer fallback means a broken `groups`
 claim locks everyone out rather than degrading gracefully.
 
