@@ -48,7 +48,6 @@ flowchart TB
             zot["zot/zot"]
             keycloak["keycloak/keycloak"]
             hubble["kube-system/hubble-ui\n(admin_only_apps)"]
-            koc["kubeopencode-system/kubeopencode-server\n(admin_only_apps)"]
         end
     end
 
@@ -61,7 +60,6 @@ flowchart TB
     opa -.->|"allow / deny + body"| secpol
     proxy -->|"HTTPRoute match on Host header"| grafana & immich & paperless & zot & keycloak
     proxy -->|"OPA denies unless admin"| hubble
-    proxy -->|"OPA denies unless admin"| koc
     gw -.->|"configures"| proxy
 
     style vip fill:#2d5016,color:#fff
@@ -121,20 +119,20 @@ sequenceDiagram
     end
 ```
 
-OPA is consulted on **every** request through the Gateway, not just the two
-`admin_only_apps` (Hubble UI, KubeOpenCode) — Grafana, Paperless, and Immich also pass
+OPA is consulted on **every** request through the Gateway, not just
+`admin_only_apps` (Hubble UI) — Grafana, Paperless, and Immich also pass
 through `ext_authz` and are allowed by policy, relying on their own native OIDC clients
 for the actual login. OPA's decision log is the ground truth for "is this actually
 enforced" — confirmed live 2026-08-16 by reading `"result":{"allowed":...}` per app,
 not by HTTP status code alone, since a generic Cilium network block and an OPA JSON
 `403` are otherwise indistinguishable from `curl` output.
 
-Hubble UI and KubeOpenCode use route-scoped Envoy Gateway `SecurityPolicy.oidc`
-policies for per-user Keycloak login. Each policy forwards the access token to the
-same fail-closed OPA `extAuth` check, where `admin_only_apps` evaluates the token's
-email and group claims. The shared `homelab-edge` confidential client uses PKCE and
-route-specific callback URLs. Both policies were Accepted and their unauthenticated
-redirects were verified live on 2026-09-20.
+Hubble UI uses a route-scoped Envoy Gateway `SecurityPolicy.oidc` for per-user
+Keycloak login. It forwards the access token to the same fail-closed OPA
+`extAuth` check, where `admin_only_apps` evaluates the token's email and group
+claims. The shared `homelab-edge` confidential client uses PKCE and a
+route-specific callback URL. The policy and its unauthenticated redirect were
+verified live on 2026-09-20.
 
 ## 3. East-West microsegmentation model
 

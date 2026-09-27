@@ -300,30 +300,6 @@ metadata:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: allow-intra-namespace-ingress
-  namespace: kubeopencode-system
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-kubeopencode-egress
-  namespace: kubeopencode-system
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-kubeopencode-to-mcp-server
-  namespace: kubeopencode-system
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-mcp-server-egress
-  namespace: kubeopencode-system
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
   name: kubescape-scan-egress
   namespace: kubescape
 ---

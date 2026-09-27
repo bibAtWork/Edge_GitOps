@@ -79,8 +79,8 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   every PR touching it, and on a schedule against Keycloak's live group tree, since the realm
   is managed by an idempotent setup Job rather than continuously Flux-reconciled the way the
   rest of the cluster is — a manual console change would otherwise go uncaught indefinitely.
-- **Deployed scope:** Grafana, Paperless, Immich, zot, Argo Workflows, Hubble UI and
-  KubeOpenCode use the shared Keycloak groups through their native OIDC support or the Gateway.
+- **Deployed scope:** Grafana, Paperless, Immich, zot, Argo Workflows and Hubble UI use the
+  shared Keycloak groups through their native OIDC support or the Gateway.
   The Kubernetes API server trusts the same realm via `apiServer.extraArgs`
   (`oidc-issuer-url`/`oidc-client-id`/`oidc-groups-claim`) in
   each profile's Talos machine configuration. `platform-admin` maps to `cluster-admin`, `viewer`

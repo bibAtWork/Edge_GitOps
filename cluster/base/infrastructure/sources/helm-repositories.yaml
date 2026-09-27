@@ -147,26 +147,6 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
-  name: kubeopencode
-  namespace: flux-system
-spec:
-  interval: 12h
-  type: oci
-  url: oci://ghcr.io/kubeopencode/helm-charts
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: kubernetes-mcp-server
-  namespace: flux-system
-spec:
-  interval: 12h
-  type: oci
-  url: oci://ghcr.io/containers/charts
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
   name: envoy-gateway
   namespace: flux-system
 spec:

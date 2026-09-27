@@ -96,7 +96,7 @@ spec:
 ---
 # Allow Envoy Gateway's data-plane pod to reach Keycloak directly for OIDC
 # discovery, token exchange, and JWKS (SecurityPolicy.oidc, added 2026-08-16
-# for hubble-ui and kubeopencode).
+# for hubble-ui).
 #
 # Deliberately scoped to the whole envoy-gateway-system namespace rather than
 # one rule per app, unlike allow-opa-ingress/allow-paperless-ingress above:

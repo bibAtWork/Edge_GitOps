@@ -267,7 +267,7 @@ clients:
     # "oauth flow failed" after the redirect_uri check had already passed.
     #
     # `groups` is not cosmetic here. It carries the group-membership claim that
-    # OPA reads for the admin-only gate on Hubble and KubeOpenCode; without it
+    # OPA reads for the admin-only gate on Hubble; without it
     # a successful login would still be an unauthorised one.
     #
     # The builtin sets below are copied from the live hubble client, which is

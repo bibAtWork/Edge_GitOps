@@ -30,8 +30,9 @@ The first seven-day measurement established:
 | Memory | 13.85 GiB | 16.22 GiB | 50.89 GiB | Keep requests; aggregate margin is only about 17%. |
 
 The largest CPU request-to-p95 ratios were in `cattle-system`, `security`,
-`kubeopencode-system`, `local-path-storage`, and `cert-manager`. These are
-candidates for individual observation, not approval for a blanket reduction.
+`kubeopencode-system` (retired 2026-09-27), `local-path-storage`, and
+`cert-manager`. The remaining namespaces are candidates for individual
+observation, not approval for a blanket reduction.
 Several namespaces already use more memory than they request, so cluster-wide
 memory request reduction is explicitly rejected by this baseline.
 

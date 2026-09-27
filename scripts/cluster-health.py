@@ -666,7 +666,6 @@ APP_IMAGE_PATHS: Dict[str, List[str]] = {
     # Operator and proxy ship together.
     "tailscale-operator": ["operatorConfig.image.tag", "proxyConfig.image.tag"],
     # Two roles of one binary.
-    "kubeopencode": ["controller.image.tag", "server.image.tag"],
     # falcoctl and k8s-metacollector are separate projects; only falco tracks
     # the chart.
     "falco": ["image.tag"],
