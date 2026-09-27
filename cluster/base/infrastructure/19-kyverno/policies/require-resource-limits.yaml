@@ -1,42 +1,44 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: require-resource-limits
   annotations:
     policies.kyverno.io/title: Require Resource Limits
     policies.kyverno.io/category: Best Practices
     policies.kyverno.io/severity: medium
-    policies.kyverno.io/description: >-
-      All containers must specify memory limits to prevent any single workload
-      from exhausting node memory and triggering OOM kills on other pods.
-      CPU limits are optional since CPU throttling is preferable to OOM kills.
+    policies.kyverno.io/description: All containers must specify memory limits to
+      prevent any single workload from exhausting node memory and triggering OOM kills
+      on other pods. CPU limits are optional since CPU throttling is preferable to
+      OOM kills.
 spec:
-  validationFailureAction: Audit
-  background: true
-  rules:
-    - name: check-memory-limits
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaceSelector:
-                matchExpressions:
-                  - key: kubernetes.io/metadata.name
-                    operator: NotIn
-                    values:
-                      - kube-system
-                      - flux-system
-                      - kyverno
-      validate:
-        message: "All containers must specify resources.limits.memory."
-        pattern:
-          spec:
-            containers:
-              - resources:
-                  limits:
-                    memory: "?*"
-            =(initContainers):
-              - resources:
-                  limits:
-                    memory: "?*"
+  validationActions:
+  - Audit
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - flux-system
+        - kyverno
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - pods
+  variables:
+  - name: containers
+    expression: object.spec.containers + object.spec.?initContainers.orValue([])
+  validations:
+  - message: All containers must specify resources.limits.memory.
+    expression: variables.containers.all(c, has(c.resources) && has(c.resources.limits)
+      && has(c.resources.limits.memory))
