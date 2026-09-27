@@ -16,7 +16,5 @@ resources:
   # paperless-ngx: HTTPRoute (gateway.networking.k8s.io)
   # kyverno: ClusterPolicy (kyverno.io) — needs Kyverno CRDs from 19-kyverno HelmRelease
   # keycloak: HTTPRoute (gateway.networking.k8s.io) for OIDC endpoint
-  # kubeopencode: HTTPRoute (gateway.networking.k8s.io) + Agent (kubeopencode.io CRD
-  # installed by the bootstrap-layer HelmRelease)
   # Cilium LB IPAM: assigns a dedicated LAN IP to the gateway + announces it via ARP
   - lb-ipam.yaml

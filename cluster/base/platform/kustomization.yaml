@@ -25,7 +25,6 @@ resources:
   - ../infrastructure/21-flux-notifications
   - ../infrastructure/26-keycloak
   - ../infrastructure/24-opa
-  - ../infrastructure/27-kubeopencode
   - ../infrastructure/28-envoy-gateway/operator
   - ../infrastructure/29-metrics-server
   - ../infrastructure/30-trivy-renovate-bridge

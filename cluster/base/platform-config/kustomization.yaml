@@ -12,7 +12,6 @@ resources:
   - ../infrastructure/15-system-upgrade-controller/config
   - ../infrastructure/19-kyverno/config
   - ../infrastructure/26-keycloak/config
-  - ../infrastructure/27-kubeopencode/config
   - ../infrastructure/37-backup-system/config
   - ../infrastructure/01-seaweedfs/deferred
   - ../infrastructure/02-victoriametrics-stack/deferred
@@ -22,7 +21,6 @@ resources:
   - ../infrastructure/20-kubescape/deferred
   - ../infrastructure/26-keycloak/deferred
   - ../infrastructure/24-opa/deferred
-  - ../infrastructure/27-kubeopencode/deferred
   - ../infrastructure/28-envoy-gateway/operator/deferred
   - ../infrastructure/32-longhorn/deferred
   - ../infrastructure/33-cloudnative-pg/deferred
