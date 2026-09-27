@@ -57,8 +57,9 @@ listed because they are what the decision was *for*, not as a status report.
 - **Observability of the Envoy fleet**, via scrape configs for both the control
   and data plane plus the upstream envoy-mixin dashboards. Hubble covers the L4
   data plane; this is the L7 view it cannot give.
-- **Edge OIDC**, via `SecurityPolicy.oidc` against Keycloak for Hubble UI and
-  KubeOpenCode — real per-user login, replacing OPA's coarse allow/deny.
+- **Edge OIDC**, via `SecurityPolicy.oidc` against Keycloak for Hubble UI and,
+  until its 2026-09-27 retirement, KubeOpenCode — real per-user login,
+  replacing OPA's coarse allow/deny.
 
 Each of these is an object the Gateway API defines and Cilium's embedded Envoy did
 not expose. That is the substance of the decision rather than a footnote to it.

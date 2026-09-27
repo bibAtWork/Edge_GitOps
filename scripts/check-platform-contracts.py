@@ -373,7 +373,7 @@ def check_profile(profile):
     client = ingress["fromEndpoints"][0]
     assert client["matchLabels"]["homelab.local/telemetry-client"] == "true"
     assert {"key": "io.kubernetes.pod.namespace", "operator": "Exists"} in client["matchExpressions"]
-    expected = {"monitoring", "zot", "kube-system", "gateway-system", "immich", "paperless", "keycloak", "kubeopencode-system"}
+    expected = {"monitoring", "zot", "kube-system", "gateway-system", "immich", "paperless", "keycloak"}
     actual = {d["metadata"]["name"] for d in docs if d["kind"] == "Namespace"
               and d["metadata"].get("labels", {}).get("homelab.local/gateway-access") == "true"}
     assert expected <= actual, ("Existing gateway namespace lost capability", expected - actual)

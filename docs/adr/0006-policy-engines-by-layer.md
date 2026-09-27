@@ -100,9 +100,10 @@ flow → allow through*, since those apps handle their own session auth.
 Two structural details that also look like faults and are not:
 
 - The Gateway-level policy `homelab-gateway-authz` reports `Overridden=True` for
-  `keycloak-admin`, `hubble-ui` and `kubeopencode`. That is Envoy Gateway precedence working
-  as designed: a route-level `SecurityPolicy` supersedes a Gateway-level one. Two of those
-  three declare their own `extAuth` to the same OPA service.
+  `keycloak-admin` and `hubble-ui` (and previously `kubeopencode`, retired
+  2026-09-27). That is Envoy Gateway precedence working as designed: a
+  route-level `SecurityPolicy` supersedes a Gateway-level one. Hubble declares
+  its own `extAuth` to the same OPA service.
 - An unauthenticated request to `hubble` returns 302 and never reaches OPA. Also correct —
   `oidc` runs before `extAuth`, so the redirect happens first. Testing an admin-only app
   unauthenticated cannot exercise the authorization layer.

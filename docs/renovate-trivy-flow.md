@@ -207,8 +207,8 @@ Reuses `monitoring/telegram-credentials` (already generic, not Grafana-specific)
 than provisioning anything new. Verified live 2026-08-17: a forced run found 10 images
 with active Critical CVEs, all correctly reported as having no open Renovate PR yet.
 
-For images with an explicit `image.tag` override already present in this repo (the Trivy
-scan job image, KubeOpenCode's agent images, mcp-server), Renovate already handles this
+For images with an explicit `image.tag` override already present in this repo (for
+example, the Trivy scan job image), Renovate already handles this
 and a PR already exists whenever one's possible — branch `Y -- yes` covers them. The
 CronJob's `Y -- no` branch is where it stops: it can tell you nothing has landed yet, but
 it has no way to act, and historically nothing downstream of it ever did.
