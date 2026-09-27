@@ -1,75 +1,46 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: restrict-image-registries
   annotations:
     policies.kyverno.io/title: Restrict Image Registries
     policies.kyverno.io/category: Supply Chain Security
     policies.kyverno.io/severity: high
-    policies.kyverno.io/description: >-
-      Images must be pulled from approved registries. This prevents workloads
-      from pulling images from untrusted sources that could introduce malware
-      or bypass the Trivy vulnerability scanning pipeline in Zot.
+    policies.kyverno.io/description: Images must be pulled from approved registries.
+      This prevents workloads from pulling images from untrusted sources that could
+      introduce malware or bypass the Trivy vulnerability scanning pipeline in Zot.
 spec:
-  # Enforce, promoted from Audit on 2026-09-05.
-  #
-  # The Audit phase did its job and is finished: after correcting the
-  # allowlist (mirror.gcr.io, reg.kyverno.io, eight implicit Docker Hub
-  # organisations) and fully qualifying the images this repo controls, the
-  # rule reports 305 pass and 0 fail. Promoting it therefore changes nothing
-  # that runs today -- it changes what is allowed to start tomorrow, which is
-  # the only thing an admission policy is for.
-  #
-  # Deliberately NOT done for require-resource-limits, which still fails 71
-  # resources. Enforcing that today would block Longhorn and Cilium workloads
-  # that are unbounded on purpose. That one needs PolicyExceptions naming the
-  # known set first, which also makes the baseline visible rather than muted.
-  validationFailureAction: Enforce
-  background: true
-  rules:
-    - name: check-image-registry
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaceSelector:
-                matchExpressions:
-                  - key: kubernetes.io/metadata.name
-                    operator: NotIn
-                    values:
-                      - kube-system
-                      - flux-system
-                      - kyverno
-      validate:
-        message: >-
-          Images must be from an approved registry. Allowed: docker.io, ghcr.io,
-          registry.k8s.io, quay.io, gcr.io, mirror.gcr.io, reg.kyverno.io, a
-          named Docker Hub organisation, or
-          the local Zot registry.
-        # ── Implicit Docker Hub references ──────────────────────────────────
-        # The eight bare organisation globs at the end of each list are all
-        # Docker Hub, which docker.io/* already permits. They are listed
-        # separately because Kyverno matches the image string LITERALLY: an
-        # upstream chart that writes `victoriametrics/vmagent:v1.150.0` never
-        # matches `docker.io/*`, even though that is exactly where it pulls
-        # from. 66 resources were failing this rule for that reason alone.
-        #
-        # `*/*` would cover them in one line and is deliberately NOT used --
-        # it also matches `evil.example.com/anything`, which would turn an
-        # allowlist into a pass-through. Kyverno's glob has no way to say
-        # "first segment contains no dot", so naming each organisation is the
-        # only expression that keeps the policy meaning what it says.
-        #
-        # These are upstream chart defaults rather than image references this
-        # repo writes; images this repo does control are fully qualified
-        # (docker.io/library/...). Pinning each chart's image to an explicit
-        # registry through its values would be stricter still, and is the
-        # right follow-up -- it is a change across eight HelmReleases with
-        # eight different value paths, so it is not bundled into this fix.
-        pattern:
-          spec:
-            containers:
-              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | mirror.gcr.io/* | reg.kyverno.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/* | amazon/* | chrislusf/* | openpolicyagent/* | otel/* | rancher/* | tailscale/* | victoriametrics/*"
-            =(initContainers):
-              - image: "docker.io/* | ghcr.io/* | registry.k8s.io/* | quay.io/* | gcr.io/* | mirror.gcr.io/* | reg.kyverno.io/* | zot.zot.svc* | *.azurecr.io/* | public.ecr.aws/* | amazon/* | chrislusf/* | openpolicyagent/* | otel/* | rancher/* | tailscale/* | victoriametrics/*"
+  validationActions:
+  - Deny
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - flux-system
+        - kyverno
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - pods
+  variables:
+  - name: containers
+    expression: object.spec.containers + object.spec.?initContainers.orValue([])
+  validations:
+  - message: Pod images must come from an approved registry.
+    expression: "variables.containers.all(c,\n      ['docker.io/', 'ghcr.io/', 'registry.k8s.io/',\
+      \ 'quay.io/',\n       'gcr.io/', 'mirror.gcr.io/', 'reg.kyverno.io/', 'zot.zot.svc',\n\
+      \       'public.ecr.aws/', 'amazon/', 'chrislusf/', 'openpolicyagent/',\n  \
+      \     'otel/', 'rancher/', 'tailscale/', 'victoriametrics/'].exists(p,\n   \
+      \      c.image.startsWith(p)) ||\n      c.image.split('/')[0].endsWith('.azurecr.io'))"
