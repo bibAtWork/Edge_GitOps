@@ -23,9 +23,6 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       namespace: kube-system
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
-      namespace: kubeopencode-system
     # Envoy Gateway's SecurityPolicy carries the same cross-namespace backendRef
     # to this Service, and is subject to the same ReferenceGrant requirement —
     # without an entry for its namespace it reconciles as
@@ -44,9 +41,6 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: kube-system
-    - group: gateway.envoyproxy.io
-      kind: SecurityPolicy
-      namespace: kubeopencode-system
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: platform-canary
