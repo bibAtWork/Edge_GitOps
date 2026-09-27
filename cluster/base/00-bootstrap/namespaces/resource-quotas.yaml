@@ -71,49 +71,24 @@ spec:
     limits.memory: 1Gi
     pods: "5"
 ---
-# Efficiency review 2026-08-17: briefly widened to 4Gi/2Gi/2cpu/15pods here to
-# work around scan Jobs getting rejected by this quota. That was treating a
-# symptom -- the actual cause was operator.scanJobConcurrentLimit being
-# misspelled (real key: scanJobsConcurrentLimit), so trivy-operator ran on the
-# chart's default of 10 concurrent scan Jobs instead of the intended 1. Fixed
-# properly in 13-trivy-operator/helmrelease.yaml and
-# 1-node/patches/trivy-concurrency-1.yaml, and verified live: with concurrency
-# genuinely capped at 1, polling every 8s for 2 minutes under the same
-# artificial burst that originally broke this quota never showed more than 1
-# concurrent scan pod.
-#
-# Sized down from #160's 4Gi/2Gi/2cpu/15pods once the real cause (above) was
-# fixed. scanJobsConcurrentLimit: 1 is enforced per scanner type (verified
-# live), not globally, so vulnerabilityScanner/configAuditScanner/
-# rbacAssessmentScanner can each have one Job in flight at once -- up to ~3
-# concurrent, not a strict 1. At this 2Gi cap that occasionally produced
-# rejections under a forced burst deliberately larger than anything
-# realistic -- harmless (the operator's reconcile loop retried them and they
-# succeeded once earlier Jobs freed memory, zero app impact), and accepted as
-# the tradeoff: prioritizing a tight, easy-to-reason-about quota over paying
-# for headroom against a burst this large.
+# scanJobsConcurrentLimit: 1 limits vulnerability scan Jobs, not the number of
+# containers in one Job. Trivy packs every container of a workload into one
+# scan pod, giving each scanner the 1Gi limit in 13-trivy-operator/helmrelease.yaml.
+# The live three-container Longhorn CSI workload therefore needs a 3Gi Job.
+# On 2026-09-27 the old 3Gi namespace cap already held 1536Mi for the operator
+# and server; 2Gi and 3Gi scan Jobs were repeatedly rejected and timed out.
+# 6Gi admits that largest observed Job plus the resident pods and a small
+# concurrent audit Job. It is a quota ceiling, not a memory reservation.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: default-quota
   namespace: trivy-system
-  # Raised 2026-08-25 for the Trivy server added alongside the operator.
-  # At 2Gi the namespace held operator (512Mi) + server (512Mi) and could not
-  # admit a scan pod, which asks for a 1G limit -- scan Jobs sat in FailedCreate
-  # with "exceeded quota" and produced no reports at all. A quota rejection
-  # stops pods being created rather than failing them, so nothing crash-looped
-  # and nothing appeared in the operator log; the only symptom was reports
-  # quietly not being refreshed.
-  #
-  # 3Gi covers operator + server + one scan pod with margin.
-  # scanJobsConcurrentLimit is 2, so two simultaneous scans would still be
-  # refused -- deliberately: refusing the second is better than OOM-killing the
-  # operator, which currently runs at 499Mi against its own 512Mi limit.
 spec:
   hard:
     requests.cpu: "1"
-    requests.memory: 1536Mi
-    limits.memory: 3Gi
+    requests.memory: 2Gi
+    limits.memory: 6Gi
     pods: "12"
 ---
 apiVersion: v1
