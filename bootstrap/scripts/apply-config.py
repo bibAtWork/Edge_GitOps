@@ -63,7 +63,6 @@ APPLY_CONFIG_SECRET_FILES = {
     "cluster/base/infrastructure/26-keycloak/paperless-client-secret.yaml",
     "cluster/base/infrastructure/26-keycloak/recovery-object-store.yaml",
     "cluster/base/infrastructure/26-keycloak/zot-client-secret.yaml",
-    "cluster/base/infrastructure/27-kubeopencode/config/edge-client-secret.yaml",
     "cluster/base/infrastructure/37-backup-system/argo-workflows-sso-secret.yaml",
     "cluster/base/infrastructure/37-backup-system/restic-secret.yaml",
 }
@@ -571,7 +570,6 @@ def main() -> None:
         "base/applications/canary/edge-client-secret.yaml": "platform-canary",
         "base/infrastructure/05-cilium/config/edge-client-secret.yaml": "kube-system",
         "base/infrastructure/26-keycloak/edge-client-secret.yaml": "keycloak",
-        "base/infrastructure/27-kubeopencode/config/edge-client-secret.yaml": "kubeopencode-system",
     }.items():
         generated_secrets[relative] = secret_yaml("keycloak-edge-oidc", namespace, {"client-secret": edge_secret})
     for relative, content in generated_secrets.items():
