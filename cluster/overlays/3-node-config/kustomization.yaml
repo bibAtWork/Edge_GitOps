@@ -14,7 +14,7 @@ resources:
   # system-upgrade: Plans (upgrade.cattle.io)
   # immich: HTTPRoute (gateway.networking.k8s.io)
   # paperless-ngx: HTTPRoute (gateway.networking.k8s.io)
-  # kyverno: ClusterPolicy (kyverno.io) — needs Kyverno CRDs from 19-kyverno HelmRelease
+  # kyverno: CEL ValidatingPolicy, MutatingPolicy and ImageValidatingPolicy CRDs from 19-kyverno
   # keycloak: HTTPRoute (gateway.networking.k8s.io) for OIDC endpoint
   # Cilium LB IPAM: assigns a dedicated LAN IP to the gateway + announces it via ARP
   - lb-ipam.yaml
