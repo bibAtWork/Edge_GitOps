@@ -1,0 +1,12 @@
+# Two six-image scans: 12Gi limits / 3072M requests, plus resident services
+# and rollout headroom. Keep this in step with trivy-concurrency-2.yaml.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: default-quota
+  namespace: trivy-system
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 5Gi
+    limits.memory: 16Gi

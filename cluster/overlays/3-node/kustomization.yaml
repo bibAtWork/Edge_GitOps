@@ -6,6 +6,11 @@ resources:
   - flux-kustomizations/operators-ready.yaml
 
 patches:
+  - path: patches/trivy-quota.yaml
+    target:
+      kind: ResourceQuota
+      name: default-quota
+      namespace: trivy-system
   - path: patches/seaweedfs-ha.yaml
     target:
       group: helm.toolkit.fluxcd.io

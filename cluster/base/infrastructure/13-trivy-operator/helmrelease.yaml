@@ -79,8 +79,10 @@ spec:
       #
       # Raised rather than exempted -- an image too big to scan is exactly
       # the kind this should cover. scanJobsConcurrentLimit is 1 on the
-      # single-node overlay, so this is a 1Gi ceiling for one pod at a time,
-      # not 1Gi per concurrent scan.
+      # single-node overlay. This is a 1Gi ceiling PER SCANNER CONTAINER,
+      # not per Pod: all regular and init images of a workload are scanned in
+      # one Job. Namespace quotas must include that multiplier and resident
+      # services; scripts/ci/trivy_capacity.py checks both rendered profiles.
       resources:
         requests:
           cpu: 100m

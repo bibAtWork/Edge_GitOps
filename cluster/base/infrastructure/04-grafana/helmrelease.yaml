@@ -630,6 +630,70 @@ spec:
                   severity: critical
                 isPaused: false
           - orgId: 1
+            name: Trivy Scan Health
+            folder: Security
+            # Jobs time out and disappear after five minutes. Evaluate before
+            # that, and retain failed/podless evidence for ten minutes so a
+            # deleted Job cannot clear the alert before notification.
+            interval: 1m
+            rules:
+              - uid: trivy-scan-job-unhealthy
+                title: TrivyScanJobUnhealthy
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        max_over_time((max(
+                          (kube_job_status_failed{namespace="trivy-system"} > bool 0)
+                          or
+                          ((time() - kube_job_created{namespace="trivy-system"} > bool 180)
+                            * on(namespace, job_name) (kube_job_status_active{namespace="trivy-system"} == bool 0)
+                            * on(namespace, job_name) (kube_job_status_succeeded{namespace="trivy-system"} == bool 0))
+                        ) or vector(0))[10m:1m])
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1m
+                annotations:
+                  summary: Trivy scan failed or could not start a Pod
+                  description: >-
+                    A scan Job had a failed Pod or remained without an active or
+                    successful Pod for over three minutes in the last ten minutes.
+                    Check Jobs and FailedCreate events in trivy-system, especially
+                    ResourceQuota admission errors. An operator reporting Ready
+                    does not prove image scan coverage.
+                labels:
+                  severity: warning
+                isPaused: false
+          - orgId: 1
             name: Log Security Alerts
             folder: Security
             interval: 5m
