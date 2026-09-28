@@ -26,7 +26,7 @@ name: Trivy auto-patch
 #
 # Confirmed 2026-09-04 on #411 (a Grafana patch for an active Critical CVE, open
 # two days with no checks) and on #173, the previous Grafana CVE patch, which
-# was merged that way. Branch protection here requires six checks that could
+# was merged that way. Branch protection here requires status checks that could
 # never appear, so the one path that changes image tags on security grounds was
 # also the least validated path in the repository.
 #
@@ -55,7 +55,7 @@ jobs:
           AUTOPATCH_TOKEN: ${{ secrets.AUTOPATCH_TOKEN }}
         run: |
           if [ -z "${AUTOPATCH_TOKEN}" ]; then
-            echo "::error::AUTOPATCH_TOKEN is not set. PRs opened with the ambient GITHUB_TOKEN receive no CI at all (GitHub raises no workflow events for that token), and branch protection here requires six checks. Create a fine-grained PAT scoped to this repository with Contents: read/write and Pull requests: read/write, then add it as the AUTOPATCH_TOKEN repository secret."
+            echo "::error::AUTOPATCH_TOKEN is not set. PRs opened with the ambient GITHUB_TOKEN receive no CI at all (GitHub raises no workflow events for that token), and branch protection here requires status checks. Create a fine-grained PAT scoped to this repository with Contents: read/write and Pull requests: read/write, then add it as the AUTOPATCH_TOKEN repository secret."
             exit 1
           fi
           echo "AUTOPATCH_TOKEN present"

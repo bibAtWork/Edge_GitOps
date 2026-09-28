@@ -83,11 +83,10 @@ corrupted artifact over a healthy one. Those are recoverable today.
 rules in `bootstrap/terraform/lifecycle.tf` are the only thing bounding how far back recovery
 is possible. They should be treated as a deliberate RPO statement rather than a cost setting.
 
-**The "0" is not covered by this decision and remains open.** Untested backups are not
-backups. Verifying that an artifact decodes correctly -- which the database dump jobs do --
-is weaker evidence than performing a restore. A periodic restore drill is tracked separately
-in `docs/backlog.md`; it is cheap, it is the more valuable of the two missing digits, and
-declining Object Lock is not a reason to decline it as well.
+**The "0" was not covered by this decision.** Verifying that an artifact decodes correctly
+is weaker evidence than performing a restore. [ADR-012](0012-recovery-system.md) subsequently
+introduced restore validation for each recovery point and scheduled AWS/PITR drills.
+The remaining production-cutover rehearsal is tracked in [the backlog](../backlog.md).
 
 **Revisit if any of the following change:** the cluster starts holding data that is not
 reproducible and not also stored elsewhere; it is exposed to untrusted users or workloads;

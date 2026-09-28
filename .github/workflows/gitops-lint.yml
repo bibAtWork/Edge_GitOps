@@ -7,7 +7,7 @@ on:
   #
   # These jobs validate whole repo state -- they build the overlays and check
   # the result -- so they behave identically no matter which files a PR
-  # touches, and cost under ten seconds.
+  # touches. They must run on every PR so required checks always report.
   #
   # Filtering them on cluster/**/*.yaml made them unusable as required status
   # checks. A required check whose workflow never triggers is not treated as

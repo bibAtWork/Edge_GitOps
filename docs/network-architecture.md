@@ -81,7 +81,7 @@ arrives on the container port — a policy written for 80/443 silently drops eve
 connection with `policy-verdict:none INGRESS DENIED`, indistinguishable from a datapath
 bug until you read the port in the Hubble verdict. This was the actual two-day blocker
 behind the original (and wrong) `cilium#44630` / kube-proxy theories — see
-`docs/backlog.md`.
+[ADR-001](adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md).
 
 **Stop re-approving the Tailscale subnet route by hand.** `tailscaled-subnet-router`
 (`14-tailscale-operator/config/subnet-router-hostnetwork.yaml`) advertises
@@ -293,6 +293,6 @@ than as separate steps:
   socket), not a pod IP — a fundamentally different datapath from Envoy Gateway's, where
   the VIP DNATs directly to a pod.
 
-Full investigation trail, including two earlier (wrong) root-cause theories for the
-LoadBalancer VIP failure that blocked this cutover for two days, is in
-[`docs/backlog.md`](backlog.md).
+The investigation trail, including two earlier (wrong) root-cause theories for the
+LoadBalancer VIP failure, is preserved in
+[the historical backlog](https://github.com/bibAtWork/Edge_GitOps/blob/f39b55856f05ec9193cfb27fe5c3afd00ae6fa79/docs/backlog.md).
