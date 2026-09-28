@@ -90,7 +90,8 @@ It is not adopted here because it is a larger question than backup topology and 
 evaluation: it covers two of the four databases natively, it changes the relay economics from one
 object per hour to a continuous stream of WAL segments, and retention by deletion sits awkwardly
 with a vault that deliberately grants no delete rights ([ADR-003](0003-backup-immutability-versioning-only.md)).
-Recorded in `docs/backlog.md` rather than decided here.
+This was later adopted for the CNPG databases by [ADR-012](0012-recovery-system.md),
+which supersedes this backup mechanism. It is no longer an open backlog evaluation.
 
 **Keep the four upload implementations separate for isolation.** Rejected, and worth naming
 because it is the argument that keeps duplication alive: copies do not buy stability, they buy the

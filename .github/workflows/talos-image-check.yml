@@ -7,7 +7,7 @@ name: Talos image
 # forward bump does rather than applying unconditionally.
 #
 # ── Deliberately NOT a required status check ─────────────────────────────────
-# The "Protect ops/talos_linux" ruleset requires six checks before a merge.
+# The "Protect ops/talos_linux" ruleset lists the checks required before a merge.
 # This one is not among them, and that is a decision rather than an oversight.
 #
 # The image/schematic/kubernetes-release steps below make live calls to

@@ -2,6 +2,7 @@
 
 Run `python3 scripts/ci/kyverno_policy_tests.py` before changing CEL admission
 policies. The **Kyverno CEL policy regressions** PR check runs the same command.
+The check and **Trivy scan capacity** are required by the target branch ruleset.
 It evaluates the actual policy files with the Kyverno CLI release pinned by the
 admission controller's HelmRelease. It requires Python with PyYAML and network
 access to the official release download; no kubeconfig or secrets are needed.

@@ -21,7 +21,7 @@ spec:
       # immich-charts repo has ever published; that repo's own git tags do
       # include a later 0.12.1 (appVersion v3.0.0), but it was tagged and
       # never packaged to the index, so Flux/Renovate can never see it through
-      # this HelmRepository. See docs/backlog.md for the full trail.
+      # this HelmRepository. See git history of docs/backlog.md for the full trail.
       #
       # Pinned to what is actually running, so this commit changes nothing at
       # runtime. Renovate reads this field, so the upgrade becomes a reviewable

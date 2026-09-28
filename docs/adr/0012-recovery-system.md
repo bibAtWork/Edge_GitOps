@@ -202,11 +202,13 @@ That loads every index, confirms that each pack the indexes name exists at its r
 reads every snapshot and tree to confirm that each blob they reference is indexed. It never
 downloads a data blob, so it passes a pack whose bytes are corrupt (E6b). What it proves is that
 the vault is complete and consistent, not that its data is readable. Locally, every point's
-restore test closes that gap. Offsite, nothing does.
+restore test closes that gap. Scheduled AWS restore drills now read selected recovery points,
+but do not check every older vault pack. Local retention additionally reads a rotating daily
+1/7 data subset; AWS retention remains metadata-only.
 
 A weekly, size-bounded data check of the vault was proposed: `restic check
 --read-data-subset=5G` at the end of AWS retention, at most about $2 a month. It is deferred to the
-backlog ("Deferred: read the AWS vault's data back") for three reasons:
+[backlog](../backlog.md#deferred-read-the-aws-vaults-data-back) for three reasons:
 
 - On S3, the damage it would catch -- a pack of the right size with the wrong bytes -- needs a
   software fault. Missing packs, truncated uploads and a wrong password are already caught every

@@ -122,10 +122,10 @@ objects. Restic would add a repository format and a second encryption key to pro
 dataset.
 
 **pgBackRest.** Two of the three PostgreSQL databases are CNPG clusters, whose native equivalent
-is barman-cloud; pgBackRest would sit beside the operator rather than inside it. Continuous
-archiving and point-in-time recovery remain an open evaluation in `docs/backlog.md`. A 24h RPO is
-met by the dumps, and because the policy names the engine per dataset, changing it later changes
-one row.
+is barman-cloud; pgBackRest would sit beside the operator rather than inside it. At this decision,
+continuous archiving and point-in-time recovery were a separate evaluation. They were later
+adopted for the CNPG databases by [ADR-012](0012-recovery-system.md), which supersedes this
+mechanism; they are no longer an open backlog item.
 
 **Removing Velero.** Kept, and classified RECONSTRUCTABLE: it is not a dataset, no guarantee
 depends on it, and its objects are relayed as they are. The proposal's reasoning — GitOps

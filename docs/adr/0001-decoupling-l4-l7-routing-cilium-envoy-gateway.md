@@ -32,7 +32,7 @@ Believing (1), the plan on record as of 2026-08-14 was `hostNetwork` + `NodePort
 
 Neither theory was correct. Investigation on 2026-08-16 found the actual cause: the `CiliumNetworkPolicy` gating ingress to the Envoy Gateway data-plane pods (`allow-world-ingress`) allowed ports **80/443** — the Gateway's *listener* ports. Envoy Gateway defaults to `useListenerPortAsContainerPort: false`, serving listener 80 on **container port 10080** and 443 on **10443**, specifically so the proxy never needs `CAP_NET_BIND_SERVICE`. A LoadBalancer VIP DNATs directly to the pod, so traffic arrived on 10080/10443 and was silently dropped by a policy that never matched. Confirmed live: correcting the policy's ports took a test VIP from timeout to a `200` response in 7ms, with no other change.
 
-This meant the `LoadBalancer` path was viable all along, on a single node, with no privileged pod and no SELinux workaround needed. Full investigation trail — including the eliminated theories and the live verification steps — is preserved in [`docs/backlog.md`](../backlog.md).
+This meant the `LoadBalancer` path was viable all along, on a single node, with no privileged pod and no SELinux workaround needed. The investigation trail is preserved in [the historical backlog](https://github.com/bibAtWork/Edge_GitOps/blob/f39b55856f05ec9193cfb27fe5c3afd00ae6fa79/docs/backlog.md); the current backlog contains open work only.
 
 ## Consequences
 
