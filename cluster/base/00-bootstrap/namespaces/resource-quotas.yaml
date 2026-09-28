@@ -74,11 +74,12 @@ spec:
 # scanJobsConcurrentLimit: 1 limits vulnerability scan Jobs, not the number of
 # containers in one Job. Trivy packs every container of a workload into one
 # scan pod, giving each scanner the 1Gi limit in 13-trivy-operator/helmrelease.yaml.
-# The live three-container Longhorn CSI workload therefore needs a 3Gi Job.
-# On 2026-09-27 the old 3Gi namespace cap already held 1536Mi for the operator
-# and server; 2Gi and 3Gi scan Jobs were repeatedly rejected and timed out.
-# 6Gi admits that largest observed Job plus the resident pods and a small
-# concurrent audit Job. It is a quota ceiling, not a memory reservation.
+# The Cilium DaemonSet has six images INCLUDING init containers: a scan needs
+# 6Gi of limits and 1536M of requests, in addition to the resident operator and
+# server (1536Mi limits / 768Mi requests). The previous 6Gi / 2Gi quota blocked
+# this Job on both memory counters. 10Gi / 3Gi admits one such scan and leaves
+# rollout headroom. The 3-node overlay budgets for two concurrent scans.
+# Quotas cap aggregate declared resources; they do not reserve node memory.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -87,8 +88,8 @@ metadata:
 spec:
   hard:
     requests.cpu: "1"
-    requests.memory: 2Gi
-    limits.memory: 6Gi
+    requests.memory: 3Gi
+    limits.memory: 10Gi
     pods: "12"
 ---
 apiVersion: v1
