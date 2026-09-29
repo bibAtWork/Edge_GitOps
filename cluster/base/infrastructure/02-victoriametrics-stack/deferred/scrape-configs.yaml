@@ -65,6 +65,10 @@ spec:
   podMetricsEndpoints:
     - port: metrics
       path: /metrics
+      # Argo serves this port over TLS with an ephemeral self-signed cert.
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
 ---
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
