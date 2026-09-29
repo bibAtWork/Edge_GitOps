@@ -3992,8 +3992,6 @@ spec:
       paths:
         data: /var/lib/grafana-state
         plugins: /var/lib/grafana/plugins
-      unified_alerting:
-        state_periodic_save_interval: 1m
       server:
         root_url: https://grafana.homelab.data-harness.org
       auth.generic_oauth:
