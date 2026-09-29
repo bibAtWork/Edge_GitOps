@@ -87,6 +87,8 @@ spec:
         apiVersion: 1
         deleteRules:
           - orgId: 1
+            uid: failed-pods-persisting
+          - orgId: 1
             uid: alert-pipeline-test
           - orgId: 1
             uid: alert-pipeline-test-v2
