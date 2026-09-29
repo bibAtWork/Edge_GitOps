@@ -34,6 +34,18 @@ spec:
                   bottoken: $TELEGRAM_BOT_TOKEN
                   chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
 
+          - orgId: 1
+            name: Telegram CVE
+            receivers:
+              - uid: telegram-cve
+                type: telegram
+                disableResolveMessage: true
+                settings:
+                  bottoken: $TELEGRAM_BOT_TOKEN
+                  chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
+                  parse_mode: None
+                  message: '{{ "{{" }} template "homelab.cve.message" . }}'
+
       policies.yaml:
         apiVersion: 1
         policies:
@@ -53,6 +65,19 @@ spec:
             group_interval: 30m
             repeat_interval: 24h
             routes:
+              # Batch the standing CVE backlog independently of operational alerts.
+              - matchers:
+                  - cve_notification = digest
+                receiver: Telegram CVE
+                group_by: [cve_notification]
+                group_interval: 24h
+                repeat_interval: 24h
+              - matchers:
+                  - cve_notification = event
+                receiver: Telegram CVE
+                group_by: [cve_notification]
+                group_interval: 10m
+                repeat_interval: 24h
               - matchers:
                   - severity = critical
                 receiver: Telegram

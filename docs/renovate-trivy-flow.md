@@ -157,9 +157,9 @@ flowchart TD
     R --> S2{"severity=High or Critical"}
     R --> S3{"trivy_image_exposedsecrets > 0"}
 
-    S1 --> T1["ImageCriticalCVE\nfast route, 1h repeat"]
-    S2 --> T2["ImageHighOrCriticalCVE\nslow route, 4h repeat — tracking only"]
-    S3 --> T3["ImageExposedSecret\nfast route, 1h repeat"]
+    S1 --> T1["ImageCriticalCVE\ndaily CVE digest"]
+    S2 --> T2["ImageHighCVE\ndaily digest, excluding Critical images"]
+    S3 --> T3["ImageExposedSecret\noperational critical route, 6h repeat"]
 
     T1 --> W(("Telegram"))
     T2 --> W
@@ -170,6 +170,13 @@ All three rules live in `04-grafana/helmrelease.yaml` (`Trivy CVE Alerts` group)
 match on the `severity` label directly (`Critical` / `High`), not a CVSS score regex —
 Trivy's own severity classification is already CVSS-derived, and a regex has an
 off-by-one boundary risk a label match doesn't.
+
+Image CVEs use a dedicated `Telegram CVE` contact point. Critical and High image
+groups share one digest, with a 24-hour group and repeat interval. The plain-text
+template shows at most 12 image groups and links to the full Trivy findings and
+dependency dashboard; resolved findings do not generate another message. Counts
+come from query A rather than the boolean alert condition. Other operational
+alerts retain their existing routing (Critical repeats every six hours).
 
 **Known trap, hit twice already**: Grafana's file-based alert provisioning only
 creates/updates rules present in `rules.yaml` — it never deletes one that's been removed.
