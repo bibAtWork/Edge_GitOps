@@ -246,9 +246,9 @@ spec:
             template: |
               {{ "{{" }} define "homelab.cve.message" -}}
               {{ "{{" }} if eq .CommonLabels.cve_notification "event" }}Image CVE changes{{ "{{" }} else }}Daily image CVE digest{{ "{{" }} end }}
-              {{ "{{" }} len .Alerts.Firing }} affected image groups; showing up to 12.
+              {{ "{{" }} len .Alerts.Firing }} affected groups; showing up to 12.
               {{ "{{" }} range $i, $alert := .Alerts.Firing }}{{ "{{" }} if lt $i 12 }}
-              {{ "{{" }} printf "%.16s" $alert.Labels.cve_severity }} {{ "{{" }} printf "%.32s" $alert.Labels.exported_namespace }}/{{ "{{" }} printf "%.96s" $alert.Labels.image_repository }}: {{ "{{" }} printf "%.8s" $alert.Annotations.finding_count }} findings{{ "{{" }} if $alert.Labels.event_kind }} ({{ "{{" }} $alert.Labels.event_kind }}){{ "{{" }} end }}
+              {{ "{{" }} printf "%.16s" $alert.Labels.cve_severity }} {{ "{{" }} printf "%.32s" $alert.Labels.exported_namespace }}/{{ "{{" }} printf "%.96s" $alert.Labels.image_repository }} {{ "{{" }} printf "%.19s" $alert.Labels.image_digest }}: {{ "{{" }} printf "%.8s" $alert.Annotations.finding_count }} findings{{ "{{" }} if $alert.Labels.event_kind }} ({{ "{{" }} $alert.Labels.event_kind }}){{ "{{" }} end }}
               {{ "{{" }} end }}{{ "{{" }} end }}
               Full findings and fixed versions: https://grafana.homelab.data-harness.org/dashboards?query=Trivy
               Updates: https://github.com/bibAtWork/Edge_GitOps/issues?q=is%3Aissue+is%3Aopen+Dependency+Dashboard
@@ -434,98 +434,53 @@ spec:
             folder: Security
             interval: 15m
             rules:
-              # Efficiency review 2026-08-17: this rule (previously trivy-high-cvss /
-              # ImageHighCVSS) had never once fired since it was written -- its PromQL
-              # filtered on a label called `score`, but trivy-operator actually exports
-              # the field as `vuln_score` (confirmed live against the raw metric's label
-              # set). `score` doesn't exist on any of the ~3500 CVE series this cluster
-              # currently has, so the filter silently matched nothing, forever. Fixing
-              # the label surfaced 208 real findings across 18 images that had been
-              # invisible the whole time.
-              #
-              # Split into two rules on the way past, per explicit direction: alert
-              # (urgent, fast-repeat) only for Critical; track (visible, slower-repeat)
-              # for High+Critical combined -- reusing the existing severity-based
-              # routing in grafana-telegram.yaml's alerting.policies.yaml
-              # (severity=critical -> repeat_interval 1h; everything else -> 4h) rather
-              # than building new notification plumbing. Matching on the severity label
-              # directly (Critical/High, confirmed exact casing live) instead of a CVSS
-              # score regex -- simpler and avoids the boundary-off-by-one risk a regex
-              # has (Trivy's own severity classification is already CVSS-score-derived).
+              # Scoped inventory counts CVE identities rather than package/report copies.
+              # A ten-minute window covers the five-minute push cadence.
               - uid: trivy-critical-cve
                 title: ImageCriticalCVE
                 condition: B
                 data:
-                  - refId: A
-                    relativeTimeRange:
-                      from: 900
-                      to: 0
-                    datasourceUid: victoriametrics
-                    model:
-                      # Aggregated per IMAGE, not per CVE.
-                      #
-                      # trivy_vulnerability_id carries one series per CVE per
-                      # resource -- 10,392 of them on this cluster. Grafana
-                      # creates one alert instance per returned series, so
-                      # querying it raw produced 1,325 firing instances on
-                      # 2026-09-03: an alerting system that is technically
-                      # working and practically off.
-                      #
-                      # count by (namespace, image) collapses that to one
-                      # instance per affected image -- 16 for Critical. The CVE
-                      # list is dashboard material; a notification only has to
-                      # say which image needs attention.
-                      #
-                      # No fixed_version filter. Unfixable CVEs are still worth
-                      # knowing about even though no upgrade clears them, so
-                      # they are counted here and broken out separately in the
-                      # annotation rather than dropped.
-                      expr: 'count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="Critical"})'
-                      instant: true
-                      range: false
-                      refId: A
-                  - refId: B
-                    datasourceUid: '-100'
-                    model:
-                      type: threshold
-                      refId: B
-                      conditions:
-                        - evaluator:
-                            params: [0]
-                            type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: sum
-                          type: query
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                      expression: A
+                - refId: A
+                  relativeTimeRange:
+                    from: 900
+                    to: 0
+                  datasourceUid: victoriametrics
+                  model:
+                    expr: last_over_time(cve_inventory_image_findings{severity="Critical"}[10m]) > 0
+                    instant: true
+                    range: false
+                    refId: A
+                - refId: B
+                  datasourceUid: '-100'
+                  model:
+                    type: threshold
+                    refId: B
+                    conditions:
+                    - evaluator:
+                        params:
+                        - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                        - A
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                    datasource:
+                      type: __expr__
+                      uid: '-100'
+                    expression: A
                 noDataState: OK
                 execErrState: Error
-                # Lengthened 2026-08-17: home lab, not production -- a CVE finding isn't a
-                # transient blip, it'll still be there in two hours, so there's no reason to
-                # notify within the first one.
-                # 15m, not the 2h this carried. A CVE count is inherently
-                # persistent -- it does not flap, so long confirmation buys
-                # nothing -- and every Grafana restart begins a window in which
-                # an unevaluated rule reads as inactive. On 2026-09-05 a review
-                # nearly recorded "0 firing, 61 inactive" as healthy 2.5 minutes
-                # after a Grafana roll, while 141 Critical CVEs were unchanged
-                # underneath. Grafana sits on a frequently-updated HelmRelease,
-                # so that window recurs often. This shortens it 8x.
-                for: 15m
+                for: 1m
                 annotations:
-                  # {{ "{{" }} ... }} escapes Helm's tpl pass; Grafana sees {{ $labels.xxx }}
-                  summary: >-
-                    Critical CVEs in {{ "{{" }} $labels.image_repository }}
+                  summary: ImageCriticalCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: >-
-                    See the Trivy dashboard for CVE identities and available fixed versions, including findings with no available fix.
+                  description: Unique Critical CVE identities in current or declared workloads. Full findings, including unfixable
+                    and historical reports, remain in the Trivy dashboard.
                 labels:
                   severity: critical
                   cve_notification: digest
@@ -535,67 +490,201 @@ spec:
                 title: ImageHighCVE
                 condition: B
                 data:
-                  - refId: A
-                    relativeTimeRange:
-                      from: 900
-                      to: 0
-                    datasourceUid: victoriametrics
-                    model:
-                      # High EXCLUDING images that already have a Critical.
-                      #
-                      # Previously this matched severity=~"High|Critical", so
-                      # every image with a Critical fired both this rule and
-                      # ImageCriticalCVE -- two notifications, same action. The
-                      # `unless` drops images already covered by the Critical
-                      # rule, leaving this one to mean exactly "High, and
-                      # nothing worse".
-                      expr: 'count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="High"}) unless count by (exported_namespace, image_repository) (trivy_vulnerability_id{severity="Critical"})'
-                      instant: true
-                      range: false
-                      refId: A
-                  - refId: B
-                    datasourceUid: '-100'
-                    model:
-                      type: threshold
-                      refId: B
-                      conditions:
-                        - evaluator:
-                            params: [0]
-                            type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: sum
-                          type: query
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                      expression: A
+                - refId: A
+                  relativeTimeRange:
+                    from: 900
+                    to: 0
+                  datasourceUid: victoriametrics
+                  model:
+                    expr: (last_over_time(cve_inventory_image_findings{severity="High"}[10m]) > 0) unless on (exported_namespace,
+                      image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])
+                      > 0)
+                    instant: true
+                    range: false
+                    refId: A
+                - refId: B
+                  datasourceUid: '-100'
+                  model:
+                    type: threshold
+                    refId: B
+                    conditions:
+                    - evaluator:
+                        params:
+                        - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                        - A
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                    datasource:
+                      type: __expr__
+                      uid: '-100'
+                    expression: A
                 noDataState: OK
                 execErrState: Error
-                # Lengthened 2026-08-17 — see trivy-critical-cve above.
-                # 15m, not the 2h this carried. A CVE count is inherently
-                # persistent -- it does not flap, so long confirmation buys
-                # nothing -- and every Grafana restart begins a window in which
-                # an unevaluated rule reads as inactive. On 2026-09-05 a review
-                # nearly recorded "0 firing, 61 inactive" as healthy 2.5 minutes
-                # after a Grafana roll, while 141 Critical CVEs were unchanged
-                # underneath. Grafana sits on a frequently-updated HelmRelease,
-                # so that window recurs often. This shortens it 8x.
-                for: 15m
+                for: 1m
                 annotations:
-                  summary: >-
-                    High CVEs in {{ "{{" }} $labels.image_repository }}
+                  summary: ImageHighCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: >-
-                    See the Trivy dashboard for CVE identities and available fixed versions. Images with Critical findings are covered by ImageCriticalCVE.
+                  description: Unique High CVE identities, excluding image digests already covered by the Critical digest.
                 labels:
                   severity: warning
                   cve_notification: digest
                   cve_severity: High
+                isPaused: false
+              - uid: cve-inventory-new-critical
+                title: ImageNewCriticalCVE
+                condition: B
+                data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 900
+                    to: 0
+                  datasourceUid: victoriametrics
+                  model:
+                    expr: last_over_time(cve_inventory_event{event_kind="new_critical"}[10m]) > 0
+                    instant: true
+                    range: false
+                    refId: A
+                - refId: B
+                  datasourceUid: '-100'
+                  model:
+                    type: threshold
+                    refId: B
+                    conditions:
+                    - evaluator:
+                        params:
+                        - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                        - A
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                    datasource:
+                      type: __expr__
+                      uid: '-100'
+                    expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1m
+                annotations:
+                  summary: ImageNewCriticalCVE
+                  finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
+                  description: A newly observed Critical finding or newly available fixed version compared with the durable baseline.
+                    First installation seeds quietly; reports missing temporarily retain their previous baseline.
+                labels:
+                  severity: critical
+                  cve_notification: event
+                  cve_severity: Critical
+                isPaused: false
+              - uid: cve-inventory-new-fix
+                title: ImageCVEFixAvailable
+                condition: B
+                data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 900
+                    to: 0
+                  datasourceUid: victoriametrics
+                  model:
+                    expr: last_over_time(cve_inventory_event{event_kind="new_fix"}[10m]) > 0
+                    instant: true
+                    range: false
+                    refId: A
+                - refId: B
+                  datasourceUid: '-100'
+                  model:
+                    type: threshold
+                    refId: B
+                    conditions:
+                    - evaluator:
+                        params:
+                        - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                        - A
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                    datasource:
+                      type: __expr__
+                      uid: '-100'
+                    expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 1m
+                annotations:
+                  summary: ImageCVEFixAvailable
+                  finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
+                  description: A newly observed Critical finding or newly available fixed version compared with the durable baseline.
+                    First installation seeds quietly; reports missing temporarily retain their previous baseline.
+                labels:
+                  severity: warning
+                  cve_notification: event
+                  cve_severity: Fix available
+                isPaused: false
+              - uid: cve-inventory-stale
+                title: ImageCVEInventoryStale
+                condition: B
+                data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 86400
+                    to: 0
+                  datasourceUid: victoriametrics
+                  model:
+                    expr: time() - max(last_over_time(cve_inventory_last_success_timestamp[1d]))
+                    instant: true
+                    range: false
+                    refId: A
+                - refId: B
+                  datasourceUid: '-100'
+                  model:
+                    type: threshold
+                    refId: B
+                    conditions:
+                    - evaluator:
+                        params:
+                        - 900
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                        - A
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                    datasource:
+                      type: __expr__
+                      uid: '-100'
+                    expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: ImageCVEInventoryStale
+                  finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
+                  description: The five-minute inventory has not successfully committed its baseline and published metrics for
+                    over 15 minutes, or has never reported. Check monitoring/cve-inventory Job logs, RBAC and VictoriaMetrics
+                    connectivity. Change detection is unreliable while this fires.
+                labels:
+                  severity: warning
                 isPaused: false
               # New: trivy_image_exposedsecrets was already exported by the operator
               # (metricsVulnIdEnabled's sibling data) with zero alerting on it. Unlike
