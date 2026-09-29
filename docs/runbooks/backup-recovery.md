@@ -506,6 +506,7 @@ Run them at least quarterly, and read their output, not just their phase.
 | 2026-09-13 | `drill-filer-aws` | passed: base backup `20260913T074324` recovered from the vault, 4000 `filemeta` rows (minimum 1000), staged copy removed |
 | 2026-09-13 | `drill-pitr` | passed on the second run: Keycloak recovered to 09:22 UTC, every restore check above its minimum |
 | 2026-09-13 | by hand: A2, A3 streamed from the local repository, A5 route A and the copy, A7's repository | passed: stream byte-identical to restic's verified restore; dump and restore into an empty and into a recreated database, row counts identical, ownership kept; the new repository's chunker polynomial identical to AWS's |
+| 2026-09-29 | `drill-pitr` | passed after #765: Keycloak recovered to 19:52:33 UTC, 2 realms / 4 users / 23 clients, evidence published with RPO 1,913s and measured RTO 116s (4h objective); scratch cluster removed |
 
 What the first run found, each fixed in the procedures above:
 
@@ -516,3 +517,13 @@ What the first run found, each fixed in the procedures above:
 - Paths written as `/data/...`, the way `restic snapshots` prints them, are not found: a
   snapshot's root is the volume's root (A1).
 - Git Bash rewrote every `/path` argument (the note at the top of this part).
+
+The first scheduled PITR run on 2026-09-23 timed out before PostgreSQL could
+start: `restore-archive` existed only in this manual runbook, so barman-cloud
+kept requeuing the scratch Cluster. The first diagnostic rerun on 2026-09-29
+recovered and passed its database checks, but the shared evidence step could
+not start because the caller lacked the `recovery-policy` volume. #765 made
+both drill ObjectStores Flux-managed, declared that volume on every scheduled
+drill, and added a CI contract check. The second diagnostic rerun completed
+all steps; its `recovery_drill_last_success_timestamp` metric is the durable
+proof in VictoriaMetrics. The old Failed-phase pod was removed after diagnosis.
