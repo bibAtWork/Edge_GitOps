@@ -47,6 +47,25 @@ spec:
     - port: metrics
       path: /metrics
 ---
+# Scrape Argo's controller outcomes, including Workflows that fail before a pod
+# is created. The cluster-wide monitoring policy already permits vmagent to
+# reach this port in backup-system.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: argo-workflows-controller
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - backup-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-workflows-workflow-controller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+---
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:

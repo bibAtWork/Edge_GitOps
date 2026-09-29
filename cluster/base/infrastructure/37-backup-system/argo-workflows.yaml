@@ -72,6 +72,11 @@ spec:
     controller:
       clusterWorkflowTemplates:
         enabled: false
+      # Count completed Workflow outcomes directly. A Workflow can fail before
+      # any pod exists (for example, a missing templateRef volume), so pod
+      # phase metrics cannot reliably detect recovery execution failures.
+      metricsConfig:
+        enabled: true
       # Unset by default: a Workflow may then define its own inline
       # `templates:`, submit an arbitrary pod spec, and override fields like
       # serviceAccountName and volumes freely. Strict requires

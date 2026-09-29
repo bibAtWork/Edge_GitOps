@@ -3317,10 +3317,10 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
-              # Argo Workflows are not Kubernetes Jobs. Their failed drill pods
-              # provide a bounded signal until a dedicated Workflow metric exists.
-              - uid: recent-failed-recovery-drill
-                title: RecentFailedRecoveryDrill
+              # Argo Workflows can fail before any pod is created. The controller
+              # outcome counter covers those errors as well as failed steps.
+              - uid: recent-failed-recovery-workflow
+                title: RecentFailedRecoveryWorkflow
                 condition: B
                 data:
                   - refId: A
@@ -3330,11 +3330,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        sum by (namespace, owner_name) (
-                          ((kube_pod_status_phase{namespace="backup-system",phase="Failed",pod=~"drill-.*"} == 1)
-                            and on (namespace, pod) (time() - kube_pod_created < 86400))
-                          * on (namespace, pod) group_left (owner_name)
-                            kube_pod_owner{owner_kind="Workflow",owner_is_controller="true"})
+                        sum(increase(argo_workflows_total_count{namespace="backup-system",phase="Failed"}[1h])) or vector(0)
                       instant: true
                       range: false
                       refId: A
@@ -3361,12 +3357,12 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 5m
+                for: 1m
                 annotations:
                   summary: >-
-                    Recovery drill {{ "{{" }} $labels.owner_name }} failed
+                    A recovery Workflow failed in the last hour
                   description: >-
-                    Inspect the owning Workflow in backup-system and its step logs. This alert covers failures in the first 24 hours; check the drill schedule and last successful recovery separately.
+                    Inspect recent Workflows in backup-system and their failed step messages. The Argo controller outcome counter detects failures even when no pod was created; this alert resolves after the one-hour window instead of repeating for retained history.
                 labels:
                   severity: warning
                 isPaused: false
