@@ -221,10 +221,10 @@ spec:
             name: homelab-cve
             template: |
               {{ "{{" }} define "homelab.cve.message" -}}
-              {{ "{{" }} if eq .CommonLabels.cve_notification "event" }}Image CVE changes{{ "{{" }} else }}Daily image CVE digest{{ "{{" }} end }}
+              {{ "{{" }} if eq .CommonLabels.cve_notification "event" }}Image CVE changes{{ "{{" }} else }}Image CVE backlog{{ "{{" }} end }}
               {{ "{{" }} len .Alerts.Firing }} affected groups; showing up to 12.
               {{ "{{" }} range $i, $alert := .Alerts.Firing }}{{ "{{" }} if lt $i 12 }}
-              {{ "{{" }} printf "%.16s" $alert.Labels.cve_severity }} {{ "{{" }} printf "%.32s" $alert.Labels.exported_namespace }}/{{ "{{" }} printf "%.96s" $alert.Labels.image_repository }} {{ "{{" }} printf "%.19s" $alert.Labels.image_digest }}: {{ "{{" }} printf "%.8s" $alert.Annotations.finding_count }} findings{{ "{{" }} if $alert.Labels.event_kind }} ({{ "{{" }} $alert.Labels.event_kind }}){{ "{{" }} end }}
+              {{ "{{" }} printf "%.16s" $alert.Labels.cve_severity }} {{ "{{" }} if $alert.Labels.exported_namespace }}{{ "{{" }} printf "%.32s" $alert.Labels.exported_namespace }}/{{ "{{" }} end }}{{ "{{" }} printf "%.96s" $alert.Labels.image_repository }} {{ "{{" }} printf "%.19s" $alert.Labels.image_digest }}: {{ "{{" }} printf "%.8s" $alert.Annotations.finding_count }} findings{{ "{{" }} if $alert.Labels.event_kind }} ({{ "{{" }} $alert.Labels.event_kind }}){{ "{{" }} end }}
               {{ "{{" }} end }}{{ "{{" }} end }}
               Full findings and fixed versions: https://grafana.homelab.data-harness.org/dashboards?query=Trivy
               Updates: https://github.com/bibAtWork/Edge_GitOps/issues?q=is%3Aissue+is%3Aopen+Dependency+Dashboard
@@ -410,7 +410,9 @@ spec:
             folder: Security
             interval: 1m
             rules:
-              # Scoped inventory counts CVE identities rather than package/report copies.
+              # Scoped inventory counts CVE identities rather than package/report
+              # copies. Standing notifications group the same digest across
+              # namespaces; prompt change events keep their namespace identity.
               # A ten-minute window covers the five-minute push cadence.
               - uid: trivy-critical-cve
                 title: ImageCriticalCVE
@@ -422,7 +424,7 @@ spec:
                     to: 0
                   datasourceUid: victoriametrics
                   model:
-                    expr: last_over_time(cve_inventory_image_findings{severity="Critical"}[10m]) > 0
+                    expr: max by (image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0
                     instant: true
                     range: false
                     refId: A
@@ -455,8 +457,7 @@ spec:
                 annotations:
                   summary: ImageCriticalCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: Unique Critical CVE identities in current or declared workloads. Full findings, including unfixable
-                    and historical reports, remain in the Trivy dashboard.
+                  description: Largest per-namespace count of unique Critical CVE identities for this image digest. Repeated deployments of the same digest notify once. Full findings remain in the Trivy dashboard.
                 labels:
                   severity: critical
                   cve_notification: digest
@@ -472,9 +473,12 @@ spec:
                     to: 0
                   datasourceUid: victoriametrics
                   model:
-                    expr: (last_over_time(cve_inventory_image_findings{severity="High"}[10m]) > 0) unless on (exported_namespace,
-                      image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])
-                      > 0)
+                    expr: >-
+                      (max by (image_registry, image_repository, image_digest)
+                        (last_over_time(cve_inventory_image_findings{severity="High"}[10m])) > 0)
+                      unless on (image_registry, image_repository, image_digest)
+                        (max by (image_registry, image_repository, image_digest)
+                          (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0)
                     instant: true
                     range: false
                     refId: A
@@ -507,7 +511,7 @@ spec:
                 annotations:
                   summary: ImageHighCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: Unique High CVE identities, excluding image digests already covered by the Critical digest.
+                  description: Largest per-namespace count of unique High CVE identities, excluding image digests already covered by the Critical backlog.
                 labels:
                   severity: warning
                   cve_notification: digest

@@ -65,13 +65,15 @@ spec:
             group_interval: 30m
             repeat_interval: 24h
             routes:
-              # Batch the standing CVE backlog independently of operational alerts.
+              # Report changed backlog groups within a day, but repeat an
+              # unchanged standing backlog only weekly. Prompt CVE events below
+              # keep their ten-minute group interval.
               - matchers:
                   - cve_notification = digest
                 receiver: Telegram CVE
                 group_by: [cve_notification]
                 group_interval: 24h
-                repeat_interval: 24h
+                repeat_interval: 168h
               - matchers:
                   - cve_notification = event
                 receiver: Telegram CVE

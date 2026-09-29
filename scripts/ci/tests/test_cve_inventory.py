@@ -37,6 +37,23 @@ def fixtures(kind="ReplicaSet"):
 
 
 class CVEInventory(unittest.TestCase):
+    def test_standing_digest_groups_same_digest_and_repeats_weekly(self):
+        release = yaml.safe_load((ROOT / "cluster/base/infrastructure/04-grafana/helmrelease.yaml").read_text(encoding="utf-8"))
+        rules = {r["uid"]: r for g in release["spec"]["values"]["alerting"]["rules.yaml"]["groups"]
+                 for r in g["rules"]}
+        for uid in ("trivy-critical-cve", "trivy-high-critical-tracking"):
+            expr = rules[uid]["data"][0]["model"]["expr"]
+            self.assertIn("max by (image_registry, image_repository, image_digest)", expr)
+            self.assertNotIn("on (exported_namespace,", expr)
+        for overlay in ("1-node", "3-node"):
+            path = ROOT / f"cluster/overlays/{overlay}/patches/grafana-telegram.yaml"
+            patch = yaml.safe_load(path.read_text(encoding="utf-8"))
+            routes = patch["spec"]["values"]["alerting"]["policies.yaml"]["policies"][0]["routes"]
+            digest = next(route for route in routes if "cve_notification = digest" in route["matchers"])
+            event = next(route for route in routes if "cve_notification = event" in route["matchers"])
+            self.assertEqual(digest["repeat_interval"], "168h")
+            self.assertEqual(event["group_interval"], "10m")
+
     def test_inventory_alerts_evaluate_within_their_confirmation_windows(self):
         release = yaml.safe_load((ROOT / "cluster/base/infrastructure/04-grafana/helmrelease.yaml").read_text(encoding="utf-8"))
         groups = release["spec"]["values"]["alerting"]["rules.yaml"]["groups"]
