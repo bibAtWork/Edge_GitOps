@@ -91,6 +91,8 @@ spec:
           - orgId: 1
             uid: failed-pods-persisting
           - orgId: 1
+            uid: recent-failed-recovery-drill
+          - orgId: 1
             uid: alert-pipeline-test
           - orgId: 1
             uid: alert-pipeline-test-v2
