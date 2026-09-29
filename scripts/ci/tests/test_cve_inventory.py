@@ -6,6 +6,8 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[3]
 SPEC = importlib.util.spec_from_file_location(
     "cve_inventory", ROOT / "cluster/base/infrastructure/30-image-cve-alerts/cve_inventory.py")
@@ -35,6 +37,20 @@ def fixtures(kind="ReplicaSet"):
 
 
 class CVEInventory(unittest.TestCase):
+    def test_inventory_alerts_evaluate_within_their_confirmation_windows(self):
+        release = yaml.safe_load((ROOT / "cluster/base/infrastructure/04-grafana/helmrelease.yaml").read_text(encoding="utf-8"))
+        groups = release["spec"]["values"]["alerting"]["rules.yaml"]["groups"]
+        wanted = {"ImageNewCriticalCVE", "ImageCVEFixAvailable", "ImageCVEInventoryStale"}
+        covered = set()
+        for group in groups:
+            for rule in group["rules"]:
+                if rule["title"] in wanted:
+                    covered.add(rule["title"])
+                    # A 1m confirmation in a 15m evaluation group takes two
+                    # evaluations, defeating prompt changes and stale detection.
+                    self.assertEqual(group["interval"], "1m", rule["title"])
+        self.assertEqual(covered, wanted)
+
     def seed(self, findings=None):
         return inventory.advance({IMAGE: findings or {"CVE-A": ["Critical", False]}}, None, 1000)[0]
 

@@ -406,9 +406,9 @@ spec:
                   severity: warning
                 isPaused: false
           - orgId: 1
-            name: Trivy CVE Alerts
+            name: Image CVE Inventory
             folder: Security
-            interval: 15m
+            interval: 1m
             rules:
               # Scoped inventory counts CVE identities rather than package/report copies.
               # A ten-minute window covers the five-minute push cadence.
@@ -662,6 +662,11 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+          - orgId: 1
+            name: Trivy CVE Alerts
+            folder: Security
+            interval: 15m
+            rules:
               # New: trivy_image_exposedsecrets was already exported by the operator
               # (metricsVulnIdEnabled's sibling data) with zero alerting on it. Unlike
               # CVEs -- numerous, often no fix available yet -- a secret baked into an
