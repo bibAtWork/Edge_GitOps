@@ -202,6 +202,23 @@ ten-minute group interval; new event IDs allow another change on the same image
 to notify. CVE resolutions are silent. Operational Critical alerts retain their
 six-hour cadence, including `ImageExposedSecret`.
 
+Grafana stores its database, alert evaluation state, silences and notification
+deduplication on the 1 GiB `monitoring/grafana-alert-state` local-path claim.
+Evaluation state is saved every minute; notification state is also saved on
+graceful shutdown. The Deployment uses `Recreate` so two replicas never write
+SQLite concurrently. Rollouts briefly interrupt the single Grafana instance.
+Downloaded dashboards and plugins remain on `emptyDir`, with dashboard files
+provisioned from Git, so removing a dashboard also removes its disk copy on the
+next rollout. The state claim is separate from those directories.
+
+Local-path keeps Grafana independent of the Longhorn storage it monitors, but
+binds it to the volume's node. This is restart persistence, not high availability
+or a backed-up recovery dataset. Losing the node/claim loses notification history,
+silences and preferences; configuration is rebuilt from Git and ongoing alerts
+can notify again. Deleting the claim on a healthy node also deletes its local
+data. Unexpected crashes can lose the most recent unsaved state. The first
+migration from ephemeral storage creates a fresh database and notification log.
+
 The collector runs without Telegram credentials or internet calls. RBAC permits
 reading reports/workloads and patching only `monitoring/cve-alert-state`; it
 cannot read Secrets or change workloads. Its image, resources and script are

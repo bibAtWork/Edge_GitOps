@@ -32,43 +32,19 @@ spec:
       existingSecret: grafana-admin
       userKey: admin-user
       passwordKey: admin-password
-    # Stateless. /var/lib/grafana is an emptyDir, so everything Grafana serves
-    # comes from this file on every start: datasources, provisioned
-    # dashboards, alert rules, and the admin user from
-    # grafana-admin.
-    #
-    # The volume was removed rather than moved to Longhorn because it had
-    # stopped being state and started being drift. Its dashboards directory is
-    # written by the chart's download-dashboards init container, which only
-    # ever adds, so an entry deleted from this list never removed the file it
-    # had written. Two dashboards were still on disk and still loading with
-    # nothing in Git describing them; both are declared again above.
-    #
-    # One of them is a good illustration of how little a filename proves. It
-    # was being served from a file called seaweedfs.json, which contained not a
-    # SeaweedFS dashboard but a copy of gnetId 14817, "Node Exporter - USE
-    # Method / Node" -- so the dashboard that appeared in Grafana had no
-    # relationship to the name of the file producing it, and no way to notice
-    # short of reading the JSON.
-    #
-    # What is genuinely lost, and it is not nothing:
-    #
-    #  - Alert state. A restart re-evaluates every rule from scratch, so
-    #    anything currently firing notifies again. Silences do not survive
-    #    either; there were none.
-    #  - Annotation history, starred dashboards, user preferences.
-    #  - ~255MB of plugin payload, re-downloaded from grafana.com on every
-    #    start (208MB of it victoriametrics-logs-datasource). This puts an
-    #    external dependency on the startup path: if grafana.com is
-    #    unreachable, Grafana comes up without the VictoriaLogs datasource
-    #    rather than not at all, which is the quieter of the two failures and
-    #    so the one worth knowing about in advance.
-    #
-    # No API keys or service accounts live in that database -- nothing in this
-    # cluster authenticates to Grafana -- so nothing else breaks when it is
-    # discarded. Anything that should survive a restart belongs in this file.
+    # Keep downloaded dashboards/plugins ephemeral so deleted Git entries cannot
+    # linger on disk. Persist only Grafana's database and alert notification state.
+    # Local-path preserves the monitor's independence from Longhorn failures.
     persistence:
       enabled: false
+    deploymentStrategy:
+      type: Recreate
+    extraVolumes:
+      - name: alert-state
+        existingClaim: grafana-alert-state
+    extraVolumeMounts:
+      - name: alert-state
+        mountPath: /var/lib/grafana-state
     plugins:
       - victoriametrics-logs-datasource
     datasources:
@@ -270,8 +246,8 @@ spec:
           #
           # VictoriaMetricsUnavailable is the one that matters, and it is
           # deliberately built so that it CANNOT depend on what it watches.
-          # Grafana evaluates it, runs with persistence.enabled: false, holds
-          # no PVC, and so has no Longhorn dependency. The query is vector(1)
+          # Grafana evaluates it and stores its state on local-path, so it has
+          # no Longhorn dependency. The query is vector(1)
           # -- constant, no stored data required -- so it succeeds whenever
           # VictoriaMetrics answers at all and errors when it does not.
           # execErrState: Alerting turns that error into a page. A rule that
@@ -3974,6 +3950,7 @@ spec:
       runAsNonRoot: true
       runAsUser: 472
       fsGroup: 472
+      fsGroupChangePolicy: OnRootMismatch
       seccompProfile:
         type: RuntimeDefault
     containerSecurityContext:
@@ -4007,6 +3984,11 @@ spec:
     # Grafana config below references it via $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}.
     envFromSecret: grafana-oauth-secret
     grafana.ini:
+      paths:
+        data: /var/lib/grafana-state
+        plugins: /var/lib/grafana/plugins
+      unified_alerting:
+        state_periodic_save_interval: 1m
       server:
         root_url: https://grafana.homelab.data-harness.org
       auth.generic_oauth:
