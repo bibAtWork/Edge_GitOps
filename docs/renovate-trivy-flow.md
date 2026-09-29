@@ -3,7 +3,7 @@
 How dependency updates and vulnerability findings move through this repo, from Renovate
 opening a PR to a fix actually landing in `ops/talos_linux`. Diagrams are generated from
 the manifests in `.github/workflows/`, `cluster/base/infrastructure/13-trivy-operator/`,
-`cluster/base/infrastructure/30-trivy-renovate-bridge/`, and
+`cluster/base/infrastructure/30-image-cve-alerts/`, and
 `cluster/base/infrastructure/04-grafana/helmrelease.yaml` — not hand-drawn intent.
 
 This is a living document. If a diagram and the manifests disagree, the manifests are
@@ -14,7 +14,7 @@ connect (or fail to). **PR-time** (`section 1`) only sees images a Renovate PR i
 proposing to change — including, since 2026-09-09, images the PR changes without saying
 so, because the chart renders them. **Continuous** (`section 2`) only sees images already
 deployed in the cluster. Neither one alone can catch "an already-deployed image just got a
-new Critical CVE and nobody proposed a fix" — that gap, and the bridge closing it, is
+new Critical CVE and nobody proposed a fix" — change notifications and independent fix automation are described in
 `section 3`.
 
 ## 1. PR-time: the image gate
@@ -141,84 +141,84 @@ both are available at once, and Renovate drops members still held by `minimumRel
 rather than holding the group back. That is exactly how zot drifted: the chart cleared the
 age gate while its image had not. The `appVersion` check is what closes it.
 
-## 2. Continuous: trivy-operator + alerting
+## 2. Continuous: scoped findings and change alerts
 
-Nothing here depends on a PR existing. trivy-operator scans whatever is actually running,
-on its own schedule, independent of how it got there.
-
-```mermaid
-flowchart TD
-    N["Deployed workloads\n(Pods, Deployments, RBAC)"] --> O["trivy-operator scans\n(vulnerability / configAudit / rbacAssessment)"]
-    O --> P["VulnerabilityReport /\nConfigAuditReport /\nRbacAssessmentReport CRDs"]
-    P --> Q["Prometheus metrics\n:8080/metrics"]
-    Q --> R[("VictoriaMetrics")]
-
-    R --> S1{"severity=Critical"}
-    R --> S2{"severity=High or Critical"}
-    R --> S3{"trivy_image_exposedsecrets > 0"}
-
-    S1 --> T1["ImageCriticalCVE\ndaily CVE digest"]
-    S2 --> T2["ImageHighCVE\ndaily digest, excluding Critical images"]
-    S3 --> T3["ImageExposedSecret\noperational critical route, 6h repeat"]
-
-    T1 --> W(("Telegram"))
-    T2 --> W
-    T3 --> W
-```
-
-All three rules live in `04-grafana/helmrelease.yaml` (`Trivy CVE Alerts` group). They
-match on the `severity` label directly (`Critical` / `High`), not a CVSS score regex —
-Trivy's own severity classification is already CVSS-derived, and a regex has an
-off-by-one boundary risk a label match doesn't.
-
-Image CVEs use a dedicated `Telegram CVE` contact point. Critical and High image
-groups share one digest, with a 24-hour group and repeat interval. The plain-text
-template shows at most 12 image groups and links to the full Trivy findings and
-dependency dashboard; resolved findings do not generate another message. Counts
-come from query A rather than the boolean alert condition. Other operational
-alerts retain their existing routing (Critical repeats every six hours).
-
-**Known trap, hit twice already**: Grafana's file-based alert provisioning only
-creates/updates rules present in `rules.yaml` — it never deletes one that's been removed.
-Retiring a rule requires an explicit entry in `deleteRules.yaml`
-(`cluster/overlays/1-node/patches/grafana-telegram.yaml`), or the old rule keeps running
-forever with nothing pointing at it from git.
-
-**Known trap, the metric itself**: `trivy_image_exposedsecrets` and
-`trivy_vulnerability_id` are point-in-time series that persist until they naturally age
-out of VictoriaMetrics — regenerating the underlying report (e.g. by deleting the CRD to
-force a rescan) doesn't retroactively clear the *old* series immediately. A dashboard or
-alert can show a finding for a few minutes after it's actually been fixed. Cross-check
-against `kubectl get vulnerabilityreport` before treating a reading as current.
-
-## 3. The gap: already-deployed images have no path back to a fix
-
-Trivy's own review finding (2026-08-17): the two pipelines above don't talk to each
-other. An image already running in the cluster that develops a new Critical CVE has
-no automated route to "someone should bump this" — it just sits in a report (now, a
-`ImageCriticalCVE` page) with no indication of whether a fix is one merge away or
-genuinely blocked upstream.
+Trivy scans deployed workloads independently of dependency PRs. Its raw metrics
+and reports remain available in the Trivy dashboard, including historical reports
+and findings with no available fix.
 
 ```mermaid
 flowchart TD
-    R[("VictoriaMetrics")] --> X["trivy-renovate-bridge CronJob\ndaily, 06:00 UTC"]
-    X --> Y{"open Renovate PR\nalready touches this image?"}
-    Y -- yes --> W1(("Telegram:\n\"PR #NNN already open\""))
-    Y -- no --> W2(("Telegram:\n\"no open PR — may need\nmanual investigation\""))
+    W["Current workloads and enabled CronJobs"] --> C["cve-inventory, every five minutes"]
+    T["Trivy VulnerabilityReports"] --> C
+    B["cve-alert-state ConfigMap"] <--> C
+    C --> V[("VictoriaMetrics")]
+    V --> D["Critical / High standing findings"]
+    D --> N["One compact daily Telegram digest"]
+    V --> E["New Critical identity / new available fix"]
+    E --> P["Prompt CVE change notification"]
+    V --> H["Inventory stale or never reported"]
+    H --> O["Operational warning"]
 ```
 
-**Live today** (`30-trivy-renovate-bridge/cronjob.yaml`): the discovery half — query
-VictoriaMetrics for images with an active Critical CVE, check this repo's open PRs
-(public repo, unauthenticated GitHub API, no credential needed), post a Telegram summary.
-Reuses `monitoring/telegram-credentials` (already generic, not Grafana-specific) rather
-than provisioning anything new. Verified live 2026-08-17: a forced run found 10 images
-with active Critical CVEs, all correctly reported as having no open Renovate PR yet.
+`30-image-cve-alerts/cve_inventory.py` counts each CVE once per namespace,
+registry, repository and digest. Repeated packages and workload copies do not
+increase the count. Completed Pods and Jobs, zero-replica controllers, suspended
+CronJobs, old owner UIDs and changed container versions are excluded. Enabled
+CronJobs stay in scope even between runs. Init containers are included.
 
-For images with an explicit `image.tag` override already present in this repo (for
-example, the Trivy scan job image), Renovate already handles this
-and a PR already exists whenever one's possible — branch `Y -- yes` covers them. The
-CronJob's `Y -- no` branch is where it stops: it can tell you nothing has landed yet, but
-it has no way to act, and historically nothing downstream of it ever did.
+The first successful run seeds a quiet baseline. Later runs emit events for
+newly observed Critical identities (including a new image digest or severity
+upgrade) and an existing High/Critical identity gaining a reported fixed version.
+A fixed version on any affected package means remediation is available; it does
+not promise that one upgrade fixes every affected package or that the running
+image is already fixed. A finding newly observed in a report is not necessarily
+newly disclosed upstream.
+
+Missing reports retain known identities for 30 days and cannot resolve them.
+Only a present report can show a finding has disappeared. Counts in the standing
+digest describe current, available scoped reports; raw historical reports remain
+in the dashboard. API, parsing or state errors abort rather than replace the
+baseline. The state ConfigMap has an 850 KB limit: exceeding it fails visibly and
+preserves the previous state. Its JSON is owned by the job; Flux owns only the
+object, so reconciliation does not erase the baseline.
+
+Events are journaled before metrics delivery and replayed for two hours. The
+five-minute job pushes metrics directly to VictoriaMetrics; queries use a
+ten-minute window to cover the cadence. `ImageCVEInventoryStale` warns after 15
+minutes without a successful publication (with a five-minute confirmation), or
+when no run has ever reported. A delivery outage exceeding the event window can
+lose individual change notifications; the stale warning and standing digest
+remain the recovery signals. Deleting the state ConfigMap reseeds quietly, so
+its loss also loses prior change history.
+
+Grafana rules and routes are declarative. `ImageCriticalCVE` and `ImageHighCVE`
+share a dedicated `Telegram CVE` contact point and a 24-hour group/repeat interval.
+High image digests already covered by Critical are excluded. The plain-text
+template shows at most 12 groups and links to the complete Trivy findings and
+dependency dashboard. Counts use query A, not the boolean alert condition.
+`ImageNewCriticalCVE` and `ImageCVEFixAvailable` use a separate change route with a
+ten-minute group interval; new event IDs allow another change on the same image
+to notify. CVE resolutions are silent. Operational Critical alerts retain their
+six-hour cadence, including `ImageExposedSecret`.
+
+The collector runs without Telegram credentials or internet calls. RBAC permits
+reading reports/workloads and patching only `monitoring/cve-alert-state`; it
+cannot read Secrets or change workloads. Its image, resources and script are
+versioned with the platform. Unit regressions cover deduplication, archived
+workloads, absent history, severity/fix changes, baseline corruption, delivery
+replay and bounded retention.
+
+**Provisioning trap:** removing a rule from `rules.yaml` does not delete it from
+Grafana. Retiring a rule requires `deleteRules.yaml` in both overlay patches.
+The standing rules retain their existing UIDs to update them in place.
+
+## 3. Dependency fixes remain separate
+
+The former daily `trivy-renovate-bridge` sender is retired: it duplicated the
+standing CVE notifications and matched PR titles loosely. The digest links to the
+dependency dashboard instead. Renovate continues opening updates, and the PR-time
+image gate continues validating them independently of the alert collector.
 
 ### Now implemented: `trivy-auto-patch.yml`
 
@@ -239,10 +239,8 @@ was removed at the ADR-012 cutover, 2026-09-13.)
 > only thing that can open a PR for them.
 
 Closing this is a **separate, independent GitHub Actions workflow**
-(`.github/workflows/trivy-auto-patch.yml`, landed via #166/#167), not a new branch bolted
-onto the CronJob above. That was a deliberate design choice, not an oversight: the
-CronJob's job is "what's
-actually running and is it vulnerable, tell me," against live cluster state; the
+(`.github/workflows/trivy-auto-patch.yml`, landed via #166/#167), independent of the inventory CronJob above. That was a deliberate design choice, not an oversight: the
+inventory job reports current findings and identity changes against live cluster state; the
 auto-patch workflow's job is "does this specific, hand-curated set of chart-default
 images have a better version available," against this repo's own declared state. Neither
 needs the other's plumbing, so neither depends on it — no in-cluster query, no Tailscale,

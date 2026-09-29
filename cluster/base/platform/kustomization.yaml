@@ -27,7 +27,7 @@ resources:
   - ../infrastructure/24-opa
   - ../infrastructure/28-envoy-gateway/operator
   - ../infrastructure/29-metrics-server
-  - ../infrastructure/30-trivy-renovate-bridge
+  - ../infrastructure/30-image-cve-alerts
   - ../infrastructure/31-cluster-rbac
   - ../infrastructure/32-longhorn
   - ../infrastructure/33-cloudnative-pg

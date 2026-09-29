@@ -23,7 +23,7 @@ profile still has single-instance databases; it does not guarantee end-to-end av
 - **Storage**: Longhorn (block storage for application PVCs, and the default StorageClass) + SeaweedFS (S3-compatible object storage: the recovery system's local repository and PostgreSQL WAL archives, and the Zot registry). local-path is retained for exactly one volume that can use neither — the SeaweedFS filer metadata database — see [ADR-008](./docs/adr/0008-storage-mechanisms.md)
 - **Observability**: OpenTelemetry + VictoriaMetrics stack + Grafana
 - **Backup**: the recovery system ([ADR-012](./docs/adr/0012-recovery-system.md)): restore-tested recovery points in restic, from Longhorn snapshot clones and CloudNativePG base backups, promoted to an Object-Lock AWS vault and orchestrated by Argo Workflows
-- **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with a Trivy/Renovate bridge that reports images carrying critical CVEs
+- **Registry**: Zot (OCI-native) + Trivy Operator (vulnerability scanning), with scoped daily CVE digests and alerts for new Critical findings or newly available fixes
 - **Ingress**: Envoy Gateway (Gateway API), fronting every application ([ADR-001](./docs/adr/0001-decoupling-l4-l7-routing-cilium-envoy-gateway.md))
 - **Identity**: Keycloak (OIDC) with flattened group-based RBAC ([ADR-002](./docs/adr/0002-flattened-hierarchical-rbac.md)). Applications use native OIDC or Envoy plus OPA `ext_authz` ([ADR-006](./docs/adr/0006-policy-engines-by-layer.md)); the Kubernetes API also trusts the realm and maps prefixed groups to scoped RBAC
 - **Databases**: CloudNativePG operator (Keycloak, Immich, SeaweedFS filer metadata), with WAL archiving by the barman-cloud plugin
