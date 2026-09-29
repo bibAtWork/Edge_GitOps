@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - networkpolicy.yaml
   - objectstore-restore.yaml
+  - objectstore-drills.yaml
   - workflow-templates/volume-clone.yaml
   - workflow-templates/restic-dataset.yaml
   - workflow-templates/sqlite-dataset.yaml

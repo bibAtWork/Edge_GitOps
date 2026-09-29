@@ -64,6 +64,23 @@ def mappings(value: object):
             yield from mappings(child)
 
 
+def evidence_volume_errors(docs: list[dict]) -> list[str]:
+    """Referenced templates inherit the caller's volumes, not the callee's."""
+    errors = []
+    for doc in docs:
+        if doc.get("kind") != "WorkflowTemplate":
+            continue
+        if not any(node.get("templateRef", {}).get("name") == "drill-evidence"
+                   for node in mappings(doc.get("spec", {}).get("templates", []))):
+            continue
+        volumes = doc.get("spec", {}).get("volumes", [])
+        if not any(volume.get("name") == "policy"
+                   and volume.get("configMap", {}).get("name") == "recovery-policy"
+                   for volume in volumes):
+            errors.append(f"{doc['metadata']['name']} references drill-evidence without the recovery-policy volume")
+    return errors
+
+
 def validate(overlay: str) -> list[str]:
     result = subprocess.run(
         ["kubectl", "kustomize", "--load-restrictor", "LoadRestrictionsNone", f"cluster/overlays/{overlay}"],
@@ -90,7 +107,7 @@ def validate(overlay: str) -> list[str]:
             drill_applications[doc["metadata"]["name"]] = args.get("application")
 
     scheduled = {}
-    errors = []
+    errors = evidence_volume_errors(docs)
     for doc in docs:
         if doc.get("kind") != "CronWorkflow" or not doc["metadata"]["name"].startswith("drill-"):
             continue

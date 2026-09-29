@@ -221,10 +221,10 @@ spec:
             name: homelab-cve
             template: |
               {{ "{{" }} define "homelab.cve.message" -}}
-              {{ "{{" }} if eq .CommonLabels.cve_notification "event" }}Image CVE changes{{ "{{" }} else }}Daily image CVE digest{{ "{{" }} end }}
+              {{ "{{" }} if eq .CommonLabels.cve_notification "event" }}Image CVE changes{{ "{{" }} else }}Image CVE backlog{{ "{{" }} end }}
               {{ "{{" }} len .Alerts.Firing }} affected groups; showing up to 12.
               {{ "{{" }} range $i, $alert := .Alerts.Firing }}{{ "{{" }} if lt $i 12 }}
-              {{ "{{" }} printf "%.16s" $alert.Labels.cve_severity }} {{ "{{" }} printf "%.32s" $alert.Labels.exported_namespace }}/{{ "{{" }} printf "%.96s" $alert.Labels.image_repository }} {{ "{{" }} printf "%.19s" $alert.Labels.image_digest }}: {{ "{{" }} printf "%.8s" $alert.Annotations.finding_count }} findings{{ "{{" }} if $alert.Labels.event_kind }} ({{ "{{" }} $alert.Labels.event_kind }}){{ "{{" }} end }}
+              {{ "{{" }} printf "%.16s" $alert.Labels.cve_severity }} {{ "{{" }} if $alert.Labels.exported_namespace }}{{ "{{" }} printf "%.32s" $alert.Labels.exported_namespace }}/{{ "{{" }} end }}{{ "{{" }} printf "%.96s" $alert.Labels.image_repository }} {{ "{{" }} printf "%.19s" $alert.Labels.image_digest }}: {{ "{{" }} printf "%.8s" $alert.Annotations.finding_count }} findings{{ "{{" }} if $alert.Labels.event_kind }} ({{ "{{" }} $alert.Labels.event_kind }}){{ "{{" }} end }}
               {{ "{{" }} end }}{{ "{{" }} end }}
               Full findings and fixed versions: https://grafana.homelab.data-harness.org/dashboards?query=Trivy
               Updates: https://github.com/bibAtWork/Edge_GitOps/issues?q=is%3Aissue+is%3Aopen+Dependency+Dashboard
@@ -410,7 +410,9 @@ spec:
             folder: Security
             interval: 1m
             rules:
-              # Scoped inventory counts CVE identities rather than package/report copies.
+              # Scoped inventory counts CVE identities rather than package/report
+              # copies. Standing notifications group the same digest across
+              # namespaces; prompt change events keep their namespace identity.
               # A ten-minute window covers the five-minute push cadence.
               - uid: trivy-critical-cve
                 title: ImageCriticalCVE
@@ -422,7 +424,7 @@ spec:
                     to: 0
                   datasourceUid: victoriametrics
                   model:
-                    expr: last_over_time(cve_inventory_image_findings{severity="Critical"}[10m]) > 0
+                    expr: max by (image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0
                     instant: true
                     range: false
                     refId: A
@@ -455,8 +457,7 @@ spec:
                 annotations:
                   summary: ImageCriticalCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: Unique Critical CVE identities in current or declared workloads. Full findings, including unfixable
-                    and historical reports, remain in the Trivy dashboard.
+                  description: Largest per-namespace count of unique Critical CVE identities for this image digest. Repeated deployments of the same digest notify once. Full findings remain in the Trivy dashboard.
                 labels:
                   severity: critical
                   cve_notification: digest
@@ -472,9 +473,12 @@ spec:
                     to: 0
                   datasourceUid: victoriametrics
                   model:
-                    expr: (last_over_time(cve_inventory_image_findings{severity="High"}[10m]) > 0) unless on (exported_namespace,
-                      image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])
-                      > 0)
+                    expr: >-
+                      (max by (image_registry, image_repository, image_digest)
+                        (last_over_time(cve_inventory_image_findings{severity="High"}[10m])) > 0)
+                      unless on (image_registry, image_repository, image_digest)
+                        (max by (image_registry, image_repository, image_digest)
+                          (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0)
                     instant: true
                     range: false
                     refId: A
@@ -507,7 +511,7 @@ spec:
                 annotations:
                   summary: ImageHighCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: Unique High CVE identities, excluding image digests already covered by the Critical digest.
+                  description: Largest per-namespace count of unique High CVE identities, excluding image digests already covered by the Critical backlog.
                 labels:
                   severity: warning
                   cve_notification: digest
@@ -3262,12 +3266,11 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
-              # Terminal pods no longer affect controller availability, but leaving
-              # them indefinitely obscures new failures and caused the old Error-pod
-              # accumulation. Alert after six hours instead of granting a cleanup
-              # controller broad pod-deletion rights.
-              - uid: failed-pods-persisting
-                title: FailedPodsPersisting
+              # A failed Job deserves prompt attention; its terminal pod's continued
+              # existence does not. Limit the alert to the first day after failure
+              # so retained Job history cannot send the same warning indefinitely.
+              - uid: recent-failed-jobs
+                title: RecentFailedJobs
                 condition: B
                 data:
                   - refId: A
@@ -3276,7 +3279,9 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'sum by (namespace) (kube_pod_status_phase{phase="Failed"} == 1)'
+                      expr: >-
+                        sum by (namespace, job_name) ((kube_job_status_failed{reason!=""} > 0)
+                        and on (namespace, job_name) (time() - kube_job_created < 86400))
                       instant: true
                       range: false
                       refId: A
@@ -3303,12 +3308,65 @@ spec:
                       expression: A
                 noDataState: OK
                 execErrState: Error
-                for: 6h
+                for: 5m
                 annotations:
                   summary: >-
-                    Failed terminal pods are persisting in {{ "{{" }} $labels.namespace }}
+                    Job {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.job_name }} failed
                   description: >-
-                    {{ "{{" }} $value }} Failed-phase pods have remained in {{ "{{" }} $labels.namespace }} for six hours. Inspect their termination reason and owner, then delete only confirmed terminal leftovers. Deployment, StatefulSet, and DaemonSet availability is evaluated independently, so cleanup never substitutes for fixing an unavailable controller.
+                    Inspect the failed Job and its pod logs. This alert tracks Jobs created in the last 24 hours; terminal pod retention is handled separately from workload health.
+                labels:
+                  severity: warning
+                isPaused: false
+              # Argo Workflows are not Kubernetes Jobs. Their failed drill pods
+              # provide a bounded signal until a dedicated Workflow metric exists.
+              - uid: recent-failed-recovery-drill
+                title: RecentFailedRecoveryDrill
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        sum by (namespace, owner_name) (
+                          ((kube_pod_status_phase{namespace="backup-system",phase="Failed",pod=~"drill-.*"} == 1)
+                            and on (namespace, pod) (time() - kube_pod_created < 86400))
+                          * on (namespace, pod) group_left (owner_name)
+                            kube_pod_owner{owner_kind="Workflow",owner_is_controller="true"})
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: >-
+                    Recovery drill {{ "{{" }} $labels.owner_name }} failed
+                  description: >-
+                    Inspect the owning Workflow in backup-system and its step logs. This alert covers failures in the first 24 hours; check the drill schedule and last successful recovery separately.
                 labels:
                   severity: warning
                 isPaused: false
@@ -3465,7 +3523,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        absent(etcd_server_has_leader)
+                        absent(etcd_server_has_leader) or vector(0)
                       instant: true
                       range: false
                       refId: A
@@ -3490,14 +3548,14 @@ spec:
                         type: __expr__
                         uid: '-100'
                       expression: A
-                noDataState: NoData
+                noDataState: OK
                 execErrState: Error
                 for: 15m
                 annotations:
                   summary: >-
                     etcd is publishing no metrics at all
                   description: >-
-                    This alert exists because of how the previous gap was found. The chart's kube-etcd Service selected {component: etcd}, which matches nothing on Talos, so its Endpoints object was empty from install while the VMServiceScrape reported updateStatus: operational for 54 days -- nothing was collected, and nothing said so. If this fires the scrape is broken again: check that cluster.etcd.extraArgs.listen-metrics-urls is still set on the machineconfig (applied out-of-band via talosctl, so a node rebuilt from a stale config loses it silently) and that the VMNodeScrape control-plane selector still matches. Every other etcd rule here sits in noData when this one fires, which is why this one alerts on absence rather than on a value.
+                    The etcd leader metric has disappeared for fifteen minutes. Check that cluster.etcd.extraArgs.listen-metrics-urls is still set on the machineconfig (applied out-of-band via talosctl, so a node rebuilt from a stale config loses it silently) and that the VMNodeScrape control-plane selector still matches. Other etcd rules may have no data while this rule reports the missing scrape.
                 labels:
                   severity: warning
               - uid: etcd-no-leader
@@ -3688,21 +3746,15 @@ spec:
               # The Critical rule above cannot fire today and is not meant to:
               # Trivy's config-audit checks top out at High on this cluster, so
               # `severity="Critical"` is structurally 0 and the rule is a canary
-              # for the first one ever. That left the actual exposure -- 217 High
-              # findings -- watched by nothing at all.
-              #
-              # A delta rather than a total, for the same reason as
-              # TrivyRBACCritical below: 217 is a standing baseline, and a rule
-              # that fires on `> 0` would be firing permanently from the moment it
-              # deployed. This repo has already produced that failure once, with a
-              # Kyverno rule that sat at 23 firings per 5m until it was rekeyed.
-              # An alert that is always on is an alert that gets silenced, and a
-              # silenced alert covers nothing.
-              #
-              # Verified live 2026-09-07 before committing: the expression returns
-              # -30 (217 now against 240 24h ago), and the `offset 24h` side has
-              # data rather than resolving empty -- so a quiet day reads as a
-              # negative number, not as NoData.
+              # for the first such finding.
+              # Compare each report to its own previous value. A cluster-wide
+              # sum can rise because stale reports appeared while unrelated
+              # reports disappeared, then oscillate as rollouts retain old
+              # ReplicaSets. Normalize ReplicaSet reports to their Deployment
+              # owner and count only the active revision at each point in time.
+              # Other resource kinds retain their kind/name identity. WITH is
+              # supported by this VictoriaMetrics datasource and keeps the
+              # current and previous sides auditable.
               - uid: trivy-config-audit-high-rise
                 title: TrivyConfigAuditHighRise
                 condition: B
@@ -3713,7 +3765,27 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: '(sum(trivy_resource_configaudits{severity="High"}) or vector(0)) - (sum(trivy_resource_configaudits{severity="High"} offset 24h) or vector(0))'
+                      expr: >-
+                        WITH (
+                          current_rs = max by (exported_namespace, owner_name) (
+                            label_replace(trivy_resource_configaudits{severity="High",resource_kind="ReplicaSet"}, "replicaset", "$1", "resource_name", "(.*)")
+                            * on (exported_namespace, replicaset) group_left (owner_name)
+                              label_replace(kube_replicaset_owner{owner_kind="Deployment",owner_is_controller="true"}
+                                and on (namespace, replicaset) (kube_replicaset_spec_replicas > 0),
+                                "exported_namespace", "$1", "namespace", "(.*)")),
+                          previous_rs = max by (exported_namespace, owner_name) (
+                            label_replace(trivy_resource_configaudits{severity="High",resource_kind="ReplicaSet"} offset 24h, "replicaset", "$1", "resource_name", "(.*)")
+                            * on (exported_namespace, replicaset) group_left (owner_name)
+                              label_replace((kube_replicaset_owner{owner_kind="Deployment",owner_is_controller="true"} offset 24h)
+                                and on (namespace, replicaset) (kube_replicaset_spec_replicas offset 24h > 0),
+                                "exported_namespace", "$1", "namespace", "(.*)")),
+                          current_other = sum by (exported_namespace, resource_kind, resource_name) (trivy_resource_configaudits{severity="High",resource_kind!="ReplicaSet"}),
+                          previous_other = sum by (exported_namespace, resource_kind, resource_name) (trivy_resource_configaudits{severity="High",resource_kind!="ReplicaSet"} offset 24h),
+                          current = current_rs or current_other,
+                          previous = previous_rs or previous_other
+                        )
+                        (current - on (exported_namespace, owner_name, resource_kind, resource_name)
+                          (previous or on (exported_namespace, owner_name, resource_kind, resource_name) current * 0)) > 0
                       instant: true
                       range: false
                       refId: A
@@ -3743,9 +3815,9 @@ spec:
                 for: 30m
                 annotations:
                   summary: >-
-                    New HIGH config-audit findings appeared in the last 24h
+                    HIGH config-audit findings increased on {{ "{{" }} if $labels.owner_name }}Deployment {{ "{{" }} $labels.exported_namespace }}/{{ "{{" }} $labels.owner_name }}{{ "{{" }} else }}{{ "{{" }} $labels.resource_kind }} {{ "{{" }} $labels.exported_namespace }}/{{ "{{" }} $labels.resource_name }}{{ "{{" }} end }}
                   description: >-
-                    Fires on a RISE, not the total. The standing population was 217 on 2026-09-07 and is expected to move as workloads change; a positive delta means new workload misconfiguration landed since yesterday, which usually arrives with a chart bump rather than a hand edit. Find it with `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp` and read `.report.checks[] | select(.severity == "HIGH")`; the report is named after the workload it covers. Concentrations as of writing: longhorn-system 52, monitoring 32, kube-system 28, velero 23.
+                    Compare this workload's current ConfigAuditReport with its report from 24 hours ago; inspect `.report.checks[] | select(.severity == "HIGH")`. ReplicaSet findings are attributed to the active Deployment revision so a rollout does not count retained reports as new findings.
                 labels:
                   severity: warning
                 isPaused: false

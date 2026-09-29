@@ -154,7 +154,7 @@ flowchart TD
     B["cve-alert-state ConfigMap"] <--> C
     C --> V[("VictoriaMetrics")]
     V --> D["Critical / High standing findings"]
-    D --> N["One compact daily Telegram digest"]
+    D --> N["One grouped Telegram backlog, weekly if unchanged"]
     V --> E["New Critical identity / new available fix"]
     E --> P["Prompt CVE change notification"]
     V --> H["Inventory stale or never reported"]
@@ -177,7 +177,7 @@ newly disclosed upstream.
 
 Missing reports retain known identities for 30 days and cannot resolve them.
 Only a present report can show a finding has disappeared. Counts in the standing
-digest describe current, available scoped reports; raw historical reports remain
+backlog describe current, available scoped reports; raw historical reports remain
 in the dashboard. API, parsing or state errors abort rather than replace the
 baseline. The state ConfigMap has an 850 KB limit: exceeding it fails visibly and
 preserves the previous state. Its JSON is owned by the job; Flux owns only the
@@ -188,17 +188,20 @@ five-minute job pushes metrics directly to VictoriaMetrics; queries use a
 ten-minute window to cover the cadence. `ImageCVEInventoryStale` warns after 15
 minutes without a successful publication (with a five-minute confirmation), or
 when no run has ever reported. A delivery outage exceeding the event window can
-lose individual change notifications; the stale warning and standing digest
+lose individual change notifications; the stale warning and standing backlog
 remain the recovery signals. Deleting the state ConfigMap reseeds quietly, so
 its loss also loses prior change history.
 
 Grafana inventory rules evaluate every minute in their own group. The existing
 raw Trivy rules retain their separate evaluation cadence. Rules and routes are
-declarative. `ImageCriticalCVE` and `ImageHighCVE`
-share a dedicated `Telegram CVE` contact point and a 24-hour group/repeat interval.
-High image digests already covered by Critical are excluded. The plain-text
-template shows at most 12 groups and links to the complete Trivy findings and
-dependency dashboard. Counts use query A, not the boolean alert condition.
+declarative. `ImageCriticalCVE` and `ImageHighCVE` share a dedicated `Telegram CVE`
+contact point. The same digest deployed in several namespaces occupies one
+standing notification row; its displayed count is the largest per-namespace
+unique-CVE count, not a sum of duplicate deployments. High image digests already
+covered by Critical are excluded. New groups can notify within a day; an
+unchanged backlog repeats weekly. The plain-text template shows at most 12
+groups and links to the complete Trivy findings and dependency dashboard.
+Counts use query A, not the boolean alert condition.
 `ImageNewCriticalCVE` and `ImageCVEFixAvailable` use a separate change route with a
 ten-minute group interval; new event IDs allow another change on the same image
 to notify. CVE resolutions are silent. Operational Critical alerts retain their
