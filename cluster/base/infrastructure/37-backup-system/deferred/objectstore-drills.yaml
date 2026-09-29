@@ -1,11 +1,7 @@
-# Offline/manual copy of the Flux-managed drill ObjectStores in
-# cluster/base/infrastructure/37-backup-system/deferred/objectstore-drills.yaml.
-# Normal scheduled drills need no manual setup. During disaster recovery when
-# Flux is unavailable, apply this copy before submitting a restore:
-#
-#   kubectl apply  -f docs/runbooks/recovery/objectstores.yaml
-#
-# Do not delete these from a healthy cluster: its scheduled drills use them.
+# Archive sources for the scheduled PITR and AWS restore drills. These must
+# exist before the CronWorkflows start: barman-cloud holds the scratch Cluster
+# in pre-reconciliation when its named ObjectStore is missing. Keep them under
+# Flux ownership so an unattended drill can recover without manual setup.
 #
 # restore-archive  the LIVE barman archive, s3://recovery/postgres/, for point-in-time
 #                  recovery (route A). Only ever read: a restore cluster names no

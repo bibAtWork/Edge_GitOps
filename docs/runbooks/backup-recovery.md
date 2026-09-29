@@ -223,7 +223,7 @@ extensions:
 Renovate moves the images; check the source's `spec.imageName` rather than trusting this table.
 
 ```bash
-kubectl apply -f docs/runbooks/recovery/objectstores.yaml   # restore-archive (A), restore-aws (C)
+kubectl apply -f docs/runbooks/recovery/objectstores.yaml   # only if Flux has not provisioned restore-archive (A) and restore-aws (C)
 ```
 
 ### Route A: a moment in time
@@ -493,10 +493,8 @@ which carries the actual steps.
 | [`drill-pitr.yaml`](recovery/drill-pitr.yaml) | route A: Keycloak thirty minutes back, from the live archive |
 
 ```bash
-kubectl apply -f docs/runbooks/recovery/objectstores.yaml
 kubectl create -f docs/runbooks/recovery/drill-filer-aws.yaml
 kubectl get workflows -n backup-system -l recovery-scratch=true
-kubectl delete -f docs/runbooks/recovery/objectstores.yaml    # once they are done
 ```
 
 Run them at least quarterly, and read their output, not just their phase.
