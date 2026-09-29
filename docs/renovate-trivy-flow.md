@@ -192,7 +192,9 @@ lose individual change notifications; the stale warning and standing digest
 remain the recovery signals. Deleting the state ConfigMap reseeds quietly, so
 its loss also loses prior change history.
 
-Grafana rules and routes are declarative. `ImageCriticalCVE` and `ImageHighCVE`
+Grafana inventory rules evaluate every minute in their own group. The existing
+raw Trivy rules retain their separate evaluation cadence. Rules and routes are
+declarative. `ImageCriticalCVE` and `ImageHighCVE`
 share a dedicated `Telegram CVE` contact point and a 24-hour group/repeat interval.
 High image digests already covered by Critical are excluded. The plain-text
 template shows at most 12 groups and links to the complete Trivy findings and
