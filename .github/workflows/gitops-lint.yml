@@ -142,3 +142,5 @@ jobs:
       - uses: actions/checkout@v7
       - name: Run the unit tests for scripts/ci
         run: python3 -m unittest discover -s scripts/ci/tests -v
+      - name: Test resource accounting
+        run: python3 scripts/test-resource-overcommit.py
