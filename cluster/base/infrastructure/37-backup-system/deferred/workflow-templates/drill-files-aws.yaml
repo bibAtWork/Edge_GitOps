@@ -24,6 +24,9 @@ spec:
   volumes:
     - name: tmp
       emptyDir: {}
+    - name: policy
+      configMap:
+        name: recovery-policy
   templates:
     - name: main
       steps:
