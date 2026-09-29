@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-alert-state
+  namespace: monitoring
+  annotations:
+    homelab.local/recovery: reconstructable
+    homelab.local/recovery-reason: >-
+      Alert evaluation and notification history survive pod replacement on the
+      same node. Configuration is provisioned from Git. Losing the node or claim
+      loses silences, preferences and deduplication history; alerts notify again.
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
