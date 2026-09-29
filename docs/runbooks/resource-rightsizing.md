@@ -50,3 +50,40 @@ quantile_over_time(0.95,
 
 Compare them with `sum(kube_pod_container_resource_requests{resource="cpu"})`
 and `sum(kube_pod_container_resource_requests{resource="memory"})` respectively.
+
+## 2026-09-29 live commitment snapshot
+
+The earlier baseline is a seven-day *usage* measurement. To compare the
+resources held by today's pods with node allocatable capacity, run:
+
+```sh
+python3 scripts/resource-overcommit.py
+python3 scripts/resource-overcommit.py --usage
+```
+
+The report reads scheduled, nonterminal Pods from the Kubernetes API. It counts
+application containers, restartable init containers, the peak of ordinary init
+containers, and Pod overhead. It excludes finished Pods, whose resource series
+can linger in VictoriaMetrics, and prints `kubectl describe node` accounting as
+a cross-check. On this single-node profile, the 2026-09-29 18:49 UTC snapshot
+agreed with that node's reported totals:
+
+| Resource | Requests | Limits | Allocatable | Requests / allocatable | Limits / allocatable |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Memory | 12.28 GiB | 39.70 GiB | 30.43 GiB | 40% | 130% |
+| CPU | 5.05 cores | 10.10 cores | 11.95 cores | 42% | 85% |
+
+The memory limit total is a ceiling if containers peak together, not measured
+usage or an imminent OOM. The old 121% and 164% figures were produced on
+different dates with metrics that could include finished Pods or duplicate
+scrapes; neither is a comparable live commitment figure. This snapshot changes
+as workloads roll or settings change.
+For a multi-node profile, compare each node separately before judging placement
+headroom; a cluster-wide sum can hide one full node.
+
+`--usage` adds seven-day per-Pod/container p95 and maximum memory use. It keeps
+Pods separate even when containers share the same name, and reports containers
+without usage samples as unknown rather than as unused capacity. Treat its
+limit-to-peak gaps as candidates for the decision rules above, never as an
+automatic reduction budget. The complete seven-day baseline still needs a
+window that includes backup, scanning and upgrade activity.

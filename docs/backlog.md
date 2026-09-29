@@ -96,6 +96,9 @@ deferral, not a missing step in the existing promotion contract.
 baseline showed CPU request headroom and limited aggregate memory-request margin;
 it does not authorize blanket reductions. Retiring KubeOpenCode and correcting
 Trivy scan capacity changed the baseline again.
+The [2026-09-29 live commitment snapshot](runbooks/resource-rightsizing.md#2026-09-29-live-commitment-snapshot)
+reconciles limits and requests with node accounting; it does not replace the
+complete seven-day usage window needed for a rightsizing decision.
 
 Collect a new complete seven-day window, including backup, scan and upgrade Jobs.
 Rank remaining workloads by request-to-p95 ratio, then change one at a time with
