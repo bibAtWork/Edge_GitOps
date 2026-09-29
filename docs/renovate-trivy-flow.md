@@ -206,8 +206,9 @@ six-hour cadence, including `ImageExposedSecret`.
 
 Grafana stores its database, alert evaluation state, silences and notification
 deduplication on the 1 GiB `monitoring/grafana-alert-state` local-path claim.
-Evaluation state is saved every minute; notification state is also saved on
-graceful shutdown. The Deployment uses `Recreate` so two replicas never write
+The pinned Grafana version synchronously saves compressed evaluation state
+after rule evaluation; inventory rules evaluate every minute. Notification state
+is saved periodically and on graceful shutdown. The Deployment uses `Recreate` so two replicas never write
 SQLite concurrently. Rollouts briefly interrupt the single Grafana instance.
 Downloaded dashboards and plugins remain on `emptyDir`, with dashboard files
 provisioned from Git, so removing a dashboard also removes its disk copy on the
@@ -220,6 +221,24 @@ silences and preferences; configuration is rebuilt from Git and ongoing alerts
 can notify again. Deleting the claim on a healthy node also deletes its local
 data. Unexpected crashes can lose the most recent unsaved state. The first
 migration from ephemeral storage creates a fresh database and notification log.
+
+If an existing Deployment retains Kubernetes-defaulted `rollingUpdate` fields,
+the transition to `Recreate` can fail validation and Helm rolls back. Clear both
+fields in one merge patch before resetting Helm reconciliation. Save this JSON
+to a temporary patch file (outside Git):
+
+```json
+{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}
+```
+
+Run `kubectl patch deployment grafana -n monitoring --type=merge --patch-file
+<file> --dry-run=server` first, then apply the same patch without the dry-run and
+run `flux reconcile helmrelease grafana -n monitoring --reset`. This changes only
+the rollout strategy to the state already declared in Git. Verify the claim is
+Bound, `GF_PATHS_DATA` is `/var/lib/grafana-state`, and the HelmRelease is Ready.
+A subsequent rollout should warm the state cache from the database and retain
+existing alert timestamps, without repeating an unchanged CVE digest.
+
 
 The collector runs without Telegram credentials or internet calls. RBAC permits
 reading reports/workloads and patching only `monitoring/cve-alert-state`; it
