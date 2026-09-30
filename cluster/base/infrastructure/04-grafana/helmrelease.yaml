@@ -228,6 +228,9 @@ spec:
           # Keep this compact dashboard in Git with the actual datasource UID.
           # The operator's scrape adds namespace=trivy-system; workload
           # namespaces are exposed under exported_namespace.
+          # Raw trivy_image_vulnerabilities series include repeated and inactive
+          # reports. Use the active CVE inventory for image findings, collapsing
+          # the same digest deployed in multiple namespaces for cluster totals.
           json: |
             {
               "annotations": {"list": []},
@@ -236,11 +239,11 @@ spec:
               "panels": [
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "description": "Sum of vulnerability findings across current Trivy reports. A digest deployed more than once is counted in each report.",
+                  "description": "Critical image/CVE findings for active workloads, counted once per image digest across namespaces. See inventory age below before treating this as current.",
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
-                  "id": 1, "title": "Vulnerability findings", "type": "stat",
-                  "targets": [{"expr": "sum(trivy_image_vulnerabilities)", "refId": "A"}]
+                  "id": 1, "title": "Active Critical image findings", "type": "stat",
+                  "targets": [{"expr": "sum(max by (image_registry, image_repository, image_digest) (cve_inventory_image_findings{severity=\"Critical\"}))", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -267,8 +270,8 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
-                  "id": 5, "title": "Vulnerabilities by severity", "type": "timeseries",
-                  "targets": [{"expr": "sum by (severity) (trivy_image_vulnerabilities)", "legendFormat": "{{severity}}", "refId": "A"}]
+                  "id": 5, "title": "Active High/Critical image findings by severity", "type": "timeseries",
+                  "targets": [{"expr": "sum by (severity) (max by (image_registry, image_repository, image_digest, severity) (cve_inventory_image_findings))", "legendFormat": "{{severity}}", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -281,8 +284,8 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-                  "id": 7, "title": "Vulnerabilities by workload namespace", "type": "timeseries",
-                  "targets": [{"expr": "sum by (exported_namespace) (trivy_image_vulnerabilities)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
+                  "id": 7, "title": "Active High/Critical image findings by namespace", "type": "timeseries",
+                  "targets": [{"expr": "sum by (exported_namespace) (cve_inventory_image_findings)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -305,8 +308,16 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
-                  "id": 10, "title": "Critical findings by image", "type": "table",
-                  "targets": [{"expr": "sum by (image_repository, image_tag) (trivy_image_vulnerabilities{severity=\"Critical\"})", "format": "table", "instant": true, "refId": "A"}]
+                  "id": 10, "title": "Active Critical findings by image", "type": "table",
+                  "targets": [{"expr": "sum by (image_repository) (max by (image_repository, image_digest) (cve_inventory_image_findings{severity=\"Critical\"}))", "format": "table", "instant": true, "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "description": "Seconds since the active CVE inventory last completed successfully. A rising age means the findings may be stale.",
+                  "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 0, "y": 28},
+                  "id": 11, "title": "CVE inventory age", "type": "stat",
+                  "targets": [{"expr": "time() - cve_inventory_last_success_timestamp", "refId": "A"}]
                 }
               ],
               "refresh": "5m",
