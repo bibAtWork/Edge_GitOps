@@ -3319,6 +3319,8 @@ spec:
                 isPaused: false
               # Argo Workflows can fail before any pod is created. The controller
               # outcome counter covers those errors as well as failed steps.
+              # Ignore the first observed value: it may include failures that
+              # predate the scrape and must not page as new events.
               - uid: recent-failed-recovery-workflow
                 title: RecentFailedRecoveryWorkflow
                 condition: B
@@ -3330,7 +3332,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        sum(increase(argo_workflows_total_count{namespace="backup-system",phase="Failed"}[1h])) or vector(0)
+                        sum(increase_prometheus(argo_workflows_total_count{namespace="backup-system",phase="Failed"}[1h])) or vector(0)
                       instant: true
                       range: false
                       refId: A
