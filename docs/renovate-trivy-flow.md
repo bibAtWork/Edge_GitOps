@@ -207,6 +207,15 @@ ten-minute group interval; new event IDs allow another change on the same image
 to notify. CVE resolutions are silent. Operational Critical alerts retain their
 six-hour cadence, including `ImageExposedSecret`.
 
+Grafana sends these messages through the Telegram Bot API as `homelab-minion`.
+The bot name identifies the sender, not another Grafana alert rule. As checked on
+2026-09-30, both `ImageCriticalCVE` and `ImageHighCVE` match the single grouped
+digest route even when many alert instances are active.
+The older message title `Trivy: images with an active Critical CVE` does not
+match any currently provisioned Grafana rule. When investigating another noisy
+message, compare Grafana's live alert rules, active Alertmanager instances and
+notification policy with the provisioned files before changing route timing.
+
 Grafana stores its database, alert evaluation state, silences and notification
 deduplication on the 1 GiB `monitoring/grafana-alert-state` local-path claim.
 The pinned Grafana version synchronously saves compressed evaluation state
