@@ -77,21 +77,10 @@ spec:
               path: /var/lib/grafana/dashboards/default
     dashboards:
       default:
+        # These dashboards keep the UIDs of the former Grafana.com imports so
+        # saved links survive. Their old selectors required absent labels or
+        # recording rules; the local versions query the metrics we scrape.
         node-exporter:
-          gnetId: 1860
-          revision: 37
-          datasource: VictoriaMetrics
-        cilium-hubble:
-          gnetId: 16611
-          revision: 1
-          datasource: VictoriaMetrics
-        trivy-operator:
-          # The Grafana.com import keeps ${DS_PROMETHEUS} in nested datasource
-          # objects. The chart's datasource rewrite only handles single-line
-          # string fields, so every imported panel had an unresolved UID.
-          # Keep this compact dashboard in Git with the actual datasource UID.
-          # The operator's scrape adds namespace=trivy-system; workload
-          # namespaces are exposed under exported_namespace.
           json: |
             {
               "annotations": {"list": []},
@@ -100,11 +89,161 @@ spec:
               "panels": [
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "description": "Sum of vulnerability findings across current Trivy reports. A digest deployed more than once is counted in each report.",
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+                  "id": 1, "title": "Node exporter targets", "type": "stat",
+                  "targets": [{"expr": "sum(up{job=\"node-exporter\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+                  "id": 2, "title": "CPU busy", "type": "stat",
+                  "targets": [{"expr": "100*(1-avg(rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[5m])))", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+                  "id": 3, "title": "Memory used", "type": "stat",
+                  "targets": [{"expr": "100*(1-node_memory_MemAvailable_bytes{job=\"node-exporter\"}/node_memory_MemTotal_bytes{job=\"node-exporter\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 4, "title": "CPU busy by core", "type": "timeseries",
+                  "targets": [{"expr": "100*(1-rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[5m]))", "refId": "A", "legendFormat": "{{cpu}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 5, "title": "Memory used", "type": "timeseries",
+                  "targets": [{"expr": "node_memory_MemTotal_bytes{job=\"node-exporter\"}-node_memory_MemAvailable_bytes{job=\"node-exporter\"}", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+                  "id": 6, "title": "Filesystem used", "type": "timeseries",
+                  "targets": [{"expr": "100*(1-node_filesystem_avail_bytes{job=\"node-exporter\",fstype!~\"tmpfs|overlay\"}/node_filesystem_size_bytes{job=\"node-exporter\",fstype!~\"tmpfs|overlay\"})", "refId": "A", "legendFormat": "{{mountpoint}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+                  "id": 7, "title": "Top disk throughput", "type": "timeseries",
+                  "targets": [{"expr": "topk(5,sum by(device)(rate(node_disk_read_bytes_total{job=\"node-exporter\"}[5m])+rate(node_disk_written_bytes_total{job=\"node-exporter\"}[5m])))", "refId": "A", "legendFormat": "{{device}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+                  "id": 8, "title": "Top network throughput", "type": "timeseries",
+                  "targets": [{"expr": "topk(5,sum by(device)(rate(node_network_receive_bytes_total{job=\"node-exporter\"}[5m])+rate(node_network_transmit_bytes_total{job=\"node-exporter\"}[5m])))", "refId": "A", "legendFormat": "{{device}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+                  "id": 9, "title": "CPU pressure", "type": "timeseries",
+                  "targets": [{"expr": "100*rate(node_pressure_cpu_waiting_seconds_total{job=\"node-exporter\"}[5m])", "refId": "A"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["node-exporter", "infrastructure"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Node Exporter Full",
+              "uid": "rYdddlPWk",
+              "version": 1
+            }
+        cilium-hubble:
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 0, "y": 0},
+                  "id": 1, "title": "Agent targets", "type": "stat",
+                  "targets": [{"expr": "sum(up{job=\"monitoring/cilium-agent\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+                  "id": 2, "title": "Managed endpoints", "type": "stat",
+                  "targets": [{"expr": "sum(cilium_endpoint_state)", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 3, "title": "Errors and warnings", "type": "timeseries",
+                  "targets": [{"expr": "sum by(level)(rate(cilium_errors_warnings_total[5m]))", "refId": "A", "legendFormat": "{{level}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 4, "title": "Agent CPU", "type": "timeseries",
+                  "targets": [{"expr": "sum by(pod)(rate(cilium_process_cpu_seconds_total[5m]))", "refId": "A", "legendFormat": "{{pod}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+                  "id": 5, "title": "Agent memory", "type": "timeseries",
+                  "targets": [{"expr": "sum by(pod)(cilium_process_resident_memory_bytes)", "refId": "A", "legendFormat": "{{pod}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+                  "id": 6, "title": "Packet drops by reason", "type": "timeseries",
+                  "targets": [{"expr": "sum by(reason)(rate(cilium_drop_count_total[5m]))", "refId": "A", "legendFormat": "{{reason}}"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["cilium", "network"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Cilium Agent Metrics",
+              "uid": "vtuWtdumz",
+              "version": 1
+            }
+        trivy-operator:
+          # The Grafana.com import keeps ${DS_PROMETHEUS} in nested datasource
+          # objects. The chart's datasource rewrite only handles single-line
+          # string fields, so every imported panel had an unresolved UID.
+          # Keep this compact dashboard in Git with the actual datasource UID.
+          # The operator's scrape adds namespace=trivy-system; workload
+          # namespaces are exposed under exported_namespace.
+          # Raw trivy_image_vulnerabilities series include repeated and inactive
+          # reports. Use the active CVE inventory for image findings, collapsing
+          # the same digest deployed in multiple namespaces for cluster totals.
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "description": "Critical image/CVE findings for active workloads, counted once per image digest across namespaces. See inventory age below before treating this as current.",
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
-                  "id": 1, "title": "Vulnerability findings", "type": "stat",
-                  "targets": [{"expr": "sum(trivy_image_vulnerabilities)", "refId": "A"}]
+                  "id": 1, "title": "Active Critical image findings", "type": "stat",
+                  "targets": [{"expr": "sum(max by (image_registry, image_repository, image_digest) (cve_inventory_image_findings{severity=\"Critical\"}))", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -131,8 +270,8 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
-                  "id": 5, "title": "Vulnerabilities by severity", "type": "timeseries",
-                  "targets": [{"expr": "sum by (severity) (trivy_image_vulnerabilities)", "legendFormat": "{{severity}}", "refId": "A"}]
+                  "id": 5, "title": "Active High/Critical image findings by severity", "type": "timeseries",
+                  "targets": [{"expr": "sum by (severity) (max by (image_registry, image_repository, image_digest, severity) (cve_inventory_image_findings))", "legendFormat": "{{severity}}", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -145,8 +284,8 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-                  "id": 7, "title": "Vulnerabilities by workload namespace", "type": "timeseries",
-                  "targets": [{"expr": "sum by (exported_namespace) (trivy_image_vulnerabilities)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
+                  "id": 7, "title": "Active High/Critical image findings by namespace", "type": "timeseries",
+                  "targets": [{"expr": "sum by (exported_namespace) (cve_inventory_image_findings)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -169,8 +308,16 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
-                  "id": 10, "title": "Critical findings by image", "type": "table",
-                  "targets": [{"expr": "sum by (image_repository, image_tag) (trivy_image_vulnerabilities{severity=\"Critical\"})", "format": "table", "instant": true, "refId": "A"}]
+                  "id": 10, "title": "Active Critical findings by image", "type": "table",
+                  "targets": [{"expr": "sum by (image_repository) (max by (image_repository, image_digest) (cve_inventory_image_findings{severity=\"Critical\"}))", "format": "table", "instant": true, "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "description": "Seconds since the active CVE inventory last completed successfully. A rising age means the findings may be stale.",
+                  "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 0, "y": 28},
+                  "id": 11, "title": "CVE inventory age", "type": "stat",
+                  "targets": [{"expr": "time() - cve_inventory_last_success_timestamp", "refId": "A"}]
                 }
               ],
               "refresh": "5m",
@@ -183,44 +330,238 @@ spec:
               "uid": "ycwPj724k",
               "version": 1
             }
-        # Backlog item 13 / ADR-001 "not yet realized": Envoy Gateway's own
-        # observability. Official envoy-mixin-project dashboards, matching the
-        # two scrape targets in 02-victoriametrics-stack/scrape-configs.yaml —
-        # control plane (envoy-gateway-controller) and data plane
-        # (envoy-gateway-proxy). Both use a `job` template variable populated
-        # from label_values(), not a hardcoded job name, so they work
-        # regardless of the exact job label our scrape configs set.
+        # The former Envoy imports required a cluster label absent from both
+        # scrapes, leaving all template variables and panels empty. The local
+        # dashboards target the two explicit scrape jobs instead.
         envoy-gateway-overview:
-          gnetId: 24460
-          revision: 1
-          datasource: VictoriaMetrics
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 0, "y": 0},
+                  "id": 1, "title": "Controller targets", "type": "stat",
+                  "targets": [{"expr": "sum(up{job=\"envoy-gateway-controller\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+                  "id": 2, "title": "XDS snapshots", "type": "stat",
+                  "targets": [{"expr": "sum(xds_snapshot_update_total{job=\"envoy-gateway-controller\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 3, "title": "XDS snapshot updates by status", "type": "timeseries",
+                  "targets": [{"expr": "sum by(status)(rate(xds_snapshot_update_total{job=\"envoy-gateway-controller\"}[5m]))", "refId": "A", "legendFormat": "{{status}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 4, "title": "Resource applies by kind and status", "type": "timeseries",
+                  "targets": [{"expr": "sum by(kind,status)(resource_apply_total{job=\"envoy-gateway-controller\"})", "refId": "A", "legendFormat": "{{kind}} {{status}}"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["envoy", "gateway"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Envoy Gateway / Overview",
+              "uid": "envoy-gateway-overview-skj2",
+              "version": 1
+            }
         envoy-overview:
-          gnetId: 24459
-          revision: 3
-          datasource: VictoriaMetrics
-        # These two were already being served before the move to a stateless
-        # Grafana, from files left on the old volume by dashboard entries
-        # deleted from this list months ago. The download-dashboards init
-        # container only ever adds, so removing an entry here never removed the
-        # file, and both kept loading with nothing in Git describing them.
-        #
-        # Declared rather than dropped: they were in daily use, and the point of
-        # going stateless was to make what Grafana serves match what is written
-        # down, not to lose dashboards.
-        #
-        # gnetId 14817 is a special case worth flagging before someone
-        # "corrects" it. https://grafana.com/api/dashboards/14817 returns 404,
-        # so it looks deleted -- but the revisions/N/download endpoint the chart
-        # actually calls returns it fine. Confirmed by fetching both and
-        # comparing against the copies recovered from the old volume.
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+                  "id": 1, "title": "Proxy targets", "type": "stat",
+                  "targets": [{"expr": "sum(up{job=\"envoy-gateway-proxy\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+                  "id": 2, "title": "Active downstream connections", "type": "stat",
+                  "targets": [{"expr": "sum(envoy_http_downstream_cx_active{job=\"envoy-gateway-proxy\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+                  "id": 3, "title": "Active upstream connections", "type": "stat",
+                  "targets": [{"expr": "sum(envoy_cluster_upstream_cx_active{job=\"envoy-gateway-proxy\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 4, "title": "Downstream requests", "type": "timeseries",
+                  "targets": [{"expr": "sum(rate(envoy_http_downstream_rq_total{job=\"envoy-gateway-proxy\"}[5m]))", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 5, "title": "Responses by class", "type": "timeseries",
+                  "targets": [{"expr": "sum by(envoy_response_code_class)(rate(envoy_http_downstream_rq_xx{job=\"envoy-gateway-proxy\"}[5m]))", "refId": "A", "legendFormat": "{{envoy_response_code_class}}xx"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+                  "id": 6, "title": "Upstream requests by route", "type": "timeseries",
+                  "targets": [{"expr": "sum by(envoy_cluster_name)(rate(envoy_cluster_upstream_rq_total{job=\"envoy-gateway-proxy\"}[5m]))", "refId": "A", "legendFormat": "{{envoy_cluster_name}}"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["envoy", "gateway"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Envoy / Overview",
+              "uid": "envoy-overview-skj2",
+              "version": 1
+            }
+        # The old Node USE import depended on unconfigured recording rules and
+        # job="node"; the current scrape job is node-exporter. The Kubernetes
+        # Cluster import also queried NGINX metrics we do not export.
         node-exporter-use-method:
-          gnetId: 14817
-          revision: 1
-          datasource: VictoriaMetrics
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 0, "y": 0},
+                  "id": 1, "title": "CPU utilization", "type": "stat",
+                  "targets": [{"expr": "100*(1-avg by(instance)(rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[5m])))", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+                  "id": 2, "title": "Memory utilization", "type": "stat",
+                  "targets": [{"expr": "100*(1-node_memory_MemAvailable_bytes{job=\"node-exporter\"}/node_memory_MemTotal_bytes{job=\"node-exporter\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 3, "title": "CPU pressure", "type": "timeseries",
+                  "targets": [{"expr": "100*rate(node_pressure_cpu_waiting_seconds_total{job=\"node-exporter\"}[5m])", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 4, "title": "Memory pressure", "type": "timeseries",
+                  "targets": [{"expr": "100*rate(node_pressure_memory_waiting_seconds_total{job=\"node-exporter\"}[5m])", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+                  "id": 5, "title": "Top disk busy devices", "type": "timeseries",
+                  "targets": [{"expr": "topk(5,100*rate(node_disk_io_time_seconds_total{job=\"node-exporter\"}[5m]))", "refId": "A", "legendFormat": "{{device}}"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+                  "id": 6, "title": "Network receive drops", "type": "timeseries",
+                  "targets": [{"expr": "sum(rate(node_network_receive_drop_total{job=\"node-exporter\",device!~\"lo|veth.*\"}[5m]))", "refId": "A"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["node-exporter", "infrastructure"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Node Exporter - USE Method / Node",
+              "uid": "f08816e4-7ea8-466d-a5a3-43284c947cfd",
+              "version": 1
+            }
         kubernetes-cluster:
-          gnetId: 7249
-          revision: 1
-          datasource: VictoriaMetrics
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+                  "id": 1, "title": "Ready nodes", "type": "stat",
+                  "targets": [{"expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+                  "id": 2, "title": "Running pods", "type": "stat",
+                  "targets": [{"expr": "sum(kube_pod_status_phase{phase=\"Running\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+                  "id": 3, "title": "Unavailable deployment replicas", "type": "stat",
+                  "targets": [{"expr": "sum(kube_deployment_status_replicas_unavailable)", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+                  "id": 4, "title": "Failed pods", "type": "stat",
+                  "targets": [{"expr": "sum(kube_pod_status_phase{phase=\"Failed\"})", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 5, "title": "Container CPU usage", "type": "timeseries",
+                  "targets": [{"expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\",image!=\"\"}[5m]))", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 6, "title": "Container memory working set", "type": "timeseries",
+                  "targets": [{"expr": "sum(container_memory_working_set_bytes{container!=\"\",image!=\"\"})", "refId": "A"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["kubernetes", "infrastructure"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Kubernetes Cluster",
+              "uid": "os6Bh8Omk",
+              "version": 1
+            }
         resource-efficiency:
           json: |
             {
