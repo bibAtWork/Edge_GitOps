@@ -43,9 +43,9 @@ spec:
               # hung scan. With concurrencyPolicy: Forbid this was on track to
               # block every future Sunday run too. quay.io/kubescape/kubescape-cli
               # is the actual one-shot CLI image (Entrypoint: ["kubescape"],
-              # confirmed via the image manifest); bumped to v3.0.39 (latest at
-              # time of fix) rather than re-pinning the stale v3.0.22 tag.
-              image: quay.io/kubescape/kubescape-cli:v3.0.48
+              # confirmed via the image manifest). The v4.0.13 one-shot scan
+              # and its Prometheus output were verified with a live canary.
+              image: quay.io/kubescape/kubescape-cli:v4.0.13
               args:
                 - scan
                 - framework
@@ -56,8 +56,9 @@ spec:
                 # rather than a 3.3MB JSON document.
                 - --format
                 - prometheus
-                # NOT /dev/stdout. kubescape APPENDS `.json` to whatever --output
-                # is given, so an earlier revision produced `/dev/stdout.json` and
+                # NOT /dev/stdout. Kubescape appends a format-dependent extension
+                # to --output (v4 Prometheus output uses `.txt`), so an earlier
+                # revision produced `/dev/stdout.json` and
                 # failed with "permission denied" -- confirmed in the job's own
                 # logs on 2026-09-04. It then fell back to dumping a report into
                 # the log stream interleaved with its own JSON log lines, where
@@ -93,7 +94,8 @@ spec:
                 - -c
                 - |
                   set -eu
-                  SRC=/work/metrics
+                  # Kubescape v4 saves --format prometheus at --output + .txt.
+                  SRC=/work/metrics.txt
 
                   if [ ! -s "$SRC" ]; then
                     echo "ERROR: $SRC missing or empty -- the scan produced nothing" >&2
