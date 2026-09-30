@@ -3367,10 +3367,10 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
-              # Argo Workflows can fail before any pod is created. The controller
-              # outcome counter covers those errors as well as failed steps.
-              # Ignore the first observed value: it may include failures that
-              # predate the scrape and must not page as new events.
+              # Argo Workflows can enter Error before any pod is created, or
+              # Failed after a step fails. VictoriaMetrics increase() counts a
+              # newly appearing phase series at its first observed value; the
+              # Prometheus-compatible variant misses the first Error event.
               - uid: recent-failed-recovery-workflow
                 title: RecentFailedRecoveryWorkflow
                 condition: B
@@ -3382,7 +3382,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        sum(increase_prometheus(argo_workflows_total_count{namespace="backup-system",phase="Failed"}[1h])) or vector(0)
+                        sum(increase(argo_workflows_total_count{namespace="backup-system",phase=~"Failed|Error"}[1h])) or vector(0)
                       instant: true
                       range: false
                       refId: A
@@ -3412,9 +3412,9 @@ spec:
                 for: 1m
                 annotations:
                   summary: >-
-                    A recovery Workflow failed in the last hour
+                    A recovery Workflow failed or errored in the last hour
                   description: >-
-                    Inspect recent Workflows in backup-system and their failed step messages. The Argo controller outcome counter detects failures even when no pod was created; this alert resolves after the one-hour window instead of repeating for retained history.
+                    Inspect recent Workflows in backup-system and their terminal messages. The Argo controller outcome counter detects both pre-pod Errors and failed steps; this alert resolves after the one-hour window instead of repeating for retained history.
                 labels:
                   severity: warning
                 isPaused: false
