@@ -37,7 +37,7 @@ class EvidenceVolume(unittest.TestCase):
         rules = {r["uid"]: r for g in release["spec"]["values"]["alerting"]["rules.yaml"]["groups"]
                  for r in g["rules"]}
         expr = rules["recent-failed-recovery-workflow"]["data"][0]["model"]["expr"]
-        self.assertIn('increase_prometheus(argo_workflows_total_count{namespace="backup-system",phase="Failed"}[1h])', expr)
+        self.assertIn('increase(argo_workflows_total_count{namespace="backup-system",phase=~"Failed|Error"}[1h])', expr)
         self.assertNotIn("kube_pod_status_phase", expr)
         for overlay in ("1-node", "3-node"):
             patch = yaml.safe_load((ROOT / f"cluster/overlays/{overlay}/patches/grafana-telegram.yaml").read_text(encoding="utf-8"))
