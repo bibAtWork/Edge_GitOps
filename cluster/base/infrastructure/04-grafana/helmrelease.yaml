@@ -3036,6 +3036,56 @@ spec:
                 labels:
                   severity: critical
                 isPaused: false
+              # VMAlert evaluates the upstream Deployment mismatch rule but its
+              # notifier is a blackhole here. Grafana must watch the operator
+              # that builds vmagent's scrape configuration; a crash loop leaves
+              # existing targets running while new scrape changes silently stall.
+              - uid: victoria-metrics-operator-unavailable
+                title: VictoriaMetricsOperatorUnavailable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(kube_deployment_status_replicas_available{namespace="monitoring",deployment="vmstack-victoria-metrics-operator"}) or vector(0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 10m
+                annotations:
+                  summary: >-
+                    VictoriaMetrics operator is unavailable
+                  description: >-
+                    The operator Deployment has no available replica, or kube-state-metrics no longer reports it. New scrape and alert configuration will not reconcile even though existing targets may still work. Check `kubectl -n monitoring get deploy vmstack-victoria-metrics-operator` and its pod logs, then verify the operator CRDs match the installed image.
+                labels:
+                  severity: critical
+                isPaused: false
               - uid: gateway-component-unavailable
                 title: GatewayComponentUnavailable
                 condition: B
