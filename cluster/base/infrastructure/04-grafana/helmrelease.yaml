@@ -86,9 +86,103 @@ spec:
           revision: 1
           datasource: VictoriaMetrics
         trivy-operator:
-          gnetId: 17813
-          revision: 1
-          datasource: VictoriaMetrics
+          # The Grafana.com import keeps ${DS_PROMETHEUS} in nested datasource
+          # objects. The chart's datasource rewrite only handles single-line
+          # string fields, so every imported panel had an unresolved UID.
+          # Keep this compact dashboard in Git with the actual datasource UID.
+          # The operator's scrape adds namespace=trivy-system; workload
+          # namespaces are exposed under exported_namespace.
+          json: |
+            {
+              "annotations": {"list": []},
+              "editable": true,
+              "graphTooltip": 1,
+              "panels": [
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "description": "Sum of vulnerability findings across current Trivy reports. A digest deployed more than once is counted in each report.",
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+                  "id": 1, "title": "Vulnerability findings", "type": "stat",
+                  "targets": [{"expr": "sum(trivy_image_vulnerabilities)", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+                  "id": 2, "title": "Config audit findings", "type": "stat",
+                  "targets": [{"expr": "sum(trivy_resource_configaudits)", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+                  "id": 3, "title": "RBAC findings", "type": "stat",
+                  "targets": [{"expr": "sum(trivy_role_rbacassessments) + sum(trivy_clusterrole_clusterrbacassessments)", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+                  "id": 4, "title": "Exposed secret findings", "type": "stat",
+                  "targets": [{"expr": "sum(trivy_image_exposedsecrets)", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+                  "id": 5, "title": "Vulnerabilities by severity", "type": "timeseries",
+                  "targets": [{"expr": "sum by (severity) (trivy_image_vulnerabilities)", "legendFormat": "{{severity}}", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+                  "id": 6, "title": "Config audits by severity", "type": "timeseries",
+                  "targets": [{"expr": "sum by (severity) (trivy_resource_configaudits)", "legendFormat": "{{severity}}", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+                  "id": 7, "title": "Vulnerabilities by workload namespace", "type": "timeseries",
+                  "targets": [{"expr": "sum by (exported_namespace) (trivy_image_vulnerabilities)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+                  "id": 8, "title": "Config audits by workload namespace", "type": "timeseries",
+                  "targets": [{"expr": "sum by (exported_namespace) (trivy_resource_configaudits)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+                  "id": 9, "title": "RBAC findings by severity", "type": "timeseries",
+                  "targets": [
+                    {"expr": "sum by (severity) (trivy_role_rbacassessments)", "legendFormat": "Role {{severity}}", "refId": "A"},
+                    {"expr": "sum by (severity) (trivy_clusterrole_clusterrbacassessments)", "legendFormat": "ClusterRole {{severity}}", "refId": "B"}
+                  ]
+                },
+                {
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+                  "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+                  "id": 10, "title": "Critical findings by image", "type": "table",
+                  "targets": [{"expr": "sum by (image_repository, image_tag) (trivy_image_vulnerabilities{severity=\"Critical\"})", "format": "table", "instant": true, "refId": "A"}]
+                }
+              ],
+              "refresh": "5m",
+              "schemaVersion": 39,
+              "tags": ["trivy", "security", "operator"],
+              "templating": {"list": []},
+              "time": {"from": "now-24h", "to": "now"},
+              "timezone": "browser",
+              "title": "Trivy Operator Dashboard",
+              "uid": "ycwPj724k",
+              "version": 1
+            }
         # Backlog item 13 / ADR-001 "not yet realized": Envoy Gateway's own
         # observability. Official envoy-mixin-project dashboards, matching the
         # two scrape targets in 02-victoriametrics-stack/scrape-configs.yaml —
