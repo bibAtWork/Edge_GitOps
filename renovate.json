@@ -363,6 +363,11 @@
       "groupName": "victoria-metrics"
     },
     {
+      "description": "The VictoriaMetrics operator image can require CRDs that only a newer stack chart supplies. Review operator image updates before they merge; other images in the chart keep their normal update path.",
+      "matchPackageNames": ["victoriametrics/operator"],
+      "addLabels": ["manual-review"]
+    },
+    {
       "description": "Move the grafana chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
       "matchFileNames": [
         "cluster/base/infrastructure/04-grafana/helmrelease.yaml"
