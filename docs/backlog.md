@@ -139,12 +139,12 @@ for workloads that need a writable root before considering Deny enforcement.
 activity. A policy enforcement change additionally needs regression fixtures and
 successful live admission checks for both compliant workloads and exceptions.
 
-### Deferred: CVE change alerts and upstream maintenance signals
+### Deferred: upstream maintenance signal
 
-**Deferred evaluations.** Standing per-image CVE alerts remain useful but can be
-noisy. A delta rule needs a real baseline, suppression for ingestion gaps and a
-separate path for newly deployed images. Test against both gaps and new images
-before replacing any standing alert.
+**CVE change alerts implemented.** The image CVE collector now keeps a durable
+baseline, emits new Critical CVE and fix-available events, and warns when its
+inventory is stale. Standing per-image alerts remain as a weekly repeating
+backlog; details and delivery limits are in [renovate-trivy-flow.md](renovate-trivy-flow.md).
 
 An upstream-maintenance signal should measure the upstream project's latest
 stable release rather than the age of the chart's appVersion. If adopted, pair it
