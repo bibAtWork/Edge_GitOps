@@ -3,7 +3,6 @@ kind: Kustomization
 resources:
   - helmrelease.yaml
   - falco-dashboard-reader.yaml
-  - falco-dashboard-metric-alias.yaml
   - alert-state-pvc.yaml
   - admin-secret.yaml
   - grafana-oauth-secret.yaml
