@@ -124,20 +124,42 @@ on a disposable copy, and use the major-update checklist before production rollo
 **Complete when:** a reviewed decision is recorded; if approved, the migration and
 application checks pass and the deployed version is documented.
 
-### Expand read-only root filesystems where supported
+### Harden application workload security contexts
 
 **Open.** `require-readonly-rootfs` remains an **Audit** policy. Image-tag, registry,
 recovery-boundary and fsGroup rules already deny violations; the old statement
 that all Kyverno policies only audit is incorrect. Root-filesystem enforcement
 needs its own compatibility evidence.
 
-Start with repository-owned workloads, provide explicit writable mounts where
-needed, and test their startup and maintenance paths. Record justified exceptions
-for workloads that need a writable root before considering Deny enforcement.
+Prioritize the Immich server and machine-learning workloads, then the
+VictoriaMetrics application components. For each container, test a non-root
+user, disabled privilege escalation, dropped capabilities, a RuntimeDefault
+seccomp profile and a read-only root filesystem with explicit writable mounts.
+Check startup, upgrades, background jobs and restore paths before changing the
+next workload. Record a specific reason for any control that cannot be enabled;
+do not infer compatibility from a chart's default settings.
 
-**Complete per workload:** read-only operation is proven during normal and Job
-activity. A policy enforcement change additionally needs regression fixtures and
-successful live admission checks for both compliant workloads and exceptions.
+**Complete per workload:** the supported controls are enforced and normal and
+Job activity passes, or an evidence-backed exception is recorded. A later
+read-only-root policy enforcement change additionally needs regression fixtures
+and successful live admission checks for both compliant workloads and exceptions.
+
+### Review bound operator RBAC
+
+**Open.** Audit the effective permissions granted to the VictoriaMetrics,
+CloudNativePG and Longhorn controllers. Start from their RoleBindings and
+ClusterRoleBindings, then compare each bound rule's verbs and resources with
+the controller features actually enabled in this cluster. Prioritize broad
+secret access and wildcard grants, but assess read-only rules separately from
+write permissions. Avoid treating an unbound role report as a live grant.
+
+Use supported chart values or upstream-scoped roles when reducing permissions.
+Document permissions that remain necessary for enabled features and verify
+reconciliation, upgrades, backup and restore paths after each change.
+
+**Complete per operator:** the bound-role review and decisions are recorded,
+unneeded grants are removed where supported, and the controller's operational
+checks still pass.
 
 ### Deferred: upstream maintenance signal
 
