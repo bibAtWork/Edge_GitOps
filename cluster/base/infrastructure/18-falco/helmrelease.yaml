@@ -51,6 +51,17 @@ spec:
       interval: 15m
       outputRule: true
       resourceUtilizationEnabled: true
+      # The bundled dashboard's per-CPU drop panel needs these counters.
+      kernelEventCountersPerCPUEnabled: true
+
+    # Falco owns this one dashboard definition. The Grafana sidecar reads the
+    # resulting ConfigMap from monitoring; Falco does not run a dashboard UI.
+    grafana:
+      dashboards:
+        enabled: true
+        configMaps:
+          falco:
+            namespace: monitoring
 
     # Cilium's CNI binary is legitimately invoked with a writable-upper-layer
     # execve pattern during pod network setup, which the stock "Drop and

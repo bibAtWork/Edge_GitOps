@@ -1,0 +1,21 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: falco-dashboard-metric-alias
+  namespace: monitoring
+spec:
+  groups:
+    - name: falco-dashboard-compat
+      interval: 30s
+      rules:
+        # Falco chart 9.2.0's "Scap events" panel still queries the old
+        # falco_n_evts metric. Native Falco 0.45 exports scap_n_evts instead.
+        # Keep the chart-owned dashboard intact; drop this alias if its query
+        # is fixed upstream. Exclude our own recorded series from the guard.
+        - record: falcosecurity_falco_n_evts_total
+          expr: >-
+            falcosecurity_scap_n_evts_total
+            unless on (namespace, pod)
+              falcosecurity_falco_n_evts_total{dashboard_compat!="falco-chart-9.2.0"}
+          labels:
+            dashboard_compat: falco-chart-9.2.0
