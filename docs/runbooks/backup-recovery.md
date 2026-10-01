@@ -508,6 +508,10 @@ Run them at least quarterly, and read their output, not just their phase.
 | 2026-09-13 | `drill-pitr` | passed on the second run: Keycloak recovered to 09:22 UTC, every restore check above its minimum |
 | 2026-09-13 | by hand: A2, A3 streamed from the local repository, A5 route A and the copy, A7's repository | passed: stream byte-identical to restic's verified restore; dump and restore into an empty and into a recreated database, row counts identical, ownership kept; the new repository's chunker polynomial identical to AWS's |
 | 2026-09-29 | `drill-pitr` | passed after #765: Keycloak recovered to 19:52:33 UTC, 2 realms / 4 users / 23 clients, evidence published with RPO 1,913s and measured RTO 116s (4h objective); scratch cluster removed |
+| 2026-10-01 | `drill-files-aws` | passed on `recovery-point-immich-manual-2nl45`: restored 8 files (18,684 KiB) from AWS, all re-read against blob hashes; measured RTO 33s (4h objective) |
+| 2026-10-01 | `drill-sqlite-aws` | passed on `recovery-point-paperless-manual-gwh4x`: SQLite `integrity_check` ok, 75 tables / 3 users / 4 documents met policy minimums; measured RTO 43s (8h objective) |
+| 2026-10-01 | `drill-filer-aws` | passed on `recovery-point-seaweedfs-manual-sjx2t`: scratch PostgreSQL recovered 10,509 `filemeta` rows; measured RTO 434s (8h objective); scratch cluster and staged AWS prefix removed |
+| 2026-10-01 | `drill-keycloak-aws` | passed on `recovery-point-keycloak-manual-bb2xd`: scratch PostgreSQL recovered 2 realms / 4 users / 23 clients; measured RTO 398s (4h objective); scratch cluster and staged AWS prefix removed |
 
 What the first run found, each fixed in the procedures above:
 
