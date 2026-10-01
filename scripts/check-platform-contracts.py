@@ -192,6 +192,19 @@ def check_route_auth(profile, docs):
         f"declaring it (or the reverse) is gated by only one of the two layers")
 
 
+def check_world_https_scope(profile, docs):
+    """Do not let a shared world:443 grant grow back to all pods."""
+    policy = get(docs, "CiliumClusterwideNetworkPolicy", "allow-internet-egress-https-only")
+    selectors = policy["spec"]["endpointSelector"]["matchExpressions"]
+    namespace = next((item for item in selectors if item["key"] == "io.kubernetes.pod.namespace"), None)
+    assert namespace and namespace["operator"] == "In", f"{profile}: world:443 must be namespace-scoped"
+    allowed = set(namespace["values"])
+    assert {"cert-manager", "external-dns", "flux-system", "tailscale", "trivy-system",
+            "backup-system"} <= allowed, f"{profile}: required internet clients lost HTTPS egress"
+    assert not allowed & {"default", "kubescape", "paperless", "security", "zot"}, (
+        f"{profile}: internal-only or local-only namespaces gained general internet egress")
+
+
 # Talos's defaults; check_no_cluster_assigned_aliases asserts the machine configs
 # do not override them, so these stay the truth about what the API server hands out.
 CLUSTER_ASSIGNED = [ipaddress.ip_network("10.96.0.0/12"), ipaddress.ip_network("10.244.0.0/16")]
@@ -364,6 +377,7 @@ def check_profile(profile):
     check_argo_operator_scope(profile, docs)
     check_no_cluster_assigned_aliases(profile, docs)
     check_route_auth(profile, docs)
+    check_world_https_scope(profile, config)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]

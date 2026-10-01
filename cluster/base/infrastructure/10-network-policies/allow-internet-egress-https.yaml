@@ -3,13 +3,31 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-internet-egress-https-only
 spec:
-  # TCP/443 internet egress. The historical resource name is retained for migration.
-  # This L4 rule does not validate TLS or restrict external destinations.
-  # Pods needing plain HTTP to public endpoints must use an explicit per-namespace policy.
+  # TCP/443 internet egress only for namespaces with an external HTTPS dependency.
+  # L4 does not validate TLS or restrict destinations. New namespaces must opt in
+  # here after documenting their need; internal-only workloads stay contained.
+  # cert-manager/external-dns: ACME and Cloudflare; flux-system: Git/OCI/Helm;
+  # trivy-system: vulnerability DB; falco: falcoctl artifacts; immich: ML models;
+  # keycloak: Google OIDC; kyverno: Rekor; monitoring: Grafana notifications;
+  # backup-system: offsite AWS; tailscale: control plane and DERP.
   endpointSelector:
     matchExpressions:
       - key: reserved.ingress
         operator: DoesNotExist
+      - key: io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - backup-system
+          - cert-manager
+          - external-dns
+          - falco
+          - flux-system
+          - immich
+          - keycloak
+          - kyverno
+          - monitoring
+          - tailscale
+          - trivy-system
   egress:
     - toEntities:
         - world
