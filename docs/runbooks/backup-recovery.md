@@ -491,6 +491,7 @@ which carries the actual steps.
 | [`drill-sqlite-aws.yaml`](recovery/drill-sqlite-aws.yaml) | Paperless' database from AWS: `integrity_check` and the policy's restore checks |
 | [`drill-filer-aws.yaml`](recovery/drill-filer-aws.yaml) | route C end to end: `filer-db` from AWS, staged in the vault, recovered into a scratch cluster, checked, the staged copy removed |
 | [`drill-pitr.yaml`](recovery/drill-pitr.yaml) | route A: Keycloak thirty minutes back, from the live archive |
+| [`drill-keycloak-aws.yaml`](recovery/drill-keycloak-aws.yaml) | route C for Keycloak: its newest remotely verified database point from AWS, staged in the vault, recovered into a scratch cluster and checked against the policy's realm/user/client minimums |
 
 ```bash
 kubectl create -f docs/runbooks/recovery/drill-filer-aws.yaml

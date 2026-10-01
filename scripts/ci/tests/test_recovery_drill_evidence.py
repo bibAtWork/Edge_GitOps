@@ -32,6 +32,17 @@ class EvidenceVolume(unittest.TestCase):
         self.assertEqual(drills.evidence_volume_errors([self.template([
             {"name": "policy", "configMap": {"name": "recovery-policy"}}])]), [])
 
+    def test_keycloak_requires_both_live_and_offsite_drills(self):
+        expected = {"keycloak", "immich"}
+        scheduled = {"keycloak": {"drill-pitr"}, "immich": {"drill-files-aws"}}
+        self.assertIn("keycloak must schedule", drills.drill_coverage_errors(scheduled, expected)[0])
+        scheduled["keycloak"].add("drill-keycloak-aws")
+        self.assertEqual(drills.drill_coverage_errors(scheduled, expected), [])
+
+    def test_extra_unplanned_drill_is_rejected(self):
+        actual = {"keycloak": {"drill-pitr", "drill-keycloak-aws", "drill-other"}}
+        self.assertIn("keycloak must schedule", drills.drill_coverage_errors(actual, {"keycloak"})[0])
+
     def test_recovery_failure_alert_uses_workflow_outcomes(self):
         release = yaml.safe_load((ROOT / "cluster/base/infrastructure/04-grafana/helmrelease.yaml").read_text(encoding="utf-8"))
         rules = {r["uid"]: r for g in release["spec"]["values"]["alerting"]["rules.yaml"]["groups"]

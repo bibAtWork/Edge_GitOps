@@ -1,0 +1,13 @@
+# Restore Keycloak's newest remotely verified database point from AWS into a
+# scratch CNPG cluster, then check the realm, user, and client counts.
+# The Flux-managed template is in 37-backup-system/deferred/workflow-templates/.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: drill-keycloak-aws-
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  workflowTemplateRef:
+    name: drill-keycloak-aws
