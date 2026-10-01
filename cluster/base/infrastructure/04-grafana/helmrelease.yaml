@@ -47,6 +47,32 @@ spec:
         mountPath: /var/lib/grafana-state
     plugins:
       - victoriametrics-logs-datasource
+    # The dashboard sidecar needs an in-cluster token. Its Role below permits
+    # only GET on Falco's one dashboard ConfigMap in this namespace.
+    serviceAccount:
+      automountServiceAccountToken: true
+    rbac:
+      create: false
+    sidecar:
+      image:
+        registry: quay.io
+        repository: kiwigrid/k8s-sidecar
+        tag: 2.5.0
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+        searchNamespace: [monitoring]
+        resource: configmap
+        resourceName: configmap/falco-grafana-dashboard
+        # RESOURCE_NAME uses a GET poll, so don't configure WATCH reload behavior.
+        watchMethod: SLEEP
     datasources:
       datasources.yaml:
         apiVersion: 1
