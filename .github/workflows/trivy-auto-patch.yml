@@ -103,7 +103,7 @@ jobs:
           curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin crane
           # renovate: datasource=github-releases depName=mikefarah/yq
-          YQ_VERSION=v4.53.6
+          YQ_VERSION=v4.54.1
           sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
 
