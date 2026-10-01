@@ -124,6 +124,8 @@ def check_route_auth(profile, docs):
     routes = [d for d in docs if d["kind"] == "HTTPRoute"]
     assert routes, f"{profile}: no HTTPRoutes rendered; this check would prove nothing"
     policies = [d for d in docs if d["kind"] == "SecurityPolicy"]
+    gateway_policy = next(p for p in policies if p["metadata"]["name"] == "homelab-gateway-authz")
+    gateway_ext_auth = gateway_policy["spec"]["extAuth"]
     keycloak_host = urlparse(next(
         e["value"] for e in get(docs, "Deployment", "keycloak")["spec"]["template"]["spec"]["containers"][0]["env"]
         if e["name"] == "KC_HOSTNAME")).hostname
@@ -143,6 +145,11 @@ def check_route_auth(profile, docs):
         mine = [p for p in policies if p["metadata"]["namespace"] == namespace and any(
             t["kind"] == "HTTPRoute" and t["name"] == name for t in p["spec"].get("targetRefs", []))]
         has_oidc = any("oidc" in p["spec"] for p in mine)
+        if auth != "deny":
+            for policy in mine:
+                assert policy["spec"].get("extAuth") == gateway_ext_auth, (
+                    f"{who}: route SecurityPolicy {policy['metadata']['name']} replaces Gateway policy; "
+                    "repeat its OPA extAuth configuration")
 
         if auth in ("native-oidc", "gateway-oidc"):
             assert hosts, f"{who} declares {auth} but has no hostnames"
