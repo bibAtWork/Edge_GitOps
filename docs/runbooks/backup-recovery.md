@@ -449,6 +449,11 @@ back at each quarterly drill (A9).
 - `bootstrap/config.json`.
 - A clone of this repository, if GitHub access is part of what was lost.
 
+**Escrow readback (2026-10-01):** the operator confirmed they can read back the Talos
+secrets bundle, age key, restic password, backup-admin access key, and MFA recovery
+material from offline storage. No secret values were shared for this check. This confirms
+availability, not a credential login or a live restore.
+
 **Never store any of it in the vault.**
 
 ### The admin identity (MFA)
