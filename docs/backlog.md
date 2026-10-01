@@ -144,6 +144,23 @@ Job activity passes, or an evidence-backed exception is recorded. A later
 read-only-root policy enforcement change additionally needs regression fixtures
 and successful live admission checks for both compliant workloads and exceptions.
 
+### Review bound operator RBAC
+
+**Open.** Audit the effective permissions granted to the VictoriaMetrics,
+CloudNativePG and Longhorn controllers. Start from their RoleBindings and
+ClusterRoleBindings, then compare each bound rule's verbs and resources with
+the controller features actually enabled in this cluster. Prioritize broad
+secret access and wildcard grants, but assess read-only rules separately from
+write permissions. Avoid treating an unbound role report as a live grant.
+
+Use supported chart values or upstream-scoped roles when reducing permissions.
+Document permissions that remain necessary for enabled features and verify
+reconciliation, upgrades, backup and restore paths after each change.
+
+**Complete per operator:** the bound-role review and decisions are recorded,
+unneeded grants are removed where supported, and the controller's operational
+checks still pass.
+
 ### Deferred: upstream maintenance signal
 
 **CVE change alerts implemented.** The image CVE collector now keeps a durable
