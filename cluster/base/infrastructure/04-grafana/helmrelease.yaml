@@ -249,15 +249,17 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
-                  "id": 2, "title": "Config audit findings", "type": "stat",
-                  "targets": [{"expr": "sum(trivy_resource_configaudits)", "refId": "A"}]
+                  "description": "HIGH checks on current non-Job/ReplicaSet resources, scaled-up ReplicaSets, and active Jobs. Completed Jobs and scaled-to-zero ReplicaSets are excluded. See raw totals below and [audit triage](https://github.com/bibAtWork/Edge_GitOps/blob/ops/talos_linux/docs/runbooks/trivy-config-audit.md).",
+                  "id": 2, "title": "Active High config checks", "type": "stat",
+                  "targets": [{"expr": "sum(trivy_resource_configaudits{severity=\"High\",resource_kind!=\"ReplicaSet\",resource_kind!=\"Job\"} or (label_replace(trivy_resource_configaudits{severity=\"High\",resource_kind=\"ReplicaSet\"},\"replicaset\",\"$1\",\"resource_name\",\"(.*)\") * on(exported_namespace,replicaset) group_left label_replace(kube_replicaset_spec_replicas > 0,\"exported_namespace\",\"$1\",\"namespace\",\"(.*)\")) or (label_replace(trivy_resource_configaudits{severity=\"High\",resource_kind=\"Job\"},\"job_name\",\"$1\",\"resource_name\",\"(.*)\") * on(exported_namespace,job_name) group_left label_replace(kube_job_status_active > 0,\"exported_namespace\",\"$1\",\"namespace\",\"(.*)\")))", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
-                  "id": 3, "title": "RBAC findings", "type": "stat",
-                  "targets": [{"expr": "sum(trivy_role_rbacassessments) + sum(trivy_clusterrole_clusterrbacassessments)", "refId": "A"}]
+                  "description": "Raw failed CRITICAL checks across all Role and ClusterRole reports. This includes unbound roles; review bindings and effective permissions before remediation.",
+                  "id": 3, "title": "Critical RBAC checks (all roles)", "type": "stat",
+                  "targets": [{"expr": "sum(trivy_role_rbacassessments{severity=\"Critical\"}) + sum(trivy_clusterrole_clusterrbacassessments{severity=\"Critical\"})", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
@@ -277,7 +279,7 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
-                  "id": 6, "title": "Config audits by severity", "type": "timeseries",
+                  "id": 6, "title": "All config checks by severity (incl inactive)", "type": "timeseries",
                   "targets": [{"expr": "sum by (severity) (trivy_resource_configaudits)", "legendFormat": "{{severity}}", "refId": "A"}]
                 },
                 {
@@ -291,14 +293,14 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
-                  "id": 8, "title": "Config audits by workload namespace", "type": "timeseries",
-                  "targets": [{"expr": "sum by (exported_namespace) (trivy_resource_configaudits)", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
+                  "id": 8, "title": "Active High config checks by namespace", "type": "timeseries",
+                  "targets": [{"expr": "sum by (exported_namespace) (trivy_resource_configaudits{severity=\"High\",resource_kind!=\"ReplicaSet\",resource_kind!=\"Job\"} or (label_replace(trivy_resource_configaudits{severity=\"High\",resource_kind=\"ReplicaSet\"},\"replicaset\",\"$1\",\"resource_name\",\"(.*)\") * on(exported_namespace,replicaset) group_left label_replace(kube_replicaset_spec_replicas > 0,\"exported_namespace\",\"$1\",\"namespace\",\"(.*)\")) or (label_replace(trivy_resource_configaudits{severity=\"High\",resource_kind=\"Job\"},\"job_name\",\"$1\",\"resource_name\",\"(.*)\") * on(exported_namespace,job_name) group_left label_replace(kube_job_status_active > 0,\"exported_namespace\",\"$1\",\"namespace\",\"(.*)\"))) > 0", "legendFormat": "{{exported_namespace}}", "refId": "A"}]
                 },
                 {
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
                   "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
-                  "id": 9, "title": "RBAC findings by severity", "type": "timeseries",
+                  "id": 9, "title": "All RBAC checks by severity", "type": "timeseries",
                   "targets": [
                     {"expr": "sum by (severity) (trivy_role_rbacassessments)", "legendFormat": "Role {{severity}}", "refId": "A"},
                     {"expr": "sum by (severity) (trivy_clusterrole_clusterrbacassessments)", "legendFormat": "ClusterRole {{severity}}", "refId": "B"}
@@ -315,9 +317,96 @@ spec:
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
                   "description": "Seconds since the active CVE inventory last completed successfully. A rising age means the findings may be stale.",
                   "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
-                  "gridPos": {"h": 4, "w": 12, "x": 0, "y": 28},
+                  "gridPos": {"h": 4, "w": 6, "x": 0, "y": 28},
                   "id": 11, "title": "CVE inventory age", "type": "stat",
                   "targets": [{"expr": "time() - cve_inventory_last_success_timestamp", "refId": "A"}]
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "description": "Raw failed config checks from all retained reports and severities, including completed Jobs and scaled-to-zero ReplicaSets.",
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short",
+                      "decimals": 0
+                    },
+                    "overrides": []
+                  },
+                  "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 6,
+                    "y": 28
+                  },
+                  "id": 12,
+                  "title": "All config checks (incl inactive)",
+                  "type": "stat",
+                  "targets": [
+                    {
+                      "expr": "sum(trivy_resource_configaudits)",
+                      "refId": "A"
+                    }
+                  ]
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "description": "Raw High checks minus current active High checks. This is retained report history, not current workload exposure.",
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short",
+                      "decimals": 0
+                    },
+                    "overrides": []
+                  },
+                  "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 12,
+                    "y": 28
+                  },
+                  "id": 13,
+                  "title": "Inactive High config checks",
+                  "type": "stat",
+                  "targets": [
+                    {
+                      "expr": "sum(trivy_resource_configaudits{severity=\"High\"}) - sum(trivy_resource_configaudits{severity=\"High\",resource_kind!=\"ReplicaSet\",resource_kind!=\"Job\"} or (label_replace(trivy_resource_configaudits{severity=\"High\",resource_kind=\"ReplicaSet\"},\"replicaset\",\"$1\",\"resource_name\",\"(.*)\") * on(exported_namespace,replicaset) group_left label_replace(kube_replicaset_spec_replicas > 0,\"exported_namespace\",\"$1\",\"namespace\",\"(.*)\")) or (label_replace(trivy_resource_configaudits{severity=\"High\",resource_kind=\"Job\"},\"job_name\",\"$1\",\"resource_name\",\"(.*)\") * on(exported_namespace,job_name) group_left label_replace(kube_job_status_active > 0,\"exported_namespace\",\"$1\",\"namespace\",\"(.*)\")))",
+                      "refId": "A"
+                    }
+                  ]
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "description": "Raw failed RBAC checks from every reported Role and ClusterRole, including unbound roles.",
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short",
+                      "decimals": 0
+                    },
+                    "overrides": []
+                  },
+                  "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 18,
+                    "y": 28
+                  },
+                  "id": 14,
+                  "title": "All RBAC checks (all roles)",
+                  "type": "stat",
+                  "targets": [
+                    {
+                      "expr": "sum(trivy_role_rbacassessments) + sum(trivy_clusterrole_clusterrbacassessments)",
+                      "refId": "A"
+                    }
+                  ]
                 }
               ],
               "refresh": "5m",
@@ -4222,7 +4311,7 @@ spec:
                   summary: >-
                     Trivy found CRITICAL config-audit findings
                   description: >-
-                    Workload misconfiguration, distinct from the image CVE rules. Run `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp`. Currently 0 Critical (217 High, 387 Medium, measured 2026-09-07), so this firing means something new landed. This rule is a canary for the FIRST Critical and nothing else -- the standing High population is covered by TrivyConfigAuditHighRise below, because an absolute-count rule on 217 findings would fire permanently and be silenced within a day.
+                    Workload misconfiguration, distinct from the image CVE rules. Run `kubectl get configauditreports -A --sort-by=.metadata.creationTimestamp`. A Critical finding would be new relative to the current zero baseline. This rule is a canary for the first Critical; the standing High population is reviewed through TrivyConfigAuditHighRise below, because an absolute-count rule would fire permanently.
                 labels:
                   severity: warning
                 isPaused: false
