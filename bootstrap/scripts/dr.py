@@ -13,7 +13,7 @@ Scenarios
 
 Usage
 -----
-  python3 scripts/dr.py full --profile 3-node --dry-run
+  python3 scripts/dr.py --dry-run full --profile 3-node
   python3 scripts/dr.py add-node --existing-node-ip 192.168.1.10 --new-node-ip 192.168.1.13
 """
 
@@ -28,6 +28,12 @@ import tempfile
 import time
 from pathlib import Path
 from typing import List, Optional, Sequence
+
+# A Windows shell may expose cp1252 (or another limited encoding) to Python.
+# Keep the preflight usable even when it cannot display the Unicode headings.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(errors="backslashreplace")
 
 # ── Terminal colours (no external deps) ──────────────────────────────────────
 
