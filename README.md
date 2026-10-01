@@ -186,7 +186,7 @@ No environment variables to export — everything comes from `config.json`. `boo
 
 The bootstrap handles end-to-end:
 
-1. **All application Secrets and `REPLACE_WITH_*` placeholders** generated from `config.json` via `apply-config.py`
+1. **Application Secrets and public cluster settings** generated from `config.json` via `apply-config.py`. Domain, gateway IP and LAN subnet are applied to every non-secret cluster manifest using `bootstrap/rendered-values.json` as the tracked last-rendered state, so later config changes update OPA, Keycloak, both Talos profiles and the host firewall together.
 2. **SOPS encryption** of every Kubernetes Secret manifest in `cluster/`
 3. **Talos machine config** generation, apply, etcd bootstrap, kubeconfig retrieval
 4. **talosconfig** injected into the system-upgrade-controller secret automatically
@@ -196,7 +196,7 @@ The bootstrap handles end-to-end:
 After the script completes, commit and push the encrypted secrets Flux needs:
 
 ```bash
-git add cluster/
+git add cluster/ bootstrap/rendered-values.json
 git commit -m "chore: apply cluster config"
 git push
 ```

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render and check contracts that schema validation cannot prove (requires PyYAML)."""
 import ipaddress
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -45,8 +46,9 @@ def check_kubernetes_oidc(profile, docs):
     configs = [d for d in machine_docs if "cluster" in d]
     assert len(configs) == 1, f"{profile}: expected one Talos cluster machine config"
     args = configs[0]["cluster"]["apiServer"]["extraArgs"]
+    rendered_domain = json.loads((ROOT / "bootstrap/rendered-values.json").read_text(encoding="utf-8"))["effective_domain"]
     expected_args = {
-        "oidc-issuer-url": "https://keycloak.homelab.data-harness.org/realms/homelab",
+        "oidc-issuer-url": f"https://keycloak.{rendered_domain}/realms/homelab",
         "oidc-client-id": "kubernetes",
         "oidc-username-claim": "email",
         "oidc-username-prefix": "oidc:",
