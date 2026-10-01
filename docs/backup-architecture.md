@@ -93,7 +93,7 @@ flowchart LR
 | 04:30 Sundays | AWS retention: 1 weekly, 3 monthly |
 | :30 hourly | the reconciler, which submits a recovery point or a promotion only when a guarantee is missed |
 | 11:00 Sundays | the pre-upgrade gate, which authorises that day's Talos and Kubernetes upgrades only if every application has a restore-tested point with a verified AWS copy |
-| 05:00 Wednesdays / Saturdays | Keycloak PITR and Immich AWS restore drills; each critical application is exercised every 7 days |
+| 05:00 Mondays / Wednesdays / Saturdays | Keycloak AWS, Keycloak PITR, and Immich AWS restore drills; each critical recovery route is exercised every 7 days |
 | 06:00 on the 1st / 15th | Paperless and SeaweedFS AWS restore drills; each important application is exercised at least every 31 days |
 
 ## What says it is working

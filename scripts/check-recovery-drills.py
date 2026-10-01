@@ -11,6 +11,10 @@ import yaml
 
 
 OVERLAYS = ("1-node-config", "3-node-config")
+# Keycloak has two distinct failure domains: the live barman archive and the
+# offsite recovery point. Both must be exercised within the critical profile's
+# restore-test interval; either one alone leaves a recovery route unproven.
+REQUIRED_DRILLS = {"keycloak": {"drill-pitr", "drill-keycloak-aws"}}
 
 
 def table(text: str) -> list[list[str]]:
@@ -81,6 +85,22 @@ def evidence_volume_errors(docs: list[dict]) -> list[str]:
     return errors
 
 
+def drill_coverage_errors(scheduled: dict[str, set[str]], expected: set[str]) -> list[str]:
+    errors = []
+    for app in sorted(expected - scheduled.keys()):
+        errors.append(f"{app} has a restore-test policy but no scheduled drill")
+    for app in sorted(scheduled.keys() - expected):
+        errors.append(f"{app} has a scheduled drill but no restore-test policy")
+    for app in sorted(expected & scheduled.keys()):
+        actual = scheduled[app]
+        required = REQUIRED_DRILLS.get(app)
+        if required is not None and actual != required:
+            errors.append(f"{app} must schedule {sorted(required)}, found {sorted(actual)}")
+        elif required is None and len(actual) != 1:
+            errors.append(f"{app} must have exactly one scheduled drill, found {sorted(actual)}")
+    return errors
+
+
 def validate(overlay: str) -> list[str]:
     result = subprocess.run(
         ["kubectl", "kustomize", "--load-restrictor", "LoadRestrictionsNone", f"cluster/overlays/{overlay}"],
@@ -106,7 +126,7 @@ def validate(overlay: str) -> list[str]:
             args = {item["name"]: item.get("value") for item in node.get("arguments", {}).get("parameters", [])}
             drill_applications[doc["metadata"]["name"]] = args.get("application")
 
-    scheduled = {}
+    scheduled: dict[str, set[str]] = {}
     errors = evidence_volume_errors(docs)
     for doc in docs:
         if doc.get("kind") != "CronWorkflow" or not doc["metadata"]["name"].startswith("drill-"):
@@ -117,14 +137,15 @@ def validate(overlay: str) -> list[str]:
         if not app:
             errors.append(f"{doc['metadata']['name']} does not reference a drill with shared evidence")
             continue
-        if app in scheduled:
-            errors.append(f"{app} has more than one scheduled drill")
+        names = scheduled.setdefault(app, set())
+        if reference in names:
+            errors.append(f"{app} schedules {reference} more than once")
             continue
+        names.add(reference)
         schedules = spec.get("schedules", [])
         if len(schedules) != 1:
             errors.append(f"{doc['metadata']['name']} must have exactly one schedule")
             continue
-        scheduled[app] = doc["metadata"]["name"]
         try:
             gap = max_schedule_gap(schedules[0])
             limit = profiles[applications[app]]
@@ -137,10 +158,7 @@ def validate(overlay: str) -> list[str]:
             errors.append(f"{doc['metadata']['name']} cannot catch up across its maximum schedule interval")
 
     expected = {app for app, profile in applications.items() if profile in profiles}
-    for app in sorted(expected - scheduled.keys()):
-        errors.append(f"{app} has a restore-test policy but no scheduled drill")
-    for app in sorted(scheduled.keys() - expected):
-        errors.append(f"{app} has a scheduled drill but no restore-test policy")
+    errors.extend(drill_coverage_errors(scheduled, expected))
     return errors
 
 
@@ -150,7 +168,7 @@ def main() -> int:
         overlay_errors = validate(overlay)
         errors.extend(f"[{overlay}] {error}" for error in overlay_errors)
         if not overlay_errors:
-            print(f"[{overlay}] every restore-test policy has one drill within its maximum interval")
+            print(f"[{overlay}] every required restore drill is scheduled within its policy interval")
     if errors:
         print("\n".join(f"ERROR: {error}" for error in errors), file=sys.stderr)
         return 1

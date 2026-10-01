@@ -292,6 +292,25 @@ spec:
     workflowTemplateRef:
       name: drill-pitr
 ---
+# The live-archive PITR drill cannot prove recovery after loss of SeaweedFS.
+# Exercise Keycloak's offsite point separately, staggered from Immich's drill.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-keycloak-aws
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 5 * * 1"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 604800
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-keycloak-aws
+---
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
