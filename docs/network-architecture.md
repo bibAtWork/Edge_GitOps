@@ -240,7 +240,8 @@ Hubble-verified rollout catch different classes of mistake:
 There has never been a cluster-wide "allow all egress" policy: `default-deny-egress` is the
 real baseline on both sides now. Every namespace opts into exactly what it needs:
 `allow-intra-namespace-egress`, `allow-dns-egress` (port 53 to CoreDNS only),
-`allow-internet-egress-https-only` (world, port 443 only), and narrow per-target rules like
+`allow-internet-egress-https-only` (world, port 443 only, limited to namespaces
+with documented external dependencies), and narrow per-target rules like
 `allow-zot-egress` (SeaweedFS `:8333`, S3
 FQDNs on `:443`, DNS — nothing else).
 

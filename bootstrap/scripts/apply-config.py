@@ -17,9 +17,9 @@ Usage:
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
-import re
 import secrets
 import shutil
 import string
@@ -193,20 +193,32 @@ def replace_in_file(path: Path, replacements: dict) -> bool:
     return False
 
 
-def patch_subnet(path: Path, subnet: str) -> bool:
-    """Replace the etcd advertisedSubnets value, whatever it currently is."""
-    if not path.exists():
-        return False
-    content = path.read_text(encoding="utf-8")
-    new_content = re.sub(
-        r"(advertisedSubnets:\s*\n\s*-\s*)[\d\.\/]+",
-        lambda m: m.group(1) + subnet,
-        content,
-    )
-    if new_content != content:
-        path.write_text(new_content, encoding="utf-8")
-        return True
-    return False
+def render_cluster_values(root: Path, values: dict[str, str]) -> list[str]:
+    """Apply the last rendered public values to every non-secret cluster manifest.
+
+    The tracked state lets a second bootstrap run change values again. Searching
+    the manifest tree also catches new routes, embedded Rego and Helm values
+    without maintaining a fragile list of files in this script.
+    """
+    state = root / "bootstrap" / "rendered-values.json"
+    previous = json.loads(state.read_text(encoding="utf-8"))
+    assert set(previous) == set(values), "rendered-values.json keys changed"
+    changes = {previous[key]: values[key] for key in values if previous[key] != values[key]}
+    changed = []
+    for path in sorted((root / "cluster").rglob("*.yaml")):
+        content = path.read_text(encoding="utf-8")
+        if "\nsops:\n" in content:
+            continue
+        updated = content
+        for old, new in changes.items():
+            updated = updated.replace(old, new)
+        if updated != content:
+            path.write_text(updated, encoding="utf-8")
+            changed.append(str(path.relative_to(root)))
+    if changes:
+        state.write_text(json.dumps(values, indent=2) + "\n", encoding="utf-8")
+        changed.append(str(state.relative_to(root)))
+    return changed
 
 
 def main() -> None:
@@ -226,11 +238,14 @@ def main() -> None:
     email      = get(cfg, "cluster", "letsencrypt_email")
     domain     = get(cfg, "cluster", "domain")
     subdomain  = get(cfg, "cluster", "subdomain", required=False)
-    gateway_ip = get(cfg, "cluster", "gateway_ip", required=False)
+    gateway_ip = get(cfg, "cluster", "gateway_ip")
     # If a subdomain is set, all service hostnames live under <subdomain>.<domain>.
     # The wildcard cert covers *.<subdomain>.<domain>.
     effective_domain = f"{subdomain}.{domain}" if subdomain else domain
     subnet    = get(cfg, "node", "subnet")
+    network = ipaddress.ip_network(subnet, strict=True)
+    if ipaddress.ip_address(gateway_ip) not in network:
+        sys.exit(f"ERROR: cluster.gateway_ip {gateway_ip} is outside node.subnet {subnet}")
     cf      = get(cfg, "cloudflare", "api_token")
     ts_id   = get(cfg, "tailscale", "oauth_client_id")
     ts_sec  = get(cfg, "tailscale", "oauth_client_secret")
@@ -357,49 +372,20 @@ def main() -> None:
 
     print("=== Applying config.json to cluster files ===")
 
-    # Domain substitution — wildcard cert + all HTTPRoutes
-    domain_files = [
-        cluster / "base/infrastructure/11-ingress-gateway/wildcard-cert.yaml",
-        cluster / "base/infrastructure/12-zot/config/httproute.yaml",
-        cluster / "base/infrastructure/04-grafana/config/httproute.yaml",
-        cluster / "base/infrastructure/05-cilium/config/httproute.yaml",
-    ]
-    domain_changed = False
-    for path in domain_files:
-        if replace_in_file(path, {"REPLACE_WITH_DOMAIN": effective_domain}):
-            changed.append(str(path.relative_to(REPO_ROOT)))
-            domain_changed = True
-    if domain_changed:
-        print(f"  ✓ Domain ({effective_domain}) applied to wildcard cert + HTTPRoutes")
-
-    # Cilium LB IPAM (one per profile — each overlay owns its own
-    # CiliumLoadBalancerIPPool) + Tailscale subnet router (shared base
-    # component, one file for both profiles) — all use the gateway LAN IP
-    if gateway_ip:
-        for path in [
-            cluster / "overlays/1-node-config/lb-ipam.yaml",
-            cluster / "overlays/3-node-config/lb-ipam.yaml",
-            cluster / "base/infrastructure/14-tailscale-operator/config/subnet-router-hostnetwork.yaml",
-        ]:
-            if replace_in_file(path, {"REPLACE_WITH_GATEWAY_IP": gateway_ip}):
-                changed.append(str(path.relative_to(REPO_ROOT)))
-                print(f"  ✓ Gateway LAN IP ({gateway_ip}) applied to {path.name}")
+    public_changes = render_cluster_values(REPO_ROOT, {
+        "effective_domain": effective_domain,
+        "gateway_ip": gateway_ip,
+        "subnet": subnet,
+    })
+    changed.extend(public_changes)
+    if public_changes:
+        print(f"  ✓ Rendered domain, gateway IP and LAN subnet in {len(public_changes) - 1} manifests")
 
     # cert-manager ClusterIssuer — not a secret, not SOPS-encrypted
     path = cluster / "base/infrastructure/06-cert-manager/config/clusterissuer.yaml"
     if replace_in_file(path, {"REPLACE_WITH_YOUR_EMAIL": email}):
         changed.append(str(path.relative_to(REPO_ROOT)))
         print(f"  ✓ cert-manager ClusterIssuer email")
-
-    # Talos machineconfigs — not secrets
-    for mc in [
-        cluster / "overlays/1-node/talos-machineconfigs/controlplane.yaml",
-        cluster / "overlays/3-node/talos-machineconfigs/controlplane.yaml",
-    ]:
-        patched = patch_subnet(mc, subnet)
-        if patched:
-            changed.append(str(mc.relative_to(REPO_ROOT)))
-            print(f"  ✓ machineconfig patched in {mc.parent.parent.name}")
 
     # Cloudflare token (cert-manager + external-dns)
     for path in [
@@ -606,7 +592,7 @@ def main() -> None:
         print(f"  {f}")
     print()
     print("Next: commit and push")
-    print("  git add cluster/")
+    print("  git add cluster/ bootstrap/rendered-values.json")
     print("  git commit -m 'chore: apply cluster config'")
     print("  git push")
 

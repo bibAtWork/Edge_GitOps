@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render and check contracts that schema validation cannot prove (requires PyYAML)."""
 import ipaddress
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -45,8 +46,9 @@ def check_kubernetes_oidc(profile, docs):
     configs = [d for d in machine_docs if "cluster" in d]
     assert len(configs) == 1, f"{profile}: expected one Talos cluster machine config"
     args = configs[0]["cluster"]["apiServer"]["extraArgs"]
+    rendered_domain = json.loads((ROOT / "bootstrap/rendered-values.json").read_text(encoding="utf-8"))["effective_domain"]
     expected_args = {
-        "oidc-issuer-url": "https://keycloak.homelab.data-harness.org/realms/homelab",
+        "oidc-issuer-url": f"https://keycloak.{rendered_domain}/realms/homelab",
         "oidc-client-id": "kubernetes",
         "oidc-username-claim": "email",
         "oidc-username-prefix": "oidc:",
@@ -122,6 +124,8 @@ def check_route_auth(profile, docs):
     routes = [d for d in docs if d["kind"] == "HTTPRoute"]
     assert routes, f"{profile}: no HTTPRoutes rendered; this check would prove nothing"
     policies = [d for d in docs if d["kind"] == "SecurityPolicy"]
+    gateway_policy = next(p for p in policies if p["metadata"]["name"] == "homelab-gateway-authz")
+    gateway_ext_auth = gateway_policy["spec"]["extAuth"]
     keycloak_host = urlparse(next(
         e["value"] for e in get(docs, "Deployment", "keycloak")["spec"]["template"]["spec"]["containers"][0]["env"]
         if e["name"] == "KC_HOSTNAME")).hostname
@@ -141,6 +145,11 @@ def check_route_auth(profile, docs):
         mine = [p for p in policies if p["metadata"]["namespace"] == namespace and any(
             t["kind"] == "HTTPRoute" and t["name"] == name for t in p["spec"].get("targetRefs", []))]
         has_oidc = any("oidc" in p["spec"] for p in mine)
+        if auth != "deny":
+            for policy in mine:
+                assert policy["spec"].get("extAuth") == gateway_ext_auth, (
+                    f"{who}: route SecurityPolicy {policy['metadata']['name']} replaces Gateway policy; "
+                    "repeat its OPA extAuth configuration")
 
         if auth in ("native-oidc", "gateway-oidc"):
             assert hosts, f"{who} declares {auth} but has no hostnames"
@@ -181,6 +190,19 @@ def check_route_auth(profile, docs):
         f"{profile}: OPA's admin_only_apps {sorted(admin_only)} must be exactly the hosts of the "
         f"gateway-oidc routes {sorted(gateway_hosts)} -- a host listed there without the route "
         f"declaring it (or the reverse) is gated by only one of the two layers")
+
+
+def check_world_https_scope(profile, docs):
+    """Do not let a shared world:443 grant grow back to all pods."""
+    policy = get(docs, "CiliumClusterwideNetworkPolicy", "allow-internet-egress-https-only")
+    selectors = policy["spec"]["endpointSelector"]["matchExpressions"]
+    namespace = next((item for item in selectors if item["key"] == "io.kubernetes.pod.namespace"), None)
+    assert namespace and namespace["operator"] == "In", f"{profile}: world:443 must be namespace-scoped"
+    allowed = set(namespace["values"])
+    assert {"cert-manager", "external-dns", "flux-system", "tailscale", "trivy-system",
+            "backup-system"} <= allowed, f"{profile}: required internet clients lost HTTPS egress"
+    assert not allowed & {"default", "kubescape", "paperless", "security", "zot"}, (
+        f"{profile}: internal-only or local-only namespaces gained general internet egress")
 
 
 # Talos's defaults; check_no_cluster_assigned_aliases asserts the machine configs
@@ -355,6 +377,7 @@ def check_profile(profile):
     check_argo_operator_scope(profile, docs)
     check_no_cluster_assigned_aliases(profile, docs)
     check_route_auth(profile, docs)
+    check_world_https_scope(profile, config)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]

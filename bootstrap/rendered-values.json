@@ -1,0 +1,5 @@
+{
+  "effective_domain": "homelab.data-harness.org",
+  "gateway_ip": "192.168.178.200",
+  "subnet": "192.168.178.0/24"
+}
