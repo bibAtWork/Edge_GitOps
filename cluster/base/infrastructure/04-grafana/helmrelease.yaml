@@ -3335,7 +3335,7 @@ spec:
                   summary: >-
                     A Talos node needs a planned restart before kubelet certificate renewal is overdue
                   description: >-
-                    Node exporter reports that {{ $labels.instance }} has been up for more than 330 days. Talos requires the kubelet to restart at least once a year to rotate its certificates. Schedule a Talos upgrade or a controlled node reboot before day 365, after checking recovery points and offsite copies. Verify a new boot time and node readiness afterward. Follow docs/runbooks/talos-pki-maintenance.md; do not rotate the root CA for this.
+                    The node-exporter instance named in this alert has been up for more than 330 days. Talos requires the kubelet to restart at least once a year to rotate its certificates. Schedule a Talos upgrade or a controlled node reboot before day 365, after checking recovery points and offsite copies. Verify a new boot time and node readiness afterward. Follow docs/runbooks/talos-pki-maintenance.md; do not rotate the root CA for this.
                 labels:
                   severity: warning
                 isPaused: false
