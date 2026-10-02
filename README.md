@@ -32,6 +32,9 @@ profile still has single-instance databases; it does not guarantee end-to-end av
 - **Certs**: cert-manager + Let's Encrypt DNS-01 via Cloudflare
 - **Auto-upgrade**: system-upgrade-controller (Talos OS) + Renovate (Helm charts + CVE alerts)
 
+Talos client-certificate renewal, the annual kubelet restart check, and planned
+root CA rotation are covered in the [Talos PKI maintenance runbook](docs/runbooks/talos-pki-maintenance.md).
+
 ## Repository Layout
 
 ```

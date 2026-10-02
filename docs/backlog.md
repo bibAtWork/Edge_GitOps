@@ -20,6 +20,9 @@ there is no tracked rotation schedule/log or scheduled reminder in `.github/`.
 Automatic TLS and bound ServiceAccount token rotation do not cover manually
 managed credentials.
 
+The Talos upgrade controller credential now has a [dedicated renewal runbook](runbooks/talos-pki-maintenance.md)
+and expiry check; this item remains open for the other manually managed credentials.
+
 Add an owner, interval and last verified rotation date for each manual credential,
 then produce reminders without changing credentials unattended. Pair each rotation
 with a round-trip check of the new credential and proof that all consumers updated.
