@@ -3288,6 +3288,57 @@ spec:
             folder: Infrastructure
             interval: 5m
             rules:
+              # Talos renews kubelet certificates after a kubelet restart.
+              # An OS upgrade normally provides that restart, but version pins
+              # can remain unchanged for a year. node_boot_time_seconds comes
+              # from node-exporter on each node; confirmed present in the live
+              # VictoriaMetrics datasource on 2026-10-02.
+              - uid: talos-kubelet-restart-due
+                title: TalosKubeletRestartDue
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 300
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: '(time() - node_boot_time_seconds{job="node-exporter"}) / 86400'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [330]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 1h
+                annotations:
+                  summary: >-
+                    A Talos node needs a planned restart before kubelet certificate renewal is overdue
+                  description: >-
+                    Node exporter reports that {{ $labels.instance }} has been up for more than 330 days. Talos requires the kubelet to restart at least once a year to rotate its certificates. Schedule a Talos upgrade or a controlled node reboot before day 365, after checking recovery points and offsite copies. Verify a new boot time and node readiness afterward. Follow docs/runbooks/talos-pki-maintenance.md; do not rotate the root CA for this.
+                labels:
+                  severity: warning
+                isPaused: false
               # kube_job_status_start_time/succeeded come from kube-state-
               # metrics, confirmed present for cattle-system Jobs by direct
               # query against vmsingle on 2026-09-04. `unless on(job_name)` on
