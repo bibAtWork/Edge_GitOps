@@ -470,9 +470,9 @@ def check_certs(cl: Cluster) -> List[Result]:
             "critical" if days_left < 14 else "warning",
             f"Talos API credential ({role_note}) expires in {days_left}d "
             f"({not_after:%Y-%m-%d})",
-            detail=("Renew with `talosctl config new --roles os:admin --crt-ttl <ttl>` and "
-                    "reseal cattle-system/talos-credentials. Upgrade requires os:admin, so "
-                    "the role cannot be reduced -- the TTL is the only control."),
+            detail=("Follow docs/runbooks/talos-pki-maintenance.md to renew the "
+                    "os:admin client certificate, reseal cattle-system/talos-credentials, "
+                    "and verify the deployed Secret. Upgrade requires os:admin."),
         ))
     except Exception as exc:
         results.append(Result(
