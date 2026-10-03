@@ -96,6 +96,30 @@ class StorageHealth(unittest.TestCase):
                 self.assertFalse(result.passed)
                 self.assertEqual(result.severity, "critical")
 
+    def test_unhealthy_bound_detached_volume_is_critical(self):
+        healthy = {"metadata": {"name": "live"},
+                   "status": {"state": "attached", "robustness": "healthy"}}
+        for robustness in ("faulted", "degraded"):
+            with self.subTest(robustness=robustness):
+                bound = {"metadata": {"name": "unusable"},
+                         "status": {"state": "detached", "robustness": robustness,
+                                    "kubernetesStatus": {"pvStatus": "Bound"}}}
+                results = health.check_storage(FakeCluster(volumes=[healthy, bound]))
+                result = next(r for r in results if r.name == "longhorn/bound-detached-volumes")
+                self.assertFalse(result.passed)
+                self.assertEqual(result.severity, "critical")
+
+    def test_unknown_bound_detached_volume_stays_warning(self):
+        healthy = {"metadata": {"name": "live"},
+                   "status": {"state": "attached", "robustness": "healthy"}}
+        bound = {"metadata": {"name": "idle"},
+                 "status": {"state": "detached", "robustness": "unknown",
+                            "kubernetesStatus": {"pvStatus": "Bound"}}}
+        results = health.check_storage(FakeCluster(volumes=[healthy, bound]))
+        result = next(r for r in results if r.name == "longhorn/bound-detached-volumes")
+        self.assertFalse(result.passed)
+        self.assertEqual(result.severity, "warning")
+
     def test_otel_agent_uses_the_monitoring_agents_namespace(self):
         result = next(r for r in health.check_apps(FakeCluster())
                       if r.name == "monitoring-agents/otel-agent")

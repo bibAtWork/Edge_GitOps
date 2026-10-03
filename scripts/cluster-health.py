@@ -282,9 +282,13 @@ def check_storage(cl: Cluster) -> List[Result]:
                               + (f"; unhealthy: {', '.join(v['metadata']['name'] for v in bad)}" if bad else "")))
         bound_detached = [v for v in volumes if v.get("status", {}).get("state") == "detached"
                           and v.get("status", {}).get("kubernetesStatus", {}).get("pvStatus") == "Bound"]
+        unhealthy_bound = [v for v in bound_detached
+                           if v.get("status", {}).get("robustness") in ("faulted", "degraded")]
         results.append(Result("storage", "longhorn/bound-detached-volumes",
-                              not bound_detached, "warning",
-                              f"{len(bound_detached)} detached Longhorn volumes still bound to PVCs"))
+                              not bound_detached, "critical" if unhealthy_bound else "warning",
+                              f"{len(bound_detached)} detached Longhorn volumes still bound to PVCs"
+                              + (f"; unhealthy: {', '.join(v['metadata']['name'] for v in unhealthy_bound)}"
+                                 if unhealthy_bound else "")))
     except Exception as exc:
         results.append(Result("storage", "longhorn/volumes", False, "critical", str(exc)))
 
