@@ -84,8 +84,10 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   The Kubernetes API server trusts the same realm via `apiServer.extraArgs`
   (`oidc-issuer-url`/`oidc-client-id`/`oidc-groups-claim`) in
   each profile's Talos machine configuration. `platform-admin` maps to `cluster-admin`, `viewer`
-  maps to the built-in cluster-wide `view` role, and `app-operator` receives `edit` only through
-  namespace RoleBindings. The public `kubernetes` client requires PKCE S256 and accepts only
+  maps to the built-in cluster-wide `view` role, and `app-operator` receives namespace-scoped
+  access through RoleBindings. Immich grants `view` plus Deployment scaling because its CNPG
+  archiver mounts a shared storage administrator credential; other application namespaces may
+  grant `edit` only when they contain no platform credential. The public `kubernetes` client requires PKCE S256 and accepts only
   loopback redirects. Cert-based `kubectl` admin access remains the break-glass path.
 - **Contract checks:** `scripts/check-platform-contracts.py` renders every profile in CI and
   verifies the API-server OIDC flags, group prefixes, scoped bindings, loopback redirects and
