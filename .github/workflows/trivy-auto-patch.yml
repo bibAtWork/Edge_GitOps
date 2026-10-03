@@ -79,7 +79,7 @@ jobs:
       # renovate: datasource=github-releases depName=aquasecurity/trivy
       - name: Install Trivy
         run: |
-          VERSION=v0.74.0
+          VERSION=v0.75.0
           curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${VERSION}/trivy_${VERSION#v}_Linux-64bit.tar.gz" \
             | tar -xz -C /usr/local/bin trivy
           trivy --version
