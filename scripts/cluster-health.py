@@ -194,34 +194,29 @@ def check_storage(cl: Cluster) -> List[Result]:
     results: List[Result] = []
 
     # ── SeaweedFS components ──────────────────────────────────────────────────
-    seaweed_components = [
-        ("master",         "app.kubernetes.io/name=seaweedfs-master"),
-        ("volume",         "app.kubernetes.io/name=seaweedfs-volume"),
-        ("filer",          "app.kubernetes.io/name=seaweedfs-filer"),
-        ("csi-controller", "app.kubernetes.io/component=csi-driver"),
-    ]
-    for component, label in seaweed_components:
+    seaweed_components = ("master", "volume", "filer")
+    for component in seaweed_components:
         try:
-            pods = cl.items("pods", "-n", "seaweedfs", "-l", label)
-            if not pods:
-                # Seaweedfs helm chart may use different label keys; fall back to all pods
-                all_pods = cl.items("pods", "-n", "seaweedfs")
-                pods = [p for p in all_pods if component in p["metadata"]["name"]]
-            running = sum(1 for p in pods if p.get("status", {}).get("phase") == "Running")
-            ok = running >= 1
+            pods = cl.items("pods", "-n", "seaweedfs", "-l",
+                            f"app.kubernetes.io/name=seaweedfs,app.kubernetes.io/component={component}")
+            ready = sum(1 for p in pods if p.get("status", {}).get("phase") == "Running"
+                        and any(c.get("type") == "Ready" and c.get("status") == "True"
+                                for c in p.get("status", {}).get("conditions", [])))
+            ok = ready >= 1
             results.append(Result(
                 "storage", f"seaweedfs/{component}", ok, "critical",
-                f"seaweedfs-{component}: {running}/{len(pods)} pods running",
+                f"seaweedfs-{component}: {ready}/{len(pods)} pods ready",
             ))
         except Exception as exc:
             results.append(Result("storage", f"seaweedfs/{component}", False, "critical", str(exc)))
 
     # ── SeaweedFS S3 endpoint reachable (via BSL probe below; also check pod ready) ──
     try:
-        pods = cl.items("pods", "-n", "seaweedfs")
-        filer_pods = [p for p in pods if "filer" in p["metadata"]["name"]]
+        filer_pods = cl.items("pods", "-n", "seaweedfs", "-l",
+                              "app.kubernetes.io/name=seaweedfs,app.kubernetes.io/component=filer")
         all_containers_ready = all(
-            all(cs.get("ready", False) for cs in p.get("status", {}).get("containerStatuses", []))
+            bool(p.get("status", {}).get("containerStatuses")) and
+            all(cs.get("ready", False) for cs in p["status"]["containerStatuses"])
             for p in filer_pods
         )
         results.append(Result(
@@ -242,6 +237,60 @@ def check_storage(cl: Cluster) -> List[Result]:
         ))
     except Exception as exc:
         results.append(Result("storage", "local-path-provisioner", False, "warning", str(exc)))
+
+    # Longhorn is the active CSI driver. A detached volume with an old Released
+    # PV is not a failed live workload; attached volumes must be healthy.
+    try:
+        drivers = cl.items("csidrivers")
+        found = any(d.get("metadata", {}).get("name") == "driver.longhorn.io" for d in drivers)
+        results.append(Result("storage", "longhorn/csi-driver", found, "critical",
+                              f"Longhorn CSI driver registered: {found}"))
+    except Exception as exc:
+        results.append(Result("storage", "longhorn/csi-driver", False, "critical", str(exc)))
+
+    # The CSIDriver object survives a controller or node-plugin outage. Check
+    # the workloads that actually provision, attach and mount Longhorn volumes.
+    csi_workloads = (
+        ("daemonsets", "longhorn-csi-plugin"),
+        ("deployments", "csi-attacher"),
+        ("deployments", "csi-provisioner"),
+        ("deployments", "csi-resizer"),
+        ("deployments", "csi-snapshotter"),
+    )
+    for kind, name in csi_workloads:
+        try:
+            workload = cl.get_json(kind, name, "-n", "longhorn-system")
+            if kind == "daemonsets":
+                desired = workload.get("status", {}).get("desiredNumberScheduled", 0)
+                ready = workload.get("status", {}).get("numberReady", 0)
+            else:
+                desired = workload.get("spec", {}).get("replicas", 1)
+                ready = workload.get("status", {}).get("readyReplicas", 0)
+            results.append(Result("storage", f"longhorn/{name}",
+                                  desired > 0 and ready >= desired, "critical",
+                                  f"{name}: {ready}/{desired} ready"))
+        except Exception as exc:
+            results.append(Result("storage", f"longhorn/{name}", False, "critical", str(exc)))
+
+    try:
+        volumes = cl.items("volumes.longhorn.io", "-n", "longhorn-system")
+        attached = [v for v in volumes if v.get("status", {}).get("state") == "attached"]
+        bad = [v for v in attached if v.get("status", {}).get("robustness") != "healthy"]
+        results.append(Result("storage", "longhorn/attached-volumes",
+                              bool(attached) and not bad, "critical",
+                              f"{len(attached) - len(bad)}/{len(attached)} attached volumes healthy"
+                              + (f"; unhealthy: {', '.join(v['metadata']['name'] for v in bad)}" if bad else "")))
+        bound_detached = [v for v in volumes if v.get("status", {}).get("state") == "detached"
+                          and v.get("status", {}).get("kubernetesStatus", {}).get("pvStatus") == "Bound"]
+        unhealthy_bound = [v for v in bound_detached
+                           if v.get("status", {}).get("robustness") in ("faulted", "degraded")]
+        results.append(Result("storage", "longhorn/bound-detached-volumes",
+                              not bound_detached, "critical" if unhealthy_bound else "warning",
+                              f"{len(bound_detached)} detached Longhorn volumes still bound to PVCs"
+                              + (f"; unhealthy: {', '.join(v['metadata']['name'] for v in unhealthy_bound)}"
+                                 if unhealthy_bound else "")))
+    except Exception as exc:
+        results.append(Result("storage", "longhorn/volumes", False, "critical", str(exc)))
 
     return results
 
@@ -530,7 +579,7 @@ def check_apps(cl: Cluster) -> List[Result]:
     workloads = [
         ("VictoriaMetrics",    "monitoring",    "deployments",   "vmsingle-vmstack-victoria-metrics-k8s-stack", "warning"),
         ("Grafana",            "monitoring",    "deployments",   "grafana",                                     "warning"),
-        ("OTel agent",         "monitoring",    "daemonsets",    "otel-agent",                                  "warning"),
+        ("OTel agent",         "monitoring-agents", "daemonsets", "otel-agent",                                 "warning"),
         ("OTel gateway",       "monitoring",    "deployments",   "otel-collector-gateway",                      "warning"),
         ("cert-manager",       "cert-manager",  "deployments",   "cert-manager",                                "critical"),
         ("cert-manager-cainjector", "cert-manager", "deployments", "cert-manager-cainjector",                  "warning"),
@@ -699,17 +748,15 @@ DEFAULT_APP_IMAGE_PATHS = ("image.tag",)
 
 
 def check_pins(cl: Cluster) -> List[Result]:
-    """Image pins must not fall behind the chart that packages them (ADR-009).
+    """Report pin lag using the same major-version gate as CI (ADR-009).
 
     An explicit image tag overrides the chart's appVersion permanently. While the
     pin is ahead it is a patch -- a security fix the chart has not shipped yet.
-    The moment the chart's appVersion passes the pin, the same line silently
-    becomes a downgrade: the chart's templates are written for a newer binary
-    than the one that will run.
+    A same-major lag is a warning while Renovate can advance the independent
+    image pin. A cross-major lag is critical and requires manual review.
 
-    Nothing else reports this. It produces no image diff in a version-bump PR, so
-    the auto-merge gate classifies it as a chart-only update and treats it as the
-    safest possible change.
+    CI compares the same pair during chart updates and only blocks a major gap.
+    This operational check applies that policy to the deployed release.
 
     Both values are already in the cluster -- the pin in spec.values, the
     appVersion in the deployed release's status -- so this needs no registry
@@ -739,7 +786,7 @@ def check_pins(cl: Cluster) -> List[Result]:
         return [Result("pins", "helmreleases", False, "critical",
                        f"Cannot list helmreleases: {exc}")]
 
-    checked = frozen = unorderable = 0
+    checked = behind = cross_major = unorderable = 0
     for hr in releases:
         name = hr.get("metadata", {}).get("name", "?")
         history = (hr.get("status", {}) or {}).get("history") or [{}]
@@ -769,13 +816,15 @@ def check_pins(cl: Cluster) -> List[Result]:
                     f"{name}: {pinned} not comparable with appVersion {app_version or '(none)'}",
                 ))
             elif pin_v < app_v:
-                frozen += 1
+                behind += 1
+                major_gap = pin_v[0] != app_v[0]
+                cross_major += int(major_gap)
                 results.append(Result(
-                    "pins", f"{name}/{path}", False, "critical",
+                    "pins", f"{name}/{path}", False, "critical" if major_gap else "warning",
                     f"{name}: pinned {pinned} is OLDER than the chart's appVersion "
-                    f"{app_version} -- the pin is now a downgrade, not a patch",
-                    detail="Raise the pin to at least the chart's appVersion, or drop the "
-                           "pin if the chart's own version is wanted. See ADR-009.",
+                    f"{app_version} ({'cross-major; review required' if major_gap else 'same-major; independently tracked'})",
+                    detail="Review chart/image compatibility and update the pin through Renovate. "
+                           "A cross-major gap blocks automatic updates. See ADR-009.",
                 ))
             else:
                 results.append(Result(
@@ -785,8 +834,10 @@ def check_pins(cl: Cluster) -> List[Result]:
                 ))
 
     results.append(Result(
-        "pins", "summary", frozen == 0, "critical" if frozen else "info",
-        f"{checked} pin(s) checked, {frozen} behind their chart, {unorderable} not orderable",
+        "pins", "summary", cross_major == 0,
+        "critical" if cross_major else "warning" if behind else "info",
+        f"{checked} pin(s) checked, {behind} behind their chart ({cross_major} cross-major), "
+        f"{unorderable} not orderable",
     ))
     return results
 

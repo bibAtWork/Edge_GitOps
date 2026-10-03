@@ -109,8 +109,9 @@ machine:
       [{"path":"/var/mnt/longhorn0","allowScheduling":true}]
 
 cluster:
-  # Workers handle workloads on 3-node; control-plane taint stays active
-  allowSchedulingOnControlPlanes: false
+  # bootstrap-3node.sh provisions three control planes and no workers. Keep
+  # them schedulable so ordinary workloads have somewhere to run after boot.
+  allowSchedulingOnControlPlanes: true
 
   # Cilium is the CNI (installed by the inlineManifest below) and runs with
   # kubeProxyReplacement: true. Without these two stanzas Talos also deploys its

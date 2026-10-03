@@ -101,11 +101,11 @@ have been compared and match.
 permanently. While the pin is ahead of the chart it is a patch; the moment the chart's
 `appVersion` passes it, the same line becomes a downgrade that nothing announces.
 
-This is not a hypothetical gap in review coverage — the existing auto-merge gate treats it as the
-safest possible change. A chart bump that moves `appVersion` past a static pin produces no image
-difference in the proposal, and the gate's own branch for that case reads *"chart-only update —
-no image CVE scan needed"* and merges it. The condition that most needs a human is the one
-currently waved through fastest.
+The PR image gate compares the proposed chart's `appVersion` with its explicit image pin.
+It blocks a cross-major gap or an unorderable comparison; same-major lag can merge because
+Renovate tracks the image pin separately. The deployed-cluster health check uses the same
+major-version boundary: same-major lag is a warning, cross-major lag is critical. These
+checks report compatibility risk, not proof that a one-patch lag is incompatible.
 
 Detection compares the pinned tag against the `appVersion` the deployed release reports. Both
 values are already present in the cluster, so the check needs no registry call, no API token and
