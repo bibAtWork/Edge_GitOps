@@ -14,6 +14,13 @@ spec.loader.exec_module(apply_config)
 
 
 class BootstrapRender(unittest.TestCase):
+    def test_three_node_bootstrap_has_schedulable_nodes(self):
+        script = (ROOT / "bootstrap/scripts/bootstrap-3node.sh").read_text(encoding="utf-8")
+        machine = (ROOT / "cluster/overlays/3-node/talos-machineconfigs/controlplane.yaml").read_text(encoding="utf-8")
+        self.assertIn('for node in "$NODE1_IP" "$NODE2_IP" "$NODE3_IP"; do', script)
+        self.assertIn('.talos/generated/controlplane.yaml', script)
+        self.assertIn("allowSchedulingOnControlPlanes: true", machine)
+
     def test_nondefault_values_render_across_profiles(self):
         # Keep this short: the repository may already live near MAX_PATH on Windows.
         root = ROOT / f"t{uuid.uuid4().hex[:4]}"
