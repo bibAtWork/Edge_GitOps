@@ -4,6 +4,24 @@ metadata:
   name: opa-policies
   namespace: security
 data:
+  log-mask.rego: |
+    package system.log
+
+    import rego.v1
+
+    # Envoy supplies request headers to ext_authz. Decision logs are shipped
+    # centrally and are also readable through Pod logs, so remove credentials
+    # before OPA writes either copy. Header names are case-insensitive.
+    sensitive_headers := {"authorization", "proxy-authorization", "cookie", "x-api-key"}
+
+    mask contains pointer if {
+        headers := input.input.attributes.request.http.headers
+        some name in object.keys(headers)
+        lower(name) in sensitive_headers
+        escaped := replace(replace(name, "~", "~0"), "/", "~1")
+        pointer := sprintf("/input/attributes/request/http/headers/%s", [escaped])
+    }
+
   main.rego: |
     package envoy.authz
 

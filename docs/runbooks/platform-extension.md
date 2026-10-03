@@ -53,11 +53,16 @@ Both node profiles consume these compositions. Profile patches express topology.
    unauthenticated/authorized/unauthorized access, telemetry, and recovery in the
    cluster before treating the service as ready.
 
-Application operators receive built-in `edit` through local RoleBindings in
-`immich` and `paperless`. New grants live with the new application. `edit` permits
-Secret reads and running as namespace ServiceAccounts: application namespaces
-must not hold privileged platform credentials or ServiceAccounts. Namespace
-labels and cluster administration remain platform-admin responsibilities.
+Application operators receive built-in `edit` in `paperless` and other ordinary
+application namespaces. New grants live with the new application. `edit` permits
+Secret reads and running as namespace ServiceAccounts, so these namespaces must
+not hold privileged platform credentials. Immich is a deliberate exception:
+its CNPG archiver mounts the shared SeaweedFS administrator credential in the
+`immich` namespace. There, operators receive `view` plus scaling of the three
+Immich Deployments only. Pod creation, Pod-template edits, exec, and Secret reads
+remain platform-admin operations until the archive credential is isolated.
+Namespace labels and cluster administration also remain platform-admin responsibilities.
+
 
 ## Telemetry contract
 

@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: oidc-app-operator-edit
+  name: oidc-app-operator-view
   namespace: immich
 subjects:
 - kind: Group
@@ -9,5 +9,34 @@ subjects:
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
-  name: edit
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+# Scaling the app is safe; editing Pod templates, creating Pods, exec, and
+# reading Secrets are not. CNPG's archiver runs in this namespace and mounts
+# the shared SeaweedFS administrator credential. A Pod-template edit could
+# mount that Secret even when direct Secret reads are denied.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oidc-app-operator-scale
+  namespace: immich
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["immich-server", "immich-machine-learning", "immich-valkey"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oidc-app-operator-scale
+  namespace: immich
+subjects:
+  - kind: Group
+    name: oidc:app-operator
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: oidc-app-operator-scale
   apiGroup: rbac.authorization.k8s.io

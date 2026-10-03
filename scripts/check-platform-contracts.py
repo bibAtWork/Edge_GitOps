@@ -372,7 +372,24 @@ def check_profile(profile):
     platform_namespaces = {d["metadata"]["name"] for d in root if d["kind"] == "Namespace"} - {"immich", "paperless"}
     assert bound_namespaces <= application_namespaces
     assert not bound_namespaces & platform_namespaces
-    assert all(b["kind"] == "RoleBinding" and b["roleRef"]["name"] == "edit" for b in bindings)
+    assert all(b["kind"] == "RoleBinding" for b in bindings)
+    immich_bindings = {b["metadata"]["name"]: b for b in bindings
+                       if b["metadata"].get("namespace") == "immich"}
+    assert set(immich_bindings) == {"oidc-app-operator-view", "oidc-app-operator-scale"}
+    assert immich_bindings["oidc-app-operator-view"]["roleRef"] == {
+        "kind": "ClusterRole", "name": "view", "apiGroup": "rbac.authorization.k8s.io",
+    }
+    assert immich_bindings["oidc-app-operator-scale"]["roleRef"] == {
+        "kind": "Role", "name": "oidc-app-operator-scale", "apiGroup": "rbac.authorization.k8s.io",
+    }
+    scale = get(docs, "Role", "oidc-app-operator-scale")
+    assert scale["rules"] == [{
+        "apiGroups": ["apps"], "resources": ["deployments/scale"],
+        "resourceNames": ["immich-server", "immich-machine-learning", "immich-valkey"],
+        "verbs": ["get", "patch", "update"],
+    }]
+    assert all(b["roleRef"]["name"] == "edit" for b in bindings
+               if b["metadata"].get("namespace") != "immich")
     check_kubernetes_oidc(profile, docs)
     check_argo_operator_scope(profile, docs)
     check_no_cluster_assigned_aliases(profile, docs)
