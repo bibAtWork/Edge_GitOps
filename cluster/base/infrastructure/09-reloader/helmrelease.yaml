@@ -32,17 +32,18 @@ spec:
       tag: v1.4.21
     reloader:
       watchGlobally: true
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      containerSecurityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop: ["ALL"]
-      resources:
-        requests:
-          cpu: 20m
-          memory: 32Mi
-        limits:
-          memory: 128Mi
+      deployment:
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 20m
+            memory: 32Mi
+          limits:
+            memory: 128Mi

@@ -97,8 +97,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Install Helm and PyYAML for chart rendering
+        run: |
+          curl -fsSL https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz | tar -xz -C /tmp linux-amd64/helm
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          pip install --quiet pyyaml==6.0.3
       - name: Verify RBAC, Flux dependencies, telemetry and application template
         run: python3 scripts/check-platform-contracts.py
+      - name: Verify rendered Reloader Deployment security and resources
+        run: python3 scripts/ci/check_reloader_render.py
 
   secret-bootstrap-coverage:
     name: SOPS bootstrap coverage
