@@ -248,6 +248,30 @@ def check_storage(cl: Cluster) -> List[Result]:
     except Exception as exc:
         results.append(Result("storage", "longhorn/csi-driver", False, "critical", str(exc)))
 
+    # The CSIDriver object survives a controller or node-plugin outage. Check
+    # the workloads that actually provision, attach and mount Longhorn volumes.
+    csi_workloads = (
+        ("daemonsets", "longhorn-csi-plugin"),
+        ("deployments", "csi-attacher"),
+        ("deployments", "csi-provisioner"),
+        ("deployments", "csi-resizer"),
+        ("deployments", "csi-snapshotter"),
+    )
+    for kind, name in csi_workloads:
+        try:
+            workload = cl.get_json(kind, name, "-n", "longhorn-system")
+            if kind == "daemonsets":
+                desired = workload.get("status", {}).get("desiredNumberScheduled", 0)
+                ready = workload.get("status", {}).get("numberReady", 0)
+            else:
+                desired = workload.get("spec", {}).get("replicas", 1)
+                ready = workload.get("status", {}).get("readyReplicas", 0)
+            results.append(Result("storage", f"longhorn/{name}",
+                                  desired > 0 and ready >= desired, "critical",
+                                  f"{name}: {ready}/{desired} ready"))
+        except Exception as exc:
+            results.append(Result("storage", f"longhorn/{name}", False, "critical", str(exc)))
+
     try:
         volumes = cl.items("volumes.longhorn.io", "-n", "longhorn-system")
         attached = [v for v in volumes if v.get("status", {}).get("state") == "attached"]

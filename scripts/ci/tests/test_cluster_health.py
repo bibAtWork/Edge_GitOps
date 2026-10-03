@@ -12,7 +12,7 @@ spec.loader.exec_module(health)
 
 
 class FakeCluster:
-    def __init__(self, *, volumes=None, filer_ready=True, driver=True, pins=None):
+    def __init__(self, *, volumes=None, filer_ready=True, driver=True, csi_unready=None, pins=None):
         self.volumes = volumes if volumes is not None else [
             {"metadata": {"name": "live"}, "status": {"state": "attached", "robustness": "healthy"}},
             {"metadata": {"name": "old"}, "status": {"state": "detached", "robustness": "unknown",
@@ -20,6 +20,7 @@ class FakeCluster:
         ]
         self.filer_ready = filer_ready
         self.driver = driver
+        self.csi_unready = csi_unready or set()
         self.pins = pins or []
 
     def items(self, kind, *args):
@@ -44,6 +45,16 @@ class FakeCluster:
         raise AssertionError((kind, args))
 
     def get_json(self, kind, name, *args):
+        if name in {"longhorn-csi-plugin", "csi-attacher", "csi-provisioner",
+                    "csi-resizer", "csi-snapshotter"}:
+            if args != ("-n", "longhorn-system"):
+                raise RuntimeError("wrong namespace")
+            ready = 0 if name in self.csi_unready else 1
+            if kind == "daemonsets":
+                return {"status": {"desiredNumberScheduled": 1, "numberReady": ready}}
+            if kind == "deployments":
+                return {"spec": {"replicas": 1}, "status": {"readyReplicas": ready}}
+            raise RuntimeError("wrong workload kind")
         if kind == "daemonsets" and name == "otel-agent":
             if args != ("-n", "monitoring-agents"):
                 raise RuntimeError("not found")
@@ -74,6 +85,16 @@ class StorageHealth(unittest.TestCase):
         results = health.check_storage(FakeCluster(volumes=bad, driver=False))
         self.assertFalse(next(r for r in results if r.name == "longhorn/csi-driver").passed)
         self.assertFalse(next(r for r in results if r.name == "longhorn/attached-volumes").passed)
+
+    def test_unready_longhorn_csi_workload_is_critical(self):
+        workloads = ("longhorn-csi-plugin", "csi-attacher", "csi-provisioner",
+                     "csi-resizer", "csi-snapshotter")
+        for name in workloads:
+            with self.subTest(name=name):
+                results = health.check_storage(FakeCluster(csi_unready={name}))
+                result = next(r for r in results if r.name == f"longhorn/{name}")
+                self.assertFalse(result.passed)
+                self.assertEqual(result.severity, "critical")
 
     def test_otel_agent_uses_the_monitoring_agents_namespace(self):
         result = next(r for r in health.check_apps(FakeCluster())
