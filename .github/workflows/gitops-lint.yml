@@ -106,6 +106,8 @@ jobs:
         run: python3 scripts/check-platform-contracts.py
       - name: Verify rendered Reloader Deployment security and resources
         run: python3 scripts/ci/check_reloader_render.py
+      - name: Verify Longhorn chart and image cohort
+        run: python3 scripts/ci/check_longhorn_chart_images.py
 
   secret-bootstrap-coverage:
     name: SOPS bootstrap coverage

@@ -34,7 +34,10 @@ spec:
   driftDetection:
     mode: enabled
   values:
-    # Images pinned per ADR-009, at the versions already running.
+    # Images pinned per ADR-009 to the exact cohort shipped by this chart.
+    # The 1.13 chart adds longhorn-global-manager, whose `global` command
+    # requires the 1.13 manager image. A chart-only bump to 1.13.0 with the
+    # 1.12.1 image pins failed to start it and was rolled back by Flux.
     #
     # All ten move as one group. The four longhorn-* images are one release, and
     # the six CSI sidecars are republished by longhornio and version-matched to
@@ -49,23 +52,23 @@ spec:
       longhorn:
         manager:
           repository: longhornio/longhorn-manager
-          tag: v1.12.1
+          tag: v1.13.0
         engine:
           repository: longhornio/longhorn-engine
-          tag: v1.12.1
+          tag: v1.13.0
         instanceManager:
           repository: longhornio/longhorn-instance-manager
-          tag: v1.12.1
+          tag: v1.13.0
         shareManager:
           repository: longhornio/longhorn-share-manager
-          tag: v1.12.1
+          tag: v1.13.0
       csi:
         attacher:
           repository: longhornio/csi-attacher
-          tag: v4.12.0
+          tag: v4.13.0
         provisioner:
           repository: longhornio/csi-provisioner
-          tag: v5.3.0
+          tag: v6.3.0
         resizer:
           repository: longhornio/csi-resizer
           tag: v2.2.1
@@ -74,10 +77,10 @@ spec:
           tag: v8.6.0
         nodeDriverRegistrar:
           repository: longhornio/csi-node-driver-registrar
-          tag: v2.17.0
+          tag: v2.18.0
         livenessProbe:
           repository: longhornio/livenessprobe
-          tag: v2.19.0
+          tag: v2.20.0
 
     # Fails the release before it touches the running cluster if the upgrade is
     # incompatible, rather than discovering it half-applied.
