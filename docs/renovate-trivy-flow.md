@@ -141,6 +141,12 @@ both are available at once, and Renovate drops members still held by `minimumRel
 rather than holding the group back. That is exactly how zot drifted: the chart cleared the
 age gate while its image had not. The `appVersion` check is what closes it.
 
+The global 48-hour release-age gate applies when Renovate's datasource provides a release
+timestamp. With `minimumReleaseAgeBehaviour: timestamp-optional`, updates without a
+supported timestamp (including GHCR and Quay container tags) can still open PRs; their
+publication age is not verified by Renovate. The normal CI and `manual-review` merge gates
+still apply. This policy is shared by all components rather than exempting individual charts.
+
 ## 2. Continuous: scoped findings and change alerts
 
 Trivy scans deployed workloads independently of dependency PRs. Its raw metrics
