@@ -29,7 +29,7 @@ spec:
     # appVersion, and Renovate can propose updates against it.
     image:
       repository: ghcr.io/stakater/reloader
-      tag: v1.4.21
+      tag: v1.4.22
     reloader:
       watchGlobally: true
       deployment:
