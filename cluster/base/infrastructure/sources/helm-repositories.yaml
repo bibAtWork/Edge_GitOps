@@ -114,7 +114,10 @@ metadata:
   namespace: flux-system
 spec:
   interval: 12h
-  url: https://immich-app.github.io/immich-charts
+  type: oci
+  # The chart is published at oci://ghcr.io/immich-app/immich-charts/immich.
+  # HelmRepository URLs point to its parent; HelmRelease appends chart: immich.
+  url: oci://ghcr.io/immich-app/immich-charts
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
