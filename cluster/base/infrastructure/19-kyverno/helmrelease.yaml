@@ -33,12 +33,12 @@ spec:
         image:
           registry: reg.kyverno.io
           repository: kyverno/kyverno
-          tag: v1.19.0
+          tag: v1.19.1
       initContainer:
         image:
           registry: reg.kyverno.io
           repository: kyverno/kyvernopre
-          tag: v1.19.0
+          tag: v1.19.1
       replicas: 1
       # Must be able to run on a cordoned node.
       #
@@ -72,7 +72,7 @@ spec:
       image:
         registry: reg.kyverno.io
         repository: kyverno/background-controller
-        tag: v1.19.0
+        tag: v1.19.1
       resources:
         requests:
           cpu: 50m
@@ -84,7 +84,7 @@ spec:
       image:
         registry: reg.kyverno.io
         repository: kyverno/cleanup-controller
-        tag: v1.19.0
+        tag: v1.19.1
       resources:
         requests:
           cpu: 50m
@@ -96,7 +96,7 @@ spec:
       image:
         registry: reg.kyverno.io
         repository: kyverno/reports-controller
-        tag: v1.19.0
+        tag: v1.19.1
       resources:
         requests:
           cpu: 50m
