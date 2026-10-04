@@ -10,6 +10,7 @@
   ],
   "labels": ["renovate"],
   "minimumReleaseAge": "48 hours",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
   "vulnerabilityAlerts": {
     "enabled": true,
     "minimumReleaseAge": null,
