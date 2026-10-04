@@ -10,6 +10,7 @@
   ],
   "labels": ["renovate"],
   "minimumReleaseAge": "48 hours",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
   "vulnerabilityAlerts": {
     "enabled": true,
     "minimumReleaseAge": null,
@@ -81,26 +82,15 @@
     },
     {
       "customType": "regex",
-      "description": "Immich's CNPG database image, ghcr.io/tensorchord/cloudnative-vectorchord -- a different image from the CNPG manager above, which only matches cloudnative-pg/postgresql and has never matched this pin. Immich moved onto CNPG after that manager was written (#603), so this dependency has had no Renovate coverage since it started existing: the exact failure mode that manager's own description records for keycloak-pg/filer-meta-pg (patch releases behind, fixable critical CVEs accumulating), recurring for the cluster added after the fix. Found on code review (round 4). The tag is <postgres-major>-<vectorchord-version>, e.g. 17-0.3.0; versioningTemplate's `compatibility` capture group (a documented Renovate regex-versioning feature) keeps the postgres-major prefix fixed, so this only ever proposes a new VectorChord version for the SAME Postgres major -- never a cross-major jump, the same invariant the packageRule below enforces for the plain postgres image.",
+      "description": "Immich's CNPG database image, ghcr.io/tensorchord/cloudnative-vectorchord -- a different image from the CNPG manager above, which only matches cloudnative-pg/postgresql and has never matched this pin. Immich moved onto CNPG after that manager was written (#603), so this dependency has had no Renovate coverage since it started existing: the exact failure mode that manager's own description records for keycloak-pg/filer-meta-pg (patch releases behind, fixable critical CVEs accumulating), recurring for the cluster added after the fix. Found on code review (round 4). The tag is <postgres-major>-<vectorchord-version>, e.g. 17-0.3.0; versioningTemplate's `compatibility` capture group (a documented Renovate regex-versioning feature) keeps the postgres-major prefix fixed, so this only ever proposes a new VectorChord version for the SAME Postgres major -- never a cross-major jump, the same invariant the packageRule below enforces for the plain postgres image.\n\nPath corrected 2026-09-20: the platform refactor moved this file to 16-immich/deferred/postgres-cluster.yaml without updating this manager, silently reopening the exact gap this manager exists to close -- found by checking every customManager's managerFilePatterns against the real tree rather than assuming a path written once still holds. keycloak's own postgres-cluster.yaml also moved to a deferred/ path, but needs no equivalent fix: it uses the stock cloudnative-pg/postgresql image, already covered regardless of location by the CNPG manager above's unscoped /cluster/base/infrastructure/.+\\.yaml$/ pattern.",
       "managerFilePatterns": [
-        "/cluster/base/infrastructure/16-immich/postgres-cluster\\.yaml$/"
+        "/cluster/base/infrastructure/16-immich/deferred/postgres-cluster\\.yaml$/"
       ],
       "matchStrings": [
         "imageName:\\s*(?<depName>ghcr\\.io/tensorchord/cloudnative-vectorchord):(?<currentValue>[\\d.-]+)"
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^(?<compatibility>\\d+)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
-    },
-    {
-      "customType": "regex",
-      "description": "kubeopencode's three per-role agent images (agentImage, executorImage, attachImage) -- not `image:` keys, so the built-in kubernetes manager never reads them, and they have had zero Renovate coverage. Low priority: kubeopencode is currently parked (27-kubeopencode/config/kustomization.yaml -- the controller cannot run against this cluster's controller-runtime version), so nothing is actually deployed to bump, but tracking costs nothing and stops the pins drifting further behind the chart while it's blocked. Already covered by the existing kubeopencode packageRule below: its /^ghcr[.]io/kubeopencode// pattern matches all three depNames, so no new grouping rule is needed, only extraction.",
-      "managerFilePatterns": [
-        "/cluster/base/infrastructure/27-kubeopencode/config/agent\\.yaml$/"
-      ],
-      "matchStrings": [
-        "(?:agentImage|executorImage|attachImage):\\s*(?<depName>ghcr\\.io/kubeopencode/[a-z-]+):(?<currentValue>v[\\d.]+)"
-      ],
-      "datasourceTemplate": "docker"
     },
     {
       "customType": "regex",
@@ -148,18 +138,6 @@
       ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "immich-app/immich"
-    },
-    {
-      "customType": "regex",
-      "description": "kubernetes-mcp-server's app image, values.image.version -- a non-standard field name (version, not tag), with no repository present either. The file's own 2026-08-14 security-review comment claims 'Renovate's docker datasource will now track and PR version bumps the same as every other pinned image in this repo' -- checked against the actual renovate.json on the same audit that found the immich gap above (2026-09-19): that claim was never true, nothing referenced this chart or field. Not grouped with the kubeopencode packageRule: quay.io/containers/kubernetes_mcp_server is an unrelated upstream project that happens to share this local namespace, not a kubeopencode release.",
-      "managerFilePatterns": [
-        "/cluster/base/infrastructure/27-kubeopencode/mcp-server-helmrelease\\.yaml$/"
-      ],
-      "matchStrings": [
-        "image:\\s*\\n\\s*version:\\s*(?<currentValue>v[\\d.]+)"
-      ],
-      "datasourceTemplate": "docker",
-      "depNameTemplate": "quay.io/containers/kubernetes_mcp_server"
     },
     {
       "customType": "regex",
@@ -300,6 +278,7 @@
       "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list). immich-app/immich (the app image tag override, added 2026-09-19) joins the same group for the same reason: a new app version and a new chart version are the same underlying decision and must not land as two independent, unreviewed-together PRs.",
       "matchPackageNames": [
         "immich",
+        "ghcr.io/immich-app/immich-charts/immich",
         "ghcr.io/tensorchord/cloudnative-vectorchord",
         "immich-app/immich"
       ],
@@ -362,15 +341,6 @@
       "automerge": false
     },
     {
-      "description": "kubeopencode's controller and server are two roles of one binary, pinned twice from the same repository. Grouped so a bump cannot land on one and not the other.",
-      "matchPackageNames": [
-        "kubeopencode",
-        "/^ghcr[.]io/kubeopencode//"
-      ],
-      "groupName": "kubeopencode",
-      "automerge": false
-    },
-    {
       "description": "SeaweedFS ships as two separately-tracked packages that are really one release: the chart (01-seaweedfs/helmrelease.yaml) and the chrislusf/seaweedfs image the collection-routing Job pins for itself (cluster/overlays/1-node/seaweedfs-collection-routing-job.yaml, a different file, so the matchFileNames grouping style used elsewhere in this list does not reach it). Ungrouped, client (the Job) and server (the chart) can land on different days in different PRs and drift apart -- the same class of problem the file-based chart+image groups below exist to prevent. Found on code review (round 4).",
       "matchPackageNames": [
         "seaweedfs",
@@ -393,6 +363,11 @@
         "cluster/base/infrastructure/02-victoriametrics-stack/helmrelease.yaml"
       ],
       "groupName": "victoria-metrics"
+    },
+    {
+      "description": "The VictoriaMetrics operator image can require CRDs that only a newer stack chart supplies. Review operator image updates before they merge; other images in the chart keep their normal update path.",
+      "matchPackageNames": ["victoriametrics/operator"],
+      "addLabels": ["manual-review"]
     },
     {
       "description": "Move the grafana chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",
