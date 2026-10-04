@@ -119,6 +119,8 @@ after service or node-profile changes.
 tag is now tracked by Renovate, grouped with the chart/database updates for manual
 review; the earlier claim of missing tracking is obsolete. The dependency dashboard
 currently offers [the v3 update](https://github.com/bibAtWork/Edge_GitOps/pull/673).
+The chart now comes from upstream's OCI registry; its pinned 0.12.0 version is
+available there, so the repository migration did not change the running app.
 
 Review the proposed migration and compatibility with the configured CNPG database,
 OAuth and storage. Validate a recovery point by restoring it, exercise the update

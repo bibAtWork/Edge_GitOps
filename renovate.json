@@ -277,6 +277,7 @@
       "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list). immich-app/immich (the app image tag override, added 2026-09-19) joins the same group for the same reason: a new app version and a new chart version are the same underlying decision and must not land as two independent, unreviewed-together PRs.",
       "matchPackageNames": [
         "immich",
+        "ghcr.io/immich-app/immich-charts/immich",
         "ghcr.io/tensorchord/cloudnative-vectorchord",
         "immich-app/immich"
       ],
