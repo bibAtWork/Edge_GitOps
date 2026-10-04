@@ -45,7 +45,7 @@ spec:
               # is the actual one-shot CLI image (Entrypoint: ["kubescape"],
               # confirmed via the image manifest). The v4.0.13 one-shot scan
               # and its Prometheus output were verified with a live canary.
-              image: quay.io/kubescape/kubescape-cli:v4.0.13
+              image: quay.io/kubescape/kubescape-cli:v4.0.15
               args:
                 - scan
                 - framework
