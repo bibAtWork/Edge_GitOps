@@ -106,7 +106,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: check
-              image: docker.io/library/python:3.14.7-alpine
+              image: docker.io/library/python:3.14.8-alpine
               command: [python, /check/check.py]
               env:
                 - name: PYTHONDONTWRITEBYTECODE
