@@ -46,9 +46,9 @@ spec:
     # sidecar is what runs inside every database pod, so a bump to it restarts
     # each database once: move both tags together, in a reviewed PR.
     image:
-      tag: v0.15.0
+      tag: v0.15.1
     sidecarImage:
-      tag: v0.15.0
+      tag: v0.15.1
     resources:
       requests:
         cpu: 20m
