@@ -32,7 +32,7 @@ spec:
       # standalone Job (no external DB to stand up a separate connection to).
       initContainers:
         - name: ensure-rbac-groups
-          image: ghcr.io/paperless-ngx/paperless-ngx:3.2.1
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0
           command: ["/bin/sh", "-c", "python3 manage.py shell < /scripts/ensure_groups.py"]
           env:
             - name: PAPERLESS_REDIS
@@ -55,7 +55,7 @@ spec:
               readOnly: true
       containers:
         - name: paperless-ngx
-          image: ghcr.io/paperless-ngx/paperless-ngx:3.2.1
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0
           ports:
             - name: http
               containerPort: 8000
@@ -208,7 +208,7 @@ spec:
         # alert. Keeping this reader in the application pod avoids a second
         # pod contending for the ReadWriteOnce claim.
         - name: consume-monitor
-          image: ghcr.io/paperless-ngx/paperless-ngx:3.2.1
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0
           command: ["python3", "/monitor/monitor.py"]
           env:
             - name: PYTHONDONTWRITEBYTECODE
