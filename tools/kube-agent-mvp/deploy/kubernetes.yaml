@@ -1,0 +1,344 @@
+# Stable APIs intended for Kubernetes 1.37. Replace image names and REPO_URL.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-api
+  namespace: agent-system
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: investigator
+  namespace: agent-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proposer
+  namespace: agent-system
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-investigation
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events, services, endpoints, persistentvolumeclaims, replicationcontrollers, resourcequotas, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-investigation
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: investigator
+    namespace: agent-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agent-investigation
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+  namespace: agent-system
+data:
+  WATCH_NAMESPACE: default
+  API_URL: http://agent-api:8080
+  OLLAMA_API_BASE: http://ollama:11434
+  OLLAMA_MODEL: qwen3:4b
+  HOLMES_MODEL: ollama_chat/qwen3:4b
+  OPENCODE_MODEL: ollama/qwen3:4b
+  # Set true to automatically request a proposed patch after investigation.
+  AUTO_PROPOSE: "false"
+  AGENT_TIMEOUT: "600"
+  LEASE_SECONDS: "1200"
+  REPO_URL: https://github.com/bibAtWork/Edge_GitOps.git
+  REPO_REF: ops/talos_linux
+  HOLMES_COMMAND: '["python", "/app/holmes_cli.py", "ask", "{prompt}", "--model", "{model}", "--no-interactive", "--json-output-file", "{output}"]'
+  OPENCODE_COMMAND: '["opencode", "run", "--model", "{model}", "{prompt}"]'
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-data
+  namespace: agent-system
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-api
+  namespace: agent-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: agent-api
+  template:
+    metadata:
+      labels:
+        app: agent-api
+    spec:
+      serviceAccountName: agent-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: kube-agent-api:dev
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: agent-config
+            - secretRef:
+                name: agent-auth
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: agent-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-api
+  namespace: agent-system
+spec:
+  selector:
+    app: agent-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: investigator
+  namespace: agent-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: investigator
+  template:
+    metadata:
+      labels:
+        app: investigator
+    spec:
+      serviceAccountName: investigator
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: worker
+          image: kube-agent-holmes:dev
+          envFrom:
+            - configMapRef:
+                name: agent-config
+            - secretRef:
+                name: agent-auth
+          env:
+            - name: WORKER_STAGE
+              value: investigation
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: home
+              mountPath: /home/agent
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proposer
+  namespace: agent-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: proposer
+  template:
+    metadata:
+      labels:
+        app: proposer
+    spec:
+      serviceAccountName: proposer
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: worker
+          image: kube-agent-opencode:dev
+          envFrom:
+            - configMapRef:
+                name: agent-config
+            - secretRef:
+                name: agent-auth
+          env:
+            - name: WORKER_STAGE
+              value: proposal
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: home
+              mountPath: /home/agent
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: workload-scan
+  namespace: agent-system
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 60
+      template:
+        spec:
+          serviceAccountName: agent-api
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          containers:
+            - name: trigger
+              image: kube-agent-api:dev
+              command: [python, -c]
+              args:
+                - "from app.worker import request; request('/v1/scan', {})"
+              envFrom:
+                - configMapRef:
+                    name: agent-config
+                - secretRef:
+                    name: agent-auth
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi

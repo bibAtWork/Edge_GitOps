@@ -1,0 +1,8 @@
+# Pin an upstream version/digest after validating its CLI in your environment.
+ARG HOLMES_IMAGE=robustadev/holmes:0.42.0
+FROM ${HOLMES_IMAGE}
+WORKDIR /opt/kube-agent
+COPY app ./app
+ENV PYTHONPATH=/opt/kube-agent:/app PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/home/agent
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "app.worker"]

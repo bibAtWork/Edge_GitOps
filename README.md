@@ -53,6 +53,10 @@ bootstrap/
 docs/                        # Architecture decisions, disaster recovery
 ```
 
+The opt-in [HolmesGPT + OpenCode investigation MVP](tools/kube-agent-mvp/README.md)
+provides alert investigations and proposed repository patches. It is not included in
+live Flux compositions; its runbook covers the pilot and production onboarding steps.
+
 ## Bootstrap
 
 > **Prerequisites:** A Linux-based OS (or macOS) is required on the machine running the bootstrap. The Ansible playbook and shell scripts do not support Windows natively — use WSL2 if on Windows.

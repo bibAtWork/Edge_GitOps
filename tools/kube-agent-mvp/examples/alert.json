@@ -1,0 +1,17 @@
+{
+  "receiver": "kube-agent",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "KubePodCrashLooping",
+        "namespace": "default",
+        "pod": "demo-api-123",
+        "severity": "warning"
+      },
+      "annotations": {"summary": "demo-api is restarting repeatedly"},
+      "startsAt": "2026-10-04T00:00:00Z"
+    }
+  ]
+}
