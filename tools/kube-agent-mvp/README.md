@@ -6,13 +6,17 @@ manifest repository. Reports, explanations and patches remain retrievable throug
 the API. `AUTO_PROPOSE=true` enables the entire chain, while still only producing
 patches for review.
 
+Both agents use the hosted Gemini API. The default is Gemini 2.5 Flash, subject
+to availability and quota for your Google AI Studio account. No local inference
+server, model download or GPU is required.
+
 ```mermaid
 flowchart LR
   A[Alertmanager] --> Q[Receiver and SQLite queue]
   S[Hourly CronJob] --> Q
   Q --> H[HolmesGPT worker]
   H --> K[Kubernetes read access]
-  H --> L[Ollama CPU model]
+  H --> L[Google Gemini API]
   H --> Q
   Q --> R[Review trigger]
   R --> O[OpenCode worker]
@@ -39,10 +43,10 @@ files. The offline integration test uses fake agent commands and real Git.
 **Live model integration and image builds are not verified in this workspace.**
 No cluster is attached and shell network access is blocked, including a live
 localhost HTTP smoke. The GitHub connector was used to inspect HolmesGPT 0.42.0's
-Docker entrypoint, CLI and Ollama documentation. Its adapter uses the image's
+Docker entrypoint, CLI and Gemini documentation. Its adapter uses the image's
 Python entrypoint in non-interactive mode and reads the final result from JSON,
-excluding CLI logs. OpenCode and Ollama version tags were selected from their
-published GitHub releases. These are source checks, not runtime validation.
+excluding CLI logs. OpenCode's native Google SDK and provider allowlist were
+checked against its pinned source. These are source checks, not runtime validation.
 The adapters use configurable command argument arrays; validate the container
 interfaces before rollout. Model tool-call quality is also unverified.
 Kubernetes manifests use stable APIs intended for
@@ -64,7 +68,7 @@ or cluster. Its source in `tests/test_pipeline.py` shows the artifacts asserted.
 
 ## Build and validate the adapters
 
-The starter pins HolmesGPT 0.42.0, OpenCode 1.18.34 and Ollama 0.35.1.
+The starter pins HolmesGPT 0.42.0 and OpenCode 1.18.34.
 Validate these containers on your architecture; use digests for immutable builds.
 
 ```sh
@@ -85,8 +89,8 @@ If an upstream image needs a different entrypoint, adjust `HOLMES_COMMAND`.
 Default adapters:
 
 ```text
-python /app/holmes_cli.py ask <prompt> --model ollama_chat/qwen3:4b --no-interactive --json-output-file <output>
-opencode run --model ollama/qwen3:4b <prompt>
+python /app/holmes_cli.py ask <prompt> --model gemini/gemini-2.5-flash --no-interactive --json-output-file <output>
+opencode run --model google/gemini-2.5-flash <prompt>
 ```
 
 `HOLMES_COMMAND` and `OPENCODE_COMMAND` are JSON arrays with `{prompt}` and
@@ -105,6 +109,38 @@ does not grant cluster-wide node access, Secrets, pod exec, or write operations.
 Some upstream tools may attempt broader queries and receive RBAC denials; check
 the report and restrict those toolsets rather than widening access blindly.
 
+## Gemini credentials and quota
+
+Get an API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+Verify that the selected model supports tool calling and is available for your
+account before connecting real alerts. Free-tier eligibility, rate limits and
+data handling depend on your model, account and Google's current terms; this MVP
+does not guarantee free usage or automatically switch providers.
+
+Store the key in the `agent-gemini` Secret under `api-key`. The investigator reads
+it as `GEMINI_API_KEY`; the proposer reads the same key as
+`GOOGLE_GENERATIVE_AI_API_KEY`. The API receiver and scan CronJob do not receive
+the Gemini Secret. The key is referenced through the environment in OpenCode's
+configuration and is not written into that file. Holmes sets
+`TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true` for Gemini tool compatibility.
+
+Use `HOLMES_MODEL=gemini/<model-id>` and `OPENCODE_MODEL=google/<model-id>` to select
+another available Gemini model. Workers reject other provider prefixes and fail
+at startup if their key is missing. OpenCode enables only the Google provider,
+including its auxiliary model. Custom command adapters are trusted operator code
+and must honor this provider choice too.
+
+Both agents need HTTPS access to `generativelanguage.googleapis.com`; OpenCode
+may also fetch its model catalog from `models.dev`. Keep the Kubernetes API, DNS,
+internal receiver and public Git repository reachable as appropriate for each
+worker. Add the matching Cilium policies during platform onboarding.
+
+The shared execution slot prevents simultaneous investigations/proposals, but
+each agent can make multiple API calls per incident. This is not a daily request,
+token or monetary budget. Quota failures persist as failed investigations; there
+is no queue-level retry/backoff or fallback provider. Start with manual scans,
+keep automatic proposals off, and assess usage before enabling hourly scans.
+
 ## Deploy to Kubernetes
 
 1. Push the three images to your registry, and replace the image references in
@@ -117,7 +153,8 @@ the report and restrict those toolsets rather than widening access blindly.
    to `default`. Multi-namespace and multi-cluster routing are outside this MVP.
 4. Select a StorageClass if your cluster has no default. The API uses a 2 GiB PVC
    and single-replica `Recreate` Deployment; SQLite is not configured for HA.
-5. Create a token and apply the manifests:
+5. Create the receiver token and Gemini Secret, then apply the manifests. Place
+   your Gemini API key in a protected file outside the repository first:
 
 ```sh
 kubectl create namespace agent-system
@@ -125,38 +162,31 @@ kubectl create namespace agent-system
 export API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 kubectl -n agent-system create secret generic agent-auth \
   --from-literal=API_TOKEN="$API_TOKEN"
+kubectl -n agent-system create secret generic agent-gemini \
+  --from-file=api-key=/secure/path/gemini-api-key
 kubectl apply -f deploy/kubernetes.yaml
-kubectl apply -f deploy/ollama.yaml
-kubectl -n agent-system rollout status deployment/ollama
-kubectl -n agent-system exec deployment/ollama -- ollama pull qwen3:4b
 ```
 
-`deploy/ollama.yaml` is optional. To use an existing Ollama instance, change
-`OLLAMA_API_BASE` in the ConfigMap. Holmes receives that environment variable;
-OpenCode's generated provider configuration adds `/v1` to the URL.
+For GitOps, generate and SOPS-encrypt the Secret using your established bootstrap
+workflow; never commit the API key or plaintext Secret. Restart workers after
+rotating the key.
 
-For CPU-only use, Ollama is configured for one parallel request, one loaded model
-and a 4,096-token context. Its 4,500 MiB memory limit plus the application limits
-total roughly 6.2 GiB. This excludes the OS, Kubernetes components and existing
-workloads. An 8 GB node may need a lower model size or external Ollama. No GPU is
-requested. Smaller contexts may limit multi-step investigations, and client
-options can affect context usage; measure actual memory before increasing it.
-Qwen3 thinking is not explicitly disabled by these adapters. If inference exceeds
-the 600-second limit, use your provider's supported non-thinking configuration,
-reduce evidence, or choose a lighter model. Do not mistake a timeout for a healthy
-workload.
+The receiver and two workers request 576 MiB RAM and 250m CPU combined. Their
+memory limits total 1,792 MiB (1.75 GiB), plus up to 64 MiB for the hourly trigger.
+These are configured resources, not measured consumption; they exclude the OS,
+Kubernetes and existing workloads. Only the 2 GiB report/queue PVC remains.
 
-First smoke-test the deployed CLI interfaces with the actual Ollama endpoint:
+First smoke-test the deployed CLI interfaces using your Gemini credentials:
 
 ```sh
 kubectl -n agent-system exec deployment/investigator -- \
   python /app/holmes_cli.py ask 'List unhealthy pods only in namespace default and cite evidence.' \
-  --model ollama_chat/qwen3:4b --no-interactive
+  --model gemini/gemini-2.5-flash --no-interactive
 kubectl -n agent-system exec deployment/proposer -- opencode run --help
 ```
 
-If Holmes cannot tool-call with the selected model/provider or your version uses
-a different model identifier, update `HOLMES_MODEL` and `HOLMES_COMMAND` before
+If Holmes cannot tool-call with the selected Gemini model or your account cannot
+access it, update `HOLMES_MODEL` and `OPENCODE_MODEL` before
 accepting real alerts. All three applications must be restarted after ConfigMap
 or Secret changes:
 
@@ -231,15 +261,16 @@ namespace are accepted; cluster-level or unlabeled alerts are ignored.
   configuration disabling is requested through environment variables; verify
   those controls in the OpenCode version you pin. Only use a trusted repository;
   these settings are not a sandbox for hostile repository plugins or code.
-- Agent output and alert annotations can contain sensitive workload data. Reports
-  reside in the API PVC; protect API access and use encrypted storage if required.
+- Agent output and alert annotations can contain sensitive workload data. Evidence
+  and repository excerpts are sent to Google's API. Reports reside in the API PVC;
+  protect API access and review the provider's data handling before sending logs.
 - Logs identify stages/failure types without copying agent output. Detailed agent
   stderr is not retained. Reproduce CLI failures with an operator-controlled smoke
   test for diagnosis.
 - No automatic database retention, backlog cap, Prometheus metrics, or outbound
   NetworkPolicy is included. Monitor PVC usage and queue age during the pilot.
-- The model/server is a dependency: `/healthz` checks API process health, not
-  investigation quality or Ollama readiness. Agent failures persist as `failed`.
+- Gemini is an external dependency: `/healthz` checks API process health, not
+  investigation quality, model availability or quota. Agent failures persist as `failed`.
 
 ## Acceptance test on your 1.37 cluster
 

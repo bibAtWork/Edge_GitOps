@@ -21,6 +21,14 @@ class PipelineTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.store = Store(str(Path(self.directory.name) / 'queue.db'))
         self.token = 'test-token-with-at-least-24-characters'
+        env = patch.dict(os.environ, {
+            'GEMINI_API_KEY': 'unit-test-placeholder',
+            'GOOGLE_GENERATIVE_AI_API_KEY': 'unit-test-placeholder',
+            'HOLMES_MODEL': 'gemini/gemini-2.5-flash',
+            'OPENCODE_MODEL': 'google/gemini-2.5-flash',
+        })
+        env.start()
+        self.addCleanup(env.stop)
 
     def call(self, method, path, body=None, authorized=True):
         # Exercise the real HTTP handler without requiring network permissions.
@@ -107,6 +115,13 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn('ops/talos_linux', argv)
                 argv = list(argv)
                 argv[-2] = str(source)
+                self.assertNotIn('GEMINI_API_KEY', kwargs['env'])
+                self.assertNotIn('GOOGLE_GENERATIVE_AI_API_KEY', kwargs['env'])
+            elif argv[0] == sys.executable and kwargs.get('cwd'):
+                config = json.loads(Path(kwargs['env']['OPENCODE_CONFIG']).read_text())
+                self.assertEqual(config['enabled_providers'], ['google'])
+                self.assertEqual(config['model'], 'google/gemini-2.5-flash')
+                self.assertNotIn('API_TOKEN', kwargs['env'])
             return real_run(argv, **kwargs)
 
         def fake_transport(path, body):
@@ -164,6 +179,27 @@ class PipelineTests(unittest.TestCase):
         with patch.dict(os.environ, {'HOLMES_COMMAND': json.dumps(argv), 'WATCH_NAMESPACE': 'default'}):
             result = worker.investigate({'payload': {'kind': 'scan', 'namespace': 'default'}})
         self.assertEqual(result['report'], 'Evidence-based final report')
+
+    def test_gemini_credentials_and_provider_validation(self):
+        for stage, key, variable in (
+            ('investigation', 'GEMINI_API_KEY', 'HOLMES_MODEL'),
+            ('proposal', 'GOOGLE_GENERATIVE_AI_API_KEY', 'OPENCODE_MODEL'),
+        ):
+            with self.subTest(stage=stage):
+                with patch.dict(os.environ, {key: ''}):
+                    with self.assertRaisesRegex(ValueError, key):
+                        worker.model_for(stage)
+                with patch.dict(os.environ, {variable: 'other/model'}):
+                    with self.assertRaisesRegex(ValueError, 'must select a Gemini model'):
+                        worker.model_for(stage)
+
+    def test_opencode_config_keeps_key_in_environment(self):
+        config = worker.opencode_config(worker.model_for('proposal'))
+        self.assertEqual(config['enabled_providers'], ['google'])
+        self.assertEqual(config['small_model'], config['model'])
+        self.assertEqual(config['provider']['google']['options']['apiKey'],
+                         '{env:GOOGLE_GENERATIVE_AI_API_KEY}')
+        self.assertNotIn('unit-test-placeholder', json.dumps(config))
 
     def test_timeout_terminates_process(self):
         with self.assertRaisesRegex(RuntimeError, 'runtime limit'):
