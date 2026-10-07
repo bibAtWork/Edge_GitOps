@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: otel-gateway
-          image: otel/opentelemetry-collector-contrib:0.161.0
+          image: otel/opentelemetry-collector-contrib:0.162.0
           args: ["--config=/conf/config.yaml"]
           resources:
             requests:
