@@ -1,0 +1,27 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: screener-pg
+  namespace: real-estate-screener
+spec:
+  instances: 1
+  enablePDB: false
+  stopDelay: 300
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+  bootstrap:
+    initdb:
+      database: screener
+      owner: screener
+  storage:
+    size: 10Gi
+    storageClass: longhorn-db
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  postgresql:
+    parameters:
+      max_connections: '40'
+      shared_buffers: 128MB

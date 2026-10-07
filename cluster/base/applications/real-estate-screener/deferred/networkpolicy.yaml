@@ -1,0 +1,73 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: screener-isolation
+  namespace: real-estate-screener
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-database
+  namespace: real-estate-screener
+spec:
+  endpointSelector: {}
+  ingress:
+  - fromEndpoints:
+    - {}
+  egress:
+  - toEndpoints:
+    - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-worker-https
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      screener/worker: 'true'
+  egress:
+  - toEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-cnpg-api
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: screener-pg
+  egress:
+  - toEntities:
+    - kube-apiserver
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-otel-scrape
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      app: screener-web
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: monitoring
+        app.kubernetes.io/name: otel-collector-gateway
+    toPorts:
+    - ports:
+      - port: '3000'
+        protocol: TCP

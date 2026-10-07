@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - ../infrastructure/16-immich
   - ../infrastructure/17-paperless-ngx
+  - real-estate-screener

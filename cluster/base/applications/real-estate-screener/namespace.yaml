@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: real-estate-screener
+  labels:
+    homelab.local/application: 'true'
+    homelab.local/gateway-access: 'true'
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    homelab.local/recovery: persistent
+    homelab.local/recovery-reason: CNPG on retained Longhorn storage. Offsite recovery
+      is not yet configured; listing snapshots cannot be reconstructed once removed
+      upstream.

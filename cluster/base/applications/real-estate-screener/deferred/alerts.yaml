@@ -1,0 +1,25 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: real-estate-screener
+  namespace: monitoring
+spec:
+  groups:
+    - name: real-estate-screener
+      rules:
+        - alert: RealEstateScreenerUnavailable
+          expr: up{job="real-estate-screener"} == 0 or absent(up{job="real-estate-screener"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Real estate screener metrics are unavailable
+            description: Check image pulls, migrations, web readiness and the OTel scrape path.
+        - alert: RealEstateScreenerFunctionalityFailed
+          expr: screener_last_health_check_success == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Real estate screener database functionality checks are failing
+            description: The readiness endpoint cannot verify the schema or query listing, macro or auction views.

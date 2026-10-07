@@ -16,6 +16,9 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: platform-canary
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: real-estate-screener
   to:
     - group: ""
       kind: Service
