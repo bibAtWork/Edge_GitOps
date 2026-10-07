@@ -1,0 +1,13 @@
+{
+  "intervalMinutes": 30,
+  "detailRefreshHours": 24,
+  "detailDelayMs": 2500,
+  "maxDetailsPerRun": 20,
+  "searches": [
+    {
+      "name": "Berlin houses \u2014 initial search",
+      "provider": "immoscout",
+      "url": "https://www.immobilienscout24.de/Suche/de/berlin/berlin/haus-kaufen"
+    }
+  ]
+}

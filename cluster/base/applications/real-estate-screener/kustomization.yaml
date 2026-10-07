@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: real-estate-screener
+resources:
+- namespace.yaml
+- web.yaml
+- collector.yaml
+- macro.yaml
+- access.yaml
+configMapGenerator:
+- name: screener-config
+  files:
+  - config/config.json
+  - config/macro.config.json

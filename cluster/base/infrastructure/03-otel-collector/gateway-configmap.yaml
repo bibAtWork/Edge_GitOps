@@ -13,6 +13,14 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+      prometheus/screener:
+        config:
+          scrape_configs:
+            - job_name: real-estate-screener
+              scrape_interval: 30s
+              static_configs:
+                - targets: [screener-web.real-estate-screener.svc:3000]
+
     processors:
       batch:
         timeout: 5s
@@ -48,7 +56,7 @@ data:
                     without_units: true
       pipelines:
         metrics:
-          receivers: [otlp]
+          receivers: [otlp, prometheus/screener]
           processors: [memory_limiter, batch, resource]
           exporters: [prometheusremotewrite]
         logs:

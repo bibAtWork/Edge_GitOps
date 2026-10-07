@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: screener-macro
+spec:
+  schedule: 15 4 * * *
+  timeZone: Europe/Berlin
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          imagePullSecrets:
+          - name: ghcr-pull
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: macro
+            image: ghcr.io/bibatwork/real-estate-screener@sha256:83a22c119a446b7847c8e91f4e86be1b6bfc7a86fbc4fe1b51f94834f14ccb8a
+            imagePullPolicy: Always
+            args:
+            - macro-sync
+            - /config/macro.config.json
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: '1'
+                memory: 1Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: screener-pg-app
+                  key: uri
+          volumes:
+          - name: config
+            configMap:
+              name: screener-config
+          - name: tmp
+            emptyDir:
+              sizeLimit: 64Mi
+          initContainers:
+          - name: migrate
+            image: ghcr.io/bibatwork/real-estate-screener@sha256:83a22c119a446b7847c8e91f4e86be1b6bfc7a86fbc4fe1b51f94834f14ccb8a
+            args:
+            - migrate
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: screener-pg-app
+                  key: uri
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 500m
+                memory: 256Mi
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        metadata:
+          labels:
+            screener/worker: 'true'

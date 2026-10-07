@@ -6,3 +6,4 @@ resources:
   - ../../infrastructure/17-paperless-ngx/config
   - ../../infrastructure/16-immich/deferred
   - ../../infrastructure/17-paperless-ngx/deferred
+  - ../real-estate-screener/deferred

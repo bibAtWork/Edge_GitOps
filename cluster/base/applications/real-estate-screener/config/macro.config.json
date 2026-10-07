@@ -1,0 +1,6 @@
+{
+  "startYear": 2020,
+  "countries": ["DE", "AT", "FR"],
+  "populationRegionalCountries": ["DE"],
+  "mortgageCountries": ["AT", "FR"]
+}

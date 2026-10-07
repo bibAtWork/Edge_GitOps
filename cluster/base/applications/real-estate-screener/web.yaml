@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: screener-web
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: screener-web
+  template:
+    metadata:
+      labels:
+        app: screener-web
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/path: /metrics
+        prometheus.io/port: '3000'
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      imagePullSecrets:
+      - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: web
+        image: ghcr.io/bibatwork/real-estate-screener@sha256:83a22c119a446b7847c8e91f4e86be1b6bfc7a86fbc4fe1b51f94834f14ccb8a
+        imagePullPolicy: Always
+        args:
+        - serve
+        ports:
+        - name: http
+          containerPort: 3000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          periodSeconds: 2
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          periodSeconds: 15
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /health/checks
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 15
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: screener-pg-app
+              key: uri
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 64Mi
+      initContainers:
+      - name: migrate
+        image: ghcr.io/bibatwork/real-estate-screener@sha256:83a22c119a446b7847c8e91f4e86be1b6bfc7a86fbc4fe1b51f94834f14ccb8a
+        args:
+        - migrate
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: screener-pg-app
+              key: uri
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: screener-web
+  labels:
+    app: screener-web
+spec:
+  type: ClusterIP
+  selector:
+    app: screener-web
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http

@@ -1,0 +1,65 @@
+name: Screener deployment check
+
+on:
+  push:
+    branches: [ops/talos_linux]
+    paths:
+      - cluster/base/applications/real-estate-screener/**
+      - .github/workflows/screener-deployment.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screener-deployment
+  cancel-in-progress: false
+
+jobs:
+  deployment:
+    runs-on: [self-hosted, homelab]
+    timeout-minutes: 15
+    steps:
+      - name: Wait for Flux and verify the application
+        env:
+          EXPECTED_REVISION: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Require this exact revision in both inventories before checking
+          # runtime behavior. A newer revision needs its own verification run.
+          deadline=$((SECONDS + 600))
+          applied=false
+          while (( SECONDS < deadline )); do
+            root_revision=$(kubectl get kustomization flux-system -n flux-system -o jsonpath='{.status.lastAppliedRevision}')
+            config_revision=$(kubectl get kustomization config -n flux-system -o jsonpath='{.status.lastAppliedRevision}')
+            if [[ "$root_revision" == *"$EXPECTED_REVISION" && "$config_revision" == *"$EXPECTED_REVISION" ]]; then
+              applied=true
+              break
+            fi
+            sleep 15
+          done
+          if [[ "$applied" != true ]]; then
+            kubectl get kustomizations -n flux-system
+            echo 'Flux has not applied the expected revision in both layers.'
+            exit 1
+          fi
+          kubectl wait cluster/screener-pg -n real-estate-screener --for=condition=Ready --timeout=120s
+          kubectl rollout status deployment/screener-web -n real-estate-screener --timeout=120s
+          kubectl get cronjobs -n real-estate-screener
+          kubectl port-forward -n real-estate-screener service/screener-web 13000:3000 > /tmp/screener-port-forward.log 2>&1 &
+          forward_pid=$!
+          trap 'kill "$forward_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:13000/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          for path in / /app.js /health/checks /api/listings /api/macro /api/foreclosures /metrics; do
+            curl --fail --show-error --silent "http://127.0.0.1:13000$path" --output /dev/null
+            echo "$path: passed"
+          done
+          status=$(curl --show-error --silent --max-time 20 --dump-header /tmp/screener-headers \
+            --output /dev/null --write-out '%{http_code}' https://screener.homelab.data-harness.org/)
+          [[ "$status" == 302 || "$status" == 303 ]]
+          grep -i '^location: https://keycloak.homelab.data-harness.org/realms/homelab/' /tmp/screener-headers > /dev/null
+          echo 'HTTPS certificate, route and OIDC redirect: passed'
