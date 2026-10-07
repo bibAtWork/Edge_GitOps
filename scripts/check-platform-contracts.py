@@ -369,7 +369,7 @@ def check_profile(profile):
     assert {"immich", "paperless"} <= bound_namespaces
     application_namespaces = {d["metadata"]["name"] for d in docs if d["kind"] == "Namespace"
                               and d["metadata"].get("labels", {}).get("homelab.local/application") == "true"}
-    platform_namespaces = {d["metadata"]["name"] for d in root if d["kind"] == "Namespace"} - {"immich", "paperless"}
+    platform_namespaces = {d["metadata"]["name"] for d in root if d["kind"] == "Namespace"} - application_namespaces
     assert bound_namespaces <= application_namespaces
     assert not bound_namespaces & platform_namespaces
     assert all(b["kind"] == "RoleBinding" for b in bindings)
