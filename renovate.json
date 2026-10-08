@@ -40,6 +40,29 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Pinned Helm binary download URL in GitOps Lint. The GitHub Actions manager tracks actions, not release binaries downloaded by curl. Keep this tool in the existing reviewed Flux/Helm group.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "https://get\\.helm\\.sh/helm-(?<currentValue>v[\\d.]+)-linux-amd64\\.tar\\.gz"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "helm/helm"
+    },
+    {
+      "customType": "regex",
+      "description": "Explicit pip package pins installed inside workflow run blocks. Built-in pip_requirements handles requirements files; this manager is only for existing inline installs.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "pip install[^\\n]*?[\\s\\\"\\'](?<depName>[A-Za-z][A-Za-z0-9_.-]*)==(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
       "description": "Ansible tool versions in group_vars/all.yml (comment-driven)",
       "managerFilePatterns": ["/bootstrap/ansible/group_vars/all\\.yml$/"],
       "matchStrings": ["# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\w+_version:\\s*\"(?<currentValue>[\\d.]+)\""],
@@ -71,9 +94,9 @@
     },
     {
       "customType": "regex",
-      "description": "CloudNativePG cluster images using the stock cloudnative-pg/postgresql image. The built-in kubernetes manager only reads the `image:` key; CNPG Cluster resources spell it `imageName:`, so these pins (keycloak-pg, filer-meta-pg) were invisible to Renovate and drifted five patch releases behind -- 16.10 while 16.15 was current -- carrying 12 fixable critical CVEs between them. Every other image in the repo was kept current automatically; these were the ones nothing was watching. Immich's CNPG cluster uses a different image entirely (tensorchord/cloudnative-vectorchord) and has its own manager below, for the same reason this one exists but with different tag syntax.",
+      "description": "CloudNativePG cluster images using the stock cloudnative-pg/postgresql image. The built-in kubernetes manager only reads the `image:` key; CNPG Cluster resources spell it `imageName:`, so these pins (keycloak-pg, filer-meta-pg) were invisible to Renovate and drifted five patch releases behind -- 16.10 while 16.15 was current -- carrying 12 fixable critical CVEs between them. The file scope includes applications as well as infrastructure: the screener CNPG Cluster is under cluster/base/applications and needs the same coverage. Immich's CNPG cluster uses a different image entirely (tensorchord/cloudnative-vectorchord) and has its own manager below, for the same reason this one exists but with different tag syntax.",
       "managerFilePatterns": [
-        "/cluster/base/infrastructure/.+\\.yaml$/"
+        "/cluster/base/.+\\.yaml$/"
       ],
       "matchStrings": [
         "imageName:\\s*(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>[\\d.]+)"
@@ -449,3 +472,4 @@
     }
   ]
 }
+

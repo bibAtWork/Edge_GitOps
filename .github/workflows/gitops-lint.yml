@@ -28,6 +28,20 @@ permissions:
 # The job ids and names below are the required status checks' names. Renaming
 # one leaves the ruleset waiting on a check that never reports.
 jobs:
+  renovate-coverage:
+    name: Renovate coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install the coverage policy YAML parser
+        run: pip install --quiet -r .github/renovate-coverage/requirements.txt
+      - name: Validate config and compare pins with native Renovate extraction
+        run: python3 scripts/ci/renovate_coverage.py
+
   kyverno-cel-policy-regressions:
     name: Kyverno CEL policy regressions
     runs-on: ubuntu-latest
@@ -153,3 +167,4 @@ jobs:
         run: python3 -m unittest discover -s scripts/ci/tests -v
       - name: Test resource accounting
         run: python3 scripts/test-resource-overcommit.py
+
