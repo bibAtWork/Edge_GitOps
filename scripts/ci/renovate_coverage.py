@@ -91,10 +91,14 @@ def yaml_pins(file, text):
                     registry = scalar(fields.get("registry"))
                     name = "/".join(x.strip("/") for x in (registry, repo) if x)
                     add(child, field, name, "docker" if name else "", offset=offset)
+                elif key.value == "node-version" and file.startswith(".github/workflows/"):
+                    add(child, field, "node", "github-releases", offset=offset)
                 elif key.value == "version" or key.value.endswith("_version"):
                     # Plan versions and Helm chart versions; arbitrary application
                     # config schema versions aren't release pins.
-                    if key.value != "version" or scalar(fields.get("chart")) or field == "spec.version":
+                    if path.startswith("collections[") and scalar(fields.get("name")):
+                        add(child, field, scalar(fields.get("name")), "galaxy-collection", offset=offset)
+                    elif key.value != "version" or scalar(fields.get("chart")) or field == "spec.version":
                         add(child, field, scalar(fields.get("chart")),
                             "helm" if scalar(fields.get("chart")) else "", offset=offset)
                 elif key.value == "newTag" or key.value == "newName" and ":" in value:
@@ -200,27 +204,35 @@ def disabled(dep, file, config):
     implementation instead of silently treating a potentially disabled pin as covered.
     Extraction itself already respects enabledManagers and manager-level enabled.
     """
-    enabled = True
+    update_types = {"digest"} if dep.get("currentDigest") and not dep.get("currentValue") else {"major", "minor", "patch"}
+    enabled = dict.fromkeys(update_types, True)
     selectors = {"matchManagers": dep["manager"], "matchFileNames": file,
                  "matchPackageNames": dep.get("packageName", dep.get("depName", "")),
                  "matchDatasources": dep.get("datasource", ""),
                  "matchDepNames": dep.get("depName", "")}
     for rule in config.get("packageRules", []):
-        if "enabled" not in rule or "matchUpdateTypes" in rule:
+        if "enabled" not in rule:
             continue
         if not all(matches(rule[key], value) for key, value in selectors.items() if key in rule):
             continue
-        unknown = [key for key in rule if key.startswith("match") and key not in selectors]
+        unknown = [key for key in rule if key.startswith("match") and key not in selectors and key != "matchUpdateTypes"]
         if unknown:
             raise ValueError("Unsupported disabling rule selectors: " + ", ".join(unknown))
-        enabled = rule["enabled"]
-    return not enabled
+        for update_type in update_types:
+            if "matchUpdateTypes" not in rule or matches(rule["matchUpdateTypes"], update_type):
+                enabled[update_type] = rule["enabled"]
+    return not any(enabled.values())
 
 
 def covers(pin, dep, text, config):
-    if dep.get("skipReason") or not dep.get("datasource") or disabled(dep, pin.file, config):
+    # ensureGithubToken annotates otherwise valid extractions even in extract
+    # mode. No lookup occurs here; the installed GitHub App supplies credentials
+    # during normal Renovate runs. This one diagnostic is not an extraction gap.
+    if dep.get("skipReason") not in (None, "github-token-required") or not dep.get("datasource") or disabled(dep, pin.file, config):
         return False
     values = {str(dep.get("currentValue", "")), str(dep.get("currentDigest", ""))}
+    if dep["datasource"] == "pypi":
+        values.add(str(dep.get("currentValue", "")).removeprefix("=="))
     name, tag, digest = image_parts(pin.value)
     if pin.datasource == "docker" and pin.field.rsplit(".", 1)[-1] in ("image", "imageName"):
         values_match = bool(tag and tag in values or digest and digest in values)

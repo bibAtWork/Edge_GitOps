@@ -50,10 +50,46 @@ class RenovateCoverage(unittest.TestCase):
                                    "matchPackageNames": ["nginx"], "enabled": False}]}
         self.assertTrue(self.errors(config=config))
 
+    def test_token_required_diagnostic_does_not_hide_valid_extraction(self):
+        file = ".github/workflows/test.yml"
+        text = "jobs: {test: {steps: [{uses: 'actions/checkout@v7'}]}}"
+        pins = coverage.inventory({file: text})
+        dep = {"manager": "github-actions", "datasource": "github-tags", "depName": "actions/checkout",
+               "currentValue": "v7", "skipReason": "github-token-required"}
+        self.assertEqual(coverage.coverage_errors(pins, {file: [dep]}, {file: text}, {}, []), [])
+
+    def test_native_python_requirement_constraint(self):
+        file = ".github/renovate-coverage/requirements.txt"
+        text = "PyYAML==6.0.3\n"
+        pins = coverage.inventory({file: text})
+        dep = {"manager": "pip_requirements", "datasource": "pypi", "depName": "PyYAML", "packageName": "pyyaml",
+               "currentValue": "==6.0.3", "currentVersion": "6.0.3"}
+        self.assertEqual(coverage.coverage_errors(pins, {file: [dep]}, {file: text}, {}, []), [])
+
     def test_major_only_disable_still_has_maintenance(self):
         config = {"packageRules": [{"matchPackageNames": ["nginx"],
                                    "matchUpdateTypes": ["major"], "enabled": False}]}
         self.assertEqual(self.errors(config=config), [])
+
+    def test_disabling_every_version_update_is_not_maintenance(self):
+        rules = [{"matchPackageNames": ["nginx"], "matchUpdateTypes": [kind], "enabled": False}
+                 for kind in ("major", "minor", "patch")]
+        self.assertTrue(self.errors(config={"packageRules": rules}))
+
+    def test_digest_only_pin_must_allow_digest_updates(self):
+        self.files = {self.file: "kind: Pod\nspec: {containers: [{image: 'nginx@sha256:abc'}]}"}
+        self.pins = coverage.inventory(self.files)
+        self.dep.pop("currentValue")
+        self.dep["currentDigest"] = "sha256:abc"
+        self.assertEqual(self.errors(), [])
+        self.assertTrue(self.errors(config={"packageRules": [{"matchPackageNames": ["nginx"],
+            "matchUpdateTypes": ["digest"], "enabled": False}]}))
+
+    def test_ansible_collection_and_node_runtime_pins(self):
+        files = {"bootstrap/ansible/requirements.yml": 'collections: [{name: community.general, version: ">=13.0.0"}]',
+                 ".github/workflows/test.yml": 'jobs: {test: {steps: [{uses: "actions/setup-node@v6", with: {node-version: "24"}}]}}'}
+        pins = coverage.inventory(files)
+        self.assertEqual({p.name for p in pins}, {"community.general", "actions/setup-node", "node"})
 
     def test_file_disable_and_later_enable_follow_rule_order(self):
         rule = {"matchFileNames": ["cluster/base/*.yaml"], "enabled": False}

@@ -40,6 +40,31 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Grafana chart version fallback: native Flux extraction skips this large templated HelmRelease. Keep the built-in manager for all other charts and for supported image values; this manager only covers the missing chart pin.",
+      "managerFilePatterns": [
+        "/^cluster/base/infrastructure/04-grafana/helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "chart:\\s*grafana\\s+version:\\s*(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "helm",
+      "depNameTemplate": "grafana",
+      "registryUrlTemplate": "https://grafana.github.io/helm-charts"
+    },
+    {
+      "customType": "regex",
+      "description": "Longhorn image pins under values.image.longhorn and values.image.csi. The built-in helm-values/Flux heuristic only recognizes repository/tag blocks whose parent key ends in image, so manager, engine and the CSI sidecars are not extracted. This scoped fallback retains the existing longhorn group and manual-review policy.",
+      "managerFilePatterns": [
+        "/^cluster/base/infrastructure/32-longhorn/helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "repository:\\s*(?<depName>longhornio/[^\\s]+)\\s+tag:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Pinned Helm binary download URL in GitOps Lint. The GitHub Actions manager tracks actions, not release binaries downloaded by curl. Keep this tool in the existing reviewed Flux/Helm group.",
       "managerFilePatterns": [
         "/^\\.github/workflows/[^/]+\\.yml$/"

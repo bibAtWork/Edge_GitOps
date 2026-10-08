@@ -39,7 +39,10 @@ using the built-in Flux manager, instead of independently updating its controlle
 A pin passes when a native extracted dependency matches its file, identity and
 current version/digest. Custom-manager results must also contain the source line
 in their native `replaceString`. Skipped dependencies and matching unconditional
-`enabled: false` package rules do not count as coverage. Restrictions applying
+`enabled: false` package rules do not count as coverage. The credential-free
+extraction diagnostic `github-token-required` is allowed: it does not mean a
+manager missed the pin, and the installed GitHub App supplies credentials during
+normal update runs. Restrictions applying
 only to update types, such as disabling major PostgreSQL updates, retain coverage.
 The checker supports the current repository's disabling-rule selectors; it fails
 on unknown selectors rather than guessing their effect.
@@ -60,6 +63,12 @@ The CNPG manager covers both `cluster/base/infrastructure` and
 `cluster/base/applications`; its previous infrastructure-only pattern missed the
 screener database. The workflow-only Helm URL and pip-install managers cover
 existing pins the GitHub Actions manager cannot extract.
+
+The native extraction audit also found that Flux skipped the Grafana chart
+in its large templated HelmRelease, and that the Helm values heuristic did not
+recognize Longhorn's `manager`/`engine`/CSI image blocks (their keys do not end in
+`image`). Focused custom managers cover only those fields. The existing Grafana
+and Longhorn grouping/review rules apply to these dependencies as before.
 
 ## Maintenance decisions
 
