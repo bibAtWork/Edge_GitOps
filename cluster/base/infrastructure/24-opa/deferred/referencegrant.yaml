@@ -47,7 +47,11 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: real-estate-screener
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: sre-agent
   to:
     - group: ""
       kind: Service
       name: opa
+

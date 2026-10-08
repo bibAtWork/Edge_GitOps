@@ -59,6 +59,7 @@ data:
   #     monitored      transient unique data with a dedicated age alert;
   #                    intervention is required before it can be lost
   excluded-volumes: |
+    pvc:sre-agent/agent-data              derived     Temporary investigation cache; rerun scans after loss. Historical reports, proposed patches and queued work are not recovered; export evidence needed for retention.
     # volume                              status      reason
     pvc:paperless/paperless-export-lh     derived     document_exporter output, regenerable from paperless-media + paperless-db; only populated by a manual export, not by normal operation
     pvc:paperless/paperless-consume-lh    monitored   files are transient but unique until ingestion; PaperlessConsumeFileStalled reports any file left here for six hours
@@ -153,3 +154,4 @@ data:
     immich-library-lh   thumbs encoded-video backups
     paperless-media-lh  documents/thumbnails
     paperless-data-lh   index log celerybeat-schedule.db migration_lock
+

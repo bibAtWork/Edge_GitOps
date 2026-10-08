@@ -250,10 +250,12 @@ clients:
       - https://screener.homelab.data-harness.org/oauth2/callback
       - https://canary.homelab.data-harness.org/oauth2/callback
       - https://hubble.homelab.data-harness.org/oauth2/callback
+      - https://sre-agent.homelab.data-harness.org/oauth2/callback
     webOrigins:
       - https://screener.homelab.data-harness.org
       - https://canary.homelab.data-harness.org
       - https://hubble.homelab.data-harness.org
+      - https://sre-agent.homelab.data-harness.org
     secret: $(env:EDGE_CLIENT_SECRET)
     # Scope lists ARE declared for this client, unlike the others, and both are
     # listed exhaustively on purpose.
@@ -379,3 +381,4 @@ clients:
     webOrigins:
       - http://localhost:18000
       - http://localhost:8000
+

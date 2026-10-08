@@ -1,0 +1,470 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sre-agent
+  labels:
+    homelab.local/application: 'true'
+    homelab.local/gateway-access: 'true'
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    homelab.local/recovery: reconstructable
+    homelab.local/recovery-reason: Temporary investigation cache; old reports, patches
+      and queued work are discarded on volume loss. Export retained evidence separately.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-api
+  namespace: sre-agent
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: investigator
+  namespace: sre-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proposer
+  namespace: sre-agent
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-investigation
+  namespace: real-estate-screener
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  - pods/log
+  - events
+  - services
+  - endpoints
+  - persistentvolumeclaims
+  - replicationcontrollers
+  - resourcequotas
+  - limitranges
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - replicasets
+  - statefulsets
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - cronjobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-investigation
+  namespace: real-estate-screener
+subjects:
+- kind: ServiceAccount
+  name: investigator
+  namespace: sre-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agent-investigation
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+  namespace: sre-agent
+data:
+  WATCH_NAMESPACE: real-estate-screener
+  API_URL: http://agent-api:8080
+  HOLMES_MODEL: gemini/gemini-2.5-flash
+  OPENCODE_MODEL: google/gemini-2.5-flash
+  TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS: 'true'
+  AUTO_PROPOSE: 'false'
+  AGENT_TIMEOUT: '600'
+  LEASE_SECONDS: '1200'
+  REPO_URL: https://github.com/bibAtWork/Edge_GitOps.git
+  REPO_REF: ops/talos_linux
+  HOLMES_COMMAND: '["python", "/app/holmes_cli.py", "ask", "{prompt}", "--model",
+    "{model}", "--no-interactive", "--json-output-file", "{output}"]'
+  OPENCODE_COMMAND: '["opencode", "run", "--model", "{model}", "{prompt}"]'
+  DASHBOARD_PORT: '8081'
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-data
+  namespace: sre-agent
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: longhorn
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-api
+  namespace: sre-agent
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: agent-api
+  template:
+    metadata:
+      labels:
+        app: agent-api
+    spec:
+      serviceAccountName: agent-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: api
+        image: ghcr.io/bibatwork/sre-agent-api:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:a79d57c39f09fad9336057819bd7436d921f11b55e6a7957bd14498c806d1506
+        ports:
+        - name: api
+          containerPort: 8080
+        - name: dashboard
+          containerPort: 8081
+        envFrom:
+        - configMapRef:
+            name: agent-config
+        - secretRef:
+            name: agent-auth
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: agent-data
+      imagePullSecrets:
+      - name: ghcr-pull
+  revisionHistoryLimit: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-api
+  namespace: sre-agent
+spec:
+  selector:
+    app: agent-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: investigator
+  namespace: sre-agent
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: investigator
+  template:
+    metadata:
+      labels:
+        app: investigator
+    spec:
+      serviceAccountName: investigator
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: worker
+        image: ghcr.io/bibatwork/sre-agent-holmes:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:6771d9a07666ee5e8274387768620d20e2b50e26d97a0343a21ecd98bcc82e77
+        envFrom:
+        - configMapRef:
+            name: agent-config
+        - secretRef:
+            name: agent-auth
+        env:
+        - name: WORKER_STAGE
+          value: investigation
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: agent-gemini
+              key: api-key
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+        volumeMounts:
+        - name: home
+          mountPath: /home/agent
+        - name: tmp
+          mountPath: /tmp
+        readinessProbe:
+          exec:
+            command: &id001
+            - python
+            - -c
+            - from pathlib import Path; import time; p=Path('/tmp/worker-heartbeat');
+              assert p.exists() and time.time()-p.stat().st_mtime < 900
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command: *id001
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: home
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+      imagePullSecrets:
+      - name: ghcr-pull
+  revisionHistoryLimit: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proposer
+  namespace: sre-agent
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: proposer
+  template:
+    metadata:
+      labels:
+        app: proposer
+    spec:
+      serviceAccountName: proposer
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: worker
+        image: ghcr.io/bibatwork/sre-agent-opencode:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:9a9e5c079dad6cd9490f1fe22cf3849a03366b50cd5c8bb1b058371c1a52e081
+        envFrom:
+        - configMapRef:
+            name: agent-config
+        - secretRef:
+            name: agent-auth
+        env:
+        - name: WORKER_STAGE
+          value: proposal
+        - name: GOOGLE_GENERATIVE_AI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: agent-gemini
+              key: api-key
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+        volumeMounts:
+        - name: home
+          mountPath: /home/agent
+        - name: tmp
+          mountPath: /tmp
+        readinessProbe:
+          exec:
+            command: &id001
+            - python3
+            - -c
+            - from pathlib import Path; import time; p=Path('/tmp/worker-heartbeat');
+              assert p.exists() and time.time()-p.stat().st_mtime < 900
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command: *id001
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: home
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+      imagePullSecrets:
+      - name: ghcr-pull
+  revisionHistoryLimit: 3
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: workload-scan
+  namespace: sre-agent
+spec:
+  schedule: 17 * * * *
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 60
+      template:
+        spec:
+          serviceAccountName: agent-api
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          containers:
+          - name: trigger
+            image: ghcr.io/bibatwork/sre-agent-api:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:a79d57c39f09fad9336057819bd7436d921f11b55e6a7957bd14498c806d1506
+            command:
+            - python
+            - -c
+            args:
+            - from app.worker import request; request('/v1/scan', {})
+            envFrom:
+            - configMapRef:
+                name: agent-config
+            - secretRef:
+                name: agent-auth
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+              seccompProfile:
+                type: RuntimeDefault
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 64Mi
+          imagePullSecrets:
+          - name: ghcr-pull
