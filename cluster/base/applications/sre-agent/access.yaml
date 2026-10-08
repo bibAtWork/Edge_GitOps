@@ -21,7 +21,8 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
 ---
-# Shared policies supply DNS, same-namespace traffic, gateway ingress and HTTPS.
+# Shared policies supply DNS and gateway ingress. This application must explicitly
+# permit internal API calls and the workers' external HTTPS dependencies.
 # Policies are additive: this rule does not narrow existing platform allows.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -52,4 +53,60 @@ spec:
       toPorts:
         - ports:
             - port: '8080'
+              protocol: TCP
+
+---
+# The shared same-namespace allow policies enumerate platform namespaces and do
+# not include sre-agent. API ingress and caller egress both need an explicit rule.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-api-caller-egress
+  namespace: sre-agent
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app: agent-api
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-api-internal-ingress
+  namespace: sre-agent
+spec:
+  endpointSelector:
+    matchLabels:
+      app: agent-api
+  ingress:
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
+---
+# Gemini API for both workers; public GitHub checkout and model catalog for
+# OpenCode. L4 allows TCP/443 destinations; it is not a hostname/TLS filter.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-worker-https-egress
+  namespace: sre-agent
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [investigator, proposer]
+  egress:
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: '443'
               protocol: TCP
