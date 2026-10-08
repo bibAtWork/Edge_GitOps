@@ -1,0 +1,92 @@
+[
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-controlplane-upgrade.yaml",
+    "field": "spec.version",
+    "value": "REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-controlplane-upgrade.yaml",
+    "field": "spec.upgrade.image",
+    "value": "ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-kubernetes-upgrade.yaml",
+    "field": "spec.version",
+    "value": "REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "KUBERNETES_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-kubernetes-upgrade.yaml",
+    "field": "spec.upgrade.image",
+    "value": "ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-on-demand-upgrade.yaml",
+    "field": "spec.version",
+    "value": "REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-on-demand-upgrade.yaml",
+    "field": "spec.upgrade.image",
+    "value": "ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-worker-upgrade.yaml",
+    "field": "spec.version",
+    "value": "REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-worker-upgrade.yaml",
+    "field": "spec.prepare.image",
+    "value": "ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  },
+  {
+    "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/plans/talos-worker-upgrade.yaml",
+    "field": "spec.upgrade.image",
+    "value": "ghcr.io/siderolabs/talosctl:REPLACED-BY-KUSTOMIZE",
+    "source": {
+      "file": "cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env",
+      "field": "TALOS_VERSION[0]"
+    },
+    "reason": "Kustomize replacements in config/kustomization.yaml populate this placeholder from the maintained versions.env pin; unreplaced-sentinels verifies the rendered result."
+  }
+]
