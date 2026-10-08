@@ -94,3 +94,22 @@ or authenticated API. They are never committed, merged or applied automatically.
 Restart deployments after configuration/key changes if Reloader has not already
 rolled them. Roll back by restoring the previous verified source commit's image
 references; removing the application does not deliberately delete its PVC data.
+
+## Network troubleshooting
+
+A browser error saying "upstream connect error ... remote connection failure"
+means the gateway could not establish its upstream connection; successful SSO
+does not prove that the dashboard listener or Service endpoints are reachable.
+
+Check agent-api Pods, the sre-agent-dashboard EndpointSlice (ready addresses on
+8081), and a local HTTP request from inside agent-api to 127.0.0.1:8081. If that
+works, compare a port-forward to the Service with the gateway path, then inspect
+Hubble drops and Envoy upstream details. Distinguish refused connections from
+timeouts before changing policy. Shared gateway rules already permit proxy
+connections to backend pods; validate that they are reconciled in the cluster.
+
+The new namespace is absent from shared same-namespace and Internet HTTPS allow
+lists. Local policies therefore explicitly allow callers to agent-api:8080,
+allow API ingress from namespace peers, and allow only worker pods to world:443.
+DNS and gateway ingress still come from the shared policies. This restores scan
+and investigation traffic but is not evidence of the cause of a dashboard 503.
