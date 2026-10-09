@@ -28,10 +28,19 @@ jobs:
           pip install --quiet PyYAML==6.0.3
           curl -fsSL -o /tmp/opa https://openpolicyagent.org/downloads/v1.21.0/opa_linux_amd64_static
           chmod +x /tmp/opa
+      - name: Install Kubernetes schema validator
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xz -C /tmp kubeconform
       - name: Render both analytics layers
         run: |
           kubectl kustomize cluster/base/applications/analytics > /tmp/analytics-bootstrap.yaml
           kubectl kustomize cluster/base/applications/analytics/deferred > /tmp/analytics.yaml
+      - name: Validate bootstrap, workloads and the manual Job
+        run: >-
+          /tmp/kubeconform -strict -summary -ignore-missing-schemas
+          -schema-location default
+          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          /tmp/analytics-bootstrap.yaml /tmp/analytics.yaml analytics/bootstrap-job.yaml
       - name: Test the deployed Trino policy including denial cases
         run: |
           python -m unittest discover -s analytics -p test_helpers.py

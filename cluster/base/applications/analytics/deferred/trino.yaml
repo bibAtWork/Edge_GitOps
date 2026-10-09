@@ -4,64 +4,39 @@ metadata:
   name: trino-config
   namespace: analytics
 data:
-  config.properties: 'coordinator=true
-
+  config.properties: |
+    coordinator=true
     node-scheduler.include-coordinator=true
-
     http-server.http.port=8080
-
     http-server.https.enabled=true
-
     http-server.https.port=8443
-
     http-server.https.keystore.path=/etc/trino/tls/server.pem
-
     http-server.authentication.type=PASSWORD
-
     internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SECRET}
-
     discovery.uri=http://localhost:8080
-
     query.max-memory=2GB
-
     query.max-memory-per-node=2GB
-
     memory.heap-headroom-per-node=1GB
-
-    '
-  node.properties: 'node.environment=homelab
-
+  node.properties: |
+    node.environment=homelab
     node.data-dir=/data/trino
-
-    '
-  jvm.config: '-server
-
+  jvm.config: |
+    -server
     -Xmx4G
-
     -XX:+UseG1GC
-
     -XX:+ExitOnOutOfMemoryError
-
     -XX:+HeapDumpOnOutOfMemoryError
-
     -XX:HeapDumpPath=/data/trino
-
     -Djdk.attach.allowAttachSelf=true
-
-    '
-  password-authenticator.properties: 'password-authenticator.name=file
-
+  password-authenticator.properties: |
+    password-authenticator.name=file
     file.password-file=/etc/trino/auth/password.db
-
-    '
-  access-control.properties: 'access-control.name=opa
-
+  access-control.properties: |+
+    access-control.name=opa
     opa.policy.uri=http://opa.security.svc:8181/v1/data/analytics_trino/allow
-
     opa.policy.row-filters-uri=http://opa.security.svc:8181/v1/data/analytics_trino/row_filters
 
-
-    '
+...
 
 ---
 apiVersion: v1
@@ -70,37 +45,22 @@ metadata:
   name: trino-catalog
   namespace: analytics
 data:
-  iceberg.properties: 'connector.name=iceberg
-
+  iceberg.properties: |
+    connector.name=iceberg
     iceberg.catalog.type=rest
-
     iceberg.rest-catalog.uri=http://lakekeeper.analytics.svc:8181/catalog
-
     iceberg.rest-catalog.warehouse=analytics
-
     iceberg.rest-catalog.security=OAUTH2
-
     iceberg.rest-catalog.oauth2.credential=${ENV:LAKEKEEPER_CLIENT_ID}:${ENV:LAKEKEEPER_CLIENT_SECRET}
-
     iceberg.rest-catalog.oauth2.server-uri=http://keycloak.keycloak.svc/realms/homelab/protocol/openid-connect/token
-
     iceberg.rest-catalog.oauth2.scope=lakekeeper
-
     iceberg.rest-catalog.vended-credentials-enabled=false
-
     fs.s3.enabled=true
-
     s3.endpoint=http://seaweedfs-s3.seaweedfs.svc:8333
-
     s3.region=us-east-1
-
     s3.path-style-access=true
-
     s3.aws-access-key=${ENV:AWS_ACCESS_KEY_ID}
-
     s3.aws-secret-key=${ENV:AWS_SECRET_ACCESS_KEY}
-
-    '
 
 ---
 apiVersion: apps/v1
@@ -135,7 +95,7 @@ spec:
       containers:
       - name: trino
         image: docker.io/trinodb/trino:483
-        securityContext: &id001
+        securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
@@ -227,7 +187,11 @@ spec:
         - sh
         - -ec
         - cat /certs/tls.crt /certs/tls.key > /tls/server.pem; chmod 600 /tls/server.pem
-        securityContext: *id001
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         volumeMounts:
         - name: certs
           mountPath: /certs

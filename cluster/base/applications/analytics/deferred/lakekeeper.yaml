@@ -30,7 +30,7 @@ spec:
       containers:
       - name: lakekeeper
         image: quay.io/lakekeeper/catalog:v0.14.0
-        securityContext: &id002
+        securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
@@ -41,7 +41,7 @@ spec:
             memory: 128Mi
           limits:
             memory: 512Mi
-        env: &id001
+        env:
         - name: LAKEKEEPER__PG_DATABASE_URL_WRITE
           valueFrom:
             secretKeyRef:
@@ -97,8 +97,44 @@ spec:
         image: quay.io/lakekeeper/catalog:v0.14.0
         args:
         - migrate
-        env: *id001
-        securityContext: *id002
+        env:
+        - name: LAKEKEEPER__PG_DATABASE_URL_WRITE
+          valueFrom:
+            secretKeyRef:
+              name: analytics-pg-app
+              key: uri
+        - name: LAKEKEEPER__PG_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: analytics-runtime
+              key: lakekeeper-encryption-key
+        - name: LAKEKEEPER__AUTHZ_BACKEND
+          value: allowall
+        - name: LAKEKEEPER__SECRET_BACKEND
+          value: postgres
+        - name: LAKEKEEPER__OPENID_PROVIDER_URI
+          value: https://keycloak.homelab.data-harness.org/realms/homelab
+        - name: LAKEKEEPER__OPENID_AUDIENCE
+          value: analytics-lakekeeper
+        - name: LAKEKEEPER__BASE_URI
+          value: http://lakekeeper.analytics.svc:8181/
+        - name: LAKEKEEPER__PG_WRITE_POOL_CONNECTIONS
+          value: '5'
+        - name: LAKEKEEPER__PG_READ_POOL_CONNECTIONS
+          value: '5'
+        - name: LAKEKEEPER__OPENID_SUBJECT_CLAIM
+          value: sub
+        - name: LAKEKEEPER__OPENID_SCOPE
+          value: lakekeeper
+        - name: LAKEKEEPER__OPENID_REQUIRED_CLAIMS__CLIENT__CLAIM
+          value: azp
+        - name: LAKEKEEPER__OPENID_REQUIRED_CLAIMS__CLIENT__ANY_OF
+          value: '[analytics-engine]'
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         resources:
           requests:
             cpu: 50m
