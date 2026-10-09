@@ -1,0 +1,75 @@
+storage:
+  postgres:
+    postgres_db:
+      hostname: analytics-pg-rw.analytics.svc
+      username: dagster
+      password:
+        env: PGPASSWORD
+      db_name: dagster
+      port: 5432
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 1
+run_launcher:
+  module: dagster_k8s
+  class: K8sRunLauncher
+  config:
+    job_image: ghcr.io/bibatwork/edge-analytics:analytics-v1
+    image_pull_policy: IfNotPresent
+    job_namespace: analytics
+    service_account_name: analytics-runner
+    load_incluster_config: true
+    dagster_home: /opt/dagster/home
+    instance_config_map: dagster-config
+    env_secrets:
+    - analytics-run-env
+    run_k8s_config:
+      pod_template_spec_metadata:
+        labels:
+          app.kubernetes.io/name: analytics-run
+          homelab.local/analytics-storage-client: 'true'
+      pod_spec:
+        automount_service_account_token: false
+        security_context:
+          run_as_non_root: true
+          run_as_user: 1000
+          run_as_group: 1000
+          fs_group: 1000
+          seccomp_profile:
+            type: RuntimeDefault
+        volumes:
+        - name: ca
+          secret:
+            secretName: trino-tls
+            items:
+            - key: ca.crt
+              path: ca.crt
+      container_config:
+        security_context:
+          allow_privilege_escalation: false
+          capabilities:
+            drop:
+            - ALL
+        volume_mounts:
+        - name: ca
+          mountPath: /etc/analytics/tls
+          readOnly: true
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+      job_spec:
+        ttl_seconds_after_finished: 3600
+compute_logs:
+  module: dagster.core.storage.noop_compute_log_manager
+  class: NoOpComputeLogManager
+local_artifact_storage:
+  module: dagster._core.storage.root
+  class: LocalArtifactStorage
+  config:
+    base_dir: /tmp/dagster-storage

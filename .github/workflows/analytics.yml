@@ -1,0 +1,39 @@
+name: Analytics stack
+on:
+  pull_request:
+    branches: [ops/talos_linux]
+    paths:
+      - analytics/**
+      - cluster/base/applications/analytics/**
+      - cluster/base/infrastructure/24-opa/**
+      - .github/workflows/analytics.yml
+permissions:
+  contents: read
+jobs:
+  pipeline-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the pinned dbt and dlt runtime
+        run: docker build -f analytics/Dockerfile -t analytics-check .
+      - name: Validate Dagster configuration and parse dbt without cluster access
+        run: docker run --rm -v "$PWD/cluster/base/applications/analytics/deferred/config:/checks:ro" analytics-check python validate_image.py
+  catalog-and-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install policy tools
+        run: |
+          pip install --quiet PyYAML==6.0.3
+          curl -fsSL -o /tmp/opa https://openpolicyagent.org/downloads/v1.21.0/opa_linux_amd64_static
+          chmod +x /tmp/opa
+      - name: Render both analytics layers
+        run: |
+          kubectl kustomize cluster/base/applications/analytics > /tmp/analytics-bootstrap.yaml
+          kubectl kustomize cluster/base/applications/analytics/deferred > /tmp/analytics.yaml
+      - name: Test the deployed Trino policy including denial cases
+        run: |
+          python -m unittest discover -s analytics -p test_helpers.py
+          python analytics/export_policy.py /tmp/deployed-trino.rego
+          /tmp/opa test /tmp/deployed-trino.rego analytics/trino_test.rego

@@ -13,3 +13,8 @@ spec:
       port: 9191
       targetPort: grpc-authz
       protocol: TCP
+
+    - name: http-api
+      port: 8181
+      targetPort: http-api
+      protocol: TCP

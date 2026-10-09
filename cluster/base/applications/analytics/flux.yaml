@@ -1,0 +1,22 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: analytics
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 10m
+  suspend: true
+  prune: true
+  wait: true
+  dependsOn:
+  - name: config
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./cluster/base/applications/analytics/deferred
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age

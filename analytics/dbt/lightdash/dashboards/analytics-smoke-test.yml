@@ -1,0 +1,21 @@
+name: Analytics smoke test
+description: Synthetic dlt to Iceberg to dbt to Lightdash example
+updatedAt: '2026-10-09T00:00:00.000Z'
+tiles:
+  - x: 0
+    y: 0
+    h: 8
+    w: 24
+    type: saved_chart
+    properties:
+      belongsToDashboard: true
+      chartName: Demo event counts
+      chartSlug: demo-event-counts
+filters:
+  metrics: []
+  dimensions: []
+  tableCalculations: []
+tabs: []
+spaceSlug: analytics
+slug: analytics-smoke-test
+version: 1
