@@ -30,7 +30,7 @@ run_launcher:
         labels:
           app.kubernetes.io/name: analytics-run
           homelab.local/analytics-storage-client: 'true'
-      pod_spec:
+      pod_spec_config:
         automount_service_account_token: false
         security_context:
           run_as_non_root: true
@@ -63,7 +63,7 @@ run_launcher:
           limits:
             cpu: '2'
             memory: 2Gi
-      job_spec:
+      job_spec_config:
         ttl_seconds_after_finished: 3600
 compute_logs:
   module: dagster.core.storage.noop_compute_log_manager
