@@ -30,14 +30,6 @@ spec:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        io.kubernetes.pod.namespace: security
-        app.kubernetes.io/name: opa
-    toPorts:
-    - ports:
-      - port: '8181'
-        protocol: TCP
-  - toEndpoints:
-    - matchLabels:
         io.kubernetes.pod.namespace: keycloak
         app: keycloak
     toPorts:
@@ -214,6 +206,13 @@ spec:
       rules:
         dns:
         - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
 
 ---
 apiVersion: cilium.io/v2
@@ -262,6 +261,13 @@ spec:
       rules:
         dns:
         - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
 
 ---
 apiVersion: cilium.io/v2
@@ -305,6 +311,13 @@ spec:
       rules:
         dns:
         - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
 
 ---
 apiVersion: cilium.io/v2
@@ -369,6 +382,13 @@ spec:
       rules:
         dns:
         - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
 
 ---
 apiVersion: cilium.io/v2
@@ -450,6 +470,7 @@ spec:
     - ports:
       - port: '8333'
         protocol: TCP
+  egress: []
 
 ---
 apiVersion: cilium.io/v2
@@ -477,27 +498,4 @@ spec:
         http:
         - method: POST
           path: /realms/homelab/protocol/openid-connect/token
-
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-analytics-trino
-  namespace: security
-spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: opa
-  ingress:
-  - fromEndpoints:
-    - matchLabels:
-        io.kubernetes.pod.namespace: analytics
-        app.kubernetes.io/name: trino
-    toPorts:
-    - ports:
-      - port: '8181'
-        protocol: TCP
-      rules:
-        http:
-        - method: POST
-          path: /v1/data/analytics_trino/(allow|row_filters|column_masks)
+  egress: []

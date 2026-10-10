@@ -26,7 +26,7 @@ spec:
             - --server
             - --log-level=info
             - --log-format=json
-            - --addr=0.0.0.0:8181
+            - --addr=localhost:8181
             - --diagnostic-addr=0.0.0.0:8282
             # gRPC ext_authz listener (called by Cilium's Envoy per request)
             - --set=plugins.envoy_ext_authz_grpc.addr=:9191
@@ -39,9 +39,6 @@ spec:
               mountPath: /policies
               readOnly: true
           ports:
-            - name: http-api
-              containerPort: 8181
-              protocol: TCP
             - name: grpc-authz
               containerPort: 9191
               protocol: TCP
@@ -85,4 +82,3 @@ kind: ServiceAccount
 metadata:
   name: opa
   namespace: security
-

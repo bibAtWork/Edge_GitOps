@@ -1,48 +1,45 @@
 name: Analytics stack
-on:
+'on':
   pull_request:
-    branches: [ops/talos_linux]
+    branches:
+    - ops/talos_linux
     paths:
-      - analytics/**
-      - cluster/base/applications/analytics/**
-      - cluster/base/infrastructure/24-opa/**
-      - .github/workflows/analytics.yml
+    - analytics/**
+    - cluster/base/applications/analytics/**
+    - bootstrap/scripts/apply-config.py
+    - scripts/ci/analytics_checks.py
+    - scripts/ci/tests/test_analytics_checks.py
+    - .github/workflows/analytics.yml
 permissions:
   contents: read
 jobs:
-  pipeline-image:
+  startup-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - name: Build the pinned dbt and dlt runtime
-        run: docker build -f analytics/Dockerfile -t analytics-check .
-      - name: Validate Dagster configuration and parse dbt without cluster access
-        run: docker run --rm -v "$PWD/cluster/base/applications/analytics/deferred/config:/checks:ro" analytics-check python validate_image.py
-  catalog-and-policy:
+    - uses: actions/checkout@v7
+    - name: Install manifest parser
+      run: pip install PyYAML==6.0.3
+    - name: Validate dependencies installed in upstream Python
+      run: python scripts/ci/analytics_checks.py runtime
+  permissions:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - name: Install policy tools
-        run: |
-          pip install --quiet PyYAML==6.0.3
-          curl -fsSL -o /tmp/opa https://openpolicyagent.org/downloads/v1.21.0/opa_linux_amd64_static
-          chmod +x /tmp/opa
-      - name: Install Kubernetes schema validator
-        run: |
-          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xz -C /tmp kubeconform
-      - name: Render both analytics layers
-        run: |
-          kubectl kustomize cluster/base/applications/analytics > /tmp/analytics-bootstrap.yaml
-          kubectl kustomize cluster/base/applications/analytics/deferred > /tmp/analytics.yaml
-      - name: Validate bootstrap, workloads and the manual Job
-        run: >-
-          /tmp/kubeconform -strict -summary -ignore-missing-schemas
-          -schema-location default
-          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-          /tmp/analytics-bootstrap.yaml /tmp/analytics.yaml analytics/bootstrap-job.yaml
-      - name: Test the deployed Trino policy including denial cases
-        run: |
-          python -m unittest discover -s analytics -p test_helpers.py
-          python analytics/export_policy.py /tmp/deployed-trino.rego
-          /tmp/opa test /tmp/deployed-trino.rego analytics/trino_test.rego
+    - uses: actions/checkout@v7
+    - name: Install manifest parser
+      run: pip install PyYAML==6.0.3
+    - name: Check our permission expectations through upstream Trino
+      run: python scripts/ci/analytics_checks.py permissions
+  manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install manifest parser
+      run: pip install PyYAML==6.0.3
+    - name: Install schema validator
+      run: curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+        | tar -xz -C /usr/local/bin kubeconform
+    - name: Render and validate analytics inventories
+      run: python scripts/ci/analytics_checks.py manifests

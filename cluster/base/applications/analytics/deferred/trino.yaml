@@ -31,12 +31,10 @@ data:
   password-authenticator.properties: |
     password-authenticator.name=file
     file.password-file=/etc/trino/auth/password.db
-  access-control.properties: |+
-    access-control.name=opa
-    opa.policy.uri=http://opa.security.svc:8181/v1/data/analytics_trino/allow
-    opa.policy.row-filters-uri=http://opa.security.svc:8181/v1/data/analytics_trino/row_filters
-
-...
+  access-control.properties: |
+    access-control.name=file
+    security.config-file=/etc/trino/access/rules.json
+    security.refresh-period=30s
 
 ---
 apiVersion: v1
@@ -148,6 +146,9 @@ spec:
           readOnly: true
         - name: data
           mountPath: /data/trino
+        - name: access
+          mountPath: /etc/trino/access
+          readOnly: true
         command:
         - /usr/lib/trino/bin/run-trino
         ports:
@@ -180,6 +181,9 @@ spec:
       - name: data
         emptyDir:
           sizeLimit: 2Gi
+      - name: access
+        configMap:
+          name: trino-access
       initContainers:
       - name: tls-pem
         image: docker.io/library/busybox:1.38
