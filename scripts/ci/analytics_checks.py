@@ -100,7 +100,7 @@ def permissions():
                 if result.get('error', {}).get('errorName') == 'PERMISSION_DENIED':
                     break
                 if time.monotonic() > deadline:
-                    raise AssertionError('Deployed ACL did not replace fixture permissions')
+                    raise AssertionError(f'Deployed ACL did not replace fixture permissions: {result}')
                 time.sleep(1)
             checks = [
                 ('analytics-bi', 'SELECT * FROM iceberg.marts.summary', False),
