@@ -75,7 +75,7 @@ spec:
       labels:
         app.kubernetes.io/name: dagster-webserver
     spec:
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -86,18 +86,21 @@ spec:
           type: RuntimeDefault
       containers:
       - name: dagster-webserver
-        image: ghcr.io/bibatwork/edge-analytics:analytics-v1
+        image: docker.io/library/python:3.12.12-slim-bookworm
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
+          readOnlyRootFilesystem: true
         resources:
           requests:
             cpu: 100m
             memory: 256Mi
+            ephemeral-storage: 512Mi
           limits:
             memory: 768Mi
+            ephemeral-storage: 2Gi
         env:
         - name: PGHOST
           value: analytics-pg-rw.analytics.svc
@@ -114,11 +117,36 @@ spec:
               key: password
         - name: DAGSTER_HOME
           value: /opt/dagster/home
+        - name: PATH
+          value: /opt/runtime/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /opt/analytics
+        - name: PYTHONDONTWRITEBYTECODE
+          value: '1'
+        - name: PYTHONUNBUFFERED
+          value: '1'
+        - name: HOME
+          value: /tmp
+        - name: DBT_TARGET_PATH
+          value: /tmp/dbt/target
+        - name: DBT_LOG_PATH
+          value: /tmp/dbt/logs
         - name: DAGSTER_CURRENT_IMAGE
-          value: ghcr.io/bibatwork/edge-analytics:analytics-v1
+          value: docker.io/library/python:3.12.12-slim-bookworm
         volumeMounts:
         - name: config
           mountPath: /opt/dagster/home
+          readOnly: true
+        - name: pipeline-code
+          mountPath: /opt/analytics
+          readOnly: true
+        - name: runtime
+          mountPath: /opt/runtime
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        - name: api-identity
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
           readOnly: true
         command:
         - dagster-webserver
@@ -144,7 +172,88 @@ spec:
       - name: config
         configMap:
           name: dagster-config
+      - name: pipeline-code
+        configMap:
+          name: analytics-code
+          items:
+          - key: definitions.py
+            path: definitions.py
+          - key: bootstrap.py
+            path: bootstrap.py
+          - key: install-runtime.sh
+            path: install-runtime.sh
+          - key: requirements.lock
+            path: requirements.lock
+          - key: requirements-control.lock
+            path: requirements-control.lock
+          - key: dbt_project.yml
+            path: dbt/dbt_project.yml
+          - key: profiles.yml
+            path: dbt/profiles.yml
+          - key: event_summary.sql
+            path: dbt/models/event_summary.sql
+          - key: schema.yml
+            path: dbt/models/schema.yml
+      - name: runtime
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: api-identity
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3600
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+              - key: ca.crt
+                path: ca.crt
+          - downwardAPI:
+              items:
+              - path: namespace
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
       serviceAccountName: analytics-controller
+      initContainers:
+      - name: install-dependencies
+        image: docker.io/library/python:3.12.12-slim-bookworm
+        command:
+        - sh
+        - /opt/analytics/install-runtime.sh
+        env:
+        - name: HOME
+          value: /tmp
+        - name: REQUIREMENTS_FILE
+          value: /opt/analytics/requirements-control.lock
+        volumeMounts:
+        - name: pipeline-code
+          mountPath: /opt/analytics
+          readOnly: true
+        - name: runtime
+          mountPath: /opt/runtime
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+            ephemeral-storage: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
 
 ---
 apiVersion: apps/v1
@@ -166,7 +275,7 @@ spec:
       labels:
         app.kubernetes.io/name: dagster-daemon
     spec:
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -177,18 +286,21 @@ spec:
           type: RuntimeDefault
       containers:
       - name: dagster-daemon
-        image: ghcr.io/bibatwork/edge-analytics:analytics-v1
+        image: docker.io/library/python:3.12.12-slim-bookworm
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
+          readOnlyRootFilesystem: true
         resources:
           requests:
             cpu: 100m
             memory: 256Mi
+            ephemeral-storage: 512Mi
           limits:
             memory: 768Mi
+            ephemeral-storage: 2Gi
         env:
         - name: PGHOST
           value: analytics-pg-rw.analytics.svc
@@ -205,11 +317,36 @@ spec:
               key: password
         - name: DAGSTER_HOME
           value: /opt/dagster/home
+        - name: PATH
+          value: /opt/runtime/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /opt/analytics
+        - name: PYTHONDONTWRITEBYTECODE
+          value: '1'
+        - name: PYTHONUNBUFFERED
+          value: '1'
+        - name: HOME
+          value: /tmp
+        - name: DBT_TARGET_PATH
+          value: /tmp/dbt/target
+        - name: DBT_LOG_PATH
+          value: /tmp/dbt/logs
         - name: DAGSTER_CURRENT_IMAGE
-          value: ghcr.io/bibatwork/edge-analytics:analytics-v1
+          value: docker.io/library/python:3.12.12-slim-bookworm
         volumeMounts:
         - name: config
           mountPath: /opt/dagster/home
+          readOnly: true
+        - name: pipeline-code
+          mountPath: /opt/analytics
+          readOnly: true
+        - name: runtime
+          mountPath: /opt/runtime
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        - name: api-identity
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
           readOnly: true
         command:
         - dagster-daemon
@@ -220,7 +357,88 @@ spec:
       - name: config
         configMap:
           name: dagster-config
+      - name: pipeline-code
+        configMap:
+          name: analytics-code
+          items:
+          - key: definitions.py
+            path: definitions.py
+          - key: bootstrap.py
+            path: bootstrap.py
+          - key: install-runtime.sh
+            path: install-runtime.sh
+          - key: requirements.lock
+            path: requirements.lock
+          - key: requirements-control.lock
+            path: requirements-control.lock
+          - key: dbt_project.yml
+            path: dbt/dbt_project.yml
+          - key: profiles.yml
+            path: dbt/profiles.yml
+          - key: event_summary.sql
+            path: dbt/models/event_summary.sql
+          - key: schema.yml
+            path: dbt/models/schema.yml
+      - name: runtime
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: api-identity
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3600
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+              - key: ca.crt
+                path: ca.crt
+          - downwardAPI:
+              items:
+              - path: namespace
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
       serviceAccountName: analytics-controller
+      initContainers:
+      - name: install-dependencies
+        image: docker.io/library/python:3.12.12-slim-bookworm
+        command:
+        - sh
+        - /opt/analytics/install-runtime.sh
+        env:
+        - name: HOME
+          value: /tmp
+        - name: REQUIREMENTS_FILE
+          value: /opt/analytics/requirements-control.lock
+        volumeMounts:
+        - name: pipeline-code
+          mountPath: /opt/analytics
+          readOnly: true
+        - name: runtime
+          mountPath: /opt/runtime
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+            ephemeral-storage: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
 
 ---
 apiVersion: apps/v1
@@ -241,7 +459,6 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: dagster-code
-        homelab.local/analytics-storage-client: 'true'
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -254,18 +471,21 @@ spec:
           type: RuntimeDefault
       containers:
       - name: dagster-code
-        image: ghcr.io/bibatwork/edge-analytics:analytics-v1
+        image: docker.io/library/python:3.12.12-slim-bookworm
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
+          readOnlyRootFilesystem: true
         resources:
           requests:
             cpu: 100m
             memory: 256Mi
+            ephemeral-storage: 512Mi
           limits:
             memory: 768Mi
+            ephemeral-storage: 2Gi
         env:
         - name: PGHOST
           value: analytics-pg-rw.analytics.svc
@@ -282,12 +502,34 @@ spec:
               key: password
         - name: DAGSTER_HOME
           value: /opt/dagster/home
+        - name: PATH
+          value: /opt/runtime/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /opt/analytics
+        - name: PYTHONDONTWRITEBYTECODE
+          value: '1'
+        - name: PYTHONUNBUFFERED
+          value: '1'
+        - name: HOME
+          value: /tmp
+        - name: DBT_TARGET_PATH
+          value: /tmp/dbt/target
+        - name: DBT_LOG_PATH
+          value: /tmp/dbt/logs
         - name: DAGSTER_CURRENT_IMAGE
-          value: ghcr.io/bibatwork/edge-analytics:analytics-v1
+          value: docker.io/library/python:3.12.12-slim-bookworm
         volumeMounts:
         - name: config
           mountPath: /opt/dagster/home
           readOnly: true
+        - name: pipeline-code
+          mountPath: /opt/analytics
+          readOnly: true
+        - name: runtime
+          mountPath: /opt/runtime
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
         command:
         - dagster
         - api
@@ -314,6 +556,70 @@ spec:
       - name: config
         configMap:
           name: dagster-config
+      - name: pipeline-code
+        configMap:
+          name: analytics-code
+          items:
+          - key: definitions.py
+            path: definitions.py
+          - key: bootstrap.py
+            path: bootstrap.py
+          - key: install-runtime.sh
+            path: install-runtime.sh
+          - key: requirements.lock
+            path: requirements.lock
+          - key: requirements-control.lock
+            path: requirements-control.lock
+          - key: dbt_project.yml
+            path: dbt/dbt_project.yml
+          - key: profiles.yml
+            path: dbt/profiles.yml
+          - key: event_summary.sql
+            path: dbt/models/event_summary.sql
+          - key: schema.yml
+            path: dbt/models/schema.yml
+      - name: runtime
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 2Gi
+      initContainers:
+      - name: install-dependencies
+        image: docker.io/library/python:3.12.12-slim-bookworm
+        command:
+        - sh
+        - /opt/analytics/install-runtime.sh
+        env:
+        - name: HOME
+          value: /tmp
+        - name: REQUIREMENTS_FILE
+          value: /opt/analytics/requirements-control.lock
+        volumeMounts:
+        - name: pipeline-code
+          mountPath: /opt/analytics
+          readOnly: true
+        - name: runtime
+          mountPath: /opt/runtime
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+            ephemeral-storage: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
 
 ---
 apiVersion: v1
