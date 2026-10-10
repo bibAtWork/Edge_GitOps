@@ -22,7 +22,7 @@ def runtime():
     docs = list(yaml.safe_load_all((BASE / 'dagster.yaml').read_text()))
     image = next(d for d in docs if d['kind'] == 'Deployment')['spec']['template']['spec']['containers'][0]['image']
     command = ['docker', 'run', '--rm', '--user', '1000:1000', '--read-only',
-               '--tmpfs', '/opt/runtime:uid=1000,gid=1000,mode=0750,size=2147483648',
+               '--tmpfs', '/opt/runtime:exec,uid=1000,gid=1000,mode=0750,size=2147483648',
                '--tmpfs', '/tmp:uid=1000,gid=1000,mode=1777,size=2147483648',
                '-v', f'{ROOT / "analytics"}:/opt/analytics:ro',
                '-v', f'{BASE / "config"}:/checks:ro',
@@ -86,7 +86,7 @@ def permissions():
                 try:
                     assert_permission(query('SELECT 1', 'ci-fixture', port), False)
                     break
-                except (urllib.error.URLError, AssertionError):
+                except (OSError, urllib.error.URLError, AssertionError):
                     if time.monotonic() > deadline:
                         raise
                     time.sleep(2)
