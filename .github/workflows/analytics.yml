@@ -1,0 +1,45 @@
+name: Analytics stack
+'on':
+  pull_request:
+    branches:
+    - ops/talos_linux
+    paths:
+    - analytics/**
+    - cluster/base/applications/analytics/**
+    - bootstrap/scripts/apply-config.py
+    - scripts/ci/analytics_checks.py
+    - scripts/ci/tests/test_analytics_checks.py
+    - .github/workflows/analytics.yml
+permissions:
+  contents: read
+jobs:
+  startup-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install manifest parser
+      run: pip install PyYAML==6.0.3
+    - name: Validate dependencies installed in upstream Python
+      run: python scripts/ci/analytics_checks.py runtime
+  permissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install manifest parser
+      run: pip install PyYAML==6.0.3
+    - name: Check our permission expectations through upstream Trino
+      run: python scripts/ci/analytics_checks.py permissions
+  manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install manifest parser
+      run: pip install PyYAML==6.0.3
+    - name: Install schema validator
+      run: curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+        | tar -xz -C /usr/local/bin kubeconform
+    - name: Render and validate analytics inventories
+      run: python scripts/ci/analytics_checks.py manifests

@@ -1,0 +1,501 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-trino
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: trino
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: lightdash
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: analytics-run
+    toPorts:
+    - ports:
+      - port: '8443'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: lakekeeper
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: keycloak
+        app: keycloak
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: seaweedfs
+        app.kubernetes.io/name: seaweedfs
+    toPorts:
+    - ports:
+      - port: '8333'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-lakekeeper
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: lakekeeper
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: trino
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: analytics-run
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: seaweedfs
+        app.kubernetes.io/name: seaweedfs
+    toPorts:
+    - ports:
+      - port: '8333'
+        protocol: TCP
+  - toFQDNs:
+    - matchName: keycloak.homelab.data-harness.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toEntities:
+    - ingress
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-lightdash
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: lightdash
+  ingress: []
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: trino
+    toPorts:
+    - ports:
+      - port: '8443'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-dagster-webserver
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: dagster-webserver
+  ingress: []
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-code
+    toPorts:
+    - ports:
+      - port: '3030'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - toEntities:
+    - kube-apiserver
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+      - port: '6443'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-dagster-daemon
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: dagster-daemon
+  ingress: []
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-code
+    toPorts:
+    - ports:
+      - port: '3030'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - toEntities:
+    - kube-apiserver
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+      - port: '6443'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-dagster-code
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: dagster-code
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-webserver
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-daemon
+    toPorts:
+    - ports:
+      - port: '3030'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-analytics-run
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: analytics-run
+  ingress: []
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: trino
+    toPorts:
+    - ports:
+      - port: '8443'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: lakekeeper
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: seaweedfs
+        app.kubernetes.io/name: seaweedfs
+    toPorts:
+    - ports:
+      - port: '8333'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: keycloak
+        app: keycloak
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toFQDNs:
+    - matchName: pypi.org
+    - matchName: files.pythonhosted.org
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: analytics-postgres
+  namespace: analytics
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: analytics-pg
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: lakekeeper
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: lightdash
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-webserver
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-daemon
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: dagster-code
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: analytics-run
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: cnpg-system
+    toPorts:
+    - ports:
+      - port: '8000'
+        protocol: TCP
+      - port: '5432'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        cnpg.io/cluster: analytics-pg
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+  egress:
+  - toEntities:
+    - kube-apiserver
+    toPorts:
+    - ports:
+      - port: '443'
+        protocol: TCP
+      - port: '6443'
+        protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-analytics-s3
+  namespace: seaweedfs
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        homelab.local/analytics-storage-client: 'true'
+    toPorts:
+    - ports:
+      - port: '8333'
+        protocol: TCP
+  egress: []
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-analytics-token
+  namespace: keycloak
+spec:
+  endpointSelector:
+    matchLabels:
+      app: keycloak
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: trino
+    - matchLabels:
+        io.kubernetes.pod.namespace: analytics
+        app.kubernetes.io/name: analytics-run
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: /realms/homelab/protocol/openid-connect/token
+  egress: []

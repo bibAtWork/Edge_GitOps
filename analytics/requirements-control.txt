@@ -1,0 +1,5 @@
+dagster==1.13.25
+dagster-webserver==1.13.25
+dagster-k8s==0.29.25
+dagster-postgres==0.29.25
+PyYAML==6.0.3

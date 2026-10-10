@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lakekeeper
+  namespace: analytics
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lakekeeper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lakekeeper
+        homelab.local/analytics-storage-client: 'true'
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: lakekeeper
+        image: quay.io/lakekeeper/catalog:v0.14.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        env:
+        - name: LAKEKEEPER__PG_DATABASE_URL_WRITE
+          valueFrom:
+            secretKeyRef:
+              name: analytics-pg-app
+              key: uri
+        - name: LAKEKEEPER__PG_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: analytics-runtime
+              key: lakekeeper-encryption-key
+        - name: LAKEKEEPER__AUTHZ_BACKEND
+          value: allowall
+        - name: LAKEKEEPER__SECRET_BACKEND
+          value: postgres
+        - name: LAKEKEEPER__OPENID_PROVIDER_URI
+          value: https://keycloak.homelab.data-harness.org/realms/homelab
+        - name: LAKEKEEPER__OPENID_AUDIENCE
+          value: analytics-lakekeeper
+        - name: LAKEKEEPER__BASE_URI
+          value: http://lakekeeper.analytics.svc:8181/
+        - name: LAKEKEEPER__PG_WRITE_POOL_CONNECTIONS
+          value: '5'
+        - name: LAKEKEEPER__PG_READ_POOL_CONNECTIONS
+          value: '5'
+        - name: LAKEKEEPER__OPENID_SUBJECT_CLAIM
+          value: sub
+        - name: LAKEKEEPER__OPENID_SCOPE
+          value: lakekeeper
+        - name: LAKEKEEPER__OPENID_REQUIRED_CLAIMS__CLIENT__CLAIM
+          value: azp
+        - name: LAKEKEEPER__OPENID_REQUIRED_CLAIMS__CLIENT__ANY_OF
+          value: '[analytics-engine]'
+        volumeMounts: []
+        args:
+        - serve
+        ports:
+        - name: http
+          containerPort: 8181
+        - name: metrics
+          containerPort: 9000
+        readinessProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 10
+        startupProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 5
+          failureThreshold: 60
+      volumes: []
+      initContainers:
+      - name: migrate
+        image: quay.io/lakekeeper/catalog:v0.14.0
+        args:
+        - migrate
+        env:
+        - name: LAKEKEEPER__PG_DATABASE_URL_WRITE
+          valueFrom:
+            secretKeyRef:
+              name: analytics-pg-app
+              key: uri
+        - name: LAKEKEEPER__PG_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: analytics-runtime
+              key: lakekeeper-encryption-key
+        - name: LAKEKEEPER__AUTHZ_BACKEND
+          value: allowall
+        - name: LAKEKEEPER__SECRET_BACKEND
+          value: postgres
+        - name: LAKEKEEPER__OPENID_PROVIDER_URI
+          value: https://keycloak.homelab.data-harness.org/realms/homelab
+        - name: LAKEKEEPER__OPENID_AUDIENCE
+          value: analytics-lakekeeper
+        - name: LAKEKEEPER__BASE_URI
+          value: http://lakekeeper.analytics.svc:8181/
+        - name: LAKEKEEPER__PG_WRITE_POOL_CONNECTIONS
+          value: '5'
+        - name: LAKEKEEPER__PG_READ_POOL_CONNECTIONS
+          value: '5'
+        - name: LAKEKEEPER__OPENID_SUBJECT_CLAIM
+          value: sub
+        - name: LAKEKEEPER__OPENID_SCOPE
+          value: lakekeeper
+        - name: LAKEKEEPER__OPENID_REQUIRED_CLAIMS__CLIENT__CLAIM
+          value: azp
+        - name: LAKEKEEPER__OPENID_REQUIRED_CLAIMS__CLIENT__ANY_OF
+          value: '[analytics-engine]'
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakekeeper
+  namespace: analytics
+spec:
+  selector:
+    app.kubernetes.io/name: lakekeeper
+  ports:
+  - name: http
+    port: 8181
+    targetPort: 8181

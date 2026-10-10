@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- postgres.yaml
+- tls.yaml
+- lakekeeper.yaml
+- trino.yaml
+- lightdash.yaml
+- dagster.yaml
+- network.yaml
+- secrets/analytics-dagster-db.yaml
+- secrets/analytics-lightdash-db.yaml
+- secrets/analytics-oauth.yaml
+- secrets/analytics-runtime.yaml
+- secrets/analytics-s3.yaml
+- secrets/analytics-trino-client.yaml
+- secrets/analytics-trino.yaml
+configMapGenerator:
+- name: dagster-config
+  namespace: analytics
+  files:
+  - config/dagster.yaml
+  - config/workspace.yaml
+- name: analytics-code
+  namespace: analytics
+  files:
+  - definitions.py=../../../../../analytics/definitions.py
+  - bootstrap.py=../../../../../analytics/bootstrap.py
+  - install-runtime.sh=../../../../../analytics/install-runtime.sh
+  - requirements.lock=../../../../../analytics/requirements.lock
+  - requirements-control.lock=../../../../../analytics/requirements-control.lock
+  - dbt_project.yml=../../../../../analytics/dbt/dbt_project.yml
+  - profiles.yml=../../../../../analytics/dbt/profiles.yml
+  - event_summary.sql=../../../../../analytics/dbt/models/event_summary.sql
+  - schema.yml=../../../../../analytics/dbt/models/schema.yml
+- name: trino-access
+  namespace: analytics
+  files:
+  - rules.json=config/trino-rules.json
+generatorOptions:
+  disableNameSuffixHash: true

@@ -1,0 +1,8 @@
+name: edge_analytics
+version: '1.0.0'
+config-version: 2
+profile: edge_analytics
+model-paths: [models]
+models:
+  edge_analytics:
+    +materialized: table

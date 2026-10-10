@@ -1,5 +1,5 @@
 {
-  "_readme": "Copy this file to bootstrap/config.json (gitignored), fill in all values, then run bootstrap-1node.sh. The script reads from this file — no manual YAML editing needed.",
+  "_readme": "Copy this file to bootstrap/config.json (gitignored), fill in all values, then run bootstrap-1node.sh. The script reads from this file \u2014 no manual YAML editing needed.",
   "cluster": {
     "name": "homelab",
     "letsencrypt_email": "",
@@ -41,7 +41,7 @@
     "admin_secret_access_key": ""
   },
   "flux_notifications": {
-    "_comment": "GitHub PAT with repo:status scope only — used by Flux to post commit status on reconciliation failure.",
+    "_comment": "GitHub PAT with repo:status scope only \u2014 used by Flux to post commit status on reconciliation failure.",
     "github_status_token": ""
   },
   "grafana": {
@@ -53,7 +53,7 @@
     "admin_password_hash": ""
   },
   "etcd": {
-    "_comment": "Leave empty to auto-generate a random AES-256-CBC key for etcd secrets encryption at rest. Once set, DO NOT change — rotating requires re-encrypting all etcd secrets with: kubectl get secrets -A -o json | kubectl replace -f -",
+    "_comment": "Leave empty to auto-generate a random AES-256-CBC key for etcd secrets encryption at rest. Once set, DO NOT change \u2014 rotating requires re-encrypting all etcd secrets with: kubectl get secrets -A -o json | kubectl replace -f -",
     "encryption_key": ""
   },
   "keycloak": {
@@ -90,5 +90,10 @@
   "backup": {
     "_comment": "Leave empty to auto-generate. Store restic_password offline; backups cannot be decrypted without it.",
     "restic_password": ""
+  },
+  "analytics": {
+    "_comment": "Opt-in. Enable before apply-config.py to generate SOPS Secrets. Credentials are retained; use lakekeeper_client_secret to set the same secret on the Keycloak analytics-engine client.",
+    "enabled": false,
+    "lakekeeper_client_secret": ""
   }
 }

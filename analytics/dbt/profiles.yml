@@ -1,0 +1,15 @@
+edge_analytics:
+  target: homelab
+  outputs:
+    homelab:
+      type: trino
+      method: ldap
+      user: analytics-dbt
+      password: "{{ env_var('TRINO_DBT_PASSWORD') }}"
+      host: trino.analytics.svc
+      port: 8443
+      database: iceberg
+      schema: marts
+      http_scheme: https
+      cert: /etc/analytics/tls/ca.crt
+      threads: 1
