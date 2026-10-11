@@ -24,7 +24,7 @@ spec:
           - name: drill
           - name: recovered-at
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |

@@ -91,7 +91,7 @@ spec:
             valueFrom:
               path: /tmp/out/aws-bytes
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -219,7 +219,7 @@ spec:
       # path can add to the repository and never remove from it.
       sidecars:
         - name: local-repository
-          image: docker.io/rclone/rclone:1.75.1
+          image: docker.io/rclone/rclone:1.75.2
           # Argo stops the sidecar with SIGTERM once the copy is done. rclone
           # would exit 143 on it, which marks the pod Failed and keeps it past
           # podGC; the stop is expected, so it exits 0. A crash still fails.
@@ -427,7 +427,7 @@ spec:
           - name: copied
           - name: missing
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |
