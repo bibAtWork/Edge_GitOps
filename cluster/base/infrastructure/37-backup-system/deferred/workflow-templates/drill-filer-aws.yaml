@@ -71,7 +71,7 @@ spec:
             valueFrom:
               path: /tmp/taken
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -195,7 +195,7 @@ spec:
               drop:
                 - ALL
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -371,7 +371,7 @@ spec:
     # locked bucket that writes delete markers, and Lifecycle expires the rest.
     - name: purge-aws-prefix
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |

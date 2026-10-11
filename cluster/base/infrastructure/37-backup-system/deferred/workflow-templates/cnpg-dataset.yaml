@@ -159,7 +159,7 @@ spec:
           emptyDir: {}
       initContainers:
         - name: fetch
-          image: docker.io/rclone/rclone:1.75.1
+          image: docker.io/rclone/rclone:1.75.2
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -426,7 +426,7 @@ spec:
               drop:
                 - ALL
       container:
-        image: docker.io/rclone/rclone:1.75.1
+        image: docker.io/rclone/rclone:1.75.2
         command: ["/bin/sh", "-c"]
         args:
           - |

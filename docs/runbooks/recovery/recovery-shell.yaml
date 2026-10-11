@@ -99,7 +99,7 @@ spec:
       securityContext: *hardened
 
     - name: rclone
-      image: docker.io/rclone/rclone:1.75.1
+      image: docker.io/rclone/rclone:1.75.2
       command: ["sleep", "86400"]
       env:
         - name: HOME
