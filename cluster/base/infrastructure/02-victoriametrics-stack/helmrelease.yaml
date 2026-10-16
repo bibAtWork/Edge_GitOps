@@ -74,8 +74,8 @@ spec:
           # Left deliberately oversized; revisit only if the ~238GiB Longhorn
           # budget (30% of 340GiB is reserved) starts blocking a real claim.
           #
-          # vlsingle's 20Gi is still correctly sized: 107MB/day against its
-          # unchanged 90-day retention is ~10GB.
+          # vlsingle is sized separately below. Its earlier 20Gi estimate was
+          # exceeded and caused read-only log storage on 2026-10-16.
           # Longhorn, with the failure domain accepted and made detectable
           # rather than avoided.
           #
@@ -117,6 +117,11 @@ spec:
       enabled: true
       spec:
         retentionPeriod: "90d"
+        # Keep headroom when ingestion exceeds the time-based retention estimate.
+        # VictoriaLogs drops the oldest daily partitions above this threshold;
+        # the 90-day limit still applies independently.
+        extraArgs:
+          retention.maxDiskUsagePercent: "80"
         resources:
           requests:
             memory: "256Mi"
@@ -127,10 +132,12 @@ spec:
           # Longhorn for the same reason as vmsingle above: the shared failure
           # domain is accepted and made detectable by a Grafana-evaluated
           # availability alert, rather than avoided by moving off Longhorn.
+          # Increased from 20Gi after the store entered read-only mode with
+          # under 10Mi free on 2026-10-16. Longhorn supports online expansion.
           storageClassName: longhorn
           resources:
             requests:
-              storage: 20Gi
+              storage: 40Gi
 
     # VictoriaTraces (experimental — acceptable for home lab)
     vtsingle:
