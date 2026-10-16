@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
-spec = importlib.util.spec_from_file_location("contracts", ROOT / "scripts/check-platform-contracts.py")
+spec = importlib.util.spec_from_file_location("contracts", ROOT / "scripts/ci/platform_contracts.py")
 contracts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(contracts)
 

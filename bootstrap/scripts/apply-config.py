@@ -30,7 +30,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_FILE = REPO_ROOT / "bootstrap" / "config.json"
 
-# Every SOPS Secret owned by this script.  check-secret-bootstrap.py compares
+# Every SOPS Secret owned by this script.  secret_bootstrap_coverage.py compares
 # this set with the repository so a newly-added Secret cannot silently become a
 # manual bootstrap step.
 APPLY_CONFIG_SECRET_FILES = {

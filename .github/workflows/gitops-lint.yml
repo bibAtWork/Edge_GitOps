@@ -117,7 +117,7 @@ jobs:
           sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
           pip install --quiet pyyaml==6.0.3
       - name: Verify RBAC, Flux dependencies, telemetry and application template
-        run: python3 scripts/check-platform-contracts.py
+        run: python3 scripts/ci/platform_contracts.py
       - name: Verify rendered Reloader Deployment security and resources
         run: python3 scripts/ci/check_reloader_render.py
       - name: Verify Longhorn chart and image cohort
@@ -129,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Verify every encrypted Secret has a bootstrap or rotation owner
-        run: python3 scripts/check-secret-bootstrap.py
+        run: python3 scripts/ci/secret_bootstrap_coverage.py
 
   recovery-policy-drills:
     name: Recovery policy / restore drill consistency

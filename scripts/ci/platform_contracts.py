@@ -8,7 +8,7 @@ import subprocess
 from urllib.parse import urlparse
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFERRED_GROUPS = {
     "cilium.io", "postgresql.cnpg.io", "barmancloud.cnpg.io", "argoproj.io",
     "operator.victoriametrics.com", "longhorn.io", "gateway.networking.k8s.io",

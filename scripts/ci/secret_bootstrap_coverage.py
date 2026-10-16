@@ -5,7 +5,7 @@ import ast
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 APPLY_CONFIG = ROOT / "bootstrap/scripts/apply-config.py"
 # These already-encrypted baseline credentials are rotated in the SRE Agent
 # README with `sops set --value-stdin`; they need the cluster's offline age key.

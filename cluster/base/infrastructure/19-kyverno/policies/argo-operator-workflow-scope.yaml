@@ -29,7 +29,7 @@ spec:
         request.userInfo.username ==
         'system:serviceaccount:backup-system:argo-operator'
   variables:
-    # scripts/check-platform-contracts.py compares this list to recovery-policy.
+    # scripts/ci/platform_contracts.py compares this list to recovery-policy.
     - name: allowedApplications
       expression: "['immich', 'keycloak', 'paperless', 'seaweedfs']"
   validations:

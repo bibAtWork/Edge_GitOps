@@ -12,7 +12,7 @@
 # external-dns never saw it as Accepted and never created a DNS record.
 #
 # homelab.local/application travels with it, required by
-# scripts/check-platform-contracts.py: any namespace gaining gateway-access
+# scripts/ci/platform_contracts.py: any namespace gaining gateway-access
 # beyond the pre-existing grandfathered set must also be a declared
 # application ("New gateway capability must belong to an application").
 # This does NOT grant the oidc:app-operator RoleBinding immich/paperless

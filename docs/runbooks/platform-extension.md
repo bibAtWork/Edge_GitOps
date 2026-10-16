@@ -49,7 +49,7 @@ Both node profiles consume these compositions. Profile patches express topology.
    `37-backup-system/deferred/recovery-policy.yaml`, add its matching recovery-point
    CronWorkflow and dataset permissions, and complete an AWS restore drill.
    The annotation is documentation, not automatic enrollment in backup jobs.
-6. Run `python scripts/check-platform-contracts.py` and existing CI checks. Verify
+6. Run `python scripts/ci/platform_contracts.py` and existing CI checks. Verify
    unauthenticated/authorized/unauthorized access, telemetry, and recovery in the
    cluster before treating the service as ready.
 

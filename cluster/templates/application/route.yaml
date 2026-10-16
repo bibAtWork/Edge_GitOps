@@ -10,7 +10,7 @@ metadata:
     # native-oidc plus the Keycloak client id registered for this host,
     # gateway-oidc (with an Envoy SecurityPolicy and OPA's admin_only_apps) or,
     # for a deliberately open route, public plus gitops.homelab/public-reason.
-    # scripts/check-platform-contracts.py verifies the claim.
+    # scripts/ci/platform_contracts.py verifies the claim.
     gitops.homelab/auth: native-oidc
     gitops.homelab/auth-client: example-app
 spec:

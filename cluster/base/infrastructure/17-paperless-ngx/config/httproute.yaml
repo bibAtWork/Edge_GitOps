@@ -5,7 +5,7 @@ metadata:
   namespace: paperless
   annotations:
     # How this route authenticates -- checked against Keycloak, the
-    # SecurityPolicies and OPA by scripts/check-platform-contracts.py.
+    # SecurityPolicies and OPA by scripts/ci/platform_contracts.py.
     gitops.homelab/auth: native-oidc
     gitops.homelab/auth-client: paperless
 spec:
