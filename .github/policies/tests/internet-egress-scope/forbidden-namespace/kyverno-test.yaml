@@ -1,0 +1,14 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: internet-egress-scope-forbidden-namespace
+policies:
+  - ../../../internet-egress-scope.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: internet-egress-scope
+    isValidatingPolicy: true
+    kind: CiliumClusterwideNetworkPolicy
+    resources: [allow-internet-egress-https-only]
+    result: fail

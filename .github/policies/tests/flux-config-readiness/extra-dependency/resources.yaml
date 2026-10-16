@@ -1,0 +1,21 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: config
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: operators-ready
+    - name: optional-app
+  healthChecks:
+    - apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      name: letsencrypt-prod
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      name: homelab-wildcard-tls
+      namespace: gateway-system
+    - apiVersion: gateway.networking.k8s.io/v1
+      kind: Gateway
+      name: homelab-gateway
+      namespace: gateway-system

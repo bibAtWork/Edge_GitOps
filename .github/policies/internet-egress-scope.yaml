@@ -1,0 +1,26 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: internet-egress-scope
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [cilium.io]
+        apiVersions: [v2]
+        operations: [CREATE, UPDATE]
+        resources: [ciliumclusterwidenetworkpolicies]
+  matchConditions:
+    - name: shared-internet-egress-only
+      expression: object.metadata.name == 'allow-internet-egress-https-only'
+  validations:
+    - message: Shared internet egress must select only approved namespaces.
+      expression: >-
+        has(object.spec.endpointSelector.matchExpressions) &&
+        object.spec.endpointSelector.matchExpressions.exists(m,
+          m.key == 'io.kubernetes.pod.namespace' &&
+          m.operator == 'In' &&
+          has(m.values) &&
+          ['cert-manager', 'external-dns', 'flux-system', 'tailscale',
+           'trivy-system', 'backup-system'].all(n, n in m.values) &&
+          !['default', 'kubescape', 'paperless', 'security', 'zot'].exists(n, n in m.values))

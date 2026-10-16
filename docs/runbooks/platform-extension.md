@@ -49,9 +49,13 @@ Both node profiles consume these compositions. Profile patches express topology.
    `37-backup-system/deferred/recovery-policy.yaml`, add its matching recovery-point
    CronWorkflow and dataset permissions, and complete an AWS restore drill.
    The annotation is documentation, not automatic enrollment in backup jobs.
-6. Run `python scripts/check-platform-contracts.py` and existing CI checks. Verify
-   unauthenticated/authorized/unauthorized access, telemetry, and recovery in the
-   cluster before treating the service as ready.
+6. Run `python scripts/check-platform-contracts.py` and the existing CI checks.
+   Kubeconform validates manifest schemas; CI-only Kyverno tests validate Flux
+   readiness and the shared internet-egress selector. The Python check remains
+   for relationships across rendered resources, such as route authentication
+   against Keycloak and OPA, RBAC bindings, and Flux dependency inventories.
+   Verify unauthenticated/authorized/unauthorized access, telemetry, and
+   recovery in the cluster before treating the service as ready.
 
 Application operators receive built-in `edit` in `paperless` and other ordinary
 application namespaces. New grants live with the new application. `edit` permits

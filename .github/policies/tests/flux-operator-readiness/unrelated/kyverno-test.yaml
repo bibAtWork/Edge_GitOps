@@ -1,0 +1,14 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: flux-operator-readiness-unrelated
+policies:
+  - ../../../flux-operator-readiness.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: flux-operator-readiness
+    isValidatingPolicy: true
+    kind: Kustomization
+    resources: [flux-system/unrelated]
+    result: skip

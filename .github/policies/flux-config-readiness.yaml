@@ -19,7 +19,8 @@ spec:
     - message: Platform config must depend on operators-ready.
       expression: >-
         has(object.spec.dependsOn) &&
-        object.spec.dependsOn.exists(d, d.name == 'operators-ready')
+        object.spec.dependsOn.size() == 1 &&
+        object.spec.dependsOn[0].name == 'operators-ready'
     - message: Platform config must not wait for every optional application.
       expression: "!has(object.spec.wait) || object.spec.wait == false"
     - message: Platform config must check the shared issuer, certificate, and Gateway.
