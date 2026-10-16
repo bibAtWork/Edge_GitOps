@@ -116,8 +116,17 @@ jobs:
           curl -fsSL https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz | tar -xz -C /tmp linux-amd64/helm
           sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
           pip install --quiet pyyaml==6.0.3
-      - name: Verify RBAC, Flux dependencies, telemetry and application template
+      - name: Verify cross-resource RBAC, Flux inventory, telemetry and application contracts
         run: python3 scripts/ci/platform_contracts.py
+      - name: Install the pinned Kyverno CLI
+        uses: kyverno/action-install-cli@v0.2.0
+        with:
+          release: v1.19.0
+      - name: Check Flux readiness policies against both profiles and regressions
+        run: |
+          kyverno test .github/policies/tests/flux-config-readiness --require-tests
+          kyverno test .github/policies/tests/flux-operator-readiness --require-tests
+          kyverno test .github/policies/tests/internet-egress-scope --require-tests
       - name: Verify rendered Reloader Deployment security and resources
         run: python3 scripts/ci/check_reloader_render.py
       - name: Verify Longhorn chart and image cohort

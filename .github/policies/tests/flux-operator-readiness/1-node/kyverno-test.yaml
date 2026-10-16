@@ -1,0 +1,14 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: flux-operator-readiness-1-node
+policies:
+  - ../../../flux-operator-readiness.yaml
+resources:
+  - ../../../../../cluster/overlays/1-node/flux-kustomizations/operators-ready.yaml
+results:
+  - policy: flux-operator-readiness
+    isValidatingPolicy: true
+    kind: Kustomization
+    resources: [flux-system/operators-ready]
+    result: pass

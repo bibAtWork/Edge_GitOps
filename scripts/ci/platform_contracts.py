@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render and check contracts that schema validation cannot prove (requires PyYAML)."""
+"""Check rendered cross-resource contracts beyond Kubeconform and Kyverno's CI policies."""
 import ipaddress
 import json
 from pathlib import Path
@@ -190,19 +190,6 @@ def check_route_auth(profile, docs):
         f"{profile}: OPA's admin_only_apps {sorted(admin_only)} must be exactly the hosts of the "
         f"gateway-oidc routes {sorted(gateway_hosts)} -- a host listed there without the route "
         f"declaring it (or the reverse) is gated by only one of the two layers")
-
-
-def check_world_https_scope(profile, docs):
-    """Do not let a shared world:443 grant grow back to all pods."""
-    policy = get(docs, "CiliumClusterwideNetworkPolicy", "allow-internet-egress-https-only")
-    selectors = policy["spec"]["endpointSelector"]["matchExpressions"]
-    namespace = next((item for item in selectors if item["key"] == "io.kubernetes.pod.namespace"), None)
-    assert namespace and namespace["operator"] == "In", f"{profile}: world:443 must be namespace-scoped"
-    allowed = set(namespace["values"])
-    assert {"cert-manager", "external-dns", "flux-system", "tailscale", "trivy-system",
-            "backup-system"} <= allowed, f"{profile}: required internet clients lost HTTPS egress"
-    assert not allowed & {"default", "kubescape", "paperless", "security", "zot"}, (
-        f"{profile}: internal-only or local-only namespaces gained general internet egress")
 
 
 # Talos's defaults; check_no_cluster_assigned_aliases asserts the machine configs
@@ -436,14 +423,10 @@ def check_profile(profile):
     check_argo_operator_scope(profile, docs)
     check_no_cluster_assigned_aliases(profile, docs)
     check_route_auth(profile, docs)
-    check_world_https_scope(profile, config)
     check_private_app_secrets(profile, docs)
-
     gate = get(root, "Kustomization", "operators-ready")["spec"]
-    cfg = get(root, "Kustomization", "config")["spec"]
-    assert cfg["dependsOn"] == [{"name": "operators-ready"}]
-    assert gate["dependsOn"] == [{"name": "flux-system"}]
-    assert not gate.get("wait"), "wait:true overrides explicit healthChecks"
+    # Per-object Flux readiness rules live in the CI-only Kyverno policies.
+    # The graph and inventory checks below still require the rendered set.
     roots = [d for d in root if d["kind"] == "Kustomization" and d["metadata"]["name"] == "flux-system"]
     assert all(not d["spec"].get("wait") and not d["spec"].get("healthChecks") for d in roots)
     releases = {(d["metadata"]["namespace"], d["metadata"]["name"]): d for d in root if d["kind"] == "HelmRelease"}
@@ -452,9 +435,6 @@ def check_profile(profile):
     acyclic(graph)
     checked = {(h["namespace"], h["name"]) for h in gate["healthChecks"]}
     assert checked <= releases.keys()
-    assert {("cnpg-system", "cloudnative-pg"), ("cnpg-system", "plugin-barman-cloud"),
-            ("backup-system", "argo-workflows"), ("monitoring", "vmstack"),
-            ("kube-system", "cilium"), ("cert-manager", "cert-manager")} <= checked
     forbidden = {("seaweedfs", "seaweedfs"), ("immich", "immich"), ("zot", "zot")}
     def check_gate_dependency(key):
         assert key not in forbidden, f"Gate waits on config consumer {key}"

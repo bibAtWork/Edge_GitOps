@@ -8,6 +8,7 @@ data:
     import json
     import os
     import ssl
+    import sys
     import time
     import urllib.error
     import urllib.request
@@ -70,7 +71,12 @@ data:
             raise RuntimeError(f"unexpected OIDC response: status={response.code} location={location}")
         success = True
     finally:
-        emit_result(success)
+        try:
+            emit_result(success)
+        except Exception as error:
+            # The route check determines this Job's result. OTel export has its
+            # own alert and must not hide an OIDC failure or cause a false one.
+            print(f"warning: synthetic metric export failed: {error}", file=sys.stderr)
 
     print(json.dumps({"target": TARGET, "oidc_redirect": "verified"}))
 ---
