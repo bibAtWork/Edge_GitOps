@@ -7,12 +7,22 @@ spec:
   interval: 10m
   path: ./cluster/overlays/3-node-config
   prune: true
-  # wait: true tells Flux to check that every applied resource reaches a ready/healthy
-  # condition before marking this Kustomization as succeeded. Without it, Flux reports
-  # success as soon as objects are written to the API server, even if a CiliumNetworkPolicy
-  # is rejected by the agent or a Gateway fails to come up. The 5m timeout is generous
-  # enough for Cilium policy propagation across all endpoints.
-  wait: true
+  # Keep platform readiness visible without making every optional application
+  # Deployment a prerequisite for the entire config layer. Deployment availability
+  # is alerted independently; a missing private-app credential must not hold back
+  # later Gateway, policy, and backup configuration revisions.
+  healthChecks:
+    - apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      name: letsencrypt-prod
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      name: homelab-wildcard-tls
+      namespace: gateway-system
+    - apiVersion: gateway.networking.k8s.io/v1
+      kind: Gateway
+      name: homelab-gateway
+      namespace: gateway-system
   timeout: 5m
   sourceRef:
     kind: GitRepository
