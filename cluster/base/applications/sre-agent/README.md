@@ -15,26 +15,44 @@ its health probe. Treat port-forward access to the dashboard as privileged.
 
 The source repository and images are private. Keep a classic GitHub PAT with
 `read:packages` and read access to all four application packages, plus the Gemini
-API key, in files outside this repository. Generate the Git-managed Secrets with:
+API key, in files outside this repository. The encrypted manifests are retained
+in Git and use the cluster's offline age identity; there is no runtime bootstrap
+script. To rotate a value, set `SOPS_AGE_KEY_FILE` to that identity on a trusted
+admin machine and pass a JSON-encoded value to `sops set --value-stdin`. This
+updates the ciphertext without putting the value in command arguments or writing
+plaintext YAML to the repository.
 
-```sh
-python bootstrap/scripts/provision-private-app-secrets.py \
-  --ghcr-token-file /path/outside/repo/ghcr-token \
-  --gemini-key-file /path/outside/repo/gemini-key \
-  --ghcr-username YOUR_GITHUB_USERNAME
+For the GHCR token, build the Docker config from the token file and update its
+encrypted field (PowerShell example; substitute your username and file path):
+
+```powershell
+$env:SOPS_AGE_KEY_FILE = 'C:\path\to\offline\age.key'
+$token = (Get-Content -LiteralPath 'C:\path\to\ghcr-token.txt' -Raw).Trim()
+$auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("YOUR_GITHUB_USERNAME:$token"))
+$config = @{auths = @{'ghcr.io' = @{auth = $auth}}} | ConvertTo-Json -Compress -Depth 4
+$config | ConvertTo-Json -Compress | sops set --value-stdin cluster/base/secrets/ghcr-pull-secret.yaml '["stringData"][".dockerconfigjson"]'
+Remove-Variable token, auth, config
 ```
 
-The generator verifies actual package reads, encrypts all values with the public
-age recipient in `.sops.yaml`, and preserves `agent-auth` on subsequent runs.
-The Gemini input may be a bare key or a two-field `api-key:`/`project:` file;
-only `api-key` is stored in the Kubernetes Secret.
+For Gemini, send only the key value (the local file's `project` field is not a
+Kubernetes Secret field). For the API's bearer token, generate a fresh random
+value when rotating it:
+
+```powershell
+$keyLine = Get-Content -LiteralPath 'C:\path\to\gemini-key.txt' | Where-Object { $_ -match '^api-key:\s*' } | Select-Object -First 1
+if (-not $keyLine) { throw 'Gemini file has no api-key field' }
+($keyLine -replace '^api-key:\s*', '').Trim() | ConvertTo-Json -Compress | sops set --value-stdin cluster/base/secrets/google-gemini-api-key.yaml '["stringData"]["api-key"]'
+python -c 'import json,secrets; print(json.dumps(secrets.token_urlsafe(32)))' | sops set --value-stdin cluster/base/applications/sre-agent/agent-auth-secret.yaml '["stringData"]["API_TOKEN"]'
+```
+
+Rotate only the value that changed. Verify the token can read all four private
+GHCR packages before committing a replacement, then verify fresh Pods can pull
+their images after rollout. Never use the Flux commit-status token for pulls.
 The GHCR credential is stored once in `../../secrets/ghcr-pull-secret.yaml`;
 the two Kustomizations render it into their own namespaces.
 The Gemini key is stored in `../../secrets/google-gemini-api-key.yaml` and
 referenced by this application's Kustomization.
-Commit only the encrypted YAML. Rotate the PAT before expiry by rerunning the
-generator with the replacement token, then verify a fresh Pod can pull each
-image. Never use the Flux commit-status token as a pull credential.
+Commit only encrypted YAML.
 
 | Secret | Required key/type | Purpose |
 | --- | --- | --- |

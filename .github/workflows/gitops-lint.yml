@@ -128,7 +128,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Verify every encrypted Secret has a generator
+      - name: Verify every encrypted Secret has a bootstrap or rotation owner
         run: python3 scripts/check-secret-bootstrap.py
 
   recovery-policy-drills:
