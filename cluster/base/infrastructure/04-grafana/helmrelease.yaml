@@ -909,6 +909,55 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
+              - uid: victorialogs-read-only
+                title: VictoriaLogsReadOnly
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'max(vl_storage_is_read_only{job="vlsingle-vmstack-victoria-metrics-k8s-stack"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 2m
+                annotations:
+                  summary: >-
+                    VictoriaLogs is read-only -- new logs are being rejected
+                  description: >-
+                    VictoriaLogs is reachable but vl_storage_is_read_only is 1. Check
+                    vl_free_disk_space_bytes, the monitoring PVC and Longhorn volume;
+                    restore storage headroom before investigating collector retries.
+                    VictoriaLogsUnavailable covers missing scrape data separately.
+                labels:
+                  severity: critical
+                isPaused: false
               - uid: victoriatraces-unavailable
                 title: VictoriaTracesUnavailable
                 condition: B
