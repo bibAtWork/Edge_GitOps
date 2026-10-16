@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: real-estate-screener
 resources:
 - namespace.yaml
+- ghcr-pull-secret.yaml
 - web.yaml
 - collector.yaml
 - macro.yaml

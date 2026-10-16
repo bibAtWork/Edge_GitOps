@@ -1,7 +1,7 @@
 # SRE Agent deployment
 
 Source and all image builds: https://github.com/bibAtWork/sre-agent.
-This directory contains production deployment configuration only. It is registered
+This directory contains production deployment configuration. It is registered
 once in applications/config and consumed by both 1-node and 3-node profiles.
 
 Dashboard: https://sre-agent.homelab.data-harness.org/ (after rollout).
@@ -11,13 +11,26 @@ points to the separate read-only dashboard port 8081; no control or worker route
 are exposed. The API on 8080 requires `agent-auth/API_TOKEN` for every route except
 its health probe. Treat port-forward access to the dashboard as privileged.
 
-## Before merge
+## Private credentials
 
-The source repository is private; provision the following externally managed
-Secrets in namespace `sre-agent` through your secret manager. For Git-managed
-Secrets, use SOPS and add a bootstrap generator/inventory entry as required by
-`docs/runbooks/platform-extension.md`; do not commit plaintext credentials.
-No placeholder Secrets or keys are included in this PR:
+The source repository and images are private. Keep a classic GitHub PAT with
+`read:packages` and read access to all four application packages, plus the Gemini
+API key, in files outside this repository. Generate the Git-managed Secrets with:
+
+```sh
+python bootstrap/scripts/provision-private-app-secrets.py \
+  --ghcr-token-file /path/outside/repo/ghcr-token \
+  --gemini-key-file /path/outside/repo/gemini-key \
+  --ghcr-username YOUR_GITHUB_USERNAME
+```
+
+The generator verifies actual package reads, encrypts all values with the public
+age recipient in `.sops.yaml`, and preserves `agent-auth` on subsequent runs.
+The Gemini input may be a bare key or a two-field `api-key:`/`project:` file;
+only `api-key` is stored in the Kubernetes Secret.
+Commit only the encrypted YAML. Rotate the PAT before expiry by rerunning the
+generator with the replacement token, then verify a fresh Pod can pull each
+image. Never use the Flux commit-status token as a pull credential.
 
 | Secret | Required key/type | Purpose |
 | --- | --- | --- |
@@ -25,7 +38,6 @@ No placeholder Secrets or keys are included in this PR:
 | agent-gemini | api-key | Gemini API for both workers |
 | ghcr-pull | .dockerconfigjson; kubernetes.io/dockerconfigjson | read access to private ghcr.io/bibatwork/sre-agent-* images |
 
-Create the namespace before provisioning the Secrets if it does not yet exist.
 The images are pinned to published manifest digests from source commit
 980341d07505d0449ce3ea241093b76e27442904; all three builds passed and published. The GitHub connector's authorization is not a GHCR pull credential.
 Verify DNS resolves the hostname to the existing homelab Gateway. The HTTPS route

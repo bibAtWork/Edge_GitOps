@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APPLY_CONFIG = ROOT / "bootstrap/scripts/apply-config.py"
+PRIVATE_APPS = ROOT / "bootstrap/scripts/provision-private-app-secrets.py"
 RECOVERY_GENERATED = {
     "cluster/base/infrastructure/37-backup-system/recovery-aws-promoter.yaml",
     "cluster/base/infrastructure/37-backup-system/recovery-aws-retention.yaml",
@@ -32,7 +33,9 @@ def main() -> int:
         for path in (ROOT / "cluster").rglob("*.yaml")
         if any(line == "sops:" for line in path.read_text(encoding="utf-8").splitlines())
     }
-    owned = assigned_literal(APPLY_CONFIG, "APPLY_CONFIG_SECRET_FILES") | RECOVERY_GENERATED
+    owned = (assigned_literal(APPLY_CONFIG, "APPLY_CONFIG_SECRET_FILES")
+             | assigned_literal(PRIVATE_APPS, "PROVISION_PRIVATE_APP_SECRET_FILES")
+             | RECOVERY_GENERATED)
     errors = []
     for path in sorted(encrypted - owned):
         errors.append(f"{path}: encrypted Secret has no bootstrap generator")
