@@ -1,0 +1,28 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: operators-ready
+  namespace: flux-system
+spec:
+  wait: true
+  dependsOn:
+    - name: flux-system
+  healthChecks:
+    - kind: HelmRelease
+      name: cilium
+      namespace: kube-system
+    - kind: HelmRelease
+      name: cert-manager
+      namespace: cert-manager
+    - kind: HelmRelease
+      name: cloudnative-pg
+      namespace: cnpg-system
+    - kind: HelmRelease
+      name: plugin-barman-cloud
+      namespace: cnpg-system
+    - kind: HelmRelease
+      name: argo-workflows
+      namespace: backup-system
+    - kind: HelmRelease
+      name: vmstack
+      namespace: monitoring

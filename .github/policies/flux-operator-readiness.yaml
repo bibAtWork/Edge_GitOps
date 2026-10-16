@@ -1,0 +1,34 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: flux-operator-readiness
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [kustomize.toolkit.fluxcd.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [kustomizations]
+  matchConditions:
+    - name: operator-gate-only
+      expression: >-
+        object.metadata.namespace == 'flux-system' &&
+        object.metadata.name == 'operators-ready'
+  validations:
+    - message: Operator readiness must depend only on flux-system and use explicit checks.
+      expression: >-
+        ((!has(object.spec.wait) || object.spec.wait == false) &&
+         has(object.spec.dependsOn) &&
+         object.spec.dependsOn.size() == 1 &&
+         object.spec.dependsOn[0].name == 'flux-system' &&
+         has(object.spec.healthChecks))
+    - message: Operator readiness must check the core platform Helm releases.
+      expression: >-
+        (has(object.spec.healthChecks) &&
+         object.spec.healthChecks.exists(h, h.kind == 'HelmRelease' && h.name == 'cilium' && h.namespace == 'kube-system') &&
+         object.spec.healthChecks.exists(h, h.kind == 'HelmRelease' && h.name == 'cert-manager' && h.namespace == 'cert-manager') &&
+         object.spec.healthChecks.exists(h, h.kind == 'HelmRelease' && h.name == 'cloudnative-pg' && h.namespace == 'cnpg-system') &&
+         object.spec.healthChecks.exists(h, h.kind == 'HelmRelease' && h.name == 'plugin-barman-cloud' && h.namespace == 'cnpg-system') &&
+         object.spec.healthChecks.exists(h, h.kind == 'HelmRelease' && h.name == 'argo-workflows' && h.namespace == 'backup-system') &&
+         object.spec.healthChecks.exists(h, h.kind == 'HelmRelease' && h.name == 'vmstack' && h.namespace == 'monitoring'))
