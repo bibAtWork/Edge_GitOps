@@ -49,7 +49,7 @@ Both node profiles consume these compositions. Profile patches express topology.
    `37-backup-system/deferred/recovery-policy.yaml`, add its matching recovery-point
    CronWorkflow and dataset permissions, and complete an AWS restore drill.
    The annotation is documentation, not automatic enrollment in backup jobs.
-6. Run `python scripts/check-platform-contracts.py` and the existing CI checks.
+6. Run `python scripts/ci/platform_contracts.py` and the existing CI checks.
    Kubeconform validates manifest schemas; CI-only Kyverno tests validate Flux
    readiness and the shared internet-egress selector. The Python check remains
    for relationships across rendered resources, such as route authentication

@@ -69,7 +69,7 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   Workflow for one application the recovery policy lists (Kyverno
   `argo-operator-workflow-scope`), has no `update`/`patch` to edit it afterwards, and can
   neither stop nor retry a run (deleting and starting again is the same thing for a recovery
-  point). `scripts/check-platform-contracts.py` fails if either half is loosened or the
+  point). `scripts/ci/platform_contracts.py` fails if either half is loosened or the
   policy's application list drifts from `recovery-policy`;
   `scripts/test-argo-operator-scope.py` and `scripts/test-argo-sso-rbac.py` exercise it live.
 - **Guardrail:** an OPA/Rego policy — reusing the policy engine already deployed for the
@@ -89,7 +89,7 @@ and NIST SP 800-53 Rev. 5 AC-3/AC-5/AC-6.
   archiver mounts a shared storage administrator credential; other application namespaces may
   grant `edit` only when they contain no platform credential. The public `kubernetes` client requires PKCE S256 and accepts only
   loopback redirects. Cert-based `kubectl` admin access remains the break-glass path.
-- **Contract checks:** `scripts/check-platform-contracts.py` renders every profile in CI and
+- **Contract checks:** `scripts/ci/platform_contracts.py` renders every profile in CI and
   verifies the API-server OIDC flags, group prefixes, scoped bindings, loopback redirects and
   PKCE requirement together.
 

@@ -14,11 +14,11 @@ applied only after the platform operators are ready.
 
 The image is pinned to the tested GHCR digest from the application build:
 `ghcr.io/bibatwork/real-estate-screener@sha256:83a22c119a446b7847c8e91f4e86be1b6bfc7a86fbc4fe1b51f94834f14ccb8a`.
-It currently requires an amd64 node. Either make the container package public
-(the application repository can stay private), or create an image-pull Secret
-named `ghcr-pull` in namespace `real-estate-screener`, with credentials scoped to
-`read:packages`. The manifests reference that Secret; anonymous public pulls also
-work without it, although Kubernetes may report a missing-Secret warning.
+It currently requires an amd64 node and a private GHCR pull credential. The
+SOPS-encrypted `ghcr-pull` source is stored under `cluster/base/secrets` and
+rendered into both application namespaces. See the SRE agent README for the
+token requirements and SOPS rotation procedure. The existing overlay build, SOPS
+enforcement, and platform contract checks reject missing or plaintext Secrets.
 Never commit a plaintext registry token to this public GitOps repository.
 
 ## Database and migrations

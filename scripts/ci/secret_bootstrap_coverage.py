@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Fail when a SOPS Secret has no reproducible bootstrap owner."""
+"""Fail when a SOPS Secret has no bootstrap generator or documented owner."""
 
 import ast
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 APPLY_CONFIG = ROOT / "bootstrap/scripts/apply-config.py"
+# These already-encrypted baseline credentials are rotated in the SRE Agent
+# README with `sops set --value-stdin`; they need the cluster's offline age key.
+MANUAL_SOPS_SECRET_FILES = {
+    "cluster/base/applications/sre-agent/agent-auth-secret.yaml",
+    "cluster/base/secrets/google-gemini-api-key.yaml",
+    "cluster/base/secrets/ghcr-pull-secret.yaml",
+}
+MANUAL_SOPS_RUNBOOK = ROOT / "cluster/base/applications/sre-agent/README.md"
 RECOVERY_GENERATED = {
     "cluster/base/infrastructure/37-backup-system/recovery-aws-promoter.yaml",
     "cluster/base/infrastructure/37-backup-system/recovery-aws-retention.yaml",
@@ -32,8 +40,11 @@ def main() -> int:
         for path in (ROOT / "cluster").rglob("*.yaml")
         if any(line == "sops:" for line in path.read_text(encoding="utf-8").splitlines())
     }
-    owned = assigned_literal(APPLY_CONFIG, "APPLY_CONFIG_SECRET_FILES") | RECOVERY_GENERATED
+    owned = (assigned_literal(APPLY_CONFIG, "APPLY_CONFIG_SECRET_FILES")
+             | MANUAL_SOPS_SECRET_FILES | RECOVERY_GENERATED)
     errors = []
+    if not MANUAL_SOPS_RUNBOOK.is_file():
+        errors.append("manually managed private-app Secrets have no rotation runbook")
     for path in sorted(encrypted - owned):
         errors.append(f"{path}: encrypted Secret has no bootstrap generator")
     for path in sorted(owned - encrypted):
@@ -50,7 +61,7 @@ def main() -> int:
         for error in errors:
             print(f"  ERROR: {error}")
         return 1
-    print(f"All {len(encrypted)} SOPS manifests have a bootstrap generator.")
+    print(f"All {len(encrypted)} SOPS manifests have a bootstrap or documented rotation owner.")
     return 0
 
 

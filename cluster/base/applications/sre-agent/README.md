@@ -1,7 +1,7 @@
 # SRE Agent deployment
 
 Source and all image builds: https://github.com/bibAtWork/sre-agent.
-This directory contains production deployment configuration only. It is registered
+This directory contains production deployment configuration. It is registered
 once in applications/config and consumed by both 1-node and 3-node profiles.
 
 Dashboard: https://sre-agent.homelab.data-harness.org/ (after rollout).
@@ -11,21 +11,55 @@ points to the separate read-only dashboard port 8081; no control or worker route
 are exposed. The API on 8080 requires `agent-auth/API_TOKEN` for every route except
 its health probe. Treat port-forward access to the dashboard as privileged.
 
-## Before merge
+## Private credentials
 
-The source repository is private; provision the following externally managed
-Secrets in namespace `sre-agent` through your secret manager. For Git-managed
-Secrets, use SOPS and add a bootstrap generator/inventory entry as required by
-`docs/runbooks/platform-extension.md`; do not commit plaintext credentials.
-No placeholder Secrets or keys are included in this PR:
+The source repository and images are private. Keep a classic GitHub PAT with
+`read:packages` and read access to all four application packages, plus the Gemini
+API key, in files outside this repository. The encrypted manifests are retained
+in Git and use the cluster's offline age identity; there is no runtime bootstrap
+script. To rotate a value, set `SOPS_AGE_KEY_FILE` to that identity on a trusted
+admin machine and pass a JSON-encoded value to `sops set --value-stdin`. This
+updates the ciphertext without putting the value in command arguments or writing
+plaintext YAML to the repository.
+
+For the GHCR token, build the Docker config from the token file and update its
+encrypted field (PowerShell example; substitute your username and file path):
+
+```powershell
+$env:SOPS_AGE_KEY_FILE = 'C:\path\to\offline\age.key'
+$token = (Get-Content -LiteralPath 'C:\path\to\ghcr-token.txt' -Raw).Trim()
+$auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("YOUR_GITHUB_USERNAME:$token"))
+$config = @{auths = @{'ghcr.io' = @{auth = $auth}}} | ConvertTo-Json -Compress -Depth 4
+$config | ConvertTo-Json -Compress | sops set --value-stdin cluster/base/secrets/ghcr-pull-secret.yaml '["stringData"][".dockerconfigjson"]'
+Remove-Variable token, auth, config
+```
+
+For Gemini, send only the key value (the local file's `project` field is not a
+Kubernetes Secret field). For the API's bearer token, generate a fresh random
+value when rotating it:
+
+```powershell
+$keyLine = Get-Content -LiteralPath 'C:\path\to\gemini-key.txt' | Where-Object { $_ -match '^api-key:\s*' } | Select-Object -First 1
+if (-not $keyLine) { throw 'Gemini file has no api-key field' }
+($keyLine -replace '^api-key:\s*', '').Trim() | ConvertTo-Json -Compress | sops set --value-stdin cluster/base/secrets/google-gemini-api-key.yaml '["stringData"]["api-key"]'
+python -c 'import json,secrets; print(json.dumps(secrets.token_urlsafe(32)))' | sops set --value-stdin cluster/base/applications/sre-agent/agent-auth-secret.yaml '["stringData"]["API_TOKEN"]'
+```
+
+Rotate only the value that changed. Verify the token can read all four private
+GHCR packages before committing a replacement, then verify fresh Pods can pull
+their images after rollout. Never use the Flux commit-status token for pulls.
+The GHCR credential is stored once in `../../secrets/ghcr-pull-secret.yaml`;
+the two Kustomizations render it into their own namespaces.
+The Gemini key is stored in `../../secrets/google-gemini-api-key.yaml` and
+referenced by this application's Kustomization.
+Commit only encrypted YAML.
 
 | Secret | Required key/type | Purpose |
 | --- | --- | --- |
 | agent-auth | API_TOKEN (random, at least 24 characters) | API, workers, scan trigger |
-| agent-gemini | api-key | Gemini API for both workers |
+| google-gemini-api-key | api-key | Gemini API for both workers |
 | ghcr-pull | .dockerconfigjson; kubernetes.io/dockerconfigjson | read access to private ghcr.io/bibatwork/sre-agent-* images |
 
-Create the namespace before provisioning the Secrets if it does not yet exist.
 The images are pinned to published manifest digests from source commit
 980341d07505d0449ce3ea241093b76e27442904; all three builds passed and published. The GitHub connector's authorization is not a GHCR pull credential.
 Verify DNS resolves the hostname to the existing homelab Gateway. The HTTPS route
