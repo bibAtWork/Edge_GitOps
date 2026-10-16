@@ -28,6 +28,8 @@ The generator verifies actual package reads, encrypts all values with the public
 age recipient in `.sops.yaml`, and preserves `agent-auth` on subsequent runs.
 The Gemini input may be a bare key or a two-field `api-key:`/`project:` file;
 only `api-key` is stored in the Kubernetes Secret.
+The GHCR credential is stored once in `../private-ghcr/ghcr-pull-secret.yaml`;
+the two Kustomizations render it into their own namespaces.
 Commit only the encrypted YAML. Rotate the PAT before expiry by rerunning the
 generator with the replacement token, then verify a fresh Pod can pull each
 image. Never use the Flux commit-status token as a pull credential.

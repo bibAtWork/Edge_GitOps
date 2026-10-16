@@ -33,8 +33,7 @@ PACKAGES = (
 PROVISION_PRIVATE_APP_SECRET_FILES = {
     "cluster/base/applications/sre-agent/agent-auth-secret.yaml",
     "cluster/base/applications/sre-agent/agent-gemini-secret.yaml",
-    "cluster/base/applications/sre-agent/ghcr-pull-secret.yaml",
-    "cluster/base/applications/real-estate-screener/ghcr-pull-secret.yaml",
+    "cluster/base/applications/private-ghcr/ghcr-pull-secret.yaml",
 }
 
 
@@ -97,12 +96,14 @@ def verify_packages(username: str, token: str) -> None:
             raise ValueError(f"{package}: GHCR package read failed (HTTP {error.code})") from None
 
 
-def secret_yaml(name: str, namespace: str, values: dict[str, str], kind: str = "Opaque") -> str:
+def secret_yaml(name: str, namespace: str | None, values: dict[str, str],
+                kind: str = "Opaque") -> str:
     rows = [
-        "apiVersion: v1", "kind: Secret", "metadata:",
-        f"  name: {name}", f"  namespace: {namespace}",
-        f"type: {kind}", "stringData:",
+        "apiVersion: v1", "kind: Secret", "metadata:", f"  name: {name}",
     ]
+    if namespace:
+        rows.append(f"  namespace: {namespace}")
+    rows.extend((f"type: {kind}", "stringData:"))
     rows.extend(f"  {key}: {json.dumps(value)}" for key, value in values.items())
     return "\n".join(rows) + "\n"
 
@@ -148,15 +149,12 @@ def main() -> int:
                                    separators=(",", ":"))
 
         sre = ROOT / "cluster/base/applications/sre-agent"
-        screener = ROOT / "cluster/base/applications/real-estate-screener"
+        shared = ROOT / "cluster/base/applications/private-ghcr"
         manifests = {
             sre / "agent-gemini-secret.yaml": secret_yaml(
                 "agent-gemini", "sre-agent", {"api-key": gemini_key}),
-            sre / "ghcr-pull-secret.yaml": secret_yaml(
-                "ghcr-pull", "sre-agent", {".dockerconfigjson": docker_config},
-                "kubernetes.io/dockerconfigjson"),
-            screener / "ghcr-pull-secret.yaml": secret_yaml(
-                "ghcr-pull", "real-estate-screener", {".dockerconfigjson": docker_config},
+            shared / "ghcr-pull-secret.yaml": secret_yaml(
+                "ghcr-pull", None, {".dockerconfigjson": docker_config},
                 "kubernetes.io/dockerconfigjson"),
         }
         auth_path = sre / "agent-auth-secret.yaml"

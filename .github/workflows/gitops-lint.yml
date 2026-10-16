@@ -63,12 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install YAML parser for private Secret checks
-        run: pip install --quiet pyyaml==6.0.3
       - name: Verify all Secrets with data are SOPS-encrypted
         run: python3 scripts/ci/sops_enforcement.py
-      - name: Require private image and runtime credentials before rollout
-        run: python3 scripts/ci/private_app_prerequisites.py
 
   no-latest-tags:
     name: No :latest image tags

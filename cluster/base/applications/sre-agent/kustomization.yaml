@@ -3,7 +3,7 @@ kind: Kustomization
 resources:
   - agent-auth-secret.yaml
   - agent-gemini-secret.yaml
-  - ghcr-pull-secret.yaml
+  - ../private-ghcr/sre-agent
   - workloads.yaml
   - access.yaml
   - route.yaml

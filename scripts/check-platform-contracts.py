@@ -354,6 +354,48 @@ def check_keycloak_kubernetes_client():
         "Kubernetes tokens must receive the groups claim without relying on an optional scope"
 
 
+def check_private_app_secrets(profile, docs):
+    """Rendered private images must have usable same-namespace Secret references."""
+    required = {
+        ("sre-agent", "agent-auth"): ("Opaque", "API_TOKEN"),
+        ("sre-agent", "agent-gemini"): ("Opaque", "api-key"),
+        ("sre-agent", "ghcr-pull"): ("kubernetes.io/dockerconfigjson", ".dockerconfigjson"),
+        ("real-estate-screener", "ghcr-pull"):
+            ("kubernetes.io/dockerconfigjson", ".dockerconfigjson"),
+    }
+    secrets = {(d["metadata"].get("namespace"), d["metadata"]["name"]): d
+               for d in docs if d["kind"] == "Secret"}
+    for identity, (kind, key) in required.items():
+        secret = secrets.get(identity)
+        assert secret, f"{profile}: missing Secret {identity}"
+        assert secret.get("type") == kind, f"{profile}: wrong type for Secret {identity}"
+        assert (secret.get("stringData") or {}).get(key, "").startswith("ENC[AES256_GCM,"), \
+            f"{profile}: Secret {identity} must encrypt {key}"
+        assert secret.get("sops", {}).get("age"), f"{profile}: Secret {identity} lacks age metadata"
+
+    first = secrets[("sre-agent", "ghcr-pull")]
+    second = secrets[("real-estate-screener", "ghcr-pull")]
+    assert first["stringData"][".dockerconfigjson"] == second["stringData"][".dockerconfigjson"], \
+        f"{profile}: private namespaces must use the same GHCR credential source"
+
+    for workload in docs:
+        kind = workload["kind"]
+        if kind in ("Deployment", "StatefulSet", "DaemonSet", "Job"):
+            pod = workload["spec"]["template"]["spec"]
+        elif kind == "CronJob":
+            pod = workload["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        else:
+            continue
+        images = [container["image"] for container in pod.get("containers", [])]
+        if not any(image.startswith("ghcr.io/bibatwork/") for image in images):
+            continue
+        namespace = workload["metadata"].get("namespace")
+        assert (namespace, "ghcr-pull") in required, \
+            f"{profile}: private image in unexpected namespace {namespace}"
+        assert {item["name"] for item in pod.get("imagePullSecrets", [])} >= {"ghcr-pull"}, \
+            f"{profile}: {kind} {namespace}/{workload['metadata']['name']} lacks ghcr-pull"
+
+
 def check_profile(profile):
     root = render(f"cluster/overlays/{profile}")
     config = render(f"cluster/overlays/{profile}-config")
@@ -395,6 +437,7 @@ def check_profile(profile):
     check_no_cluster_assigned_aliases(profile, docs)
     check_route_auth(profile, docs)
     check_world_https_scope(profile, config)
+    check_private_app_secrets(profile, docs)
 
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]
