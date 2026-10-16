@@ -33,7 +33,7 @@ PACKAGES = (
 PROVISION_PRIVATE_APP_SECRET_FILES = {
     "cluster/base/applications/sre-agent/agent-auth-secret.yaml",
     "cluster/base/applications/sre-agent/agent-gemini-secret.yaml",
-    "cluster/base/applications/private-ghcr/ghcr-pull-secret.yaml",
+    "cluster/base/secrets/ghcr-pull-secret.yaml",
 }
 
 
@@ -149,7 +149,7 @@ def main() -> int:
                                    separators=(",", ":"))
 
         sre = ROOT / "cluster/base/applications/sre-agent"
-        shared = ROOT / "cluster/base/applications/private-ghcr"
+        shared = ROOT / "cluster/base/secrets"
         manifests = {
             sre / "agent-gemini-secret.yaml": secret_yaml(
                 "agent-gemini", "sre-agent", {"api-key": gemini_key}),
