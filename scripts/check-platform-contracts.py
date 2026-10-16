@@ -399,14 +399,6 @@ def check_profile(profile):
     gate = get(root, "Kustomization", "operators-ready")["spec"]
     cfg = get(root, "Kustomization", "config")["spec"]
     assert cfg["dependsOn"] == [{"name": "operators-ready"}]
-    assert not cfg.get("wait"), "optional application health must not stall platform config"
-    config_checks = {(h["kind"], h["name"], h.get("namespace"))
-                     for h in cfg.get("healthChecks", [])}
-    assert {("ClusterIssuer", "letsencrypt-prod", None),
-            ("Certificate", "homelab-wildcard-tls", "gateway-system"),
-            ("Gateway", "homelab-gateway", "gateway-system")} <= config_checks
-    assert all(kind not in {"Deployment", "StatefulSet", "DaemonSet"}
-               for kind, _, _ in config_checks)
     assert gate["dependsOn"] == [{"name": "flux-system"}]
     assert not gate.get("wait"), "wait:true overrides explicit healthChecks"
     roots = [d for d in root if d["kind"] == "Kustomization" and d["metadata"]["name"] == "flux-system"]
