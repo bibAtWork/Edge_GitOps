@@ -1,0 +1,14 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: flux-config-readiness-3-node
+policies:
+  - ../../../flux-config-readiness.yaml
+resources:
+  - ../../../../../cluster/overlays/3-node/flux-kustomizations/config.yaml
+results:
+  - policy: flux-config-readiness
+    isValidatingPolicy: true
+    kind: Kustomization
+    resources: [flux-system/config]
+    result: pass

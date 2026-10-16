@@ -118,6 +118,12 @@ jobs:
           pip install --quiet pyyaml==6.0.3
       - name: Verify RBAC, Flux dependencies, telemetry and application template
         run: python3 scripts/check-platform-contracts.py
+      - name: Install the pinned Kyverno CLI
+        uses: kyverno/action-install-cli@v0.2.0
+        with:
+          release: v1.19.0
+      - name: Check Flux config readiness policy against both profiles and regressions
+        run: kyverno test .github/policies/tests/flux-config-readiness --require-tests
       - name: Verify rendered Reloader Deployment security and resources
         run: python3 scripts/ci/check_reloader_render.py
       - name: Verify Longhorn chart and image cohort
