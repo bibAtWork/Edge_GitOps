@@ -358,7 +358,7 @@ def check_private_app_secrets(profile, docs):
     """Rendered private images must have usable same-namespace Secret references."""
     required = {
         ("sre-agent", "agent-auth"): ("Opaque", "API_TOKEN"),
-        ("sre-agent", "agent-gemini"): ("Opaque", "api-key"),
+        ("sre-agent", "google-gemini-api-key"): ("Opaque", "api-key"),
         ("sre-agent", "ghcr-pull"): ("kubernetes.io/dockerconfigjson", ".dockerconfigjson"),
         ("real-estate-screener", "ghcr-pull"):
             ("kubernetes.io/dockerconfigjson", ".dockerconfigjson"),

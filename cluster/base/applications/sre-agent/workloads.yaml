@@ -274,7 +274,7 @@ spec:
         - name: GEMINI_API_KEY
           valueFrom:
             secretKeyRef:
-              name: agent-gemini
+              name: google-gemini-api-key
               key: api-key
         securityContext:
           allowPrivilegeEscalation: false
@@ -365,7 +365,7 @@ spec:
         - name: GOOGLE_GENERATIVE_AI_API_KEY
           valueFrom:
             secretKeyRef:
-              name: agent-gemini
+              name: google-gemini-api-key
               key: api-key
         securityContext:
           allowPrivilegeEscalation: false

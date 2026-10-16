@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - agent-auth-secret.yaml
-  - agent-gemini-secret.yaml
+  - ../../secrets/google-gemini-api-key.yaml
   - ../../secrets/sre-agent
   - workloads.yaml
   - access.yaml

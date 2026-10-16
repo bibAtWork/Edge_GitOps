@@ -30,6 +30,8 @@ The Gemini input may be a bare key or a two-field `api-key:`/`project:` file;
 only `api-key` is stored in the Kubernetes Secret.
 The GHCR credential is stored once in `../../secrets/ghcr-pull-secret.yaml`;
 the two Kustomizations render it into their own namespaces.
+The Gemini key is stored in `../../secrets/google-gemini-api-key.yaml` and
+referenced by this application's Kustomization.
 Commit only the encrypted YAML. Rotate the PAT before expiry by rerunning the
 generator with the replacement token, then verify a fresh Pod can pull each
 image. Never use the Flux commit-status token as a pull credential.
@@ -37,7 +39,7 @@ image. Never use the Flux commit-status token as a pull credential.
 | Secret | Required key/type | Purpose |
 | --- | --- | --- |
 | agent-auth | API_TOKEN (random, at least 24 characters) | API, workers, scan trigger |
-| agent-gemini | api-key | Gemini API for both workers |
+| google-gemini-api-key | api-key | Gemini API for both workers |
 | ghcr-pull | .dockerconfigjson; kubernetes.io/dockerconfigjson | read access to private ghcr.io/bibatwork/sre-agent-* images |
 
 The images are pinned to published manifest digests from source commit
