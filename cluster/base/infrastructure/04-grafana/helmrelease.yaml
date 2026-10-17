@@ -137,7 +137,7 @@ spec:
                   "targetBlank": true
                 }
               ],
-              "description": "Observed screener listings, Berlin court auction appointments, and official macro series. Property inventory is not a census; auction coverage is the latest successful Berlin overview only.",
+              "description": "Observed screener listings, official auction overviews for 16 German states, and official macro series. Auction counts include only states with a successful import in the past 48 hours; check the coverage panels before interpreting a national total.",
               "panels": [
                 {
                   "id": 1,
@@ -267,7 +267,7 @@ spec:
                 },
                 {
                   "id": 4,
-                  "title": "Upcoming Berlin auctions",
+                  "title": "Upcoming auctions (fresh states)",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -293,7 +293,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Announced appointments from the latest successful Berlin public overview.",
+                  "description": "Announced appointments from each state's latest successful public overview, if imported in the past 48 hours. Check fresh-state coverage before treating this as a national total.",
                   "options": {
                     "reduceOptions": {
                       "calcs": [
@@ -339,7 +339,7 @@ spec:
                 },
                 {
                   "id": 6,
-                  "title": "Berlin appointments over time",
+                  "title": "Upcoming appointments over time",
                   "type": "timeseries",
                   "datasource": {
                     "type": "prometheus",
@@ -453,7 +453,7 @@ spec:
                 },
                 {
                   "id": 9,
-                  "title": "Upcoming Berlin auctions by postal prefix",
+                  "title": "Upcoming auctions by postal prefix",
                   "type": "bargauge",
                   "datasource": {
                     "type": "prometheus",
@@ -495,7 +495,7 @@ spec:
                 },
                 {
                   "id": 10,
-                  "title": "Cancelled Berlin appointments",
+                  "title": "Cancelled appointments (fresh states)",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -521,7 +521,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Cancellations explicitly marked in the latest Berlin overview.",
+                  "description": "Cancellations explicitly marked in fresh state overviews.",
                   "options": {
                     "reduceOptions": {
                       "calcs": [
@@ -537,7 +537,7 @@ spec:
                 },
                 {
                   "id": 11,
-                  "title": "Last successful auction import",
+                  "title": "Fresh state overviews (of 16)",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -551,7 +551,7 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "screener_bi_auction_last_import_timestamp_seconds * 1000",
+                      "expr": "screener_bi_auction_states_fresh",
                       "refId": "A",
                       "legendFormat": "{{__name__}}",
                       "instant": true
@@ -559,11 +559,12 @@ spec:
                   ],
                   "fieldConfig": {
                     "defaults": {
-                      "unit": "dateTimeAsIso"
+                      "unit": "short",
+                      "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 16}]}
                     },
                     "overrides": []
                   },
-                  "description": "Unix timestamp of the last successful Berlin search overview. Zero means none.",
+                  "description": "Number of Bundesländer whose last successful public search overview is younger than 48 hours; 16 means complete current coverage, including valid zero-result states.",
                   "options": {
                     "reduceOptions": {
                       "calcs": [
@@ -635,7 +636,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Latest imported period per series repeated at scrape time; not a historical yield curve."
+                  "description": "Latest imported period per series repeated at scrape time. Earlier official daily Bundesbank observations are available in the screener's historical macro table."
                 },
                 {
                   "id": 14,
@@ -678,6 +679,24 @@ spec:
                     "textMode": "auto",
                     "colorMode": "value"
                   }
+                },
+                {
+                  "id": 15, "title": "Upcoming auctions by Bundesland", "type": "bargauge",
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "gridPos": {"x": 0, "y": 42, "w": 12, "h": 9},
+                  "targets": [{"expr": "screener_bi_upcoming_auctions_by_state", "refId": "A", "legendFormat": "{{state}}", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+                  "description": "Only states with a successful public overview in the past 48 hours appear; a valid zero-result state displays 0."
+                },
+                {
+                  "id": 16, "title": "Fresh import by Bundesland", "type": "bargauge",
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "gridPos": {"x": 12, "y": 42, "w": 12, "h": 9},
+                  "targets": [{"expr": "screener_bi_auction_state_fresh", "refId": "A", "legendFormat": "{{state}}", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+                  "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
                 }
               ]
             }

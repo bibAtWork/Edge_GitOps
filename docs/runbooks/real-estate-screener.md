@@ -46,6 +46,11 @@ Macro imports run daily at 04:15 Europe/Berlin, covering German bond/mortgage
 series and DE/AT/FR European data where published. The default history starts
 in 2020. The ConfigMap is hashed by Kustomize, so CronJobs get new configuration
 on subsequent runs. No collection result is fabricated if a portal refuses access.
+The `macro-bonds-backfill` command is for a one-off load of all available daily
+Bundesbank 5/10/15/20-year yields from 1990 onward; the normal daily macro job
+keeps its 2020 request window. Historical observations are browsable in the
+screener's macro table with metric **Government bonds**, country **DE**, and
+**All historical observations** selected.
 
 Exact mortgage terms beyond the official maturity bands and regional announced
 auction/cancellation history still need the application's documented import
@@ -61,18 +66,20 @@ VictoriaMetrics. These endpoints are available internally at
 `http://screener-web.real-estate-screener.svc:3000`; the public URL remains gated
 by OIDC. Only collection workers get general internet HTTPS egress.
 
-`screener-auctions` runs daily at 04:45 Europe/Berlin. The first one-off Job completed
-on 2026-10-17: the public Berlin search overview reported 109 notices and all 109
-were imported; three isolated encoding bytes were repaired and recorded in batch
-coverage. Check the latest Job and `/api/appointments` after future runs. The job
-does not fetch court detail pages.
+`screener-auctions` runs daily at 04:45 Europe/Berlin and imports the current
+public search overview for all 16 Bundesländer. Each state has its own batch and
+source key; a state with a verified zero-result overview counts as a successful
+import, while any failed state makes the Job fail after the others are attempted.
+Check the latest Job, `/api/appointments`, and state freshness metrics after runs.
+The job does not fetch court detail pages or reconstruct complete historical auctions.
 
 The [Real Estate Screener BI dashboard](https://grafana.homelab.data-harness.org/d/real-estate-screener-bi)
 uses VictoriaMetrics aggregates from that scrape. It shows the property inventory, asking-price
-medians, provider and energy-class mix, upcoming Berlin auction notices, and current official
+medians, provider and energy-class mix, upcoming auction notices by Bundesland, and current official
 macro observations. These are observed screener records, not market-wide counts. The auction
-panels use only the latest successful Berlin search overview; an import failure leaves the last
-successful data in place and should be visible through the import timestamp.
+panels include only the latest successful overview for states refreshed within 48 hours.
+The **Fresh state overviews (of 16)** and per-state freshness panels expose missing or
+stale coverage; do not treat a partial count as a national total.
 
 The `Screener deployment check` workflow runs after relevant merges on the
 existing `[self-hosted, homelab]` runner. It waits for Flux to apply the pushed
