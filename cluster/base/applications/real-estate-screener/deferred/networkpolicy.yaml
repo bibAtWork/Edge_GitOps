@@ -71,3 +71,22 @@ spec:
     - ports:
       - port: '3000'
         protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-grafana-bond-history
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      app: screener-web
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: monitoring
+        app.kubernetes.io/name: grafana
+    toPorts:
+    - ports:
+      - port: '3000'
+        protocol: TCP

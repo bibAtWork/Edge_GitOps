@@ -31,7 +31,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: auctions
-            image: ghcr.io/bibatwork/real-estate-screener:main@sha256:a20627140ec0bef3d38b4645870d32d96c6470ada4bc16ae0c8db321a4e8d6ce
+            image: ghcr.io/bibatwork/real-estate-screener:main@sha256:dbe27c982df0be60a3e661a6579deac870e097b4acb724bbec6db0d323928bed
             imagePullPolicy: Always
             args:
             - auction-sync
@@ -70,7 +70,7 @@ spec:
               sizeLimit: 64Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:main@sha256:a20627140ec0bef3d38b4645870d32d96c6470ada4bc16ae0c8db321a4e8d6ce
+            image: ghcr.io/bibatwork/real-estate-screener:main@sha256:dbe27c982df0be60a3e661a6579deac870e097b4acb724bbec6db0d323928bed
             args:
             - migrate
             env:
