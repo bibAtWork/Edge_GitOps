@@ -590,13 +590,13 @@ spec:
                 },
                 {
                   "id": 12,
-                  "title": "German mortgage rates by fixation band",
+                  "title": "German mortgage rates by fixation band (since 2003)",
                   "type": "timeseries",
                   "datasource": {
                     "type": "yesoreyeram-infinity-datasource",
                     "uid": "screener-rate-history"
                   },
-                  "timeFrom": "7y",
+                  "timeFrom": "24y",
                   "gridPos": {
                     "x": 0,
                     "y": 29,
@@ -632,7 +632,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Official monthly Bundesbank mortgage rates by initial interest-rate fixation period, plotted at observation time. These bands do not represent government-bond maturities."
+                  "description": "Official monthly Bundesbank new-business mortgage rates since the MFI survey began in January 2003, plotted at observation time. The published bands are over 1 to 5, over 5 to 10, and over 10 years; they are not exact 10-, 15-, or 20-year offers or government-bond maturities. The earlier bank survey used a different method and is intentionally excluded."
                 },
                 {
                   "id": 13,
