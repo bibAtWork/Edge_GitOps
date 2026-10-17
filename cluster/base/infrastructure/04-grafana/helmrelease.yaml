@@ -47,6 +47,7 @@ spec:
         mountPath: /var/lib/grafana-state
     plugins:
       - victoriametrics-logs-datasource
+      - https://grafana.com/api/plugins/yesoreyeram-infinity-datasource/versions/4.1.1/download;yesoreyeram-infinity-datasource
     # The dashboard sidecar needs an in-cluster token. Its Role below permits
     # only GET on Falco's one dashboard ConfigMap in this namespace.
     serviceAccount:
@@ -89,6 +90,14 @@ spec:
             url: http://vlsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:9428 # nosonar
             access: proxy
             isDefault: false
+          - name: Screener rate history
+            uid: screener-rate-history
+            type: yesoreyeram-infinity-datasource
+            access: proxy
+            isDefault: false
+            jsonData:
+              allowedHosts:
+                - http://screener-web.real-estate-screener.svc:3000
     dashboardProviders:
       dashboardproviders.yaml:
         apiVersion: 1
@@ -119,7 +128,8 @@ spec:
               "timezone": "browser",
               "schemaVersion": 39,
               "version": 1,
-              "refresh": "1m",
+              "refresh": "1d",
+              "timepicker": {"refresh_intervals": ["1d"]},
               "time": {
                 "from": "now-30d",
                 "to": "now"
@@ -580,12 +590,13 @@ spec:
                 },
                 {
                   "id": 12,
-                  "title": "German mortgage-rate observations",
+                  "title": "German mortgage rates by fixation band",
                   "type": "timeseries",
                   "datasource": {
-                    "type": "prometheus",
-                    "uid": "victoriametrics"
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
                   },
+                  "timeFrom": "7y",
                   "gridPos": {
                     "x": 0,
                     "y": 29,
@@ -594,10 +605,25 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "screener_bi_macro_value{country=\"DE\",metric=\"mortgage_rate\"}",
-                      "refId": "A",
-                      "legendFormat": "{{source}} · {{fixation_band}} · {{term_years}} years",
-                      "instant": false
+                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_1_to_5",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · fixation 1–5 years", "type": "number"}],
+                      "refId": "A", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
+                    },
+                    {
+                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_5_to_10",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · fixation 5–10 years", "type": "number"}],
+                      "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
+                    },
+                    {
+                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_10",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · fixation over 10 years", "type": "number"}],
+                      "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
                     }
                   ],
                   "fieldConfig": {
@@ -606,16 +632,17 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Latest imported period per series repeated at scrape time; inspect the screener for the source observation period."
+                  "description": "Official monthly Bundesbank mortgage rates by initial interest-rate fixation period, plotted at observation time. These bands do not represent government-bond maturities."
                 },
                 {
                   "id": 13,
-                  "title": "German government-bond yields",
+                  "title": "German government-bond yields by original maturity",
                   "type": "timeseries",
                   "datasource": {
-                    "type": "prometheus",
-                    "uid": "victoriametrics"
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
                   },
+                  "timeFrom": "30y",
                   "gridPos": {
                     "x": 12,
                     "y": 29,
@@ -624,10 +651,37 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "screener_bi_macro_value{country=\"DE\",metric=\"government_bond_yield\"}",
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=5",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 5 years", "type": "number"}],
                       "refId": "A",
-                      "legendFormat": "{{source}} · {{term_years}} years",
-                      "instant": false
+                      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
+                    },
+                    {
+                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=10",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 10 years", "type": "number"}],
+                      "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
+                    },
+                    {
+                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=15",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 15 years", "type": "number"}],
+                      "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
+                    },
+                    {
+                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=20",
+                      "url_options": {"method": "GET"},
+                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 20 years", "type": "number"}],
+                      "refId": "D", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
                     }
                   ],
                   "fieldConfig": {
@@ -636,7 +690,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Latest imported period per series repeated at scrape time. Earlier official daily Bundesbank observations are available in the screener's historical macro table."
+                  "description": "Monthly averages of official daily Bundesbank yields, plotted at observation time. The 15- and 20-year series start later than the 5- and 10-year series because those are the available source histories."
                 },
                 {
                   "id": 14,
