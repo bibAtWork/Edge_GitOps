@@ -13,7 +13,7 @@ applied only after the platform operators are ready.
 ## Registry access
 
 The image is pinned to the tested GHCR digest from the application build:
-`ghcr.io/bibatwork/real-estate-screener@sha256:83a22c119a446b7847c8e91f4e86be1b6bfc7a86fbc4fe1b51f94834f14ccb8a`.
+`ghcr.io/bibatwork/real-estate-screener:main@sha256:727ea12877f137d6c6b6ed0ba276aa7235b9cf65bd89666bbd833af25e63e549`.
 It currently requires an amd64 node and a private GHCR pull credential. The
 SOPS-encrypted `ghcr-pull` source is stored under `cluster/base/secrets` and
 rendered into both application namespaces. See the SRE agent README for the
