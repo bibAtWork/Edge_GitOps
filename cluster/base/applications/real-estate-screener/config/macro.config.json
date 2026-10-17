@@ -1,5 +1,6 @@
 {
   "startYear": 2020,
+  "germanMortgageStartYear": 2003,
   "countries": ["DE", "AT", "FR"],
   "populationRegionalCountries": ["DE"],
   "mortgageCountries": ["AT", "FR"]
