@@ -1,0 +1,75 @@
+{
+  "catalogs": [
+    {
+      "user": "analytics-dbt",
+      "catalog": "iceberg",
+      "allow": "all"
+    },
+    {
+      "user": "analytics-bi",
+      "catalog": "iceberg",
+      "allow": "read-only"
+    },
+    {
+      "catalog": ".*",
+      "allow": "none"
+    }
+  ],
+  "schemas": [
+    {
+      "user": "analytics-dbt",
+      "catalog": "iceberg",
+      "schema": "staging|marts",
+      "owner": true
+    },
+    {
+      "owner": false
+    }
+  ],
+  "tables": [
+    {
+      "user": "analytics-dbt",
+      "catalog": "iceberg",
+      "schema": "staging|marts",
+      "privileges": [
+        "SELECT",
+        "INSERT",
+        "DELETE",
+        "UPDATE",
+        "OWNERSHIP"
+      ]
+    },
+    {
+      "user": "analytics-dbt",
+      "catalog": "iceberg",
+      "schema": "raw",
+      "privileges": [
+        "SELECT"
+      ]
+    },
+    {
+      "user": "analytics-bi",
+      "catalog": "iceberg",
+      "schema": "marts",
+      "privileges": [
+        "SELECT"
+      ]
+    },
+    {
+      "privileges": []
+    }
+  ],
+  "queries": [
+    {
+      "user": "analytics-dbt|analytics-bi",
+      "allow": [
+        "execute"
+      ]
+    }
+  ],
+  "impersonation": [],
+  "functions": [],
+  "procedures": [],
+  "system_information": [],
+  "authorization": []
+}

@@ -40,6 +40,18 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Dagster launcher images are application configuration rather than Kubernetes resource containers. Track both the job image and its dependency installer.",
+      "managerFilePatterns": [
+        "/^cluster/base/applications/analytics/deferred/config/dagster\\.yaml$/"
+      ],
+      "matchStrings": [
+        "(?:job_image|image):\\s*(?<depName>docker\\.io/library/python):(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Grafana chart version fallback: native Flux extraction skips this large templated HelmRelease. Keep the built-in manager for all other charts and for supported image values; this manager only covers the missing chart pin.",
       "managerFilePatterns": [
         "/^cluster/base/infrastructure/04-grafana/helmrelease\\.yaml$/"
@@ -497,4 +509,5 @@
     }
   ]
 }
+
 

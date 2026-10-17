@@ -1,0 +1,35 @@
+name: Demo event counts
+description: Synthetic pipeline smoke test
+tableName: event_summary
+updatedAt: '2026-10-09T00:00:00.000Z'
+metricQuery:
+  exploreName: event_summary
+  dimensions: [event_summary_event_type]
+  metrics: [event_summary_total_events]
+  filters: {}
+  sorts:
+    - fieldId: event_summary_total_events
+      descending: true
+  limit: 50
+  metricOverrides: {}
+  tableCalculations: []
+  additionalMetrics: []
+  customDimensions: []
+chartConfig:
+  type: table
+  config:
+    columns: {}
+    metricsAsRows: false
+    showSubtotals: false
+    hideRowNumbers: false
+    showTableNames: false
+    showResultsTotal: false
+    showRowCalculation: false
+    showColumnCalculation: false
+    conditionalFormattings: []
+tableConfig:
+  columnOrder: [event_summary_event_type, event_summary_total_events]
+dashboardSlug: analytics-smoke-test
+spaceSlug: analytics
+slug: demo-event-counts
+version: 1

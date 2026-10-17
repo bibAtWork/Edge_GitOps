@@ -1,0 +1,52 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: analytics-selfsigned
+  namespace: analytics
+spec:
+  selfSigned: {}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: analytics-ca
+  namespace: analytics
+spec:
+  isCA: true
+  commonName: analytics-ca
+  secretName: analytics-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: analytics-selfsigned
+    kind: Issuer
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: analytics-ca
+  namespace: analytics
+spec:
+  ca:
+    secretName: analytics-ca
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: trino-tls
+  namespace: analytics
+spec:
+  secretName: trino-tls
+  dnsNames:
+  - trino
+  - trino.analytics
+  - trino.analytics.svc
+  - trino.analytics.svc.cluster.local
+  - localhost
+  issuerRef:
+    name: analytics-ca
+    kind: Issuer

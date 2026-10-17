@@ -17,6 +17,8 @@ Usage:
 
 import argparse
 import base64
+import hashlib
+import hmac
 import ipaddress
 import json
 import os
@@ -34,6 +36,13 @@ CONFIG_FILE = REPO_ROOT / "bootstrap" / "config.json"
 # this set with the repository so a newly-added Secret cannot silently become a
 # manual bootstrap step.
 APPLY_CONFIG_SECRET_FILES = {
+    "cluster/base/applications/analytics/deferred/secrets/analytics-runtime.yaml",
+    "cluster/base/applications/analytics/deferred/secrets/analytics-s3.yaml",
+    "cluster/base/applications/analytics/deferred/secrets/analytics-oauth.yaml",
+    "cluster/base/applications/analytics/deferred/secrets/analytics-trino-client.yaml",
+    "cluster/base/applications/analytics/deferred/secrets/analytics-trino.yaml",
+    "cluster/base/applications/analytics/deferred/secrets/analytics-dagster-db.yaml",
+    "cluster/base/applications/analytics/deferred/secrets/analytics-lightdash-db.yaml",
     "cluster/base/applications/canary/edge-client-secret.yaml",
     "cluster/base/infrastructure/01-seaweedfs/s3-secret.yaml",
     "cluster/base/infrastructure/04-grafana/admin-secret.yaml",
@@ -161,6 +170,73 @@ def secret_yaml(name: str, namespace: str, values: dict[str, str], secret_type: 
     for key, value in values.items():
         lines.append(f"  {key}: {json.dumps(value, ensure_ascii=False)}")
     return "\n".join(lines) + "\n"
+
+
+def trino_password_file(passwords: dict[str, str], cached: str = "") -> str:
+    """Preserve valid hashes; regenerate only the entry whose password changed."""
+    old = dict(line.split(":", 1) for line in cached.splitlines() if ":" in line)
+    lines = []
+    for user, password in passwords.items():
+        value = old.get(user, "")
+        valid = False
+        try:
+            iterations, salt, digest = value.split(":")
+            valid = int(iterations) >= 200000 and hmac.compare_digest(
+                hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(iterations)).hex(), digest)
+        except (ValueError, OverflowError):
+            pass
+        if not valid:
+            salt = secrets.token_bytes(16)
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200000).hex()
+            value = f"200000:{salt.hex()}:{digest}"
+        lines.append(f"{user}:{value}")
+    return "\n".join(lines) + "\n"
+
+
+def analytics_secret_manifests(cfg: dict, sw_key: str, sw_sec: str) -> dict[str, str]:
+    """Opt-in analytics Secrets use the same config/SOPS lifecycle as other apps."""
+    if not cfg.get("analytics", {}).get("enabled", False):
+        return {}
+    paths = {
+        "runtime": "base/applications/analytics/deferred/secrets/analytics-runtime.yaml",
+        "s3": "base/applications/analytics/deferred/secrets/analytics-s3.yaml",
+        "oauth": "base/applications/analytics/deferred/secrets/analytics-oauth.yaml",
+        "trino-client": "base/applications/analytics/deferred/secrets/analytics-trino-client.yaml",
+        "trino": "base/applications/analytics/deferred/secrets/analytics-trino.yaml",
+        "dagster-db": "base/applications/analytics/deferred/secrets/analytics-dagster-db.yaml",
+        "lightdash-db": "base/applications/analytics/deferred/secrets/analytics-lightdash-db.yaml",
+    }
+    values = {}
+    for key, group, field in [
+        ("dagster_password", "dagster-db", "password"),
+        ("lightdash_password", "lightdash-db", "password"),
+        ("lakekeeper_encryption_key", "runtime", "lakekeeper-encryption-key"),
+        ("lightdash_secret", "runtime", "lightdash-secret"),
+        ("trino_internal_secret", "runtime", "trino-internal-secret"),
+        ("trino_dbt_password", "trino-client", "dbt-password"),
+        ("trino_bi_password", "trino-client", "bi-password"),
+        ("lakekeeper_client_secret", "oauth", "client-secret"),
+    ]:
+        previous = existing_secret_value("cluster/" + paths[group], field)
+        # Encrypted template placeholders are not credentials to migrate.
+        if previous.startswith("REPLACE_WITH_"):
+            previous = ""
+        values[key], _ = generated(cfg, "analytics", key, 32, previous)
+    cached = cfg["analytics"].get("trino_password_file", "") or existing_secret_value("cluster/" + paths["trino"], "password.db")
+    password_file = trino_password_file({"analytics-dbt": values["trino_dbt_password"], "analytics-bi": values["trino_bi_password"]}, cached)
+    cfg["analytics"]["trino_password_file"] = password_file
+    data = {
+        "runtime": {"lakekeeper-encryption-key": values["lakekeeper_encryption_key"], "lightdash-secret": values["lightdash_secret"], "trino-internal-secret": values["trino_internal_secret"]},
+        "s3": {"admin_access_key_id": sw_key, "admin_secret_access_key": sw_sec},
+        "oauth": {"client-id": "analytics-engine", "client-secret": values["lakekeeper_client_secret"]},
+        "trino-client": {"dbt-password": values["trino_dbt_password"], "bi-password": values["trino_bi_password"]},
+        "trino": {"password.db": password_file},
+        "dagster-db": {"username": "dagster", "password": values["dagster_password"]},
+        "lightdash-db": {"username": "lightdash", "password": values["lightdash_password"]},
+    }
+    return {path: secret_yaml("analytics-" + group, "analytics", data[group],
+                             "kubernetes.io/basic-auth" if group.endswith("-db") else "Opaque")
+            for group, path in paths.items()}
 
 
 def write_secret(path: Path, content: str, changed: list[str]) -> None:
@@ -367,6 +443,10 @@ def main() -> None:
                 modified_cfg = True
                 print(f"  migrated {section}.{key}")
 
+    previous_analytics = json.dumps(cfg.get("analytics", {}), sort_keys=True)
+    analytics_manifests = analytics_secret_manifests(cfg, sw_key, sw_sec)
+    modified_cfg |= previous_analytics != json.dumps(cfg.get("analytics", {}), sort_keys=True)
+
     if modified_cfg:
         save_config(cfg)
 
@@ -552,6 +632,7 @@ def main() -> None:
             "RESTIC_REPOSITORY": "s3:http://seaweedfs-s3.seaweedfs.svc:8333/recovery/restic",
             "RESTIC_PASSWORD": restic_password, "AWS_ACCESS_KEY_ID": sw_key, "AWS_SECRET_ACCESS_KEY": sw_sec}),
     }
+    generated_secrets.update(analytics_manifests)
     for relative, namespace in {
         "base/applications/canary/edge-client-secret.yaml": "platform-canary",
         "base/infrastructure/05-cilium/config/edge-client-secret.yaml": "kube-system",
@@ -599,3 +680,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

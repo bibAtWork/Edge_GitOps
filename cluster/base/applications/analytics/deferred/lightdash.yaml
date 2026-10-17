@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lightdash
+  namespace: analytics
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lightdash
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lightdash
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: lightdash
+        image: docker.io/lightdash/lightdash:2.499.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            memory: 1536Mi
+        env:
+        - name: PGHOST
+          value: analytics-pg-rw.analytics.svc
+        - name: PGPORT
+          value: '5432'
+        - name: PGDATABASE
+          value: lightdash
+        - name: PGUSER
+          value: lightdash
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: analytics-lightdash-db
+              key: password
+        - name: PORT
+          value: '8080'
+        - name: SITE_URL
+          value: http://localhost:8080
+        - name: SECURE_COOKIES
+          value: 'false'
+        - name: TRUST_PROXY
+          value: 'false'
+        - name: LIGHTDASH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: analytics-runtime
+              key: lightdash-secret
+        - name: NODE_EXTRA_CA_CERTS
+          value: /etc/analytics/tls/ca.crt
+        volumeMounts:
+        - name: ca
+          mountPath: /etc/analytics/tls
+          readOnly: true
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 10
+        startupProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 5
+          failureThreshold: 60
+      volumes:
+      - name: ca
+        secret:
+          secretName: trino-tls
+          items:
+          - key: ca.crt
+            path: ca.crt
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lightdash
+  namespace: analytics
+spec:
+  selector:
+    app.kubernetes.io/name: lightdash
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080

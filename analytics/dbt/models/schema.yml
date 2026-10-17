@@ -1,0 +1,25 @@
+version: 2
+sources:
+  - name: raw
+    database: iceberg
+    schema: raw
+    tables:
+      - name: demo_events
+models:
+  - name: event_summary
+    description: Synthetic smoke test summary; not application data.
+    columns:
+      - name: event_type
+        data_tests: [not_null, unique]
+      - name: event_count
+        data_tests: [not_null]
+        meta:
+          metrics:
+            total_events:
+              type: sum
+      - name: total_amount
+        data_tests: [not_null]
+        meta:
+          metrics:
+            revenue:
+              type: sum
