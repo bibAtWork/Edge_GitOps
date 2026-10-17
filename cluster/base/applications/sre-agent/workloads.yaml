@@ -121,7 +121,7 @@ metadata:
 data:
   WATCH_NAMESPACE: real-estate-screener
   API_URL: http://agent-api:8080
-  HOLMES_MODEL: gemini/gemini-3.5-flash-lite
+  HOLMES_MODEL: gemini/gemini-3.8-flash
   OPENCODE_MODEL: google/gemini-2.5-flash
   TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS: 'true'
   AUTO_PROPOSE: 'false'

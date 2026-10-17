@@ -79,11 +79,12 @@ branch and produces a patch only after a human requests it. AUTO_PROPOSE is fals
 The hourly CronJob creates investigations automatically. There is one shared
 execution slot, a 600s agent timeout and a 1200s claim lease. There is no automatic
 model fallback, retry budget or guarantee of free Gemini usage.
-The investigator uses `gemini/gemini-3.5-flash-lite` with Holmes fast mode. The
-previous `gemini-2.5-flash` setting repeatedly failed in Holmes while reading an
-empty model response; a live dry run of the application's `investigate()` function
-with the new settings produced a report on 2026-10-17. Model availability still
-needs monitoring after rollout.
+The investigator selects `gemini/gemini-3.8-flash` with Holmes fast mode. The
+current Gemini key's free tier allows only five requests per minute and 20 per
+day for this model. A direct API request succeeded on 2026-10-17, but full
+`investigate()` dry runs exhausted both limits. The hourly scan alone runs 24
+times per day and a single investigation can make several model requests, so
+increase the available quota and verify a full investigation before rollout.
 
 The three deployments request 250m CPU and 576Mi RAM; their configured limits total
 2.5 CPUs and 1792Mi RAM. The hourly trigger adds up to 100m/64Mi. No Ollama or GPU.
