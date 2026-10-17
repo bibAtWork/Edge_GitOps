@@ -106,6 +106,581 @@ spec:
         # These dashboards keep the UIDs of the former Grafana.com imports so
         # saved links survive. Their old selectors required absent labels or
         # recording rules; the local versions query the metrics we scrape.
+        real-estate-screener-bi:
+          json: |
+            {
+              "uid": "real-estate-screener-bi",
+              "title": "Real Estate Screener | BI",
+              "tags": [
+                "real-estate",
+                "screener",
+                "bi"
+              ],
+              "timezone": "browser",
+              "schemaVersion": 39,
+              "version": 1,
+              "refresh": "1m",
+              "time": {
+                "from": "now-30d",
+                "to": "now"
+              },
+              "annotations": {
+                "list": []
+              },
+              "editable": true,
+              "graphTooltip": 1,
+              "links": [
+                {
+                  "title": "Open property and auction records",
+                  "type": "link",
+                  "url": "https://screener.homelab.data-harness.org",
+                  "targetBlank": true
+                }
+              ],
+              "description": "Observed screener listings, Berlin court auction appointments, and official macro series. Property inventory is not a census; auction coverage is the latest successful Berlin overview only.",
+              "panels": [
+                {
+                  "id": 1,
+                  "title": "Properties",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 0,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_listings",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Current property rows in the screener, not a count of the whole market.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 2,
+                  "title": "Median asking price",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 0,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_median_price_eur",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Median of priced listings. Rental and purchase amounts may be mixed.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 3,
+                  "title": "Median price per m²",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 0,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_median_price_per_sqm_eur",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Listings with price and positive living area only.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 4,
+                  "title": "Upcoming Berlin auctions",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 0,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_upcoming_auctions",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Announced appointments from the latest successful Berlin public overview.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 5,
+                  "title": "Property inventory over time",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 5,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_listings",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": false
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Scraped count sampled every 30 seconds; this is not a full property history."
+                },
+                {
+                  "id": 6,
+                  "title": "Berlin appointments over time",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 5,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_upcoming_auctions",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": false
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Future announced appointments in the most recently imported overview."
+                },
+                {
+                  "id": 7,
+                  "title": "Properties by provider",
+                  "type": "bargauge",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 13,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_listings_by_provider",
+                      "refId": "A",
+                      "legendFormat": "{{provider}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "",
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true,
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    }
+                  }
+                },
+                {
+                  "id": 8,
+                  "title": "Properties by energy class",
+                  "type": "bargauge",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 13,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_listings_by_energy_class",
+                      "refId": "A",
+                      "legendFormat": "{{energy_class}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Unknown is retained as its own group.",
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true,
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    }
+                  }
+                },
+                {
+                  "id": 9,
+                  "title": "Upcoming Berlin auctions by postal prefix",
+                  "type": "bargauge",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 21,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_upcoming_auctions_by_postal_prefix",
+                      "refId": "A",
+                      "legendFormat": "{{postal_prefix3}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Top 15 observed PLZ3 groups. Notices without a postal code are excluded here but included in totals.",
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true,
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    }
+                  }
+                },
+                {
+                  "id": 10,
+                  "title": "Cancelled Berlin appointments",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 21,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_cancelled_auctions",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Cancellations explicitly marked in the latest Berlin overview.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 11,
+                  "title": "Last successful auction import",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 21,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_auction_last_import_timestamp_seconds * 1000",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "dateTimeAsIso"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Unix timestamp of the last successful Berlin search overview. Zero means none.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 12,
+                  "title": "German mortgage-rate observations",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 29,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_macro_value{country=\"DE\",metric=\"mortgage_rate\"}",
+                      "refId": "A",
+                      "legendFormat": "{{source}} · {{fixation_band}} · {{term_years}} years",
+                      "instant": false
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Latest imported period per series repeated at scrape time; inspect the screener for the source observation period."
+                },
+                {
+                  "id": 13,
+                  "title": "German government-bond yields",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 29,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_macro_value{country=\"DE\",metric=\"government_bond_yield\"}",
+                      "refId": "A",
+                      "legendFormat": "{{source}} · {{term_years}} years",
+                      "instant": false
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Latest imported period per series repeated at scrape time; not a historical yield curve."
+                },
+                {
+                  "id": 14,
+                  "title": "Business metric query health",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 37,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_query_success",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "1 means the last aggregate query succeeded; 0 means dashboard values may be stale or absent.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                }
+              ]
+            }
         node-exporter:
           json: |
             {

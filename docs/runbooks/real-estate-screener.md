@@ -61,6 +61,19 @@ VictoriaMetrics. These endpoints are available internally at
 `http://screener-web.real-estate-screener.svc:3000`; the public URL remains gated
 by OIDC. Only collection workers get general internet HTTPS egress.
 
+`screener-auctions` is staged with `suspend: true` until the image containing the
+`auction-sync` command is published and pinned in all screener workloads. After that
+image rolls out, run a one-off Job from the CronJob, check its imported count and the
+Auction Appointments page, then set `suspend: false` in Git. The job reads the public
+Berlin search overview; it does not fetch court detail pages.
+
+The [Real Estate Screener BI dashboard](https://grafana.homelab.data-harness.org/d/real-estate-screener-bi)
+uses VictoriaMetrics aggregates from that scrape. It shows the property inventory, asking-price
+medians, provider and energy-class mix, upcoming Berlin auction notices, and current official
+macro observations. These are observed screener records, not market-wide counts. The auction
+panels use only the latest successful Berlin search overview; an import failure leaves the last
+successful data in place and should be visible through the import timestamp.
+
 The `Screener deployment check` workflow runs after relevant merges on the
 existing `[self-hosted, homelab]` runner. It waits for Flux to apply the pushed
 revision, checks database and web readiness, then runs HTTP functionality checks
