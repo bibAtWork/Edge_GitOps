@@ -121,7 +121,7 @@ metadata:
 data:
   WATCH_NAMESPACE: real-estate-screener
   API_URL: http://agent-api:8080
-  HOLMES_MODEL: gemini/gemini-2.5-flash
+  HOLMES_MODEL: gemini/gemini-3.5-flash-lite
   OPENCODE_MODEL: google/gemini-2.5-flash
   TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS: 'true'
   AUTO_PROPOSE: 'false'
@@ -130,7 +130,7 @@ data:
   REPO_URL: https://github.com/bibAtWork/Edge_GitOps.git
   REPO_REF: ops/talos_linux
   HOLMES_COMMAND: '["python", "/app/holmes_cli.py", "ask", "{prompt}", "--model",
-    "{model}", "--no-interactive", "--json-output-file", "{output}"]'
+    "{model}", "--no-interactive", "--fast-mode", "--json-output-file", "{output}"]'
   OPENCODE_COMMAND: '["opencode", "run", "--model", "{model}", "{prompt}"]'
   DASHBOARD_PORT: '8081'
 ---
