@@ -21,6 +21,9 @@ spec:
       namespace: real-estate-screener
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
+      namespace: lakehouse
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
       namespace: sre-agent
   to:
     - group: ""
