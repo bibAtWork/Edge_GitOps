@@ -126,6 +126,11 @@ spec:
 
     filer:
       enabled: true
+      # The chart's checksum/s3config is calculated only during a Helm render.
+      # A SOPS Secret-only change does not trigger one, so reload the embedded S3
+      # endpoint whenever its mounted identity configuration changes.
+      annotations:
+        reloader.stakater.com/auto: "true"
       # Raised from 1536Mi on 2026-08-24 after the filer was OOMKilled (exit 137)
       # streaming a bulk read of the 4GB etcd-snapshot bucket during the
       # pre-repartition offsite copy. The failure surfaced as
