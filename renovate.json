@@ -215,6 +215,11 @@
   ],
   "packageRules": [
     {
+      "description": "The SRE API, Holmes, and OpenCode images are released under one version by a single source commit. Update all three together so a rollout never mixes incompatible workers and API versions.",
+      "matchPackageNames": ["/^ghcr\\.io\\/bibatwork\\/sre-agent-(api|holmes|opencode)$/"],
+      "groupName": "sre-agent"
+    },
+    {
       "description": "Keep CloudNativePG on the PostgreSQL 16 series. A major version change there is a database upgrade with its own migration path, not an image bump, and must never arrive as an automated PR.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/cloudnative-pg/postgresql"],

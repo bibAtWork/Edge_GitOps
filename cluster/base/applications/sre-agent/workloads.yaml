@@ -175,7 +175,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
       - name: api
-        image: ghcr.io/bibatwork/sre-agent-api:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:a79d57c39f09fad9336057819bd7436d921f11b55e6a7957bd14498c806d1506
+        image: ghcr.io/bibatwork/sre-agent-api:v1.0.0@sha256:df4aff9969c1519208fd79ecda20963e297c00ee2c97b6a2556b23b4a390d211
         ports:
         - name: api
           containerPort: 8080
@@ -262,7 +262,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
       - name: worker
-        image: ghcr.io/bibatwork/sre-agent-holmes:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:6771d9a07666ee5e8274387768620d20e2b50e26d97a0343a21ecd98bcc82e77
+        image: ghcr.io/bibatwork/sre-agent-holmes:v1.0.0@sha256:9db8693dae6eb99f4ec2efa5aebaacf6c2950e3070c30c1e40a05c7be1154606
         envFrom:
         - configMapRef:
             name: agent-config
@@ -353,7 +353,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
       - name: worker
-        image: ghcr.io/bibatwork/sre-agent-opencode:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:9a9e5c079dad6cd9490f1fe22cf3849a03366b50cd5c8bb1b058371c1a52e081
+        image: ghcr.io/bibatwork/sre-agent-opencode:v1.0.0@sha256:a55918ab9d1a5f4f93e579125ab422fb70122346ab0efb1e28337918ecbf8921
         envFrom:
         - configMapRef:
             name: agent-config
@@ -440,7 +440,7 @@ spec:
             runAsGroup: 10001
           containers:
           - name: trigger
-            image: ghcr.io/bibatwork/sre-agent-api:sha-980341d07505d0449ce3ea241093b76e27442904@sha256:a79d57c39f09fad9336057819bd7436d921f11b55e6a7957bd14498c806d1506
+            image: ghcr.io/bibatwork/sre-agent-api:v1.0.0@sha256:df4aff9969c1519208fd79ecda20963e297c00ee2c97b6a2556b23b4a390d211
             command:
             - python
             - -c
