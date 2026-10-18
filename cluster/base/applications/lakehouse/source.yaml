@@ -1,0 +1,25 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: lakehouse-code
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: https://github.com/bibAtWork/lakehouse
+  ref:
+    branch: main
+    commit: fa73fb4e23a839ba08e7f1eb2fb8385c823a9441
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: lakehouse-code
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./
+  prune: true
+  targetNamespace: lakehouse
+  sourceRef:
+    kind: GitRepository
+    name: lakehouse-code

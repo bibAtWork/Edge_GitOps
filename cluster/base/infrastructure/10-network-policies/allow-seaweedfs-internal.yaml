@@ -34,6 +34,9 @@ spec:
         - matchLabels:
             app.kubernetes.io/name: zot
             io.kubernetes.pod.namespace: zot
+        - matchLabels:
+            app: lakehouse-dagster
+            io.kubernetes.pod.namespace: lakehouse
         # The recovery system (ADR-012). Its local repository is the
         # `recovery` bucket; every backup-store credential lives in this one
         # namespace, and application namespaces hold none.

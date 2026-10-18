@@ -80,6 +80,7 @@ data:
     admin_only_apps := {
         "sre-agent.homelab.data-harness.org",
         "screener.homelab.data-harness.org",
+        "lakehouse.homelab.data-harness.org",
         "canary.homelab.data-harness.org",
         "hubble.homelab.data-harness.org",
     }

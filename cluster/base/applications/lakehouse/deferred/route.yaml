@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: lakehouse-dagster
+  namespace: lakehouse
+  annotations:
+    gitops.homelab/auth: gateway-oidc
+    gitops.homelab/auth-client: homelab-edge
+spec:
+  parentRefs:
+    - name: homelab-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - lakehouse.homelab.data-harness.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: lakehouse-dagster
+          port: 3000

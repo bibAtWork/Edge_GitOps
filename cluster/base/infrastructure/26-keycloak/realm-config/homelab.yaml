@@ -248,11 +248,13 @@ clients:
     # immutable Job.
     redirectUris:
       - https://screener.homelab.data-harness.org/oauth2/callback
+      - https://lakehouse.homelab.data-harness.org/oauth2/callback
       - https://canary.homelab.data-harness.org/oauth2/callback
       - https://hubble.homelab.data-harness.org/oauth2/callback
       - https://sre-agent.homelab.data-harness.org/oauth2/callback
     webOrigins:
       - https://screener.homelab.data-harness.org
+      - https://lakehouse.homelab.data-harness.org
       - https://canary.homelab.data-harness.org
       - https://hubble.homelab.data-harness.org
       - https://sre-agent.homelab.data-harness.org

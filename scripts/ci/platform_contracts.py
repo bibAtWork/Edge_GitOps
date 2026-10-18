@@ -349,6 +349,7 @@ def check_private_app_secrets(profile, docs):
         ("sre-agent", "ghcr-pull"): ("kubernetes.io/dockerconfigjson", ".dockerconfigjson"),
         ("real-estate-screener", "ghcr-pull"):
             ("kubernetes.io/dockerconfigjson", ".dockerconfigjson"),
+        ("lakehouse", "lakehouse-s3"): ("Opaque", "access_key_id"),
     }
     secrets = {(d["metadata"].get("namespace"), d["metadata"]["name"]): d
                for d in docs if d["kind"] == "Secret"}
@@ -361,9 +362,12 @@ def check_private_app_secrets(profile, docs):
         assert secret.get("sops", {}).get("age"), f"{profile}: Secret {identity} lacks age metadata"
 
     first = secrets[("sre-agent", "ghcr-pull")]
-    second = secrets[("real-estate-screener", "ghcr-pull")]
-    assert first["stringData"][".dockerconfigjson"] == second["stringData"][".dockerconfigjson"], \
-        f"{profile}: private namespaces must use the same GHCR credential source"
+    for namespace in ("real-estate-screener",):
+        other = secrets[(namespace, "ghcr-pull")]
+        assert first["stringData"][".dockerconfigjson"] == other["stringData"][".dockerconfigjson"], \
+            f"{profile}: private namespaces must use the same GHCR credential source"
+    assert secrets[("lakehouse", "lakehouse-s3")]["stringData"]["secret_access_key"].startswith("ENC[AES256_GCM,"), \
+        f"{profile}: lakehouse S3 secret key is not encrypted"
 
     for workload in docs:
         kind = workload["kind"]

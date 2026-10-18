@@ -1,0 +1,172 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lakehouse-dagster
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: lakehouse-dagster
+  template:
+    metadata:
+      labels:
+        app: lakehouse-dagster
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-home
+          image: docker.io/dagster/dagster-k8s:1.13.26@sha256:5ef3242241bad35772a3ede72e4789629ee7960f006ddc58716216112c833587
+          command: [sh, -c, 'cp /dagster-config/dagster.yaml /dagster-home/dagster.yaml && cp /dagster-config/workspace.yaml /dagster-home/workspace.yaml']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: dagster-config
+              mountPath: /dagster-config
+              readOnly: true
+            - name: dagster-home
+              mountPath: /dagster-home
+      containers:
+        - name: web
+          image: docker.io/dagster/dagster-k8s:1.13.26@sha256:5ef3242241bad35772a3ede72e4789629ee7960f006ddc58716216112c833587
+          command: [dagster-webserver, -h, 0.0.0.0, -p, '3000', -w, workspace.yaml]
+          workingDir: /dagster-home
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: DAGSTER_HOME
+              value: /dagster-home
+            - name: PYTHONPATH
+              value: /opt/dagster/app
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
+            - name: HOME
+              value: /tmp
+            - name: DAGSTER_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: lakehouse-pg-app
+                  key: uri
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: '1'
+              memory: 1Gi
+          securityContext: &container-security
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          volumeMounts: &dagster-mounts
+            - name: code
+              mountPath: /opt/dagster/app
+              readOnly: true
+            - name: dagster-home
+              mountPath: /dagster-home
+            - name: tmp
+              mountPath: /tmp
+        - name: daemon
+          image: docker.io/dagster/dagster-k8s:1.13.26@sha256:5ef3242241bad35772a3ede72e4789629ee7960f006ddc58716216112c833587
+          command: [dagster-daemon, run]
+          workingDir: /dagster-home
+          env:
+            - name: DAGSTER_HOME
+              value: /dagster-home
+            - name: PYTHONPATH
+              value: /opt/dagster/app
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
+            - name: HOME
+              value: /tmp
+            - name: DAGSTER_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: lakehouse-pg-app
+                  key: uri
+            - name: S3_ENDPOINT
+              value: http://seaweedfs-s3.seaweedfs.svc:8333
+            - name: S3_BUCKET
+              value: lakehouse-data
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lakehouse-s3
+                  key: access_key_id
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lakehouse-s3
+                  key: secret_access_key
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: '1'
+              memory: 1Gi
+          securityContext: *container-security
+          volumeMounts: *dagster-mounts
+      volumes:
+        - name: code
+          configMap:
+            name: lakehouse-code
+            items:
+              - key: package_init.py
+                path: lakehouse/__init__.py
+              - key: assets_init.py
+                path: lakehouse/assets/__init__.py
+              - key: bronze.py
+                path: lakehouse/assets/bronze.py
+        - name: dagster-config
+          configMap:
+            name: lakehouse-dagster-config
+        - name: dagster-home
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakehouse-dagster
+spec:
+  type: ClusterIP
+  selector:
+    app: lakehouse-dagster
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
