@@ -5,9 +5,54 @@
   "maxDetailsPerRun": 20,
   "searches": [
     {
-      "name": "Berlin houses \u2014 initial search",
+      "name": "Eigenheim (Haus) - ImmoScout24",
       "provider": "immoscout",
-      "url": "https://www.immobilienscout24.de/Suche/de/berlin/berlin/haus-kaufen"
+      "url": "https://www.immobilienscout24.de/Suche/radius/haus-kaufen?centerofsearchaddress=B%C3%B6blingen%20(Kreis);;;;;Waldenbuch;&numberofrooms=4.0-&price=50000.0&livingspace=90.0-&constructionyear=1800-&exclusioncriteria=unbuilthome&ground=300.0-&geocoordinates=48.63836;9.13957;30.0&sorting=2&enteredFrom=result_list"
+    },
+    {
+      "name": "Eigenheim (Haus) - Immowelt",
+      "provider": "immowelt",
+      "url": "https://www.immowelt.de/classified-search?distributionTypes=Buy,Buy_Auction,Compulsory_Auction&estateTypes=House&locations=eyJwbGFjZUlkIjoiQUQwOERFNTI2NyIsInJhZGl1cyI6MzAsInBvbHlsaW5lIjoiZXJtaUhne3V2QHBfQHZyTmhfQmhfTmx7Q2B5TGhxRXRhS2BfR2x7SHxiSH5oRm57SHhtQ3ZnSWptQGxnSXNyQGx6SGVyQ25hSH1rRmp9Rm18SHJvRXVgS3p5Q2N2TGp-QXt6TWRfQHFtTmVfQHNtTmt-QXt6TXt5Q2N2THNvRXVgS2t9Rm18SG9hSH1rRm16SGVyQ21nSXFyQHdnSWhtQG97SHhtQ31iSH5oRmFfR2x7SGlxRXRhS217Q2B5TGlfQmhfTnFfQHhyTiIsImNvb3JkaW5hdGVzIjp7ImxhdCI6NDguNjI5NTcxNTQ4NjMyNzk2LCJsbmciOjkuMTI4MzY0ODUyMTQ4NDM1fX0&numberOfRoomsMin=3&plotSpaceMin=300&priceMin=50000&spaceMin=90&yearOfConstructionMin=1800&order=DateDesc"
+    },
+    {
+      "name": "Eigenheim (Haus) - Immo SWP",
+      "provider": "immoswp",
+      "url": "https://immo.swp.de/suchergebnisse?l=Waldenbuch&r=25km&_multiselect_r=25km&t=all%3Asale%3Aliving&a=de.waldenbuch&pf=50000&name=3&rf=3&rt=&sf=90&st=&psf=&pst=&yf=1800&yt=&ff=&ft=&ba=&ro=0&s=most_recently_updated_first&pa=&o=&ad=&u="
+    },
+    {
+      "name": "Eigenheim (Haus) - Kleinanzeigen",
+      "provider": "kleinanzeigen",
+      "url": "https://www.kleinanzeigen.de/s-haus-kaufen/waldenbuch/preis:50000/c208l10526r30+haus_kaufen.baujahr_i:1800%2C+haus_kaufen.grundstuecksflaeche_d:300%2C+haus_kaufen.qm_d:90%2C"
+    },
+    {
+      "name": "Eigenheim (Haus) - Sparkasse Immobilien",
+      "provider": "sparkasse",
+      "url": "https://immobilien.sparkasse.de/immobilien/treffer?marketingType=buy&maxPrice=900000&minLivingSpace=90&minNumberRooms=3&minPrice=50000&objectType=house&perimeter=30&sortBy=date_desc&usageType=residential&zipCityEstateId=856200__Waldenbuch"
+    },
+    {
+      "name": "Investment (Heilbronn) - ImmoScout24",
+      "provider": "immoscout",
+      "url": "https://www.immobilienscout24.de/Suche/radius/immobilie-kaufen?centerofsearchaddress=Heilbronn%3B74078%3B%3B%3B%3B%3B&price=50000.0-900000.0&livingspace=150.0-&constructionyear=1800-&geocoordinates=49.17511%3B9.16162%3B25.0"
+    },
+    {
+      "name": "Investment (Heilbronn) - Immo SWP",
+      "provider": "immoswp",
+      "url": "https://immo.swp.de/suchergebnisse?l=74078&r=25km&_multiselect_r=25km&t=house%3Asale%3Aliving&a=de.74078&pf=50000&pt=900000&rf=&rt=&sf=150&st=&psf=&pst=&yf=1800&yt=&ff=&ft=&ba=&ro=0&p%5B%5D=duplex&p%5B%5D=multi_family_house&s=most_recently_updated_first&pa=&o=&ad=&u="
+    },
+    {
+      "name": "Investment (Heilbronn) - Immowelt",
+      "provider": "immowelt",
+      "url": "https://www.immowelt.de/classified-search?distributionTypes=Buy,Buy_Auction,Compulsory_Auction&estateSubTypes=Multi_Family_House&estateTypes=House&locations=eyJwbGFjZUlkcyI6WyJIT05VREU4NjQ0Mjk0Il0sImR1cmF0aW9uIjoiNDUiLCJtb2RlIjoiVHJhbnNpdCJ9&priceMax=900000&priceMin=50000&spaceMin=150&yearOfConstructionMin=1800&order=DateDesc"
+    },
+    {
+      "name": "Investment (Heilbronn) - Sparkasse Immobilien",
+      "provider": "sparkasse",
+      "url": "https://immobilien.sparkasse.de/immobilien/treffer?houseTypes[]=multi_family_house&marketingType=buy&maxPrice=900000&minLivingSpace=150&objectType=house&perimeter=25&sortBy=institute_asc&usageType=residential&zipCityEstateId=-1__74078%20Heilbronn"
+    },
+    {
+      "name": "Investment (Heilbronn) - Kleinanzeigen",
+      "provider": "kleinanzeigen",
+      "url": "https://www.kleinanzeigen.de/s-haus-kaufen/74078/preis:50000:900000/c208l9239r20+haus_kaufen.baujahr_i:1800%2C+haus_kaufen.qm_d:150%2C"
     }
   ]
 }

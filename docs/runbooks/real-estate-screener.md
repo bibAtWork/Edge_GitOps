@@ -39,9 +39,14 @@ Do not remove the namespace or CNPG cluster as a routine application rollback.
 
 ## Collection
 
-The initial search is Berlin houses for sale on ImmoScout24, every 30 minutes.
-Edit `config/config.json` to select the desired Fredy searches. Collection is
-bounded to 20 detail requests per run and refreshes details after 24 hours.
+The configured searches are the two enabled jobs from the local Fredy container:
+Eigenheim (Haus) near Waldenbuch and Investment (Heilbronn), each across
+ImmoScout24, Immowelt, Immo SWP, Kleinanzeigen, and Sparkasse Immobilien.
+Edit `cluster/base/applications/real-estate-screener/config/config.json` to
+change the portal search URLs. Collection runs every 30 minutes, is bounded to
+20 detail requests per run, and refreshes details after 24 hours. Fredy's Immo
+SWP adapter provides search sightings only, so those listings have no detail
+refresh.
 Macro imports run daily at 04:15 Europe/Berlin, covering German bond/mortgage
 series and DE/AT/FR European data where published. The default history starts
 in 2020. The ConfigMap is hashed by Kustomize, so CronJobs get new configuration
