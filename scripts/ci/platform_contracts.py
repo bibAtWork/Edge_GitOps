@@ -108,6 +108,28 @@ def opa_admin_only_hosts(docs):
     return set(re.findall(r'"([^"]+)"', block.group(1)))
 
 
+def assert_securitypolicy_reference_granted(profile, docs, policy, ref, kind):
+    """A route policy's cross-namespace backend or Secret needs a ReferenceGrant."""
+    source_ns = policy["metadata"]["namespace"]
+    target_ns = ref.get("namespace", source_ns)
+    if target_ns == source_ns:
+        return
+    group = ref.get("group", "")
+    allowed = any(
+        grant["metadata"].get("namespace") == target_ns
+        and any(item.get("group", "") == "gateway.envoyproxy.io"
+                and item.get("kind") == "SecurityPolicy"
+                and item.get("namespace") == source_ns
+                for item in grant["spec"].get("from", []))
+        and any(item.get("group", "") == group and item.get("kind") == kind
+                and item.get("name", ref["name"]) == ref["name"]
+                for item in grant["spec"].get("to", []))
+        for grant in docs if grant["kind"] == "ReferenceGrant"
+    )
+    assert allowed, (f"{profile}: SecurityPolicy {source_ns}/{policy['metadata']['name']} "
+                     f"references {kind} {target_ns}/{ref['name']} without a ReferenceGrant")
+
+
 def check_route_auth(profile, docs):
     """Every HTTPRoute states how it authenticates, and the statement is checked.
 
@@ -145,6 +167,16 @@ def check_route_auth(profile, docs):
         mine = [p for p in policies if p["metadata"]["namespace"] == namespace and any(
             t["kind"] == "HTTPRoute" and t["name"] == name for t in p["spec"].get("targetRefs", []))]
         has_oidc = any("oidc" in p["spec"] for p in mine)
+        for policy in mine:
+            spec = policy["spec"]
+            for backend in spec.get("extAuth", {}).get("grpc", {}).get("backendRefs", []):
+                assert_securitypolicy_reference_granted(profile, docs, policy, backend, "Service")
+            oidc = spec.get("oidc", {})
+            for backend in oidc.get("provider", {}).get("backendRefs", []):
+                assert_securitypolicy_reference_granted(profile, docs, policy, backend, "Service")
+            if oidc.get("clientSecret"):
+                assert_securitypolicy_reference_granted(
+                    profile, docs, policy, oidc["clientSecret"], "Secret")
         if auth != "deny":
             for policy in mine:
                 assert policy["spec"].get("extAuth") == gateway_ext_auth, (
