@@ -90,3 +90,22 @@ spec:
     - ports:
       - port: '3000'
         protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-lakehouse-bi-export
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      app: screener-web
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: lakehouse
+        app: lakehouse-dagster
+    toPorts:
+    - ports:
+      - port: '3000'
+        protocol: TCP
