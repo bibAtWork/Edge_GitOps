@@ -51,3 +51,49 @@ spec:
       cnpg.io/cluster: lakehouse-pg
   egress:
     - toEntities: [kube-apiserver]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lakehouse-bi-egress
+  namespace: lakehouse
+spec:
+  endpointSelector:
+    matchLabels:
+      app: lakehouse-dagster
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: real-estate-screener
+            app: screener-web
+      toPorts:
+        - ports:
+            - port: '3000'
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: vmsingle
+      toPorts:
+        - ports:
+            - port: '8428'
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-lakehouse-bi-to-vmsingle
+  namespace: monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vmsingle
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: lakehouse
+            app: lakehouse-dagster
+      toPorts:
+        - ports:
+            - port: '8428'
+              protocol: TCP

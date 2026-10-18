@@ -112,6 +112,108 @@ spec:
               path: /var/lib/grafana/dashboards/default
     dashboards:
       default:
+        real-estate-lakehouse-bi:
+          json: |
+            {
+              "uid": "real-estate-lakehouse-bi",
+              "title": "Real estate | Lakehouse BI",
+              "description": "Daily Bronze source records, Silver deduplicated properties and Gold KPIs. Matches require equal asking prices and either a complete logical address match or three equal populated attributes. Source coverage is limited to the configured screener searches; stale Gold data should not be interpreted as current inventory.",
+              "tags": ["real-estate", "lakehouse", "bi"],
+              "timezone": "browser",
+              "schemaVersion": 39,
+              "version": 1,
+              "refresh": "1d",
+              "time": {"from": "now-90d", "to": "now"},
+              "links": [
+                {"title": "Property records", "type": "link", "url": "https://screener.homelab.data-harness.org", "targetBlank": true},
+                {"title": "Lakehouse assets", "type": "link", "url": "https://lakehouse.homelab.data-harness.org", "targetBlank": true}
+              ],
+              "panels": [
+                {
+                  "id": 1, "title": "Unique properties", "type": "stat", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_unique_properties[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "Silver property groups represented by one canonical listing each."
+                },
+                {
+                  "id": 2, "title": "Source listings", "type": "stat", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_source_listings[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "Raw current records exported from the real-estate screener into Bronze."
+                },
+                {
+                  "id": 3, "title": "Duplicate listings", "type": "stat", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_duplicate_listings[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "Source listings minus unique Silver property groups."
+                },
+                {
+                  "id": 4, "title": "Duplicate rate", "type": "stat", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_duplicate_rate[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}},
+                  "description": "Duplicate source listings divided by all source listings."
+                },
+                {
+                  "id": 5, "title": "Median asking price", "type": "stat", "gridPos": {"x": 0, "y": 5, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_median_price_eur[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Median asking price of priced canonical properties. Rental and purchase offers may be mixed."
+                },
+                {
+                  "id": 6, "title": "Median asking price per m²", "type": "stat", "gridPos": {"x": 6, "y": 5, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_median_price_per_sqm_eur[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Median over canonical properties with a price and positive living area."
+                },
+                {
+                  "id": 7, "title": "Priced properties", "type": "stat", "gridPos": {"x": 12, "y": 5, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_priced_properties[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}}
+                },
+                {
+                  "id": 8, "title": "Gold snapshot age", "type": "stat", "gridPos": {"x": 18, "y": 5, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "time() - last_over_time(lakehouse_screener_snapshot_timestamp_seconds[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 90000}, {"color": "red", "value": 172800}]}}},
+                  "description": "No data means the daily Gold asset has not published within 48 hours."
+                },
+                {
+                  "id": 9, "title": "Unique property inventory", "type": "timeseries", "gridPos": {"x": 0, "y": 10, "w": 12, "h": 8},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "lakehouse_screener_unique_properties", "refId": "A", "legendFormat": "Unique properties"}, {"expr": "lakehouse_screener_source_listings", "refId": "B", "legendFormat": "Source listings"}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "One daily point per successful Gold materialization; older observations follow VictoriaMetrics retention."
+                },
+                {
+                  "id": 10, "title": "Duplicate rate over time", "type": "timeseries", "gridPos": {"x": 12, "y": 10, "w": 12, "h": 8},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "lakehouse_screener_duplicate_rate", "refId": "A", "legendFormat": "Duplicate rate"}],
+                  "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
+                },
+                {
+                  "id": 11, "title": "Unique properties by city", "type": "bargauge", "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_properties_by_city[48h])", "refId": "A", "legendFormat": "{{city}}", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true}
+                },
+                {
+                  "id": 12, "title": "Source coverage by provider", "type": "bargauge", "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_sources_by_provider[48h])", "refId": "A", "legendFormat": "{{provider}}", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+                  "description": "Raw Bronze record count, including cross-portal duplicates."
+                }
+              ]
+            }
         # These dashboards keep the UIDs of the former Grafana.com imports so
         # saved links survive. Their old selectors required absent labels or
         # recording rules; the local versions query the metrics we scrape.
