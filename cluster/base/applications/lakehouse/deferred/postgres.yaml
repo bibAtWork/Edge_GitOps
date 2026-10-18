@@ -1,0 +1,26 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: lakehouse-pg
+  namespace: lakehouse
+spec:
+  instances: 1
+  enablePDB: false
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+  bootstrap:
+    initdb:
+      database: lakehouse
+      owner: lakehouse
+  storage:
+    size: 5Gi
+    storageClass: longhorn-db
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  postgresql:
+    parameters:
+      max_connections: '30'
+      shared_buffers: 128MB

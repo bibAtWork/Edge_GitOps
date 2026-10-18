@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse
+  labels:
+    homelab.local/application: 'true'
+    homelab.local/gateway-access: 'true'
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    homelab.local/recovery: persistent
+    homelab.local/recovery-reason: Dagster metadata is in CNPG on Longhorn; sample datasets are in SeaweedFS.

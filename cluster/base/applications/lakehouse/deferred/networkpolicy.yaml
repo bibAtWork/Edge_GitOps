@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lakehouse-isolation
+  namespace: lakehouse
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lakehouse-internal
+  namespace: lakehouse
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+  egress:
+    - toEndpoints:
+        - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lakehouse-s3-egress
+  namespace: lakehouse
+spec:
+  endpointSelector:
+    matchLabels:
+      app: lakehouse-dagster
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: seaweedfs
+            io.kubernetes.pod.namespace: seaweedfs
+      toPorts:
+        - ports:
+            - port: '8333'
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lakehouse-cnpg-api
+  namespace: lakehouse
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: lakehouse-pg
+  egress:
+    - toEntities: [kube-apiserver]
