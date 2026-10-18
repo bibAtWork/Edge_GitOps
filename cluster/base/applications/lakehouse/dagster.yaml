@@ -130,6 +130,15 @@ spec:
                   key: secret_access_key
             - name: SCREENER_API_URL
               value: http://screener-web.real-estate-screener.svc:3000
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: google-gemini-api-key
+                  key: api-key
+            - name: SCREENER_LLM_MODEL
+              value: gemini-3.5-flash-lite
+            - name: SCREENER_LLM_MAX_NEW_CALLS
+              value: '250'
             - name: VM_IMPORT_URL
               value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus
           resources:
@@ -156,6 +165,8 @@ spec:
                 path: lakehouse/assets/screener.py
               - key: dedup.py
                 path: lakehouse/dedup.py
+              - key: enrichment.py
+                path: lakehouse/enrichment.py
         - name: dagster-config
           configMap:
             name: lakehouse-dagster-config

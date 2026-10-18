@@ -4,5 +4,6 @@ namespace: lakehouse
 resources:
   - namespace.yaml
   - ../../secrets/lakehouse-s3-secret.yaml
+  - ../../secrets/google-gemini-api-key.yaml
   - source.yaml
   - dagster.yaml

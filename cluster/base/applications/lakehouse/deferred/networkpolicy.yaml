@@ -10,6 +10,26 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
+  name: lakehouse-dns-egress
+  namespace: lakehouse
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: '53'
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: '*'
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
   name: lakehouse-internal
   namespace: lakehouse
 spec:
@@ -77,6 +97,12 @@ spec:
       toPorts:
         - ports:
             - port: '8428'
+              protocol: TCP
+    - toFQDNs:
+        - matchName: generativelanguage.googleapis.com
+      toPorts:
+        - ports:
+            - port: '443'
               protocol: TCP
 ---
 apiVersion: cilium.io/v2

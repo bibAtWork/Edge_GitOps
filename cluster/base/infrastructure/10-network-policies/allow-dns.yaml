@@ -7,6 +7,12 @@ spec:
     matchExpressions:
       - key: reserved.ingress
         operator: DoesNotExist
+      # Lakehouse has an L7 DNS rule so Cilium can learn the IPs for its
+      # Gemini-only toFQDNs egress policy. An overlapping L4 DNS rule would
+      # bypass that DNS proxy.
+      - key: io.kubernetes.pod.namespace
+        operator: NotIn
+        values: [lakehouse]
   egress:
     - toEndpoints:
         - matchLabels:
