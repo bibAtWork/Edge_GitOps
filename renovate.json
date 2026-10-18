@@ -215,6 +215,12 @@
   ],
   "packageRules": [
     {
+      "description": "Deploy first-party bibatwork GHCR images without the 48-hour release-age delay; upstream dependencies retain the global wait.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^ghcr\\.io\\/bibatwork\\//"],
+      "minimumReleaseAge": null
+    },
+    {
       "description": "The SRE API, Holmes, and OpenCode images are released under one version by a single source commit. Update all three together so a rollout never mixes incompatible workers and API versions.",
       "matchPackageNames": ["/^ghcr\\.io\\/bibatwork\\/sre-agent-(api|holmes|opencode)$/"],
       "groupName": "sre-agent"
