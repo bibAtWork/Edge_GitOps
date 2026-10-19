@@ -8,10 +8,10 @@
 # The image is the one reason this could not move to CNPG earlier: Immich's
 # semantic search needs VectorChord and pgvector, and a stock CNPG image
 # imports the data cleanly and then silently breaks search. tensorchord
-# publishes CNPG images carrying both; 17-0.3.0 is exactly the VectorChord of
-# the database being replaced (PostgreSQL 17, vchord 0.3.0; pgvector 0.8.0
-# against 0.8.1 there -- a minor version, same on-disk format). Checked
-# 2026-09-13 by listing the image's extension control files.
+# publishes CNPG images carrying both. The initial migration used 17-0.3.0
+# to match the old database. The 2026-10-19 update to 17-1.1.1 also upgraded
+# the installed vchord extension and rebuilt both search indexes; see the
+# backup-recovery runbook for the restore procedure.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

@@ -217,10 +217,15 @@ extensions:
 | Dataset | Source | Database, owner | Image |
 |---|---|---|---|
 | `keycloak-db` | `keycloak/keycloak-pg` | `keycloak`, `keycloak` | `ghcr.io/cloudnative-pg/postgresql:16.15` |
-| `immich-db` | `immich/immich-pg` | `immich`, `immich` | `ghcr.io/tensorchord/cloudnative-vectorchord:17-0.3.0`, plus `postgresql: {shared_preload_libraries: [vchord.so]}` |
+| `immich-db` | `immich/immich-pg` | `immich`, `immich` | `ghcr.io/tensorchord/cloudnative-vectorchord:17-1.1.1`, plus `postgresql: {shared_preload_libraries: [vchord.so]}` |
 | `filer-db` | `seaweedfs/filer-meta-pg` | `seaweedfs_filer`, `seaweedfs` | `ghcr.io/cloudnative-pg/postgresql:16.15` |
 
 Renovate moves the images; check the source's `spec.imageName` rather than trusting this table.
+The installed `vchord` extension can lag the image. After restoring Immich, inspect
+`pg_extension.extversion`; when updating VectorChord, run `VACUUM (ANALYZE)` on
+`smart_search` and `face_search` before the extension update, then update the
+extension and reindex `clip_index` and `face_index`. The 2026-10-19 rollout
+finished with `vchord` 1.1.1, `vector` 0.8.6, and both indexes valid.
 
 ```bash
 kubectl apply -f docs/runbooks/recovery/objectstores.yaml   # only if Flux has not provisioned restore-archive (A) and restore-aws (C)
