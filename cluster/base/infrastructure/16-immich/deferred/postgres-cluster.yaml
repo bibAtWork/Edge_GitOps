@@ -18,7 +18,7 @@ metadata:
   name: immich-pg
   namespace: immich
 spec:
-  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:17-0.5.3
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:17-1.1.1
 
   # Single instance and no PDB, for the reasons recorded on keycloak-pg
   # (26-keycloak/postgres-cluster.yaml): one node, so a replica has nowhere to
