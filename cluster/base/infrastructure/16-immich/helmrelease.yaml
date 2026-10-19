@@ -34,10 +34,9 @@ spec:
       main:
         containers:
           main:
-            # One pin supplies both server and machine-learning images. Keep
-            # VectorChord's CNPG image update separate: Immich v3 supports the
-            # installed vchord 0.3.0 extension and pgvector 0.8.0, while a
-            # VectorChord major update also needs ALTER EXTENSION and REINDEX.
+            # One pin supplies both server and machine-learning images.
+            # VectorChord's CNPG image is pinned independently; changing it
+            # requires an extension update and search-index rebuild.
             image:
               tag: v3.3.3
             env:
