@@ -290,6 +290,13 @@ spec:
                   "targets": [{"expr": "lakehouse_screener_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}", "refId": "A", "legendFormat": "{{plz3}}"}],
                   "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
                   "description": "Daily snapshot series for selected PLZ3 regions, corresponding to the regional comparison plots in Metabase. Historical points begin when Gold starts publishing this metric."
+                },
+                {
+                  "id": 24, "title": "Price-per-m² area exclusions", "type": "stat", "gridPos": {"x": 0, "y": 66, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_price_per_sqm_implausible_area_properties[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "Priced Silver properties reporting less than 10 m² of living area are retained as listings but excluded from price-per-m² averages and medians."
                 }
               ]
             }
