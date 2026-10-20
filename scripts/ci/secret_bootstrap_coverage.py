@@ -14,6 +14,7 @@ MANUAL_SOPS_RUNBOOKS = {
     "cluster/base/secrets/google-gemini-api-key.yaml": "cluster/base/applications/sre-agent/README.md",
     "cluster/base/secrets/ghcr-pull-secret.yaml": "cluster/base/applications/sre-agent/README.md",
     "cluster/base/secrets/lakehouse-s3-secret.yaml": "docs/runbooks/lakehouse.md",
+    "cluster/base/applications/real-estate-screener/recovery-object-store.yaml": "docs/runbooks/real-estate-screener.md",
 }
 RECOVERY_GENERATED = {
     "cluster/base/infrastructure/37-backup-system/recovery-aws-promoter.yaml",

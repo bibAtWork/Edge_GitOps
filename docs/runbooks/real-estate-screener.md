@@ -47,6 +47,17 @@ reports WAL archiving healthy; a manual recovery-point Workflow reaches
 `REMOTE_VERIFIED`. Keep the database and its archive until those checks pass.
 Do not remove the namespace or CNPG cluster as a routine application rollback.
 
+The archive credential is a manually rotated SOPS Secret. With the offline age
+key, generate a new bucket-scoped SeaweedFS identity and update both
+`cluster/base/infrastructure/01-seaweedfs/s3-secret.yaml` and
+`cluster/base/applications/real-estate-screener/recovery-object-store.yaml`
+in the same change. Keep the previous identity active until the filer has
+reloaded the S3 configuration, the CNPG sidecar has resumed WAL archiving,
+and a new recovery point validates. Then remove the old identity and verify
+that the replacement cannot access the shared `recovery` bucket. The
+`drill-screener-pitr` CronWorkflow exercises the live archive monthly and
+reports restore evidence to VictoriaMetrics.
+
 ## Collection
 
 The configured searches are Eigenheim (Haus) near Waldenbuch and Investment

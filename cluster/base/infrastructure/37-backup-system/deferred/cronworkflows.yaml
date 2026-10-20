@@ -292,6 +292,24 @@ spec:
     workflowTemplateRef:
       name: drill-pitr
 ---
+# The screener's dedicated archive is tested monthly with an isolated PITR.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-screener-pitr
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 6 8 * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 2678400
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-screener-pitr
+---
 # The live-archive PITR drill cannot prove recovery after loss of SeaweedFS.
 # Exercise Keycloak's offsite point separately, staggered from Immich's drill.
 apiVersion: argoproj.io/v1alpha1

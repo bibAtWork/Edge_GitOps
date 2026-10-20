@@ -65,3 +65,29 @@ spec:
         memory: 64Mi
       limits:
         memory: 256Mi
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: restore-screener-archive
+  namespace: backup-system
+  labels:
+    recovery-scratch: "true"
+spec:
+  configuration:
+    destinationPath: s3://screener-recovery/postgres/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: restic-local
+        key: AWS_ACCESS_KEY_ID
+      secretAccessKey:
+        name: restic-local
+        key: AWS_SECRET_ACCESS_KEY
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

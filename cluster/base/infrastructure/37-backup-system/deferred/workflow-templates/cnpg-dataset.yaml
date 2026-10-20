@@ -167,7 +167,7 @@ spec:
               set -eu
               SRV="{{inputs.parameters.cluster}}"
               BUCKET="{{inputs.parameters.archive-bucket}}"
-              [ "$BUCKET" = '-' ] && BUCKET=recovery
+              if [ "$BUCKET" = '-' ]; then BUCKET=recovery; fi
               ID="{{inputs.parameters.backup-id}}"
               BEGIN="{{inputs.parameters.begin-wal}}"
               END="{{inputs.parameters.end-wal}}"

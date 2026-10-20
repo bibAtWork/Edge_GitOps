@@ -60,3 +60,21 @@ class ScreenerRecoveryBehavior(unittest.TestCase):
         role = resource(access, "Role", "recovery-base-backups", "real-estate-screener")
         self.assertTrue(any("backups" in rule["resources"] for rule in role["rules"]))
         resource(access, "RoleBinding", "recovery-base-backups", "real-estate-screener")
+
+    def test_given_screener_recovery_policy_when_manifests_render_then_operator_and_monthly_drill_cover_it(self):
+        docs = render("cluster/overlays/1-node-config")
+        scope = resource(docs, "ValidatingPolicy", "argo-operator-workflow-scope", None)
+        allowed = next(v["expression"] for v in scope["spec"]["variables"]
+                       if v["name"] == "allowedApplications")
+        self.assertIn("real-estate-screener", allowed)
+        cron = resource(docs, "CronWorkflow", "drill-screener-pitr", "backup-system")
+        self.assertEqual(cron["spec"]["workflowSpec"]["workflowTemplateRef"]["name"], "drill-screener-pitr")
+        drill = resource(docs, "WorkflowTemplate", "drill-screener-pitr", "backup-system")
+        self.assertEqual(drill["spec"]["onExit"], "cleanup")
+        self.assertTrue(any(step.get("templateRef", {}).get("name") == "drill-evidence"
+                            and step["arguments"]["parameters"][0]["value"] == "real-estate-screener"
+                            for template in drill["spec"]["templates"]
+                            for group in template.get("steps", []) for step in group))
+        archive = resource(docs, "ObjectStore", "restore-screener-archive", "backup-system")
+        self.assertEqual(archive["spec"]["configuration"]["destinationPath"],
+                         "s3://screener-recovery/postgres/")
