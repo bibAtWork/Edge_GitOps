@@ -38,9 +38,19 @@ Do not remove the namespace or CNPG cluster as a routine application rollback.
 
 ## Collection
 
-The configured searches are the two enabled jobs from the local Fredy container:
-Eigenheim (Haus) near Waldenbuch and Investment (Heilbronn), each across
-ImmoScout24, Immowelt, Immo SWP, Kleinanzeigen, and Sparkasse Immobilien.
+The configured searches are Eigenheim (Haus) near Waldenbuch and Investment
+(Heilbronn), each across ImmoScout24, Immo SWP, and Kleinanzeigen. The two
+Immowelt searches are paused because the portal returned HTTP 403 to both the
+collector and a direct probe on 2026-10-20. The two Sparkasse URLs are paused
+because `/immobilien/treffer` now resolves to the editorial homepage without
+listing cards. Previous observations remain in PostgreSQL. The original URLs
+remain in Git history; do not retry blocked requests more aggressively.
+
+Re-enable either provider only after a current portal URL returns real search
+results and two consecutive manual collection runs produce successful search
+records and usable detail evidence. A zero-result search is acceptable only when
+the response is a real results page. For Immowelt, check that the portal permits
+the collector's access before restoring the schedule.
 Edit `cluster/base/applications/real-estate-screener/config/config.json` to
 change the portal search URLs. Collection runs every 30 minutes, is bounded to
 20 detail requests per run, and refreshes details after 24 hours. Fredy's Immo
