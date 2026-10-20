@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: recovery-object-store
+    namespace: real-estate-screener
+type: Opaque
+stringData:
+    access_key_id: ENC[AES256_GCM,data:wM+L1xakicLPY8ejkNhPM0Ea45k=,iv:CN+E2TO0OiohtGxS3qpvKQCVtAq0wmwVJg1k11m+jCA=,tag:WxfiLIanB1PIsf9e9Ygiaw==,type:str]
+    secret_access_key: ENC[AES256_GCM,data:cwqtnHsyBqcvURXjKGnlZ42VFoFaX9vEwRZTibeSwQdHjXvZWeEUA6FfKIMd7B+j,iv:9fCYXVfnaLNCKprAhFtzyt6huv7Dn6ZxXcyDvWR4PYk=,tag:XrxT/2+KT8P3xM2obvqEKg==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBTb25JVlowVmsza3orQklO
+            MFFwVkNidkVud0RLL3lXQXoxcSt2S2lrYlhBClJDNzRIcjVKeU5Dbk44Q1Z2bzZ1
+            eDJjSytneUhvTy9ITmdPdklLNGN6U0EKLS0tIDJHNlBMR3hRMHpxMlRQdnZGMHRW
+            WWs3UitCZm9sb21GTnc3TkhKamF1SU0KchLfFpwMxCZ6EIoBkFYTVnPh87w/rE03
+            dDORM3EziKd3GLxTjIVrj5e7gJ5YZx6/YFSL1zIBHaVCJIx8x3H31w==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1wgk7g6rwkm2xjq08vj66aa53rxhdxvzjldrurkukcfuacxxxj34svculzn
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-10-20T06:04:18Z"
+    mac: ENC[AES256_GCM,data:mNy9hjl9iso2UtfM1d36RK9HlrSQVjcd7nFZeZDzNPXRwezYS1gHHcVvCsMsGrDwAZyVQU+UJmAuN7TjY1qa8V2+r7ltDf8m+jgj2nOelCtlCdaQtmqa2ybkW5mKGWlX5V1/yqbBHfFuQP62cC2/23R28eXODYUqcVORUxXEHnA=,iv:jijnhDHrFENAlC/ACxf82wvsZLA+zRuQf91XyYpRnOs=,tag:Exxr0cDAA2PEyJ2rr/s9PA==,type:str]
+    version: 3.13.3

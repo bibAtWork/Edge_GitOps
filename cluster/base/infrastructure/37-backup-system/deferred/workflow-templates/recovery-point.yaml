@@ -171,6 +171,8 @@ spec:
                   value: "{{inputs.parameters.namespace}}"
                 - name: cluster
                   value: "{{inputs.parameters.pvc}}"
+                - name: archive-bucket
+                  value: "{{inputs.parameters.paths}}"
 
     - name: protect-volume
       inputs:
@@ -286,6 +288,7 @@ spec:
           - name: dataset
           - name: namespace
           - name: cluster
+          - name: archive-bucket
       steps:
         - - name: ensure-repo
             templateRef:
@@ -317,6 +320,8 @@ spec:
                   value: "{{inputs.parameters.cluster}}"
                 - name: backup-id
                   value: "{{steps.backup.outputs.parameters.backup-id}}"
+                - name: archive-bucket
+                  value: "{{inputs.parameters.archive-bucket}}"
                 - name: begin-wal
                   value: "{{steps.backup.outputs.parameters.begin-wal}}"
                 - name: end-wal

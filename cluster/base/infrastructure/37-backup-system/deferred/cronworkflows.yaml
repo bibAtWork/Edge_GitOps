@@ -344,3 +344,47 @@ spec:
   workflowSpec:
     workflowTemplateRef:
       name: drill-filer-aws
+---
+# The screener's historical listings are unique data. Its CNPG base backup and
+# WAL are restore-tested locally before the point can be promoted offsite.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: recovery-point-real-estate-screener
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 1 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: recovery-point
+    arguments:
+      parameters:
+        - name: application
+          value: real-estate-screener
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: promote-real-estate-screener
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 3 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: promote
+    arguments:
+      parameters:
+        - name: application
+          value: real-estate-screener

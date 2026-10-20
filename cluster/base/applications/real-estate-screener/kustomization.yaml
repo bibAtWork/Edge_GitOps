@@ -4,6 +4,7 @@ namespace: real-estate-screener
 resources:
 - namespace.yaml
 - ../../secrets/ghcr-pull-secret.yaml
+- recovery-object-store.yaml
 - web.yaml
 - collector.yaml
 - macro.yaml
