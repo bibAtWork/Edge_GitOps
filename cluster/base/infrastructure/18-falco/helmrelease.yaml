@@ -113,7 +113,7 @@ spec:
       image:
         registry: docker.io
         repository: falcosecurity/k8s-metacollector
-        tag: 0.1.4
+        tag: 0.1.5
       # 7-day peak 143Mi.
       resources:
         requests:
