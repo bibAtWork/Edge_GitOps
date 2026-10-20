@@ -78,6 +78,10 @@ change the portal search URLs. Collection runs every 30 minutes, is bounded to
 20 detail requests per run, and refreshes details after 24 hours. Fredy's Immo
 SWP adapter provides search sightings only, so those listings have no detail
 refresh.
+The detail queue includes only listings seen within the configured refresh
+window. A listing that disappears from search stops consuming detail requests;
+if it reappears, it becomes eligible again. Failed attempts retain their
+evidence and prior successful snapshots remain available.
 Macro imports run daily at 04:15 Europe/Berlin, covering German bond/mortgage
 series and DE/AT/FR European data where published. The default history starts
 in 2020. The ConfigMap is hashed by Kustomize, so CronJobs get new configuration
