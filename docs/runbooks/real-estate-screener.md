@@ -97,6 +97,34 @@ Exact mortgage terms beyond the official maturity bands and regional announced
 auction/cancellation history still need the application's documented import
 formats; there is no built-in complete public auction feed.
 
+## Verified Freddy history
+
+The historical BI cohorts include dated records from Freddy's active SQLite
+`listings` table. Its separate `listing` table has no observation timestamps
+and is excluded. The one-time import reads SQLite without changing it, derives
+stable portal identities from source URLs, and preserves Freddy's original
+`created_at` as the first-seen date. Rows with invalid dates or identities are
+skipped and counted. The import is idempotent and records an immutable snapshot
+with `fredy-legacy` evidence. It never replaces a screener-collected snapshot.
+
+`source_listings.manual_import` is true for archive-only rows. Those rows are
+available through `/api/bi-export?history=true` and contribute to deduplicated
+historical Gold cohorts; they stay out of current inventory metrics, the normal
+listing API, and the detail retry queue. A later real search sighting changes
+the flag to false while retaining the verified earlier first-seen date.
+
+Use the application's `scripts/export-fredy-history.py` against a read-only
+SQLite path, writing the resulting JSONL outside all Git repositories. Copy
+that file to the deployed screener web Pod's `/tmp` volume, then run
+`node src/cli.js import-fredy-history /tmp/<file>.jsonl` there. Keep the file
+private; it contains listing descriptions and addresses. Check the command's
+`read`, `invalid`, `inserted`, and `matched_existing` totals, rerun safely if
+interrupted, and remove both temporary copies afterward. Run the full
+Bronze/Silver/Gold Dagster job and verify historical month and PLZ3-quarter
+tables in the [lakehouse BI dashboard](https://grafana.homelab.data-harness.org/d/real-estate-lakehouse-bi).
+These are latest observed asking prices grouped by first-seen date, not
+historical sale prices or a continuous market index.
+
 ## Checks and updates
 
 Kubernetes checks `/health/live` for process liveness and `/health/checks` for
