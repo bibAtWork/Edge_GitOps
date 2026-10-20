@@ -8,7 +8,7 @@ spec:
   url: https://github.com/bibAtWork/lakehouse
   ref:
     branch: main
-    commit: e2d5356911a5c15c5bd7e4fb1f212446fdeace0c
+    commit: 41512ea6b539e406e6b1e1edfd1a6f0409b51709
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
