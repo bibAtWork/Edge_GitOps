@@ -230,9 +230,9 @@ spec:
                 {
                   "id": 15, "title": "Properties without new LLM enrichment", "type": "stat", "gridPos": {"x": 12, "y": 26, "w": 6, "h": 5},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_llm_quota_skipped_properties[48h])", "refId": "A", "instant": true}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_llm_quota_skipped_properties[48h]) + last_over_time(lakehouse_screener_llm_budget_skipped_properties[48h]) + last_over_time(lakehouse_screener_llm_time_skipped_properties[48h])", "refId": "A", "instant": true}],
                   "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]} }},
-                  "description": "Uncached Silver properties whose description extraction was skipped after Gemini returned HTTP 429. Source fields remain available."
+                  "description": "Uncached Silver properties whose description extraction was skipped after Gemini returned HTTP 429 or the daily call/time budget was reached. Source fields remain available."
                 },
                 {
                   "id": 16, "title": "Price regions with data", "type": "stat", "gridPos": {"x": 18, "y": 26, "w": 6, "h": 5},
