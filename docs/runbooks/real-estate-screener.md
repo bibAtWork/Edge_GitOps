@@ -29,12 +29,34 @@ No manually configured database password is required. PostgreSQL uses a 10 GiB
 idempotent, advisory-lock-protected migrations before web and collection jobs.
 This avoids immutable migration Job updates during later GitOps releases.
 
-The deployment has **no configured backup or offsite restore procedure yet**.
-Retain is protection against accidental volume deletion, not against disk failure.
-Archived listing snapshots, renovation history and imported auction records may
-be impossible to reconstruct later. Integrate this database with the platform's
-CNPG recovery pipeline before relying on it as the sole historical record.
+The screener database uses the platform's CNPG recovery pipeline. Its barman
+sidecar archives WAL and daily base backups to a dedicated `screener-recovery`
+SeaweedFS bucket. The credential in this application namespace has access only
+to that bucket; it cannot read or delete the shared `recovery` repository. The
+daily `recovery-point-real-estate-screener` workflow copies the base backup and
+required WAL into restic, restores a scratch PostgreSQL cluster, and checks
+that the recovered listing tables contain data. Only a validated point is
+eligible for the 03:00 UTC offsite promotion. The important profile requires a
+24-hour RPO, 8-hour RTO, and monthly restore proof. Longhorn Retain remains a
+separate safeguard against accidental PVC deletion.
+
+Acceptance after deployment: the new archive credential can access
+`screener-recovery` but receives access denied for `recovery`; the CNPG cluster
+reports WAL archiving healthy; a manual recovery-point Workflow reaches
+`Succeeded` with a `VALIDATED` record; and its promotion reaches
+`REMOTE_VERIFIED`. Keep the database and its archive until those checks pass.
 Do not remove the namespace or CNPG cluster as a routine application rollback.
+
+The archive credential is a manually rotated SOPS Secret. With the offline age
+key, generate a new bucket-scoped SeaweedFS identity and update both
+`cluster/base/infrastructure/01-seaweedfs/s3-secret.yaml` and
+`cluster/base/applications/real-estate-screener/recovery-object-store.yaml`
+in the same change. Keep the previous identity active until the filer has
+reloaded the S3 configuration, the CNPG sidecar has resumed WAL archiving,
+and a new recovery point validates. Then remove the old identity and verify
+that the replacement cannot access the shared `recovery` bucket. The
+`drill-screener-pitr` CronWorkflow exercises the live archive monthly and
+reports restore evidence to VictoriaMetrics.
 
 ## Collection
 

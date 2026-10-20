@@ -132,6 +132,7 @@ spec:
         parameters:
           - name: dataset
           - name: cluster
+          - name: archive-bucket
           - name: backup-id
           - name: begin-wal
           - name: end-wal
@@ -165,10 +166,12 @@ spec:
             - |
               set -eu
               SRV="{{inputs.parameters.cluster}}"
+              BUCKET="{{inputs.parameters.archive-bucket}}"
+              if [ "$BUCKET" = '-' ]; then BUCKET=recovery; fi
               ID="{{inputs.parameters.backup-id}}"
               BEGIN="{{inputs.parameters.begin-wal}}"
               END="{{inputs.parameters.end-wal}}"
-              SRC="local:recovery/postgres/$SRV"
+              SRC="local:$BUCKET/postgres/$SRV"
               mkdir -p "/stage/$SRV"
               rclone copy "$SRC/base/$ID" "/stage/$SRV/base/$ID"
               [ -s "/stage/$SRV/base/$ID/backup.info" ] || { echo "base backup $ID has no backup.info in the archive"; exit 1; }

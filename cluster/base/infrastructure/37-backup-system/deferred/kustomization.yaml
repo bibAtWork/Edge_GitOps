@@ -17,6 +17,7 @@ resources:
   - workflow-templates/drill-sqlite-aws.yaml
   - workflow-templates/drill-filer-aws.yaml
   - workflow-templates/drill-pitr.yaml
+  - workflow-templates/drill-screener-pitr.yaml
   - workflow-templates/drill-keycloak-aws.yaml
   - cronworkflows.yaml
   - recovery-policy.yaml

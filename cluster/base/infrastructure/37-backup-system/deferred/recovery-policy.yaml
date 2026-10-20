@@ -23,6 +23,7 @@ data:
     keycloak       critical         critical
     paperless      important        important
     seaweedfs      important        important
+    real-estate-screener important important
 
   # adapter
   #   restic-volume  snapshot clone of the volume -> restic, file level
@@ -35,7 +36,8 @@ data:
   #   restic-volume  comma-separated directories on the volume; everything else
   #                  on it is derived and deliberately left out (see below)
   #   sqlite-volume  the database file
-  #   cnpg           - (the whole database)
+  #   cnpg           - for the shared recovery archive, or the dedicated S3
+  #                  bucket name when an application must not hold its key
   datasets: |
     # dataset          application  adapter        source                            paths
     immich-media       immich       restic-volume  pvc:immich/immich-library-lh      upload,library,profile
@@ -44,6 +46,7 @@ data:
     keycloak-db        keycloak     cnpg           cnpg:keycloak/keycloak-pg         -
     filer-db           seaweedfs    cnpg           cnpg:seaweedfs/filer-meta-pg      -
     immich-db          immich       cnpg           cnpg:immich/immich-pg             -
+    screener-db        real-estate-screener cnpg     cnpg:real-estate-screener/screener-pg screener-recovery
 
   # Whole volumes deliberately not a dataset above, and why -- ADR-011 kept a
   # table like this for the old pipeline (`not-backed-up`); it was dropped at
@@ -141,6 +144,9 @@ data:
     immich-db         1     select count(*) from asset
     immich-db         1     select count(*) from "user"
     immich-db         1     select count(*) from smart_search
+    screener-db       1     select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'source_listings'
+    screener-db       1     select count(*) from source_listings
+    screener-db       1     select count(*) from listing_observations
 
   # Derived data inside the datasets' volumes, left out on purpose. A cache that
   # can hold unique user state is not a cache; these cannot.

@@ -1,0 +1,29 @@
+# A dedicated bucket keeps the screener's archive credential out of the shared
+# recovery repository. The archive is copied into the standard restic recovery
+# point only after a base backup and its WAL pass a restore test.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: recovery
+  namespace: real-estate-screener
+spec:
+  retentionPolicy: "7d"
+  configuration:
+    destinationPath: s3://screener-recovery/postgres/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: recovery-object-store
+        key: access_key_id
+      secretAccessKey:
+        name: recovery-object-store
+        key: secret_access_key
+    wal:
+      compression: gzip
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

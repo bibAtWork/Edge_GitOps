@@ -8,6 +8,11 @@ spec:
   enablePDB: false
   stopDelay: 300
   imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: recovery
   bootstrap:
     initdb:
       database: screener
