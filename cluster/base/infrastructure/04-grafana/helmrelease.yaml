@@ -124,6 +124,7 @@ spec:
               "version": 1,
               "refresh": "1d",
               "time": {"from": "now-90d", "to": "now"},
+              "templating": {"list": [{"name": "plz3", "label": "Postal region (PLZ3)", "type": "query", "datasource": {"type": "prometheus", "uid": "victoriametrics"}, "query": {"query": "label_values(lakehouse_screener_average_price_per_sqm_by_plz3,plz3)", "refId": "StandardVariableQuery"}, "refresh": 1, "multi": true, "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}}]},
               "links": [
                 {"title": "Property records", "type": "link", "url": "https://screener.homelab.data-harness.org", "targetBlank": true},
                 {"title": "Lakehouse assets", "type": "link", "url": "https://lakehouse.homelab.data-harness.org", "targetBlank": true}
@@ -211,6 +212,84 @@ spec:
                   "fieldConfig": {"defaults": {"unit": "short"}},
                   "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
                   "description": "Raw Bronze record count, including cross-portal duplicates."
+                },
+                {
+                  "id": 13, "title": "New unique properties (24h)", "type": "stat", "gridPos": {"x": 0, "y": 26, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_new_properties_24h[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "Deduplicated properties first seen in the 24 hours before the latest Gold snapshot."
+                },
+                {
+                  "id": 14, "title": "Average asking price per m²", "type": "stat", "gridPos": {"x": 6, "y": 26, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_eur[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Mean of each priced Silver property's asking price divided by positive living area; comparable to the original Metabase average."
+                },
+                {
+                  "id": 15, "title": "Properties without new LLM enrichment", "type": "stat", "gridPos": {"x": 12, "y": 26, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_llm_quota_skipped_properties[48h])", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]} }},
+                  "description": "Uncached Silver properties whose description extraction was skipped after Gemini returned HTTP 429. Source fields remain available."
+                },
+                {
+                  "id": 16, "title": "Price regions with data", "type": "stat", "gridPos": {"x": 18, "y": 26, "w": 6, "h": 5},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "count(last_over_time(lakehouse_screener_average_price_per_sqm_by_plz3[48h]))", "refId": "A", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "Three-digit postcode regions with priced properties and usable living area."
+                },
+                {
+                  "id": 17, "title": "New properties by day", "type": "timeseries", "gridPos": {"x": 0, "y": 31, "w": 12, "h": 8},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "lakehouse_screener_new_properties_24h", "refId": "A", "legendFormat": "New unique properties"}],
+                  "fieldConfig": {"defaults": {"unit": "short"}},
+                  "description": "One point per successful daily Gold run. History begins with this lakehouse metric, not with the original Metabase database."
+                },
+                {
+                  "id": 18, "title": "Average asking price per m² over time", "type": "timeseries", "gridPos": {"x": 12, "y": 31, "w": 12, "h": 8},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "lakehouse_screener_average_price_per_sqm_eur", "refId": "A", "legendFormat": "All priced properties"}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Daily average across deduplicated currently listed properties."
+                },
+                {
+                  "id": 19, "title": "Average asking price per m² by postal region", "type": "bargauge", "gridPos": {"x": 0, "y": 39, "w": 12, "h": 9},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}[48h])", "refId": "A", "legendFormat": "{{plz3}}", "instant": true}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+                  "description": "Current deduplicated inventory; select one or more PLZ3 regions above."
+                },
+                {
+                  "id": 20, "title": "Average price per m² by first-seen month", "type": "table", "gridPos": {"x": 12, "y": 39, "w": 12, "h": 9},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_by_month[48h])", "refId": "A", "instant": true, "format": "table"}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Metabase-style release cohorts from properties still present in the screener export. Removed listings are not reconstructed."
+                },
+                {
+                  "id": 21, "title": "Average price per m² by first-seen quarter", "type": "table", "gridPos": {"x": 0, "y": 48, "w": 12, "h": 9},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_by_quarter[48h])", "refId": "A", "instant": true, "format": "table"}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Mean asking price per m² grouped by the earliest first-seen quarter across a property's source listings."
+                },
+                {
+                  "id": 22, "title": "Regional quarterly price per m²", "type": "table", "gridPos": {"x": 12, "y": 48, "w": 12, "h": 9},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\"}[48h])", "refId": "A", "instant": true, "format": "table"}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Replaces the Metabase regional history table with deduplicated current-export cohorts; filter PLZ3 above."
+                },
+                {
+                  "id": 23, "title": "Selected postal regions over time", "type": "timeseries", "gridPos": {"x": 0, "y": 57, "w": 24, "h": 9},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "targets": [{"expr": "lakehouse_screener_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}", "refId": "A", "legendFormat": "{{plz3}}"}],
+                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
+                  "description": "Daily snapshot series for selected PLZ3 regions, corresponding to the regional comparison plots in Metabase. Historical points begin when Gold starts publishing this metric."
                 }
               ]
             }
