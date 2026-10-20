@@ -244,14 +244,14 @@ spec:
                 {
                   "id": 17, "title": "New properties by day", "type": "timeseries", "gridPos": {"x": 0, "y": 31, "w": 12, "h": 8},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "lakehouse_screener_new_properties_24h", "refId": "A", "legendFormat": "New unique properties"}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])", "refId": "A", "legendFormat": "New unique properties"}, {"expr": "last_over_time(lakehouse_screener_new_properties_24h[48h])", "refId": "B", "legendFormat": "Latest", "instant": true}],
                   "fieldConfig": {"defaults": {"unit": "short"}},
                   "description": "One point per successful daily Gold run. History begins with this lakehouse metric, not with the original Metabase database."
                 },
                 {
                   "id": 18, "title": "Average asking price per m² over time", "type": "timeseries", "gridPos": {"x": 12, "y": 31, "w": 12, "h": 8},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "lakehouse_screener_average_price_per_sqm_eur", "refId": "A", "legendFormat": "All priced properties"}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_eur[36h])", "refId": "A", "legendFormat": "All priced properties"}, {"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_eur[48h])", "refId": "B", "legendFormat": "Latest", "instant": true}],
                   "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
                   "description": "Daily average across deduplicated currently listed properties."
                 },
@@ -287,7 +287,7 @@ spec:
                 {
                   "id": 23, "title": "Selected postal regions over time", "type": "timeseries", "gridPos": {"x": 0, "y": 57, "w": 24, "h": 9},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "lakehouse_screener_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}", "refId": "A", "legendFormat": "{{plz3}}"}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}[36h])", "refId": "A", "legendFormat": "{{plz3}}"}, {"expr": "last_over_time(lakehouse_screener_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}[48h])", "refId": "B", "legendFormat": "Latest {{plz3}}", "instant": true}],
                   "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
                   "description": "Daily snapshot series for selected PLZ3 regions, corresponding to the regional comparison plots in Metabase. Historical points begin when Gold starts publishing this metric."
                 },
