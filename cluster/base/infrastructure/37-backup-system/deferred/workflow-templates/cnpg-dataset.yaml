@@ -173,7 +173,9 @@ spec:
               END="{{inputs.parameters.end-wal}}"
               SRC="local:$BUCKET/postgres/$SRV"
               mkdir -p "/stage/$SRV"
-              rclone copy "$SRC/base/$ID" "/stage/$SRV/base/$ID"
+              # Base backups can be multi-gigabyte objects. Bound rclone's
+              # concurrent buffers so the fetch init container stays below its limit.
+              rclone copy --transfers 1 --checkers 2 "$SRC/base/$ID" "/stage/$SRV/base/$ID"
               [ -s "/stage/$SRV/base/$ID/backup.info" ] || { echo "base backup $ID has no backup.info in the archive"; exit 1; }
               ls "/stage/$SRV/base/$ID" | grep -q '^data\.tar' || { echo "base backup $ID has no data tar in the archive"; exit 1; }
               # The WAL that makes the base backup consistent: every segment from
@@ -190,11 +192,13 @@ spec:
               ' /tmp/wals > /tmp/files
               N="$(grep -c -v -e history -e backup /tmp/files || true)"
               [ "$N" -ge 1 ] || { echo "no WAL between $BEGIN and $END in the archive"; exit 1; }
-              rclone copy --files-from /tmp/files "$SRC" "/stage/$SRV"
+              rclone copy --transfers 1 --checkers 2 --files-from /tmp/files "$SRC" "/stage/$SRV"
               echo "staged base backup $ID and $N WAL segment(s) from $BEGIN to $END"
           env:
             - name: HOME
               value: /tmp
+            - name: GOMEMLIMIT
+              value: 768MiB
             - name: RCLONE_CONFIG_LOCAL_TYPE
               value: s3
             - name: RCLONE_CONFIG_LOCAL_PROVIDER
@@ -221,9 +225,9 @@ spec:
           resources:
             requests:
               cpu: 20m
-              memory: 64Mi
+              memory: 128Mi
             limits:
-              memory: 512Mi
+              memory: 1Gi
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
