@@ -266,21 +266,21 @@ spec:
                 {
                   "id": 20, "title": "Average price per m² by first-seen month", "type": "table", "gridPos": {"x": 12, "y": 39, "w": 12, "h": 9},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month[48h])", "refId": "A", "instant": true, "format": "table"}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month[48h]) > 0", "refId": "A", "instant": true, "format": "table"}],
                   "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
                   "description": "Deduplicated first-seen monthly cohorts, including verified dated Freddy records. These are latest observed asking prices grouped by first-seen month, not historical sale prices."
                 },
                 {
                   "id": 21, "title": "Average price per m² by first-seen quarter", "type": "table", "gridPos": {"x": 0, "y": 48, "w": 12, "h": 9},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter[48h])", "refId": "A", "instant": true, "format": "table"}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter[48h]) > 0", "refId": "A", "instant": true, "format": "table"}],
                   "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
                   "description": "Mean asking price per m² grouped by the earliest first-seen quarter across a property's source listings."
                 },
                 {
                   "id": 22, "title": "Regional quarterly price per m²", "type": "table", "gridPos": {"x": 12, "y": 48, "w": 12, "h": 9},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\"}[48h])", "refId": "A", "instant": true, "format": "table"}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\"}[48h]) > 0", "refId": "A", "instant": true, "format": "table"}],
                   "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
                   "description": "Metabase-style regional history across deduplicated current and verified dated Freddy listings; filter PLZ3 above."
                 },
