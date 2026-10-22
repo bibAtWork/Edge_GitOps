@@ -120,8 +120,8 @@ that file to the deployed screener web Pod's `/tmp` volume, then run
 private; it contains listing descriptions and addresses. Check the command's
 `read`, `invalid`, `inserted`, and `matched_existing` totals, rerun safely if
 interrupted, and remove both temporary copies afterward. Run the full
-Bronze/Silver/Gold Dagster job and verify historical month and PLZ3-quarter
-tables in the [lakehouse BI dashboard](https://grafana.homelab.data-harness.org/d/real-estate-lakehouse-bi).
+Bronze/Silver/Gold Dagster job and verify first-seen month, quarter, and regional
+charts in the [lakehouse BI dashboard](https://grafana.homelab.data-harness.org/d/real-estate-lakehouse-bi).
 These are latest observed asking prices grouped by first-seen date, not
 historical sale prices or a continuous market index.
 
