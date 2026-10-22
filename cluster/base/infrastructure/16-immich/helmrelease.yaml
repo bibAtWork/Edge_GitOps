@@ -99,11 +99,21 @@ spec:
     # down to a steady-state floor rather than the peak — a request is a
     # reservation, not a cap, and over-reserving on a single node just starves
     # everything else. Limits kept at their previously-intended values.
+    # Keep UID and writable root filesystem unchanged until the Longhorn
+    # library and ML cache ownership and all runtime write paths are checked.
+    # These container controls are compatible with the current root UID and
+    # remove privilege escalation and ambient Linux capabilities first.
     server:
       controllers:
         main:
           containers:
             main:
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                seccompProfile:
+                  type: RuntimeDefault
               resources:
                 requests:
                   cpu: 100m
@@ -133,6 +143,12 @@ spec:
         main:
           containers:
             main:
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                seccompProfile:
+                  type: RuntimeDefault
               resources:
                 requests:
                   cpu: 100m
