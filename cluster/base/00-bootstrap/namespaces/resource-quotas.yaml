@@ -113,7 +113,9 @@ spec:
   hard:
     requests.cpu: "4"
     requests.memory: 4Gi
-    limits.memory: 8Gi
+    # Keep enough headroom for a rolling server replacement (2Gi limit)
+    # alongside the existing Immich, PostgreSQL, and Valkey pods.
+    limits.memory: 12Gi
     pods: "20"
 ---
 apiVersion: v1
