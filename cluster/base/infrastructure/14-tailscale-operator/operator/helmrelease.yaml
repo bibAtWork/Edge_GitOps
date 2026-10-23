@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: tailscale-operator
-      version: 1.104.1
+      version: 1.104.2
       sourceRef:
         kind: HelmRepository
         name: tailscale
@@ -41,7 +41,7 @@ spec:
     operatorConfig:
       image:
         repository: tailscale/k8s-operator
-        tag: v1.104.1
+        tag: v1.104.2
       hostname: homelab-operator
       defaultTags:
         - tag:k8s-operator
