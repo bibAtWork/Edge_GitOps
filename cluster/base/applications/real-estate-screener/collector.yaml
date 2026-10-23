@@ -32,7 +32,7 @@ spec:
           terminationGracePeriodSeconds: 120
           containers:
           - name: collector
-            image: ghcr.io/bibatwork/real-estate-screener:v1.3.0@sha256:2ce6e26ecaddc7cffb6dfa4bcb92660a74b4c9dc94c2db721dc1927f8cdff521
+            image: ghcr.io/bibatwork/real-estate-screener:v1.4.0@sha256:26247c6ecf86f71f7c8b80d72f85c91dbb5c103c9bd8b55c6d406eb2b9e96796
             imagePullPolicy: Always
             args:
             - run
@@ -76,7 +76,7 @@ spec:
               sizeLimit: 256Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.3.0@sha256:2ce6e26ecaddc7cffb6dfa4bcb92660a74b4c9dc94c2db721dc1927f8cdff521
+            image: ghcr.io/bibatwork/real-estate-screener:v1.4.0@sha256:26247c6ecf86f71f7c8b80d72f85c91dbb5c103c9bd8b55c6d406eb2b9e96796
             args:
             - migrate
             env:
