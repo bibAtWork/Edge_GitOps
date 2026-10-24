@@ -1,6 +1,7 @@
 """Regressions for the source inventory/native Renovate coverage boundary."""
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import textwrap
@@ -11,6 +12,24 @@ import renovate_coverage as coverage  # noqa: E402
 
 
 class RenovateCoverage(unittest.TestCase):
+    def test_cnpg_minimal_bookworm_tags_remain_renovate_dependencies(self):
+        config = json.loads((Path(__file__).resolve().parents[3] / "renovate.json").read_text())
+        manager = next(m for m in config["customManagers"]
+                       if "cloudnative-pg/postgresql" in str(m.get("matchStrings")))
+        expression = manager["matchStrings"][0].replace("(?<", "(?P<")
+        for tag in ("16.15", "16.15-minimal-bookworm"):
+            with self.subTest(tag=tag):
+                match = re.search(expression, f"imageName: ghcr.io/cloudnative-pg/postgresql:{tag}")
+                self.assertEqual(match.group("currentValue"), tag)
+        digest = "sha256:" + "a" * 64
+        pinned = re.search(expression, f"imageName: ghcr.io/cloudnative-pg/postgresql:16.15-minimal-bookworm@{digest}")
+        self.assertEqual(pinned.group("currentDigest"), digest)
+        rule = next(r for r in config["packageRules"]
+                    if "ghcr.io/cloudnative-pg/postgresql" in r.get("matchPackageNames", []))
+        allowed = re.compile(rule["allowedVersions"].strip("/"))
+        self.assertIsNotNone(allowed.fullmatch("16.16-minimal-bookworm"))
+        self.assertIsNone(allowed.fullmatch("17.0-minimal-bookworm"))
+
     def setUp(self):
         self.file = "cluster/base/test.yaml"
         self.text = "apiVersion: v1\nkind: Pod\nspec:\n  containers:\n    - image: nginx:1.2.3\n"

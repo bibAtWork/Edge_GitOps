@@ -28,6 +28,7 @@ class LakehouseRecovery(unittest.TestCase):
         access = rendered("cluster/base/infrastructure/37-backup-system")
 
         cluster = resource(deferred, "Cluster", "lakehouse-pg", "lakehouse")
+        self.assertIn(":16.15-minimal-bookworm@sha256:", cluster["spec"]["imageName"])
         self.assertTrue(any(p.get("name") == "barman-cloud.cloudnative-pg.io"
                             and p.get("isWALArchiver") for p in cluster["spec"]["plugins"]))
         archive = resource(deferred, "ObjectStore", "recovery", "lakehouse")
@@ -52,6 +53,7 @@ class LakehouseRecovery(unittest.TestCase):
                          "drill-lakehouse-pitr")
         drill_template = resource(backup, "WorkflowTemplate", "drill-lakehouse-pitr", "backup-system")
         self.assertIn("lakehouse", str(drill_template["spec"]["templates"][0]))
+        self.assertIn(cluster["spec"]["imageName"], str(drill_template["spec"]["templates"]))
         resource(backup, "ObjectStore", "restore-lakehouse-archive", "backup-system")
         role = resource(access, "Role", "recovery-base-backups", "lakehouse")
         self.assertTrue(any("backups" in rule["resources"] for rule in role["rules"]))
