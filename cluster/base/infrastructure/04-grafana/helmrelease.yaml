@@ -231,11 +231,11 @@ spec:
                   "description": "Mean asking price divided by usable living area across all deduplicated current and verified imported properties."
                 },
                 {
-                  "id": 15, "title": "Properties without new LLM enrichment", "type": "stat", "gridPos": {"x": 12, "y": 26, "w": 6, "h": 5},
+                  "id": 15, "title": "Properties awaiting LLM enrichment", "type": "stat", "gridPos": {"x": 12, "y": 26, "w": 6, "h": 5},
                   "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_llm_quota_skipped_properties[36h]) + last_over_time(lakehouse_screener_llm_budget_skipped_properties[36h]) + last_over_time(lakehouse_screener_llm_time_skipped_properties[36h])", "refId": "A", "instant": true}],
+                  "targets": [{"expr": "last_over_time(lakehouse_screener_llm_cache_pending_properties[36h])", "refId": "A", "instant": true}],
                   "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]} }},
-                  "description": "Uncached Silver properties whose description extraction was skipped after Gemini returned HTTP 429 or the daily call/time budget was reached. Source fields remain available."
+                  "description": "Properties in the latest Silver snapshot whose descriptions do not yet have a completed, validated LLM cache result. The separate LLM job retries these during the day; Silver applies completed results on its next daily refresh."
                 },
                 {
                   "id": 16, "title": "Postal regions with known prices", "type": "stat", "gridPos": {"x": 18, "y": 26, "w": 6, "h": 5},
