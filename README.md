@@ -5,6 +5,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 See the [platform extension contract](docs/runbooks/platform-extension.md) for application
 onboarding, shared services, and the required Flux inventory migration. The three-node
 profile still has single-instance databases; it does not guarantee end-to-end availability.
+For human Kubernetes access, see the [cluster access guide](docs/cluster-access/README.md).
 
 ## Profiles
 
