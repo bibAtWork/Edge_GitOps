@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: default-quota
+  namespace: mh0794
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.memory: 8Gi
+    pods: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: mh0794
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
