@@ -3871,9 +3871,9 @@ spec:
                 for: 0m
                 annotations:
                   summary: >-
-                    A Talos node has not matched the Kubernetes version pinned in git for a week
+                    A Talos node still runs a different Kubernetes version than the Git pin
                   description: >-
-                    talos-fleet-health found at least one node NOT running KUBERNETES_VERSION from versions.env, continuously for 8 days -- long enough that a routine wait for the Sunday upgrade window no longer explains it. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                    Every available fleet-health sample in the last 36 hours shows at least one kubelet below KUBERNETES_VERSION from versions.env (at least four checks are required). The talos-kubernetes Plan can say Complete=True when its selector matches zero nodes; that does not prove an upgrade ran. Compare `kubectl version`, node versions and `talos_fleet_node_info` with the pin. Check `kubectl get nodes -L talos.homelab/talos-version-ready`, the talos-version-gate Job, and recent talos-controlplane Jobs before investigating the Kubernetes Plan.
                 labels:
                   severity: warning
                 isPaused: false
