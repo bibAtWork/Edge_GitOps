@@ -7,7 +7,7 @@ spec:
   instances: 1
   enablePDB: false
   stopDelay: 300
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15-minimal-bookworm@sha256:3181bfd1304928fb237d45d57fe61f05abd0e995d3e01e3cd383c3e5637057f3
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
