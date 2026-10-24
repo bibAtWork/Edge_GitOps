@@ -971,6 +971,23 @@ spec:
                   "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
                   "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
                   "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
+                },
+                {
+                  "id": 17,
+                  "title": "EUR MSCI World ETF proxy (EUNL, first close = 100)",
+                  "type": "timeseries",
+                  "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"},
+                  "timeFrom": "18y",
+                  "gridPos": {"x": 0, "y": 51, "w": 24, "h": 9},
+                  "targets": [{
+                    "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
+                    "url": "http://screener-web.real-estate-screener.svc:3000/api/etf-benchmark",
+                    "url_options": {"method": "GET"},
+                    "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "EUNL · EUR close · base 100", "type": "number"}],
+                    "refId": "A", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
+                  }],
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "description": "Monthly last available EUR closing prices for the Xetra-traded iShares Core MSCI World UCITS ETF (EUNL, IE00B4L5Y983), rebased to 100 at the first imported date. This is an ETF price proxy rather than the licensed MSCI World index or a property transaction index. It starts no earlier than the ETF's 2009 listing and requires an authorized price CSV import."
                 }
               ]
             }
