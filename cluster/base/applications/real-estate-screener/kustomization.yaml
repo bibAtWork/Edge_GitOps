@@ -8,6 +8,7 @@ resources:
 - web.yaml
 - collector.yaml
 - macro.yaml
+- house-indices.yaml
 - auctions.yaml
 - access.yaml
 configMapGenerator:
