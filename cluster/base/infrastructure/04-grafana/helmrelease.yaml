@@ -971,6 +971,43 @@ spec:
                   "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
                   "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
                   "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
+                },
+                {
+                  "id": 17, "title": "Destatis house-price index · Germany (2025=100)", "type": "timeseries",
+                  "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"},
+                  "timeFrom": "6y", "gridPos": {"x": 0, "y": 51, "w": 24, "h": 9},
+                  "targets": [
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=destatis&region=DE&segment=all", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "All dwellings", "type": "number"}], "refId": "A", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=destatis&region=DE&segment=new", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "New dwellings", "type": "number"}], "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=destatis&region=DE&segment=existing", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Existing dwellings", "type": "number"}], "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}}
+                  ],
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "description": "Official Destatis quarterly national HPI, nominal, rebased to 2025 annual average = 100. The public table currently exposes recent quarters; the Eurostat panel supplies longer national history."
+                },
+                {
+                  "id": 18, "title": "Eurostat house-price index · national comparison (2025=100)", "type": "timeseries",
+                  "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"},
+                  "timeFrom": "22y", "gridPos": {"x": 0, "y": 60, "w": 24, "h": 9},
+                  "targets": [
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=eurostat&region=DE", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Germany", "type": "number"}], "refId": "A", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=eurostat&region=AT", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Austria", "type": "number"}], "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=eurostat&region=FR", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "France", "type": "number"}], "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}}
+                  ],
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "description": "Eurostat prc_hpi_q, all dwelling purchases, nominal quarterly indices rebased to each country's 2025 annual average = 100. Methodology is harmonised; national coverage begins at different dates."
+                },
+                {
+                  "id": 19, "title": "GREIX completed-sale apartment indices · selected cities (2025=100)", "type": "timeseries",
+                  "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"},
+                  "timeFrom": "27y", "gridPos": {"x": 0, "y": 69, "w": 24, "h": 9},
+                  "targets": [
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-1&property=apartment", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Berlin", "type": "number"}], "refId": "A", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-10&property=apartment", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Munich", "type": "number"}], "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-4&property=apartment", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Cologne", "type": "number"}], "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}},
+                    {"type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows", "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-2&property=apartment", "url_options": {"method": "GET"}, "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Frankfurt", "type": "number"}], "refId": "D", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}}
+                  ],
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "description": "GREIX nominal, quality-adjusted apartment indices from completed local sales, rebased to each city's 2025 annual average = 100. These cities are examples; the API retains all published GREIX city/property series. They do not represent Germany as a whole or advertised asking prices."
                 }
               ]
             }
