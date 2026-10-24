@@ -1,0 +1,204 @@
+# Application object data is staged from SeaweedFS and backed up in the same
+# restic repository as the other datasets. The PostgreSQL Barman archive has
+# its own CNPG dataset and is excluded here to avoid backing it up twice.
+# Restoring the snapshot and checking every file hash proves the offsite
+# promoter will receive a usable object tree, not just a successful copy exit.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: s3-bucket-dataset
+  namespace: backup-system
+spec:
+  templates:
+    - name: backup
+      inputs:
+        parameters:
+          - name: dataset
+          - name: bucket
+          - name: recovery-point
+      outputs:
+        parameters:
+          - name: snapshot
+            valueFrom:
+              path: /tmp/out/snapshot
+          - name: files
+            valueFrom:
+              path: /tmp/out/files
+          - name: bytes
+            valueFrom:
+              path: /tmp/out/bytes
+          - name: digest
+            valueFrom:
+              path: /tmp/out/digest
+      activeDeadlineSeconds: 7200
+      retryStrategy:
+        limit: 1
+        retryPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: stage
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        - name: fetch
+          image: docker.io/rclone/rclone:1.75.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              SRC="local:{{inputs.parameters.bucket}}"
+              # A failed list or an empty bucket must not become a validated
+              # zero-object recovery point. Check the source again after copy
+              # so a concurrent mutation cannot silently yield a mixed point.
+              rclone lsf -R --files-only --exclude '/postgres/**' "$SRC" > /tmp/objects
+              [ -s /tmp/objects ] || { echo "no application objects in $SRC"; exit 1; }
+              rclone copy --transfers 2 --checkers 4 --exclude '/postgres/**' "$SRC" /stage
+              rclone check --one-way --exclude '/postgres/**' "$SRC" /stage
+          env:
+            - name: HOME
+              value: /tmp
+            - name: RCLONE_CONFIG_LOCAL_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_LOCAL_PROVIDER
+              value: Other
+            - name: RCLONE_CONFIG_LOCAL_ENDPOINT
+              value: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+            - name: RCLONE_CONFIG_LOCAL_FORCE_PATH_STYLE
+              value: "true"
+            - name: RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: AWS_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: restic-local
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - name: stage
+              mountPath: /stage
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            DS="{{inputs.parameters.dataset}}"
+            RP="{{inputs.parameters.recovery-point}}"
+            R="restic -o s3.bucket-lookup=path -o s3.region=us-east-1"
+            mkdir -p /tmp/out
+            cd /stage
+            find . -type f -exec sha256sum '{}' + | LC_ALL=C sort | sha256sum | cut -d ' ' -f1 > /tmp/out/digest
+            $R unlock > /dev/null 2>&1 || true
+            $R backup --retry-lock 40m --host "$DS" --tag "dataset=$DS" --tag "rp=$RP" --json /stage > /tmp/backup.json
+            SNAP="$(grep -o '"snapshot_id":"[0-9a-f]*"' /tmp/backup.json | tail -n 1 | cut -d'"' -f4)"
+            FILES="$(grep -o '"total_files_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            BYTES="$(grep -o '"total_bytes_processed":[0-9]*' /tmp/backup.json | tail -n 1 | cut -d: -f2)"
+            [ -n "$SNAP" ] && [ "${FILES:-0}" -gt 0 ] || { echo "restic produced no object snapshot"; exit 1; }
+            echo "$SNAP" > /tmp/out/snapshot
+            echo "$FILES" > /tmp/out/files
+            echo "$BYTES" > /tmp/out/bytes
+            echo "object snapshot $SNAP: $FILES files, $BYTES bytes"
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: stage
+            mountPath: /stage
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+
+    - name: restore-test
+      inputs:
+        parameters:
+          - name: snapshot
+          - name: digest
+      activeDeadlineSeconds: 3600
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: restore
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: tmp
+          emptyDir: {}
+      container:
+        image: docker.io/restic/restic:0.19.1
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            restic -o s3.bucket-lookup=path -o s3.region=us-east-1 restore "{{inputs.parameters.snapshot}}" --target /restore --verify --no-lock
+            [ -d /restore/stage ] || { echo "restored snapshot has no object tree"; exit 1; }
+            cd /restore/stage
+            GOT="$(find . -type f -exec sha256sum '{}' + | LC_ALL=C sort | sha256sum | cut -d ' ' -f1)"
+            [ "$GOT" = "{{inputs.parameters.digest}}" ] || { echo "restored object content differs from staged source"; exit 1; }
+            echo "restored object tree matches staged source SHA-256 digest"
+        envFrom:
+          - secretRef:
+              name: restic-local
+        env:
+          - name: RESTIC_CACHE_DIR
+            value: /tmp/cache
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: restore
+            mountPath: /restore
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]

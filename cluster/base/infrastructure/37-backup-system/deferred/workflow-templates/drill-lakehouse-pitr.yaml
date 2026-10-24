@@ -1,0 +1,181 @@
+# Monthly point-in-time recovery of Dagster metadata from its live Barman
+# archive. The scratch cluster never archives back into that bucket.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: drill-lakehouse-pitr
+  namespace: backup-system
+spec:
+  entrypoint: main
+  onExit: cleanup
+  podGC:
+    strategy: OnPodSuccess
+    deleteDelayDuration: 30m
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: policy
+      configMap:
+        name: recovery-policy
+  templates:
+    - name: main
+      steps:
+        - - name: recover
+            template: recover
+        - - name: checks
+            template: checks
+        - - name: evidence
+            templateRef:
+              name: drill-evidence
+              template: report
+            arguments:
+              parameters:
+                - name: application
+                  value: lakehouse
+                - name: drill
+                  value: pitr
+                - name: recovered-at
+                  value: "{{steps.recover.outputs.parameters.recovered-at}}"
+
+    - name: recover
+      activeDeadlineSeconds: 2400
+      outputs:
+        parameters:
+          - name: recovered-at
+            valueFrom:
+              path: /tmp/recovered-at
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-pitr"
+            # Allow enough time for a later WAL segment to exist, even when the
+            # lakehouse has had little activity.
+            TARGET=$(( $(date -u +%s) - 1800 ))
+            echo "$TARGET" > /tmp/recovered-at
+            TT="$(date -u -d @"$TARGET" '+%Y-%m-%d %H:%M:%S.00000+00')"
+            echo "recovering lakehouse-pg as it was at $TT"
+            kubectl apply -f - > /dev/null <<EOF
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              name: $S
+              namespace: backup-system
+              labels:
+                recovery-scratch: "true"
+            spec:
+              imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+              instances: 1
+              enablePDB: false
+              stopDelay: 30
+              enableSuperuserAccess: true
+              storage:
+                size: 10Gi
+                storageClass: local-path
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi
+              bootstrap:
+                recovery:
+                  source: origin
+                  recoveryTarget:
+                    targetTime: "$TT"
+              externalClusters:
+                - name: origin
+                  plugin:
+                    name: barman-cloud.cloudnative-pg.io
+                    parameters:
+                      barmanObjectName: restore-lakehouse-archive
+                      serverName: lakehouse-pg
+            EOF
+            if ! kubectl wait clusters.postgresql.cnpg.io -n backup-system "$S" --for=condition=Ready --timeout=1800s; then
+              echo "DRILL: $S did not come up: $(kubectl get clusters.postgresql.cnpg.io -n backup-system "$S" -o jsonpath='{.status.phase} {.status.phaseReason}')"
+              exit 1
+            fi
+            echo "scratch cluster $S recovered lakehouse-pg to $TT"
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: checks
+      container:
+        image: docker.io/library/postgres:17-alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            S="drill-{{=sprig.trunc(8, workflow.uid)}}-pitr"
+            q() { psql -h "$S-rw" -U postgres -d lakehouse -tA -v ON_ERROR_STOP=1 -c "$1" < /dev/null; }
+            RUNS="$(q 'select count(*) from runs')"
+            EVENTS="$(q 'select count(*) from event_logs')"
+            echo "recovered lakehouse: runs=$RUNS events=$EVENTS (minimum 1 each)"
+            echo "server reports it is a primary after recovery: $(q 'select not pg_is_in_recovery()')"
+            [ "$RUNS" -ge 1 ] && [ "$EVENTS" -ge 1 ]
+        env:
+          - name: HOME
+            value: /tmp
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "drill-{{=sprig.trunc(8, workflow.uid)}}-pitr-superuser"
+                key: password
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    - name: cleanup
+      container:
+        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        command: ["/bin/sh", "-c"]
+        args:
+          - kubectl delete clusters.postgresql.cnpg.io -n backup-system "drill-{{=sprig.trunc(8, workflow.uid)}}-pitr" --ignore-not-found --timeout=300s
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
