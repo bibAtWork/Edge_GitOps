@@ -327,6 +327,15 @@ and the Talos gate and upgrade Jobs in `cattle-system`. The
 `TalosFleetK8sVersionDrift` alert independently checks the running kubelet
 versions against the Git pin.
 
+The controller consumes its Job settings ConfigMap through environment variables;
+Reloader restarts it when that ConfigMap changes. A controller restart can resume
+an already-applying failed Plan **outside** the Plan's stated time window. Before
+changing those settings or restarting the controller, check `kubectl get plans
+-n cattle-system -o yaml` for `status.applying` and a failed `Complete` condition.
+If either is present, treat the restart as an immediate node upgrade and perform
+it in a staffed maintenance window. This behavior rebooted the single node when
+the controller was restarted on 2026-10-24.
+
 ## Secret Rotation
 
 Use `bootstrap/scripts/rotate-secrets.py` for key and credential rotation:
