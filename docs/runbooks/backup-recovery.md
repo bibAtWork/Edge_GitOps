@@ -212,15 +212,15 @@ When `filer-db` is lost, C is its only route: its archive and its local copy bot
 it indexes.
 
 A restore cluster runs its source's image, which means the same major version and the same
-extensions:
+extensions. Read `spec.imageName` from the source at restore time; a copied image tag in this
+runbook can become stale after Renovate updates the cluster:
 
-| Dataset | Source | Database, owner | Image |
+| Dataset | Source | Database, owner | Restore requirement |
 |---|---|---|---|
-| `keycloak-db` | `keycloak/keycloak-pg` | `keycloak`, `keycloak` | `ghcr.io/cloudnative-pg/postgresql:16.15` |
-| `immich-db` | `immich/immich-pg` | `immich`, `immich` | `ghcr.io/tensorchord/cloudnative-vectorchord:17-1.1.1`, plus `postgresql: {shared_preload_libraries: [vchord.so]}` |
-| `filer-db` | `seaweedfs/filer-meta-pg` | `seaweedfs_filer`, `seaweedfs` | `ghcr.io/cloudnative-pg/postgresql:16.15` |
+| `keycloak-db` | `keycloak/keycloak-pg` | `keycloak`, `keycloak` | Use source `spec.imageName` |
+| `immich-db` | `immich/immich-pg` | `immich`, `immich` | Use source `spec.imageName` and `postgresql: {shared_preload_libraries: [vchord.so]}` |
+| `filer-db` | `seaweedfs/filer-meta-pg` | `seaweedfs_filer`, `seaweedfs` | Use source `spec.imageName` |
 
-Renovate moves the images; check the source's `spec.imageName` rather than trusting this table.
 The installed `vchord` extension can lag the image. After restoring Immich, inspect
 `pg_extension.extversion`; when updating VectorChord, run `VACUUM (ANALYZE)` on
 `smart_search` and `face_search` before the extension update, then update the
@@ -234,7 +234,9 @@ kubectl apply -f docs/runbooks/recovery/objectstores.yaml   # only if Flux has n
 ### Route A: a moment in time
 
 ```bash
-kubectl apply -f - <<'EOF'
+SOURCE_IMAGE="$(kubectl get cluster -n keycloak keycloak-pg -o jsonpath='{.spec.imageName}')"
+test -n "$SOURCE_IMAGE" || { echo 'Keycloak source image is missing' >&2; exit 1; }
+kubectl apply -f - <<EOF
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -243,7 +245,7 @@ metadata:
   labels:
     recovery-scratch: "true"
 spec:
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.15
+  imageName: ${SOURCE_IMAGE}
   instances: 1
   enablePDB: false
   storage:
