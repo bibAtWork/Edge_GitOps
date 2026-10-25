@@ -310,7 +310,7 @@ spec:
                     }
                   ],
                   "options": {
-                    "orientation": "vertical",
+                    "orientation": "horizontal",
                     "showValue": "never",
                     "legend": {
                       "showLegend": false
