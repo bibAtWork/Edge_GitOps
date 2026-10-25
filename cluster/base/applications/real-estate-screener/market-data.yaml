@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: screener-house-indices
+  name: screener-market-data
 spec:
   schedule: 0 5 * * 0
   timeZone: Europe/Berlin
@@ -30,11 +30,11 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           containers:
-          - name: house-indices
-            image: ghcr.io/bibatwork/real-estate-screener:v1.10.0@sha256:9299fcb4c58262d18cfea3dd436286ba51cbd9942cdb24c057993f0d740badd9
+          - name: market-data
+            image: ghcr.io/bibatwork/real-estate-screener:v1.11.0@sha256:9448ca06021f693d400d7e5a3c491be2a3d838896354331f8d6f08aa8737848c
             imagePullPolicy: Always
             args:
-            - house-index-sync
+            - market-data-sync
             resources:
               requests:
                 cpu: 100m
@@ -63,7 +63,7 @@ spec:
               sizeLimit: 64Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.10.0@sha256:9299fcb4c58262d18cfea3dd436286ba51cbd9942cdb24c057993f0d740badd9
+            image: ghcr.io/bibatwork/real-estate-screener:v1.11.0@sha256:9448ca06021f693d400d7e5a3c491be2a3d838896354331f8d6f08aa8737848c
             args:
             - migrate
             env:
