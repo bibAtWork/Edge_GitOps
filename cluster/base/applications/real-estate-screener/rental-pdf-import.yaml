@@ -31,7 +31,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: rental-pdf-import
-            image: ghcr.io/bibatwork/real-estate-screener:v1.15.0@sha256:1523125635ad67fad2130ffa44958ad0a7993eaff70c6b55d228b2f37a5ee66d
+            image: ghcr.io/bibatwork/real-estate-screener:v1.15.1@sha256:2bb1097923535971422dc25b165aaad279597b3b289946bdeeba92b65a61617e
             imagePullPolicy: Always
             args:
             - rental-pdf-import
@@ -63,7 +63,7 @@ spec:
               sizeLimit: 64Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.15.0@sha256:1523125635ad67fad2130ffa44958ad0a7993eaff70c6b55d228b2f37a5ee66d
+            image: ghcr.io/bibatwork/real-estate-screener:v1.15.1@sha256:2bb1097923535971422dc25b165aaad279597b3b289946bdeeba92b65a61617e
             args:
             - migrate
             env:
