@@ -31,7 +31,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: etf-benchmark
-            image: ghcr.io/bibatwork/real-estate-screener:v1.11.0@sha256:9448ca06021f693d400d7e5a3c491be2a3d838896354331f8d6f08aa8737848c
+            image: ghcr.io/bibatwork/real-estate-screener:v1.12.0@sha256:4fd04d06e6d807fdf6ca879494ee419f797631ca9b4d0473f498d4f8cfe9004a
             imagePullPolicy: Always
             args:
             - etf-sync
@@ -63,7 +63,7 @@ spec:
               sizeLimit: 64Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.11.0@sha256:9448ca06021f693d400d7e5a3c491be2a3d838896354331f8d6f08aa8737848c
+            image: ghcr.io/bibatwork/real-estate-screener:v1.12.0@sha256:4fd04d06e6d807fdf6ca879494ee419f797631ca9b4d0473f498d4f8cfe9004a
             args:
             - migrate
             env:
