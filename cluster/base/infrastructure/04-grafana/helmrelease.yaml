@@ -200,7 +200,7 @@ spec:
                   },
                   {
                     "name": "greix_region",
-                    "label": "GREIX region",
+                    "label": "GREIX cities (BW, BY, HE defaults)",
                     "type": "query",
                     "datasource": {
                       "type": "yesoreyeram-infinity-datasource",
@@ -235,12 +235,24 @@ spec:
                       }
                     },
                     "refresh": 1,
-                    "multi": false,
+                    "multi": true,
                     "includeAll": false,
                     "options": [],
                     "current": {
-                      "text": "Stuttgart",
-                      "value": "greix-city-9"
+                      "text": [
+                        "Stuttgart",
+                        "Karlsruhe",
+                        "Munich",
+                        "Frankfurt",
+                        "Wiesbaden"
+                      ],
+                      "value": [
+                        "greix-city-9",
+                        "greix-city-21",
+                        "greix-city-10",
+                        "greix-city-2",
+                        "greix-city-8"
+                      ]
                     }
                   }
                 ]
@@ -1450,7 +1462,7 @@ spec:
                 },
                 {
                   "id": 48,
-                  "title": "GREIX completed-sale apartment index · ${greix_region:text} (2025=100)",
+                  "title": "GREIX completed-sale apartment index · selected cities (2025=100)",
                   "type": "timeseries",
                   "datasource": {
                     "type": "yesoreyeram-infinity-datasource",
@@ -1468,9 +1480,9 @@ spec:
                       "type": "json",
                       "source": "url",
                       "parser": "backend",
-                      "format": "timeseries",
+                      "format": "table",
                       "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=${greix_region}&property=apartment",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=${greix_region:csv}&property=apartment",
                       "url_options": {
                         "method": "GET"
                       },
@@ -1479,6 +1491,11 @@ spec:
                           "selector": "time",
                           "text": "Time",
                           "type": "timestamp"
+                        },
+                        {
+                          "selector": "label",
+                          "text": "City",
+                          "type": "string"
                         },
                         {
                           "selector": "value",
@@ -1499,7 +1516,15 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Select any imported GREIX apartment region above. Nominal, quality-adjusted completed-sale index rebased to that region's 2025 annual average = 100. It is neither a Germany-wide index nor an asking-price series."
+                  "transformations": [
+                    {
+                      "id": "partitionByValues",
+                      "options": {
+                        "fields": ["City"]
+                      }
+                    }
+                  ],
+                  "description": "Defaults are Stuttgart and Karlsruhe (Baden-Württemberg), Munich (Bayern), and Frankfurt and Wiesbaden (Hessen). These are city indices, not state-wide indices. Select any imported GREIX apartment cities above. Nominal, quality-adjusted completed-sale indices are rebased independently to each city's 2025 annual average = 100; they are not asking-price series."
                 },
                 {
                   "id": 43,
