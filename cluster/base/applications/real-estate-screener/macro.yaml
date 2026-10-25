@@ -31,7 +31,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: macro
-            image: ghcr.io/bibatwork/real-estate-screener:v1.13.1@sha256:cffb5a78d44df828d62ae81909a65006a8785650d0ae94a35f0440931870a8d9
+            image: ghcr.io/bibatwork/real-estate-screener:v1.14.0@sha256:896c67641d75eb7ea9e354ed26f68b50eb7aaa0bddbbd1c00b536bc86e500b65
             imagePullPolicy: Always
             args:
             - macro-sync
@@ -70,7 +70,7 @@ spec:
               sizeLimit: 64Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.13.1@sha256:cffb5a78d44df828d62ae81909a65006a8785650d0ae94a35f0440931870a8d9
+            image: ghcr.io/bibatwork/real-estate-screener:v1.14.0@sha256:896c67641d75eb7ea9e354ed26f68b50eb7aaa0bddbbd1c00b536bc86e500b65
             args:
             - migrate
             env:
