@@ -9,6 +9,7 @@ resources:
 - collector.yaml
 - macro.yaml
 - market-data.yaml
+- akoga.yaml
 - etf-benchmark.yaml
 - auctions.yaml
 - access.yaml
