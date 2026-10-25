@@ -127,7 +127,7 @@ spec:
               ],
               "timezone": "browser",
               "schemaVersion": 39,
-              "version": 6,
+              "version": 7,
               "refresh": "1d",
               "time": {
                 "from": "now-1y",
@@ -196,6 +196,51 @@ spec:
                         "DE2",
                         "DE7"
                       ]
+                    }
+                  },
+                  {
+                    "name": "greix_region",
+                    "label": "GREIX region",
+                    "type": "query",
+                    "datasource": {
+                      "type": "yesoreyeram-infinity-datasource",
+                      "uid": "screener-rate-history"
+                    },
+                    "query": {
+                      "queryType": "infinity",
+                      "query": "",
+                      "infinityQuery": {
+                        "type": "json",
+                        "source": "url",
+                        "parser": "backend",
+                        "format": "table",
+                        "root_selector": "rows",
+                        "url": "http://screener-web.real-estate-screener.svc:3000/api/greix-regions",
+                        "url_options": {
+                          "method": "GET"
+                        },
+                        "columns": [
+                          {
+                            "selector": "__text",
+                            "text": "__text",
+                            "type": "string"
+                          },
+                          {
+                            "selector": "__value",
+                            "text": "__value",
+                            "type": "string"
+                          }
+                        ],
+                        "refId": "variable"
+                      }
+                    },
+                    "refresh": 1,
+                    "multi": false,
+                    "includeAll": false,
+                    "options": [],
+                    "current": {
+                      "text": "Stuttgart",
+                      "value": "greix-city-9"
                     }
                   }
                 ]
@@ -1405,7 +1450,7 @@ spec:
                 },
                 {
                   "id": 48,
-                  "title": "GREIX completed-sale apartment indices · selected cities (2025=100)",
+                  "title": "GREIX completed-sale apartment index · ${greix_region:text} (2025=100)",
                   "type": "timeseries",
                   "datasource": {
                     "type": "yesoreyeram-infinity-datasource",
@@ -1425,7 +1470,7 @@ spec:
                       "parser": "backend",
                       "format": "timeseries",
                       "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-1&property=apartment",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=${greix_region}&property=apartment",
                       "url_options": {
                         "method": "GET"
                       },
@@ -1437,95 +1482,11 @@ spec:
                         },
                         {
                           "selector": "value",
-                          "text": "Berlin",
+                          "text": "Index",
                           "type": "number"
                         }
                       ],
                       "refId": "A",
-                      "datasource": {
-                        "type": "yesoreyeram-infinity-datasource",
-                        "uid": "screener-rate-history"
-                      }
-                    },
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-10&property=apartment",
-                      "url_options": {
-                        "method": "GET"
-                      },
-                      "columns": [
-                        {
-                          "selector": "time",
-                          "text": "Time",
-                          "type": "timestamp"
-                        },
-                        {
-                          "selector": "value",
-                          "text": "Munich",
-                          "type": "number"
-                        }
-                      ],
-                      "refId": "B",
-                      "datasource": {
-                        "type": "yesoreyeram-infinity-datasource",
-                        "uid": "screener-rate-history"
-                      }
-                    },
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-4&property=apartment",
-                      "url_options": {
-                        "method": "GET"
-                      },
-                      "columns": [
-                        {
-                          "selector": "time",
-                          "text": "Time",
-                          "type": "timestamp"
-                        },
-                        {
-                          "selector": "value",
-                          "text": "Cologne",
-                          "type": "number"
-                        }
-                      ],
-                      "refId": "C",
-                      "datasource": {
-                        "type": "yesoreyeram-infinity-datasource",
-                        "uid": "screener-rate-history"
-                      }
-                    },
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-2&property=apartment",
-                      "url_options": {
-                        "method": "GET"
-                      },
-                      "columns": [
-                        {
-                          "selector": "time",
-                          "text": "Time",
-                          "type": "timestamp"
-                        },
-                        {
-                          "selector": "value",
-                          "text": "Frankfurt",
-                          "type": "number"
-                        }
-                      ],
-                      "refId": "D",
                       "datasource": {
                         "type": "yesoreyeram-infinity-datasource",
                         "uid": "screener-rate-history"
@@ -1538,7 +1499,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "GREIX nominal, quality-adjusted apartment indices from completed local sales, rebased to each city's 2025 annual average = 100. These cities are examples; the API retains all published GREIX city/property series. They do not represent Germany as a whole or advertised asking prices."
+                  "description": "Select any imported GREIX apartment region above. Nominal, quality-adjusted completed-sale index rebased to that region's 2025 annual average = 100. It is neither a Germany-wide index nor an asking-price series."
                 },
                 {
                   "id": 43,
@@ -2475,13 +2436,13 @@ spec:
                 },
                 {
                   "id": 20,
-                  "title": "Average price per m² by first-seen month",
+                  "title": "Median asking price per m² · first-seen month",
                   "type": "barchart",
                   "gridPos": {
                     "x": 0,
                     "y": 153,
                     "w": 12,
-                    "h": 9
+                    "h": 14
                   },
                   "datasource": {
                     "type": "prometheus",
@@ -2489,7 +2450,7 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month[36h]) > 0",
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_month[36h]) > 0",
                       "refId": "A",
                       "instant": true,
                       "format": "table"
@@ -2510,7 +2471,7 @@ spec:
                   },
                   "options": {
                     "xField": "month",
-                    "orientation": "vertical",
+                    "orientation": "horizontal",
                     "showValue": "never",
                     "legend": {
                       "showLegend": false
@@ -2519,17 +2480,17 @@ spec:
                       "mode": "single"
                     }
                   },
-                  "description": "Deduplicated first-seen monthly cohorts, including verified dated Freddy records. These are latest observed asking prices grouped by first-seen month, not historical sale prices."
+                  "description": "Latest observed asking price per m² of deduplicated properties grouped by first-seen month; includes verified imported listings. Median limits distortion from small-area source outliers. See the cohort-size chart below before interpreting sparse periods. This is not a completed-sale price history."
                 },
                 {
                   "id": 21,
-                  "title": "Average price per m² by first-seen quarter",
+                  "title": "Median asking price per m² · first-seen quarter",
                   "type": "barchart",
                   "gridPos": {
                     "x": 12,
                     "y": 153,
                     "w": 12,
-                    "h": 9
+                    "h": 14
                   },
                   "datasource": {
                     "type": "prometheus",
@@ -2537,7 +2498,7 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter[36h]) > 0",
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_quarter[36h]) > 0",
                       "refId": "A",
                       "instant": true,
                       "format": "table"
@@ -2558,7 +2519,7 @@ spec:
                   },
                   "options": {
                     "xField": "quarter",
-                    "orientation": "vertical",
+                    "orientation": "horizontal",
                     "showValue": "never",
                     "legend": {
                       "showLegend": false
@@ -2567,7 +2528,7 @@ spec:
                       "mode": "single"
                     }
                   },
-                  "description": "Mean asking price per m² grouped by the earliest first-seen quarter across a property's source listings."
+                  "description": "Latest observed asking price per m² of deduplicated properties grouped by first-seen quarter; includes verified imported listings. Median limits distortion from small-area source outliers. See the cohort-size chart below before interpreting sparse periods. This is not a completed-sale price history."
                 },
                 {
                   "id": 22,
@@ -2575,7 +2536,7 @@ spec:
                   "type": "barchart",
                   "gridPos": {
                     "x": 0,
-                    "y": 162,
+                    "y": 176,
                     "w": 12,
                     "h": 9
                   },
@@ -2623,7 +2584,7 @@ spec:
                   "type": "barchart",
                   "gridPos": {
                     "x": 0,
-                    "y": 171,
+                    "y": 185,
                     "w": 24,
                     "h": 9
                   },
@@ -2675,7 +2636,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 180,
+                    "y": 194,
                     "w": 6,
                     "h": 5
                   },
@@ -2717,7 +2678,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 180,
+                    "y": 194,
                     "w": 6,
                     "h": 5
                   },
@@ -2759,7 +2720,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 180,
+                    "y": 194,
                     "w": 12,
                     "h": 8
                   },
@@ -2789,7 +2750,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 188,
+                    "y": 202,
                     "w": 12,
                     "h": 8
                   },
@@ -2831,7 +2792,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 188,
+                    "y": 202,
                     "w": 12,
                     "h": 8
                   },
@@ -2873,7 +2834,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 196,
+                    "y": 210,
                     "w": 12,
                     "h": 8
                   },
@@ -2915,7 +2876,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 196,
+                    "y": 210,
                     "w": 6,
                     "h": 5
                   },
@@ -2957,7 +2918,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 204,
+                    "y": 218,
                     "w": 12,
                     "h": 9
                   },
@@ -2996,7 +2957,7 @@ spec:
                   "collapsed": false,
                   "gridPos": {
                     "x": 0,
-                    "y": 213,
+                    "y": 227,
                     "w": 24,
                     "h": 1
                   },
@@ -3012,7 +2973,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 214,
+                    "y": 228,
                     "w": 6,
                     "h": 5
                   },
@@ -3040,7 +3001,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 214,
+                    "y": 228,
                     "w": 6,
                     "h": 5
                   },
@@ -3068,7 +3029,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 214,
+                    "y": 228,
                     "w": 6,
                     "h": 5
                   },
@@ -3096,7 +3057,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 214,
+                    "y": 228,
                     "w": 6,
                     "h": 5
                   },
@@ -3120,7 +3081,7 @@ spec:
                   "type": "bargauge",
                   "gridPos": {
                     "x": 0,
-                    "y": 219,
+                    "y": 233,
                     "w": 12,
                     "h": 9
                   },
@@ -3156,7 +3117,7 @@ spec:
                   "type": "text",
                   "gridPos": {
                     "x": 12,
-                    "y": 219,
+                    "y": 233,
                     "w": 12,
                     "h": 9
                   },
@@ -3173,7 +3134,7 @@ spec:
                   "collapsed": false,
                   "gridPos": {
                     "x": 0,
-                    "y": 228,
+                    "y": 242,
                     "w": 24,
                     "h": 1
                   },
@@ -3189,7 +3150,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 229,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -3209,7 +3170,7 @@ spec:
                 },
                 {
                   "id": 67,
-                  "title": "Identified houses in the database",
+                  "title": "Current listings classified as houses",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -3217,7 +3178,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 229,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -3233,7 +3194,7 @@ spec:
                       "unit": "short"
                     }
                   },
-                  "description": "Lower bound: current deduplicated properties classified as detached, semi-detached, multi-family or terraced houses."
+                  "description": "Current deduplicated properties classified as detached, semi-detached, multi-family or terraced houses. Manually imported legacy listings remain in the historical corpus but are excluded from current inventory and lack verified house types. Use the all-properties KPI for the combined historical corpus."
                 },
                 {
                   "id": 68,
@@ -3245,7 +3206,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 229,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -3269,7 +3230,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 229,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -3297,7 +3258,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 0,
-                    "y": 234,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -3325,7 +3286,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 6,
-                    "y": 234,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -3353,7 +3314,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 234,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -3383,7 +3344,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 234,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -3428,7 +3389,7 @@ spec:
                   "type": "timeseries",
                   "gridPos": {
                     "x": 0,
-                    "y": 239,
+                    "y": 253,
                     "w": 12,
                     "h": 8
                   },
@@ -3461,7 +3422,7 @@ spec:
                   "type": "timeseries",
                   "gridPos": {
                     "x": 12,
-                    "y": 239,
+                    "y": 253,
                     "w": 12,
                     "h": 8
                   },
@@ -3490,7 +3451,7 @@ spec:
                   "type": "bargauge",
                   "gridPos": {
                     "x": 0,
-                    "y": 247,
+                    "y": 261,
                     "w": 12,
                     "h": 8
                   },
@@ -3524,7 +3485,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 247,
+                    "y": 261,
                     "w": 6,
                     "h": 5
                   },
@@ -3565,7 +3526,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 247,
+                    "y": 261,
                     "w": 6,
                     "h": 5
                   },
@@ -3593,7 +3554,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 0,
-                    "y": 255,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -3621,7 +3582,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 6,
-                    "y": 255,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -3649,7 +3610,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 255,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -3681,7 +3642,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 255,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -3723,7 +3684,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 260,
+                    "y": 274,
                     "w": 6,
                     "h": 5
                   },
@@ -3765,7 +3726,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 260,
+                    "y": 274,
                     "w": 12,
                     "h": 8
                   },
@@ -3795,7 +3756,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 260,
+                    "y": 274,
                     "w": 6,
                     "h": 5
                   },
@@ -3850,7 +3811,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 268,
+                    "y": 282,
                     "w": 6,
                     "h": 5
                   },
@@ -3892,7 +3853,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 268,
+                    "y": 282,
                     "w": 12,
                     "h": 9
                   },
@@ -3938,6 +3899,102 @@ spec:
                     }
                   },
                   "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
+                },
+                {
+                  "id": 87,
+                  "title": "Priced properties in first-seen month cohort",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 167,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month_properties[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "xField": "month",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen month. A small count makes any cohort price statistic unstable."
+                },
+                {
+                  "id": 88,
+                  "title": "Priced properties in first-seen quarter cohort",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 167,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter_properties[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "xField": "quarter",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen quarter. A small count makes any cohort price statistic unstable."
                 }
               ]
             }
