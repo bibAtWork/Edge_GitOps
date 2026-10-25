@@ -8,7 +8,7 @@ resources:
 - web.yaml
 - collector.yaml
 - macro.yaml
-- house-indices.yaml
+- market-data.yaml
 - etf-benchmark.yaml
 - auctions.yaml
 - access.yaml
