@@ -127,7 +127,7 @@ spec:
               ],
               "timezone": "browser",
               "schemaVersion": 39,
-              "version": 6,
+              "version": 7,
               "refresh": "1d",
               "time": {
                 "from": "now-1y",
@@ -175,6 +175,72 @@ spec:
                     "current": {
                       "text": "All",
                       "value": "$__all"
+                    }
+                  },
+                  {
+                    "name": "population_states",
+                    "label": "Bundesländer",
+                    "type": "custom",
+                    "query": "Baden-Württemberg : DE1, Bayern : DE2, Berlin : DE3, Brandenburg : DE4, Bremen : DE5, Hamburg : DE6, Hessen : DE7, Mecklenburg-Vorpommern : DE8, Niedersachsen : DE9, Nordrhein-Westfalen : DEA, Rheinland-Pfalz : DEB, Saarland : DEC, Sachsen : DED, Sachsen-Anhalt : DEE, Schleswig-Holstein : DEF, Thüringen : DEG",
+                    "multi": true,
+                    "includeAll": true,
+                    "allValue": ".*",
+                    "current": {
+                      "text": [
+                        "Baden-Württemberg",
+                        "Bayern",
+                        "Hessen"
+                      ],
+                      "value": [
+                        "DE1",
+                        "DE2",
+                        "DE7"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "greix_region",
+                    "label": "GREIX region",
+                    "type": "query",
+                    "datasource": {
+                      "type": "yesoreyeram-infinity-datasource",
+                      "uid": "screener-rate-history"
+                    },
+                    "query": {
+                      "queryType": "infinity",
+                      "query": "",
+                      "infinityQuery": {
+                        "type": "json",
+                        "source": "url",
+                        "parser": "backend",
+                        "format": "table",
+                        "root_selector": "rows",
+                        "url": "http://screener-web.real-estate-screener.svc:3000/api/greix-regions",
+                        "url_options": {
+                          "method": "GET"
+                        },
+                        "columns": [
+                          {
+                            "selector": "__text",
+                            "text": "__text",
+                            "type": "string"
+                          },
+                          {
+                            "selector": "__value",
+                            "text": "__value",
+                            "type": "string"
+                          }
+                        ],
+                        "refId": "variable"
+                      }
+                    },
+                    "refresh": 1,
+                    "multi": false,
+                    "includeAll": false,
+                    "options": [],
+                    "current": {
+                      "text": "Stuttgart",
+                      "value": "greix-city-9"
                     }
                   }
                 ]
@@ -600,7 +666,7 @@ spec:
                       "unit": "percent"
                     }
                   },
-                  "description": "Year-end to year-end EUR price return of EUNL (Xetra), an MSCI World ETF proxy, excluding distributions and fees. Appears after a verified historical EUNL close-price import.",
+                  "description": "Year-end to year-end EUR market-close return of EUNL.DE (Xetra), an MSCI World ETF proxy. Yahoo Finance chart JSON is ingested daily. This accumulating ETF reflects reinvested income and fund expenses, but is not the licensed MSCI index.",
                   "transformations": [
                     {
                       "id": "labelsToFields",
@@ -623,7 +689,7 @@ spec:
                 },
                 {
                   "id": 71,
-                  "title": "ETF benchmark · data availability",
+                  "title": "MSCI World ETF proxy · source and interpretation",
                   "type": "text",
                   "gridPos": {
                     "x": 12,
@@ -633,9 +699,392 @@ spec:
                   },
                   "options": {
                     "mode": "markdown",
-                    "content": "**Historical EUR EUNL closes have not yet been imported.** The annual-return chart remains empty until a verified Xetra EUR price CSV is loaded into the screener. Values from another currency or a different fund would not be comparable.",
+                    "content": "**EUNL.DE (Xetra, EUR)** is an MSCI World ETF price proxy, not the licensed MSCI index. A daily job imports Yahoo Finance chart JSON, the feed used by Portfolio Performance. Its interface is undocumented and can fail; the last verified import remains available. Annual bars compare year-end market closes of an accumulating ETF; reinvested income is reflected in its price and fund expenses are embedded. Investor taxes and trading costs are excluded. [Portfolio Performance source](https://github.com/portfolio-performance/portfolio/blob/master/name.abuchen.portfolio/src/name/abuchen/portfolio/online/impl/YahooFinanceQuoteFeed.java).",
                     "code": false
                   }
+                },
+                {
+                  "id": 72,
+                  "title": "Population · Germany, historical",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "30y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 30,
+                    "w": 8,
+                    "h": 12
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/population-history?scope=country",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Germany",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Eurostat resident population on 1 January, annual observations since the source first provides them."
+                },
+                {
+                  "id": 73,
+                  "title": "Population · all Bundesländer, historical",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "30y",
+                  "gridPos": {
+                    "x": 8,
+                    "y": 30,
+                    "w": 16,
+                    "h": 12
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/population-history?scope=states",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "DE1",
+                          "text": "DE1",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE2",
+                          "text": "DE2",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE3",
+                          "text": "DE3",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE4",
+                          "text": "DE4",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE5",
+                          "text": "DE5",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE6",
+                          "text": "DE6",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE7",
+                          "text": "DE7",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE8",
+                          "text": "DE8",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE9",
+                          "text": "DE9",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEA",
+                          "text": "DEA",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEB",
+                          "text": "DEB",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEC",
+                          "text": "DEC",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DED",
+                          "text": "DED",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEE",
+                          "text": "DEE",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEF",
+                          "text": "DEF",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEG",
+                          "text": "DEG",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": [
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE1"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Baden-Württemberg"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE2"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Bayern"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE3"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Berlin"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE4"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Brandenburg"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE5"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Bremen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE6"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Hamburg"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE7"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Hessen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE8"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Mecklenburg-Vorpommern"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE9"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Niedersachsen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEA"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Nordrhein-Westfalen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEB"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Rheinland-Pfalz"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEC"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Saarland"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DED"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Sachsen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEE"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Sachsen-Anhalt"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEF"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Schleswig-Holstein"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEG"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Thüringen"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "description": "Eurostat published NUTS1 resident population on 1 January for all 16 Bundesländer. Only years with all 16 states are shown. Select any state above.",
+                  "transformations": [
+                    {
+                      "id": "filterFieldsByName",
+                      "options": {
+                        "include": {
+                          "pattern": "^(Time|${population_states:regex})$"
+                        }
+                      }
+                    }
+                  ]
                 },
                 {
                   "id": 54,
@@ -647,7 +1096,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 30,
+                    "y": 43,
                     "w": 6,
                     "h": 5
                   },
@@ -675,7 +1124,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 30,
+                    "y": 43,
                     "w": 6,
                     "h": 5
                   },
@@ -691,7 +1140,7 @@ spec:
                       "unit": "short"
                     }
                   },
-                  "description": "Sum of Eurostat NUTS3 observations for one common annual period."
+                  "description": "Latest published Eurostat NUTS1 state observation."
                 },
                 {
                   "id": 56,
@@ -703,7 +1152,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 30,
+                    "y": 43,
                     "w": 6,
                     "h": 5
                   },
@@ -719,7 +1168,7 @@ spec:
                       "unit": "short"
                     }
                   },
-                  "description": "Sum of Eurostat NUTS3 observations for one common annual period."
+                  "description": "Latest published Eurostat NUTS1 state observation."
                 },
                 {
                   "id": 57,
@@ -731,7 +1180,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 30,
+                    "y": 43,
                     "w": 6,
                     "h": 5
                   },
@@ -747,7 +1196,7 @@ spec:
                       "unit": "short"
                     }
                   },
-                  "description": "Sum of Eurostat NUTS3 observations for one common annual period."
+                  "description": "Latest published Eurostat NUTS1 state observation."
                 },
                 {
                   "id": 70,
@@ -755,7 +1204,7 @@ spec:
                   "type": "text",
                   "gridPos": {
                     "x": 0,
-                    "y": 35,
+                    "y": 48,
                     "w": 12,
                     "h": 7
                   },
@@ -767,17 +1216,17 @@ spec:
                 },
                 {
                   "id": 58,
-                  "title": "Median owner age and property distress · definition needed",
+                  "title": "Property distress · future proxy and coverage gate",
                   "type": "text",
                   "gridPos": {
                     "x": 12,
-                    "y": 35,
+                    "y": 48,
                     "w": 12,
                     "h": 7
                   },
                   "options": {
                     "mode": "markdown",
-                    "content": "**Official-data gap:** the screener does not identify legal owners or owner ages. Age of residents in owner-occupied homes is not the median age of property owners. For distress, a defensible proxy would be **new residential foreclosure notices per 100,000 residential dwellings**, using deduplicated court notices and an official annual dwelling-stock denominator, labelled with court coverage and lag. The current auction feed lacks residential classification; do not call appointment counts an insolvency rate.",
+                    "content": "**Future distress proxy:** new, deduplicated *residential foreclosure notices* first observed during a rolling 12 months ÷ Germany’s official year-end stock of residential dwellings × 100,000. Destatis [table 31231-0001](https://genesis.destatis.de/datenbank/online/statistic/31231/table/31231-0001) reports 43,951,556 dwellings in residential and non-residential buildings at 31 Dec 2025. Publish the rate only after all 16 state feeds have a complete 12-month observation window, stable notice IDs, and a verified residential-property classifier; show numerator, denominator vintage and court coverage beside it. The current appointment overview cannot establish a national foreclosure or insolvency rate. Median legal-owner age remains unavailable.",
                     "code": false
                   }
                 },
@@ -792,7 +1241,7 @@ spec:
                   "timeFrom": "6y",
                   "gridPos": {
                     "x": 0,
-                    "y": 42,
+                    "y": 55,
                     "w": 24,
                     "h": 9
                   },
@@ -901,7 +1350,7 @@ spec:
                   "timeFrom": "22y",
                   "gridPos": {
                     "x": 0,
-                    "y": 51,
+                    "y": 64,
                     "w": 24,
                     "h": 9
                   },
@@ -1001,7 +1450,7 @@ spec:
                 },
                 {
                   "id": 48,
-                  "title": "GREIX completed-sale apartment indices · selected cities (2025=100)",
+                  "title": "GREIX completed-sale apartment index · ${greix_region:text} (2025=100)",
                   "type": "timeseries",
                   "datasource": {
                     "type": "yesoreyeram-infinity-datasource",
@@ -1010,7 +1459,7 @@ spec:
                   "timeFrom": "27y",
                   "gridPos": {
                     "x": 0,
-                    "y": 60,
+                    "y": 73,
                     "w": 24,
                     "h": 9
                   },
@@ -1021,7 +1470,7 @@ spec:
                       "parser": "backend",
                       "format": "timeseries",
                       "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-1&property=apartment",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=${greix_region}&property=apartment",
                       "url_options": {
                         "method": "GET"
                       },
@@ -1033,95 +1482,11 @@ spec:
                         },
                         {
                           "selector": "value",
-                          "text": "Berlin",
+                          "text": "Index",
                           "type": "number"
                         }
                       ],
                       "refId": "A",
-                      "datasource": {
-                        "type": "yesoreyeram-infinity-datasource",
-                        "uid": "screener-rate-history"
-                      }
-                    },
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-10&property=apartment",
-                      "url_options": {
-                        "method": "GET"
-                      },
-                      "columns": [
-                        {
-                          "selector": "time",
-                          "text": "Time",
-                          "type": "timestamp"
-                        },
-                        {
-                          "selector": "value",
-                          "text": "Munich",
-                          "type": "number"
-                        }
-                      ],
-                      "refId": "B",
-                      "datasource": {
-                        "type": "yesoreyeram-infinity-datasource",
-                        "uid": "screener-rate-history"
-                      }
-                    },
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-4&property=apartment",
-                      "url_options": {
-                        "method": "GET"
-                      },
-                      "columns": [
-                        {
-                          "selector": "time",
-                          "text": "Time",
-                          "type": "timestamp"
-                        },
-                        {
-                          "selector": "value",
-                          "text": "Cologne",
-                          "type": "number"
-                        }
-                      ],
-                      "refId": "C",
-                      "datasource": {
-                        "type": "yesoreyeram-infinity-datasource",
-                        "uid": "screener-rate-history"
-                      }
-                    },
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=greix-city-2&property=apartment",
-                      "url_options": {
-                        "method": "GET"
-                      },
-                      "columns": [
-                        {
-                          "selector": "time",
-                          "text": "Time",
-                          "type": "timestamp"
-                        },
-                        {
-                          "selector": "value",
-                          "text": "Frankfurt",
-                          "type": "number"
-                        }
-                      ],
-                      "refId": "D",
                       "datasource": {
                         "type": "yesoreyeram-infinity-datasource",
                         "uid": "screener-rate-history"
@@ -1134,7 +1499,7 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "GREIX nominal, quality-adjusted apartment indices from completed local sales, rebased to each city's 2025 annual average = 100. These cities are examples; the API retains all published GREIX city/property series. They do not represent Germany as a whole or advertised asking prices."
+                  "description": "Select any imported GREIX apartment region above. Nominal, quality-adjusted completed-sale index rebased to that region's 2025 annual average = 100. It is neither a Germany-wide index nor an asking-price series."
                 },
                 {
                   "id": 43,
@@ -1143,7 +1508,7 @@ spec:
                   "collapsed": false,
                   "gridPos": {
                     "x": 0,
-                    "y": 69,
+                    "y": 82,
                     "w": 24,
                     "h": 1
                   },
@@ -1159,7 +1524,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 70,
+                    "y": 83,
                     "w": 8,
                     "h": 8
                   },
@@ -1207,7 +1572,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 8,
-                    "y": 70,
+                    "y": 83,
                     "w": 8,
                     "h": 8
                   },
@@ -1255,7 +1620,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 16,
-                    "y": 70,
+                    "y": 83,
                     "w": 8,
                     "h": 8
                   },
@@ -1303,7 +1668,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 78,
+                    "y": 91,
                     "w": 8,
                     "h": 8
                   },
@@ -1351,7 +1716,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 8,
-                    "y": 78,
+                    "y": 91,
                     "w": 8,
                     "h": 8
                   },
@@ -1399,7 +1764,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 16,
-                    "y": 78,
+                    "y": 91,
                     "w": 8,
                     "h": 8
                   },
@@ -1438,6 +1803,294 @@ spec:
                   }
                 },
                 {
+                  "id": 74,
+                  "title": "Reutlingen · cohort size by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 99,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_properties{region=\"Reutlingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 75,
+                  "title": "Tübingen · cohort size by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 8,
+                    "y": 99,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_properties{region=\"Tübingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 76,
+                  "title": "Stuttgarter Speckgürtel · cohort size by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 16,
+                    "y": 99,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_properties{region=\"Stuttgarter Speckgürtel\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 77,
+                  "title": "Reutlingen · cohort size by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 107,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_properties{region=\"Reutlingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 78,
+                  "title": "Tübingen · cohort size by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 8,
+                    "y": 107,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_properties{region=\"Tübingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 79,
+                  "title": "Stuttgarter Speckgürtel · cohort size by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 16,
+                    "y": 107,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_properties{region=\"Stuttgarter Speckgürtel\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
                   "id": 65,
                   "title": "Mean asking price by PLZ3 · first seen in last 12 months",
                   "type": "barchart",
@@ -1447,7 +2100,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 86,
+                    "y": 115,
                     "w": 24,
                     "h": 8
                   },
@@ -1491,7 +2144,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 0,
-                    "y": 94,
+                    "y": 123,
                     "w": 6,
                     "h": 5
                   },
@@ -1519,7 +2172,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 6,
-                    "y": 94,
+                    "y": 123,
                     "w": 6,
                     "h": 5
                   },
@@ -1547,7 +2200,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 94,
+                    "y": 123,
                     "w": 6,
                     "h": 5
                   },
@@ -1574,7 +2227,7 @@ spec:
                   "type": "bargauge",
                   "gridPos": {
                     "x": 0,
-                    "y": 99,
+                    "y": 128,
                     "w": 12,
                     "h": 8
                   },
@@ -1607,7 +2260,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 99,
+                    "y": 128,
                     "w": 6,
                     "h": 5
                   },
@@ -1635,7 +2288,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 99,
+                    "y": 128,
                     "w": 6,
                     "h": 5
                   },
@@ -1663,7 +2316,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 0,
-                    "y": 107,
+                    "y": 136,
                     "w": 6,
                     "h": 5
                   },
@@ -1691,7 +2344,7 @@ spec:
                   "type": "timeseries",
                   "gridPos": {
                     "x": 6,
-                    "y": 107,
+                    "y": 136,
                     "w": 12,
                     "h": 8
                   },
@@ -1725,7 +2378,7 @@ spec:
                   "type": "timeseries",
                   "gridPos": {
                     "x": 0,
-                    "y": 115,
+                    "y": 144,
                     "w": 12,
                     "h": 8
                   },
@@ -1753,7 +2406,7 @@ spec:
                   "type": "bargauge",
                   "gridPos": {
                     "x": 12,
-                    "y": 115,
+                    "y": 144,
                     "w": 12,
                     "h": 9
                   },
@@ -1783,13 +2436,13 @@ spec:
                 },
                 {
                   "id": 20,
-                  "title": "Average price per m² by first-seen month",
+                  "title": "Median asking price per m² · first-seen month",
                   "type": "barchart",
                   "gridPos": {
                     "x": 0,
-                    "y": 124,
+                    "y": 153,
                     "w": 12,
-                    "h": 9
+                    "h": 14
                   },
                   "datasource": {
                     "type": "prometheus",
@@ -1797,7 +2450,7 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month[36h]) > 0",
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_month[36h]) > 0",
                       "refId": "A",
                       "instant": true,
                       "format": "table"
@@ -1818,7 +2471,7 @@ spec:
                   },
                   "options": {
                     "xField": "month",
-                    "orientation": "vertical",
+                    "orientation": "horizontal",
                     "showValue": "never",
                     "legend": {
                       "showLegend": false
@@ -1827,17 +2480,17 @@ spec:
                       "mode": "single"
                     }
                   },
-                  "description": "Deduplicated first-seen monthly cohorts, including verified dated Freddy records. These are latest observed asking prices grouped by first-seen month, not historical sale prices."
+                  "description": "Latest observed asking price per m² of deduplicated properties grouped by first-seen month; includes verified imported listings. Median limits distortion from small-area source outliers. See the cohort-size chart below before interpreting sparse periods. This is not a completed-sale price history."
                 },
                 {
                   "id": 21,
-                  "title": "Average price per m² by first-seen quarter",
+                  "title": "Median asking price per m² · first-seen quarter",
                   "type": "barchart",
                   "gridPos": {
                     "x": 12,
-                    "y": 124,
+                    "y": 153,
                     "w": 12,
-                    "h": 9
+                    "h": 14
                   },
                   "datasource": {
                     "type": "prometheus",
@@ -1845,7 +2498,7 @@ spec:
                   },
                   "targets": [
                     {
-                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter[36h]) > 0",
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_quarter[36h]) > 0",
                       "refId": "A",
                       "instant": true,
                       "format": "table"
@@ -1866,7 +2519,7 @@ spec:
                   },
                   "options": {
                     "xField": "quarter",
-                    "orientation": "vertical",
+                    "orientation": "horizontal",
                     "showValue": "never",
                     "legend": {
                       "showLegend": false
@@ -1875,7 +2528,7 @@ spec:
                       "mode": "single"
                     }
                   },
-                  "description": "Mean asking price per m² grouped by the earliest first-seen quarter across a property's source listings."
+                  "description": "Latest observed asking price per m² of deduplicated properties grouped by first-seen quarter; includes verified imported listings. Median limits distortion from small-area source outliers. See the cohort-size chart below before interpreting sparse periods. This is not a completed-sale price history."
                 },
                 {
                   "id": 22,
@@ -1883,7 +2536,7 @@ spec:
                   "type": "barchart",
                   "gridPos": {
                     "x": 0,
-                    "y": 133,
+                    "y": 176,
                     "w": 12,
                     "h": 9
                   },
@@ -1931,7 +2584,7 @@ spec:
                   "type": "barchart",
                   "gridPos": {
                     "x": 0,
-                    "y": 142,
+                    "y": 185,
                     "w": 24,
                     "h": 9
                   },
@@ -1983,7 +2636,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 151,
+                    "y": 194,
                     "w": 6,
                     "h": 5
                   },
@@ -2025,7 +2678,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 151,
+                    "y": 194,
                     "w": 6,
                     "h": 5
                   },
@@ -2067,7 +2720,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 151,
+                    "y": 194,
                     "w": 12,
                     "h": 8
                   },
@@ -2097,7 +2750,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 159,
+                    "y": 202,
                     "w": 12,
                     "h": 8
                   },
@@ -2139,7 +2792,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 159,
+                    "y": 202,
                     "w": 12,
                     "h": 8
                   },
@@ -2181,7 +2834,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 167,
+                    "y": 210,
                     "w": 12,
                     "h": 8
                   },
@@ -2223,7 +2876,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 167,
+                    "y": 210,
                     "w": 6,
                     "h": 5
                   },
@@ -2265,7 +2918,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 175,
+                    "y": 218,
                     "w": 12,
                     "h": 9
                   },
@@ -2298,13 +2951,190 @@ spec:
                   "description": "Only states with a successful public overview in the past 48 hours appear; a valid zero-result state displays 0."
                 },
                 {
+                  "id": 80,
+                  "title": "Listing dynamics · observed inventory and collection quality",
+                  "type": "row",
+                  "collapsed": false,
+                  "gridPos": {
+                    "x": 0,
+                    "y": 227,
+                    "w": 24,
+                    "h": 1
+                  },
+                  "panels": []
+                },
+                {
+                  "id": 81,
+                  "title": "Median active listing age",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_median_active_listing_age_days[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "d"
+                    }
+                  },
+                  "description": "Median days since first seen for non-imported listings sighted in the last 48 hours; this is not time-to-sale."
+                },
+                {
+                  "id": 82,
+                  "title": "Listings with observed asking-price cut",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_price_cut_share_percent[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    }
+                  },
+                  "description": "Share of active priced source listings with at least one decrease between successive saved snapshots."
+                },
+                {
+                  "id": 83,
+                  "title": "Median largest observed cut",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_median_largest_price_cut_percent[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    }
+                  },
+                  "description": "For listings with a recorded cut, median of each listing’s largest previous-to-next asking-price decrease."
+                },
+                {
+                  "id": 84,
+                  "title": "Priced listing cut sample",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_price_cut_sample[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Active source listings with at least one positive priced snapshot; duplicates across portals are not merged in this metric."
+                },
+                {
+                  "id": 85,
+                  "title": "Search success by source · last 7 days",
+                  "type": "bargauge",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 233,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_search_success_7d_percent[36h])",
+                      "refId": "A",
+                      "legendFormat": "{{provider}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent",
+                      "min": 0,
+                      "max": 100
+                    }
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true
+                  },
+                  "description": "Completed successful search runs / all completed search runs by provider over seven days. A source with no attempts is absent rather than shown as 100%."
+                },
+                {
+                  "id": 86,
+                  "title": "Definitions and limits",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 233,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "**Listing age** is observed first-seen age of recently sighted listings, not a sale duration. **Price cuts** require two priced snapshots; changes before collection started are unknown. **Search success** measures query runs, not the fraction of website listings captured. Check each regional cohort-size chart before interpreting a price change.",
+                    "code": false
+                  }
+                },
+                {
                   "id": 69,
                   "title": "System metrics · freshness, coverage and inventory",
                   "type": "row",
                   "collapsed": false,
                   "gridPos": {
                     "x": 0,
-                    "y": 184,
+                    "y": 242,
                     "w": 24,
                     "h": 1
                   },
@@ -2320,7 +3150,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 185,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -2340,7 +3170,7 @@ spec:
                 },
                 {
                   "id": 67,
-                  "title": "Identified houses in the database",
+                  "title": "Current listings classified as houses",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -2348,7 +3178,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 185,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -2364,7 +3194,7 @@ spec:
                       "unit": "short"
                     }
                   },
-                  "description": "Lower bound: current deduplicated properties classified as detached, semi-detached, multi-family or terraced houses."
+                  "description": "Current deduplicated properties classified as detached, semi-detached, multi-family or terraced houses. Manually imported legacy listings remain in the historical corpus but are excluded from current inventory and lack verified house types. Use the all-properties KPI for the combined historical corpus."
                 },
                 {
                   "id": 68,
@@ -2376,7 +3206,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 185,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -2400,7 +3230,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 185,
+                    "y": 243,
                     "w": 6,
                     "h": 5
                   },
@@ -2428,7 +3258,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 0,
-                    "y": 190,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -2456,7 +3286,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 6,
-                    "y": 190,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -2484,7 +3314,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 190,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -2514,7 +3344,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 190,
+                    "y": 248,
                     "w": 6,
                     "h": 5
                   },
@@ -2559,7 +3389,7 @@ spec:
                   "type": "timeseries",
                   "gridPos": {
                     "x": 0,
-                    "y": 195,
+                    "y": 253,
                     "w": 12,
                     "h": 8
                   },
@@ -2592,7 +3422,7 @@ spec:
                   "type": "timeseries",
                   "gridPos": {
                     "x": 12,
-                    "y": 195,
+                    "y": 253,
                     "w": 12,
                     "h": 8
                   },
@@ -2621,7 +3451,7 @@ spec:
                   "type": "bargauge",
                   "gridPos": {
                     "x": 0,
-                    "y": 203,
+                    "y": 261,
                     "w": 12,
                     "h": 8
                   },
@@ -2655,7 +3485,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 203,
+                    "y": 261,
                     "w": 6,
                     "h": 5
                   },
@@ -2696,7 +3526,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 18,
-                    "y": 203,
+                    "y": 261,
                     "w": 6,
                     "h": 5
                   },
@@ -2724,7 +3554,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 0,
-                    "y": 211,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -2752,7 +3582,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 6,
-                    "y": 211,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -2780,7 +3610,7 @@ spec:
                   "type": "stat",
                   "gridPos": {
                     "x": 12,
-                    "y": 211,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -2812,7 +3642,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 211,
+                    "y": 269,
                     "w": 6,
                     "h": 5
                   },
@@ -2854,7 +3684,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 216,
+                    "y": 274,
                     "w": 6,
                     "h": 5
                   },
@@ -2896,7 +3726,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 216,
+                    "y": 274,
                     "w": 12,
                     "h": 8
                   },
@@ -2926,7 +3756,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 216,
+                    "y": 274,
                     "w": 6,
                     "h": 5
                   },
@@ -2981,7 +3811,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 224,
+                    "y": 282,
                     "w": 6,
                     "h": 5
                   },
@@ -3023,7 +3853,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 6,
-                    "y": 224,
+                    "y": 282,
                     "w": 12,
                     "h": 9
                   },
@@ -3069,6 +3899,102 @@ spec:
                     }
                   },
                   "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
+                },
+                {
+                  "id": 87,
+                  "title": "Priced properties in first-seen month cohort",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 167,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month_properties[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "xField": "month",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen month. A small count makes any cohort price statistic unstable."
+                },
+                {
+                  "id": 88,
+                  "title": "Priced properties in first-seen quarter cohort",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 167,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter_properties[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "xField": "quarter",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen quarter. A small count makes any cohort price statistic unstable."
                 }
               ]
             }

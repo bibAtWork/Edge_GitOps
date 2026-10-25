@@ -9,6 +9,7 @@ resources:
 - collector.yaml
 - macro.yaml
 - house-indices.yaml
+- etf-benchmark.yaml
 - auctions.yaml
 - access.yaml
 configMapGenerator:

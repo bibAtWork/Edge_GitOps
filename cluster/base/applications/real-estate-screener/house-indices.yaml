@@ -31,7 +31,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: house-indices
-            image: ghcr.io/bibatwork/real-estate-screener:v1.7.0@sha256:21bc74d72058fe03a4732181d25fb0d960c4b82eb7acc40ab1f81d586ed4ee3c
+            image: ghcr.io/bibatwork/real-estate-screener:v1.9.0@sha256:16651404b9ee06236a4fcd2aaa59aa2eb833f050f83d207c4e517f9921acbbf0
             imagePullPolicy: Always
             args:
             - house-index-sync
@@ -63,7 +63,7 @@ spec:
               sizeLimit: 64Mi
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.7.0@sha256:21bc74d72058fe03a4732181d25fb0d960c4b82eb7acc40ab1f81d586ed4ee3c
+            image: ghcr.io/bibatwork/real-estate-screener:v1.9.0@sha256:16651404b9ee06236a4fcd2aaa59aa2eb833f050f83d207c4e517f9921acbbf0
             args:
             - migrate
             env:
