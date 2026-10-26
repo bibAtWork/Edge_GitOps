@@ -127,7 +127,7 @@ spec:
               ],
               "timezone": "browser",
               "schemaVersion": 39,
-              "version": 7,
+              "version": 8,
               "refresh": "1d",
               "time": {
                 "from": "now-1y",
@@ -253,6 +253,71 @@ spec:
                         "greix-city-2",
                         "greix-city-8"
                       ]
+                    }
+                  },
+                  {
+                    "name": "rental_municipality",
+                    "label": "Mietspiegel · Gemeinde",
+                    "type": "query",
+                    "datasource": {
+                      "type": "yesoreyeram-infinity-datasource",
+                      "uid": "screener-rate-history"
+                    },
+                    "query": {
+                      "queryType": "infinity",
+                      "query": "",
+                      "infinityQuery": {
+                        "type": "json",
+                        "source": "url",
+                        "parser": "backend",
+                        "format": "table",
+                        "root_selector": "rows",
+                        "url": "http://screener-web.real-estate-screener.svc:3000/api/rental-rate-cities",
+                        "url_options": {
+                          "method": "GET"
+                        },
+                        "columns": [
+                          {
+                            "selector": "__text",
+                            "text": "__text",
+                            "type": "string"
+                          },
+                          {
+                            "selector": "__value",
+                            "text": "__value",
+                            "type": "string"
+                          }
+                        ],
+                        "refId": "variable"
+                      }
+                    },
+                    "refresh": 1,
+                    "multi": false,
+                    "includeAll": false,
+                    "options": [],
+                    "current": {
+                      "text": "Stuttgart",
+                      "value": "Stuttgart"
+                    }
+                  },
+                  {
+                    "name": "rental_build_year",
+                    "label": "Mietspiegel · Baujahr",
+                    "type": "custom",
+                    "query": "1950,1990,2010",
+                    "current": {
+                      "text": "1990",
+                      "value": "1990"
+                    }
+                  },
+                  {
+                    "name": "rental_area",
+                    "label": "Mietspiegel · Wohnfläche (m²)",
+                    "type": "custom",
+                    "query": "50,75,100",
+                    "current": {
+                      "text": "75",
+                      "value": "75"
                     }
                   }
                 ]
@@ -1520,7 +1585,9 @@ spec:
                     {
                       "id": "partitionByValues",
                       "options": {
-                        "fields": ["City"]
+                        "fields": [
+                          "City"
+                        ]
                       }
                     }
                   ],
@@ -4020,6 +4087,199 @@ spec:
                     }
                   },
                   "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen quarter. A small count makes any cohort price statistic unstable."
+                },
+                {
+                  "id": 89,
+                  "title": "Mietspiegel · amtliche Referenzwerte",
+                  "type": "row",
+                  "collapsed": false,
+                  "gridPos": {
+                    "x": 0,
+                    "y": 291,
+                    "w": 24,
+                    "h": 1
+                  },
+                  "panels": []
+                },
+                {
+                  "id": 90,
+                  "title": "Ortsübliche Vergleichsmiete · Ausgaben im Zeitverlauf (€/m²)",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "20y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 292,
+                    "w": 24,
+                    "h": 10
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/rental-rate-history?municipality=${rental_municipality:percentencode}&build_year=${rental_build_year:raw}&living_area_m2=${rental_area:raw}",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "€/m²",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR",
+                      "decimals": 2,
+                      "custom": {
+                        "drawStyle": "points",
+                        "showPoints": "always",
+                        "lineWidth": 0,
+                        "pointSize": 7
+                      }
+                    }
+                  },
+                  "description": "Amtliche Mietspiegel-Ausgaben der gewählten Gemeinde; Datum = Ausgabejahr, nicht Gültigkeitsbeginn. Pro Ausgabe wird der ungewichtete Mittelwert der PLZ-Rasterwerte für gewähltes Baujahr und Wohnfläche gezeigt. Stadtweit identische Basiswerte werden nur einmal je Ausgabe sichtbar. Die Methoden der Städte sind nicht direkt vergleichbar; Tübingen 2016/2018 verwendet einen baujahrunabhängigen Drei-Zimmer-Referenzwert."
+                },
+                {
+                  "id": 91,
+                  "title": "Neueste Mietspiegel-Ausgabe · Referenzwert je PLZ",
+                  "type": "table",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 302,
+                    "w": 17,
+                    "h": 14
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "table",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/rental-rate-grid?municipality=${rental_municipality:percentencode}&build_year=${rental_build_year:raw}&living_area_m2=${rental_area:raw}",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "municipality",
+                          "text": "Gemeinde",
+                          "type": "string"
+                        },
+                        {
+                          "selector": "edition_year",
+                          "text": "Ausgabe",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "postal_code",
+                          "text": "PLZ",
+                          "type": "string"
+                        },
+                        {
+                          "selector": "price_eur_per_m2",
+                          "text": "€/m²",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "spatial_basis",
+                          "text": "Räumliche Basis",
+                          "type": "string"
+                        },
+                        {
+                          "selector": "location_count",
+                          "text": "Zuordnungen",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "build_year_independent",
+                          "text": "Baujahr-unabhängig",
+                          "type": "string"
+                        },
+                        {
+                          "selector": "calculation_method",
+                          "text": "Methode",
+                          "type": "string"
+                        },
+                        {
+                          "selector": "source_url",
+                          "text": "Amtliches PDF",
+                          "type": "string"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {},
+                    "overrides": [
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "€/m²"
+                        },
+                        "properties": [
+                          {
+                            "id": "unit",
+                            "value": "currencyEUR"
+                          },
+                          {
+                            "id": "decimals",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "options": {
+                    "showHeader": true
+                  },
+                  "description": "PLZ-Raster der neuesten importierten Ausgabe der gewählten Gemeinde für die gewählte Kombination aus Baujahr und Wohnfläche. Räumliche Basis=true bedeutet einen aus eindeutig zugeordneten Straßen-/Stadtteilangaben gemittelten PLZ-Wert; false kennzeichnet eine auf verifizierte PLZ übertragene gemeindeweite Referenz. Der PDF-Link und die Berechnungsmethode stehen je Zeile."
+                },
+                {
+                  "id": 92,
+                  "title": "Mietspiegel · Lesart und Grenzen",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 17,
+                    "y": 302,
+                    "w": 7,
+                    "h": 14
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "**Standardwohnung:** Wähle Baujahr 1950/1990/2010 und Wohnfläche 50/75/100 m² oben. Die Werte sind veröffentlichte Basis- bzw. berechnete Referenzmieten, keine Angebotsmieten einzelner Inserate.\n\n**Räumliche Basis:** `false` = gemeindeweiter Wert für die zugeordnete PLZ; `true` = ungewichteter Mittelwert der eindeutig zugeordneten örtlichen Angaben. Eine PLZ ist daher keine eigene Erhebung.\n\n**Historie:** Die Punkte markieren Ausgabejahre; fehlende Jahre werden nicht interpoliert. Tübingen 2016/2018 nutzt für alle Baujahre denselben Drei-Zimmer-Referenzwert und ist mit späteren Baujahrtabellen nur eingeschränkt vergleichbar.\n\nDie Original-PDFs und Extraktion bleiben im Cluster; die Tabelle zeigt berechnete Zahlen und einen Link zur amtlichen Quelle.",
+                    "code": false
+                  }
                 }
               ]
             }
