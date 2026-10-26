@@ -142,10 +142,12 @@ import, while any failed state makes the Job fail after the others are attempted
 Check the latest Job, `/api/appointments`, and state freshness metrics after runs.
 The job does not fetch court detail pages or reconstruct complete historical auctions.
 
-The [Real Estate Screener BI dashboard](https://grafana.homelab.data-harness.org/d/real-estate-screener-bi)
-uses VictoriaMetrics aggregates from that scrape. It shows the property inventory, asking-price
-medians, provider and energy-class mix, upcoming auction notices by Bundesland, and current official
-macro observations. These are observed screener records, not market-wide counts. The auction
+The [real-estate dashboard](https://grafana.homelab.data-harness.org/d/real-estate-lakehouse-bi)
+combines lakehouse Gold BI with live screener metrics, auctions, and official
+market benchmarks. Its live screener section uses VictoriaMetrics aggregates
+from that scrape: property inventory, asking-price medians, provider and
+energy-class mix, and upcoming auction notices by Bundesland. These are
+observed screener records, not market-wide counts. The auction
 panels include only the latest successful overview for states refreshed within 48 hours.
 The **Fresh state overviews (of 16)** and per-state freshness panels expose missing or
 stale coverage; do not treat a partial count as a national total.

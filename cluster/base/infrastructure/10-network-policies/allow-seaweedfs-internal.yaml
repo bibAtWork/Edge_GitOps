@@ -54,6 +54,9 @@ spec:
         - matchLabels:
             cnpg.io/cluster: screener-pg
             io.kubernetes.pod.namespace: real-estate-screener
+        - matchLabels:
+            cnpg.io/cluster: lakehouse-pg
+            io.kubernetes.pod.namespace: lakehouse
       toPorts:
         - ports:
             - port: "8333"

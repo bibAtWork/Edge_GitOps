@@ -28,6 +28,7 @@ class ScreenerRecoveryBehavior(unittest.TestCase):
         access = render("cluster/base/infrastructure/37-backup-system")
 
         cluster = resource(deferred, "Cluster", "screener-pg", "real-estate-screener")
+        self.assertIn(":16.15-minimal-bookworm@sha256:", cluster["spec"]["imageName"])
         self.assertTrue(any(p.get("name") == "barman-cloud.cloudnative-pg.io"
                             and p.get("isWALArchiver") for p in cluster["spec"]["plugins"]))
         archive = resource(deferred, "ObjectStore", "recovery", "real-estate-screener")
@@ -71,6 +72,8 @@ class ScreenerRecoveryBehavior(unittest.TestCase):
         self.assertEqual(cron["spec"]["workflowSpec"]["workflowTemplateRef"]["name"], "drill-screener-pitr")
         drill = resource(docs, "WorkflowTemplate", "drill-screener-pitr", "backup-system")
         self.assertEqual(drill["spec"]["onExit"], "cleanup")
+        cluster = resource(docs, "Cluster", "screener-pg", "real-estate-screener")
+        self.assertIn(cluster["spec"]["imageName"], str(drill["spec"]["templates"]))
         self.assertTrue(any(step.get("templateRef", {}).get("name") == "drill-evidence"
                             and step["arguments"]["parameters"][0]["value"] == "real-estate-screener"
                             for template in drill["spec"]["templates"]

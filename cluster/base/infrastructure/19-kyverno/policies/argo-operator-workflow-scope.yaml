@@ -31,7 +31,7 @@ spec:
   variables:
     # scripts/ci/platform_contracts.py compares this list to recovery-policy.
     - name: allowedApplications
-      expression: "['immich', 'keycloak', 'paperless', 'real-estate-screener', 'seaweedfs']"
+      expression: "['immich', 'keycloak', 'lakehouse', 'paperless', 'real-estate-screener', 'seaweedfs']"
   validations:
     - message: Operators may only start the recovery-point WorkflowTemplate.
       expression: >-

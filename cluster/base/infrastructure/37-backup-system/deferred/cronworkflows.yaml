@@ -406,3 +406,65 @@ spec:
       parameters:
         - name: application
           value: real-estate-screener
+---
+# Dagster metadata and the lakehouse-data object bucket form one recovery
+# point. The database's Barman archive is in the same bucket but protected by
+# its own CNPG dataset; the object adapter excludes that archive prefix.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: recovery-point-lakehouse
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 1 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: recovery-point
+    arguments:
+      parameters:
+        - name: application
+          value: lakehouse
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: drill-lakehouse-pitr
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 6 12 * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 2678400
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    workflowTemplateRef:
+      name: drill-lakehouse-pitr
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: promote-lakehouse
+  namespace: backup-system
+spec:
+  schedules:
+    - "0 3 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 86400
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    workflowTemplateRef:
+      name: promote
+    arguments:
+      parameters:
+        - name: application
+          value: lakehouse

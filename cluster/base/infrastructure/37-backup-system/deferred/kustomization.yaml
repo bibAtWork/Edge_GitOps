@@ -8,6 +8,7 @@ resources:
   - workflow-templates/restic-dataset.yaml
   - workflow-templates/sqlite-dataset.yaml
   - workflow-templates/cnpg-dataset.yaml
+  - workflow-templates/s3-bucket-dataset.yaml
   - workflow-templates/recovery-point.yaml
   - workflow-templates/promote.yaml
   - workflow-templates/retention.yaml
@@ -18,6 +19,7 @@ resources:
   - workflow-templates/drill-filer-aws.yaml
   - workflow-templates/drill-pitr.yaml
   - workflow-templates/drill-screener-pitr.yaml
+  - workflow-templates/drill-lakehouse-pitr.yaml
   - workflow-templates/drill-keycloak-aws.yaml
   - cronworkflows.yaml
   - recovery-policy.yaml

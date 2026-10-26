@@ -147,6 +147,7 @@ groups:
   - name: maintainer
     subGroups:
       - name: app-operator
+      - name: mh0794-admin
   - name: owner
     subGroups:
       - name: platform-admin

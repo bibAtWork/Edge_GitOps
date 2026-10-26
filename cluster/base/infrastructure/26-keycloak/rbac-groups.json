@@ -3,6 +3,7 @@
   "level1": [
     {"name": "viewer", "parent": "reader"},
     {"name": "app-operator", "parent": "maintainer"},
+    {"name": "mh0794-admin", "parent": "maintainer"},
     {"name": "platform-admin", "parent": "owner"}
   ]
 }

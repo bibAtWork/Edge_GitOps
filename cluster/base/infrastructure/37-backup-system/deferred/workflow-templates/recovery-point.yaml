@@ -77,7 +77,8 @@ spec:
 
     # The policy's datasets for this application, as JSON for the fan-out. No
     # backslashes: the quote character comes from sprintf. A source is
-    # pvc:<namespace>/<claim> or cnpg:<namespace>/<cluster>; either way the
+    # pvc:<namespace>/<claim>, cnpg:<namespace>/<cluster>, or
+    # s3:<namespace>/<bucket>; in every case the
     # second part lands in `pvc`.
     - name: plan
       # A pod lost to a restart, an eviction or a power cut ends in Error (the pod
@@ -146,7 +147,7 @@ spec:
           - name: paths
       steps:
         - - name: volume
-            when: "'{{inputs.parameters.adapter}}' != 'cnpg'"
+            when: "'{{inputs.parameters.adapter}}' == 'restic-volume' || '{{inputs.parameters.adapter}}' == 'sqlite-volume'"
             template: protect-volume
             arguments:
               parameters:
@@ -173,6 +174,60 @@ spec:
                   value: "{{inputs.parameters.pvc}}"
                 - name: archive-bucket
                   value: "{{inputs.parameters.paths}}"
+          - name: s3-bucket
+            when: "'{{inputs.parameters.adapter}}' == 's3-bucket'"
+            template: protect-s3
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: bucket
+                  value: "{{inputs.parameters.pvc}}"
+
+    - name: protect-s3
+      inputs:
+        parameters:
+          - name: dataset
+          - name: bucket
+      steps:
+        - - name: ensure-repo
+            templateRef:
+              name: restic-dataset
+              template: ensure-local-repo
+        - - name: backup
+            templateRef:
+              name: s3-bucket-dataset
+              template: backup
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: bucket
+                  value: "{{inputs.parameters.bucket}}"
+                - name: recovery-point
+                  value: "{{workflow.name}}"
+        - - name: restore-test
+            templateRef:
+              name: s3-bucket-dataset
+              template: restore-test
+            arguments:
+              parameters:
+                - name: snapshot
+                  value: "{{steps.backup.outputs.parameters.snapshot}}"
+                - name: digest
+                  value: "{{steps.backup.outputs.parameters.digest}}"
+        - - name: evidence
+            template: evidence
+            arguments:
+              parameters:
+                - name: dataset
+                  value: "{{inputs.parameters.dataset}}"
+                - name: snapshot
+                  value: "{{steps.backup.outputs.parameters.snapshot}}"
+                - name: files
+                  value: "{{steps.backup.outputs.parameters.files}}"
+                - name: bytes
+                  value: "{{steps.backup.outputs.parameters.bytes}}"
 
     - name: protect-volume
       inputs:

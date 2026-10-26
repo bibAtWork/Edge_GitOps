@@ -28,6 +28,21 @@ permissions:
 # The job ids and names below are the required status checks' names. Renaming
 # one leaves the ruleset waiting on a check that never reports.
 jobs:
+  kubectl-image-compatibility:
+    name: Kubectl image compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install YAML parser
+        run: pip install --quiet pyyaml==6.0.3
+      - name: Inspect bundled kubectl against current and target API versions
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/ci/kubectl_image_compat.py
+
   renovate-coverage:
     name: Renovate coverage
     runs-on: ubuntu-latest
@@ -172,6 +187,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Install parser used by image compatibility tests
+        run: pip install --quiet pyyaml==6.0.3
       - name: Run the unit tests for scripts/ci
         run: python3 -m unittest discover -s scripts/ci/tests -v
       - name: Test resource accounting

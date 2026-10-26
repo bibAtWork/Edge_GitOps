@@ -5,3 +5,4 @@ resources:
   - ../infrastructure/17-paperless-ngx
   - real-estate-screener
   - lakehouse
+  - mh0794
