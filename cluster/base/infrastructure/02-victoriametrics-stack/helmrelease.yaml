@@ -296,7 +296,7 @@ spec:
     victoria-metrics-operator:
       image:
         repository: victoriametrics/operator
-        tag: v0.75.0
+        tag: v0.75.1
       resources:
         requests:
           cpu: 50m
