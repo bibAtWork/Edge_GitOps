@@ -38,7 +38,7 @@ spec:
             # VectorChord's CNPG image is pinned independently; changing it
             # requires an extension update and search-index rebuild.
             image:
-              tag: v3.3.4
+              tag: v3.3.5
             env:
               # The CloudNativePG cluster (postgres-cluster.yaml), since the
               # migration of 2026-09-13.
