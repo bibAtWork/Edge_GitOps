@@ -5,6 +5,7 @@ Production-grade, fully automated Kubernetes home lab using Talos Linux + FluxCD
 See the [platform extension contract](docs/runbooks/platform-extension.md) for application
 onboarding, shared services, and the required Flux inventory migration. The three-node
 profile still has single-instance databases; it does not guarantee end-to-end availability.
+For human Kubernetes access, see the [cluster access guide](docs/cluster-access/README.md).
 
 ## Profiles
 
@@ -314,6 +315,24 @@ This covers Helm chart dependencies, Docker images, and Go/npm/Python packages r
 ### Talos OS auto-upgrade
 
 system-upgrade-controller watches the Talos GitHub releases channel and applies upgrades node-by-node (`exclusive: true`, one node at a time). Control-plane upgrades cordon the node before starting.
+
+The Kubernetes Plan is gated by the running Talos version. Its `Complete=True`
+condition also occurs when no node has the `talos.homelab/talos-version-ready`
+label, so it is not evidence that the API server or kubelets reached the desired
+version. After the Sunday window, compare `kubectl version` and `kubectl get
+nodes -o wide` with `KUBERNETES_VERSION` in
+`cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env`.
+If they differ, inspect `kubectl get nodes -L talos.homelab/talos-version-ready`
+and the Talos gate and upgrade Jobs in `cattle-system`. The
+`TalosFleetK8sVersionDrift` alert independently checks the running kubelet
+versions against the Git pin.
+
+The controller consumes its Job settings ConfigMap through environment variables.
+ConfigMap changes do not automatically restart it: follow the
+[upgrade-controller runbook](docs/runbooks/system-upgrade-controller.md) for a
+staffed restart after reviewing Plans. The pre-upgrade gate refuses to label
+nodes while the controller is running settings older than its ConfigMap, and
+CI checks the actual bundled kubectl image before version changes can merge.
 
 ## Secret Rotation
 

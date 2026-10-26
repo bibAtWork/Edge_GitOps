@@ -116,262 +116,991 @@ spec:
           json: |
             {
               "uid": "real-estate-lakehouse-bi",
-              "title": "Real estate | Lakehouse BI",
-              "description": "Daily Bronze source records, Silver deduplicated properties and Gold KPIs. Headline KPIs include current and verified manually imported Freddy listings; current inventory is shown separately. First-seen cohorts include verified dated legacy listings from December 2025 onward. Matches require equal asking prices and either a complete logical address match or three equal populated attributes.",
-              "tags": ["real-estate", "lakehouse", "bi"],
-              "timezone": "browser",
-              "schemaVersion": 39,
-              "version": 1,
-              "refresh": "1h",
-              "time": {"from": "now-1y", "to": "now"},
-              "templating": {"list": [
-                {"name": "plz3", "label": "Postal region (PLZ3)", "type": "query", "datasource": {"type": "prometheus", "uid": "victoriametrics"}, "query": {"query": "label_values(lakehouse_screener_all_average_price_per_sqm_by_plz3,plz3)", "refId": "StandardVariableQuery"}, "refresh": 1, "multi": true, "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}},
-                {"name": "cohort_quarter", "label": "First-seen quarter", "type": "query", "datasource": {"type": "prometheus", "uid": "victoriametrics"}, "query": {"query": "label_values(lakehouse_screener_historical_average_price_per_sqm_by_quarter,quarter)", "refId": "StandardVariableQuery"}, "refresh": 1, "multi": true, "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}}
-              ]},
-              "links": [
-                {"title": "Property records", "type": "link", "url": "https://screener.homelab.data-harness.org", "targetBlank": true},
-                {"title": "Lakehouse assets", "type": "link", "url": "https://lakehouse.homelab.data-harness.org", "targetBlank": true}
-              ],
-              "panels": [
-                {
-                  "id": 1, "title": "All known properties", "type": "stat", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_unique_properties[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Deduplicated current and verified manually imported listings; the current inventory is shown separately below."
-                },
-                {
-                  "id": 2, "title": "All source listings", "type": "stat", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_source_listings[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "All screener records in Bronze, including verified Freddy imports."
-                },
-                {
-                  "id": 3, "title": "Duplicates across all listings", "type": "stat", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_duplicate_listings[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "All source listings minus all unique Silver property groups."
-                },
-                {
-                  "id": 4, "title": "Duplicate rate (all)", "type": "stat", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_duplicate_rate[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}},
-                  "description": "Duplicates across the current and verified imported corpus divided by all source listings."
-                },
-                {
-                  "id": 5, "title": "Median asking price (all)", "type": "stat", "gridPos": {"x": 0, "y": 5, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_median_price_eur[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "description": "Median asking price of priced canonical properties. Rental and purchase offers may be mixed."
-                },
-                {
-                  "id": 6, "title": "Median asking price per m² (all)", "type": "stat", "gridPos": {"x": 6, "y": 5, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_median_price_per_sqm_eur[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "description": "Median over canonical properties with a price and positive living area."
-                },
-                {
-                  "id": 7, "title": "Priced properties (all)", "type": "stat", "gridPos": {"x": 12, "y": 5, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_priced_properties[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}}
-                },
-                {
-                  "id": 8, "title": "Gold snapshot age", "type": "stat", "gridPos": {"x": 18, "y": 5, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "time() - last_over_time(lakehouse_screener_snapshot_timestamp_seconds[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 93600}, {"color": "red", "value": 129600}]}}},
-                  "description": "Daily Gold refresh runs around 04:00 UTC. Warning after 26 hours; no data after 36 hours."
-                },
-                {
-                  "id": 9, "title": "Known property corpus", "type": "timeseries", "gridPos": {"x": 0, "y": 10, "w": 12, "h": 8},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "lakehouse_screener_all_unique_properties", "refId": "A", "legendFormat": "All unique properties"}, {"expr": "lakehouse_screener_all_source_listings", "refId": "B", "legendFormat": "All source listings"}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "One daily point per successful Gold materialization from the combined current and verified historical corpus."
-                },
-                {
-                  "id": 10, "title": "Duplicate rate across all listings", "type": "timeseries", "gridPos": {"x": 12, "y": 10, "w": 12, "h": 8},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "lakehouse_screener_all_duplicate_rate", "refId": "A", "legendFormat": "Duplicate rate (all)"}],
-                  "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
-                },
-                {
-                  "id": 11, "title": "Known properties by city", "type": "bargauge", "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_properties_by_city[36h]) > 0", "refId": "A", "legendFormat": "{{city}}", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true}
-                },
-                {
-                  "id": 12, "title": "Source coverage by provider", "type": "bargauge", "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_sources_by_provider[36h]) > 0", "refId": "A", "legendFormat": "{{provider}}", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
-                  "description": "All Bronze records by provider, including verified imports and cross-portal duplicates."
-                },
-                {
-                  "id": 13, "title": "New current properties (24h)", "type": "stat", "gridPos": {"x": 0, "y": 26, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Deduplicated properties first seen in the 24 hours before the latest Gold snapshot."
-                },
-                {
-                  "id": 14, "title": "Average asking price per m² (all)", "type": "stat", "gridPos": {"x": 6, "y": 26, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_average_price_per_sqm_eur[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "description": "Mean asking price divided by usable living area across all deduplicated current and verified imported properties."
-                },
-                {
-                  "id": 15, "title": "Properties without new LLM enrichment", "type": "stat", "gridPos": {"x": 12, "y": 26, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_llm_quota_skipped_properties[36h]) + last_over_time(lakehouse_screener_llm_budget_skipped_properties[36h]) + last_over_time(lakehouse_screener_llm_time_skipped_properties[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]} }},
-                  "description": "Uncached Silver properties whose description extraction was skipped after Gemini returned HTTP 429 or the daily call/time budget was reached. Source fields remain available."
-                },
-                {
-                  "id": 16, "title": "Postal regions with known prices", "type": "stat", "gridPos": {"x": 18, "y": 26, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "count(last_over_time(lakehouse_screener_all_average_price_per_sqm_by_plz3[36h]) > 0)", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Three-digit postcode regions in the full verified corpus with priced properties and usable living area."
-                },
-                {
-                  "id": 17, "title": "New current properties by day", "type": "timeseries", "gridPos": {"x": 0, "y": 31, "w": 12, "h": 8},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])", "refId": "A", "legendFormat": "New unique properties"}, {"expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])", "refId": "B", "legendFormat": "Latest", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "One point per successful daily Gold run. History begins with this lakehouse metric, not with the original Metabase database."
-                },
-                {
-                  "id": 18, "title": "Average asking price per m² across all known properties", "type": "timeseries", "gridPos": {"x": 12, "y": 31, "w": 12, "h": 8},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_average_price_per_sqm_eur[36h])", "refId": "A", "legendFormat": "All priced properties"}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "description": "Daily snapshot of the combined verified corpus; first-seen cohort charts below show older listing periods."
-                },
-                {
-                  "id": 19, "title": "Average asking price per m² by postal region (all)", "type": "bargauge", "gridPos": {"x": 0, "y": 39, "w": 12, "h": 9},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}[36h]) > 0", "refId": "A", "legendFormat": "{{plz3}}", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
-                  "description": "Combined deduplicated current and verified imported listings; select one or more PLZ3 regions above."
-                },
-                {
-                  "id": 20, "title": "Average price per m² by first-seen month", "type": "barchart", "gridPos": {"x": 12, "y": 39, "w": 12, "h": 9},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month[36h]) > 0", "refId": "A", "instant": true, "format": "table"}],
-                  "transformations": [{"id": "labelsToFields", "options": {"mode": "columns"}}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "options": {"xField": "month", "orientation": "vertical", "showValue": "never", "legend": {"showLegend": false}, "tooltip": {"mode": "single"}},
-                  "description": "Deduplicated first-seen monthly cohorts, including verified dated Freddy records. These are latest observed asking prices grouped by first-seen month, not historical sale prices."
-                },
-                {
-                  "id": 21, "title": "Average price per m² by first-seen quarter", "type": "barchart", "gridPos": {"x": 0, "y": 48, "w": 12, "h": 9},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter[36h]) > 0", "refId": "A", "instant": true, "format": "table"}],
-                  "transformations": [{"id": "labelsToFields", "options": {"mode": "columns"}}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "options": {"xField": "quarter", "orientation": "vertical", "showValue": "never", "legend": {"showLegend": false}, "tooltip": {"mode": "single"}},
-                  "description": "Mean asking price per m² grouped by the earliest first-seen quarter across a property's source listings."
-                },
-                {
-                  "id": 22, "title": "Top postal regions by historical listing volume", "type": "barchart", "gridPos": {"x": 12, "y": 48, "w": 12, "h": 9},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "(sum by(plz3)((last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]) > 0) * on(plz3,quarter) last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h])) / sum by(plz3)(last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]))) and on(plz3) topk(12, sum by(plz3)(last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h])))", "refId": "A", "instant": true, "format": "table"}],
-                  "transformations": [{"id": "labelsToFields", "options": {"mode": "columns"}}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "options": {"xField": "plz3", "orientation": "vertical", "showValue": "never", "legend": {"showLegend": false}, "tooltip": {"mode": "single"}},
-                  "description": "Listing-count-weighted mean asking price per m² for the 12 busiest selected postal regions and first-seen quarters. Select regions or quarters above."
-                },
-                {
-                  "id": 23, "title": "Selected postal regions by first-seen quarter", "type": "barchart", "gridPos": {"x": 0, "y": 57, "w": 24, "h": 9},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "sum by(quarter)((last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]) > 0) * on(plz3,quarter) last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h])) / sum by(quarter)(last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]))", "refId": "A", "instant": true, "format": "table"}],
-                  "transformations": [{"id": "labelsToFields", "options": {"mode": "columns"}}],
-                  "fieldConfig": {"defaults": {"unit": "currencyEUR"}},
-                  "options": {"xField": "quarter", "orientation": "vertical", "showValue": "never", "legend": {"showLegend": false}, "tooltip": {"mode": "single"}},
-                  "description": "Listing-count-weighted historical asking price per m² by first-seen quarter for the selected postal regions."
-                },
-                {
-                  "id": 24, "title": "Price-per-m² area exclusions", "type": "stat", "gridPos": {"x": 0, "y": 66, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_all_price_per_sqm_implausible_area_properties[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Priced Silver properties reporting less than 10 m² of living area are retained as listings but excluded from price-per-m² averages and medians."
-                },
-                {
-                  "id": 25, "title": "Manually imported historical listings", "type": "stat", "gridPos": {"x": 6, "y": 66, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_manually_imported_listings[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Verified dated Freddy records imported into the screener but absent from current crawler observations."
-                },
-                {
-                  "id": 26, "title": "Current unique properties", "type": "stat", "gridPos": {"x": 12, "y": 66, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_unique_properties[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Active screener inventory only; manually imported archive-only listings are excluded."
-                },
-                {
-                  "id": 27, "title": "Current source listings", "type": "stat", "gridPos": {"x": 18, "y": 66, "w": 6, "h": 5},
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "targets": [{"expr": "last_over_time(lakehouse_screener_source_listings[36h])", "refId": "A", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}},
-                  "description": "Active source rows only; verified archive-only imports remain in the all-listings KPIs above."
-                }
-              ]
-            }
-        # These dashboards keep the UIDs of the former Grafana.com imports so
-        # saved links survive. Their old selectors required absent labels or
-        # recording rules; the local versions query the metrics we scrape.
-        real-estate-screener-bi:
-          json: |
-            {
-              "uid": "real-estate-screener-bi",
-              "title": "Real Estate Screener | BI",
+              "title": "Real estate | Macro, micro and system BI",
+              "description": "Official market benchmarks and population, deduplicated asking-listing cohorts, and source-system quality. Asking listings are not completed sales. PLZ3 baskets are approximate; house counts reflect only classified properties. Gold cohorts include verified historical imports.",
               "tags": [
                 "real-estate",
+                "lakehouse",
                 "screener",
+                "auctions",
                 "bi"
               ],
               "timezone": "browser",
               "schemaVersion": 39,
-              "version": 1,
+              "version": 7,
               "refresh": "1d",
-              "timepicker": {"refresh_intervals": ["1d"]},
               "time": {
-                "from": "now-30d",
+                "from": "now-1y",
                 "to": "now"
               },
-              "annotations": {
-                "list": []
+              "templating": {
+                "list": [
+                  {
+                    "name": "plz3",
+                    "label": "Postal region (PLZ3)",
+                    "type": "query",
+                    "datasource": {
+                      "type": "prometheus",
+                      "uid": "victoriametrics"
+                    },
+                    "query": {
+                      "query": "label_values(lakehouse_screener_all_average_price_per_sqm_by_plz3,plz3)",
+                      "refId": "StandardVariableQuery"
+                    },
+                    "refresh": 1,
+                    "multi": true,
+                    "includeAll": true,
+                    "allValue": ".*",
+                    "current": {
+                      "text": "All",
+                      "value": "$__all"
+                    }
+                  },
+                  {
+                    "name": "cohort_quarter",
+                    "label": "First-seen quarter",
+                    "type": "query",
+                    "datasource": {
+                      "type": "prometheus",
+                      "uid": "victoriametrics"
+                    },
+                    "query": {
+                      "query": "label_values(lakehouse_screener_historical_average_price_per_sqm_by_quarter,quarter)",
+                      "refId": "StandardVariableQuery"
+                    },
+                    "refresh": 1,
+                    "multi": true,
+                    "includeAll": true,
+                    "allValue": ".*",
+                    "current": {
+                      "text": "All",
+                      "value": "$__all"
+                    }
+                  },
+                  {
+                    "name": "population_states",
+                    "label": "Bundesländer",
+                    "type": "custom",
+                    "query": "Baden-Württemberg : DE1, Bayern : DE2, Berlin : DE3, Brandenburg : DE4, Bremen : DE5, Hamburg : DE6, Hessen : DE7, Mecklenburg-Vorpommern : DE8, Niedersachsen : DE9, Nordrhein-Westfalen : DEA, Rheinland-Pfalz : DEB, Saarland : DEC, Sachsen : DED, Sachsen-Anhalt : DEE, Schleswig-Holstein : DEF, Thüringen : DEG",
+                    "multi": true,
+                    "includeAll": true,
+                    "allValue": ".*",
+                    "current": {
+                      "text": [
+                        "Baden-Württemberg",
+                        "Bayern",
+                        "Hessen"
+                      ],
+                      "value": [
+                        "DE1",
+                        "DE2",
+                        "DE7"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "greix_region",
+                    "label": "GREIX cities (BW, BY, HE defaults)",
+                    "type": "query",
+                    "datasource": {
+                      "type": "yesoreyeram-infinity-datasource",
+                      "uid": "screener-rate-history"
+                    },
+                    "query": {
+                      "queryType": "infinity",
+                      "query": "",
+                      "infinityQuery": {
+                        "type": "json",
+                        "source": "url",
+                        "parser": "backend",
+                        "format": "table",
+                        "root_selector": "rows",
+                        "url": "http://screener-web.real-estate-screener.svc:3000/api/greix-regions",
+                        "url_options": {
+                          "method": "GET"
+                        },
+                        "columns": [
+                          {
+                            "selector": "__text",
+                            "text": "__text",
+                            "type": "string"
+                          },
+                          {
+                            "selector": "__value",
+                            "text": "__value",
+                            "type": "string"
+                          }
+                        ],
+                        "refId": "variable"
+                      }
+                    },
+                    "refresh": 1,
+                    "multi": true,
+                    "includeAll": false,
+                    "options": [],
+                    "current": {
+                      "text": [
+                        "Stuttgart",
+                        "Karlsruhe",
+                        "Munich",
+                        "Frankfurt",
+                        "Wiesbaden"
+                      ],
+                      "value": [
+                        "greix-city-9",
+                        "greix-city-21",
+                        "greix-city-10",
+                        "greix-city-2",
+                        "greix-city-8"
+                      ]
+                    }
+                  }
+                ]
               },
-              "editable": true,
-              "graphTooltip": 1,
               "links": [
                 {
-                  "title": "Open property and auction records",
+                  "title": "Property records",
                   "type": "link",
                   "url": "https://screener.homelab.data-harness.org",
                   "targetBlank": true
+                },
+                {
+                  "title": "Lakehouse assets",
+                  "type": "link",
+                  "url": "https://lakehouse.homelab.data-harness.org",
+                  "targetBlank": true
                 }
               ],
-              "description": "Observed screener listings, official auction overviews for 16 German states, and official macro series. Auction counts include only states with a successful import in the past 48 hours; check the coverage panels before interpreting a national total.",
               "panels": [
                 {
-                  "id": 1,
-                  "title": "Properties",
+                  "id": 28,
+                  "title": "Macro data · market and demographics",
+                  "type": "row",
+                  "collapsed": false,
+                  "gridPos": {
+                    "x": 0,
+                    "y": 0,
+                    "w": 24,
+                    "h": 1
+                  },
+                  "panels": []
+                },
+                {
+                  "id": 49,
+                  "title": "Median asking price per m² by first-seen month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 1,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_month[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Latest observed asking price for deduplicated listings grouped by earliest first-seen month; not completed sales.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 50,
+                  "title": "Average asking house price · first seen in last 12 months",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 1,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_average_asking_house_price_last_12m_eur[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Mean of current canonical listings first seen in the past 365 days and classified as houses. Excludes apartments and unclassified properties."
+                },
+                {
+                  "id": 51,
+                  "title": "Houses behind 12-month asking mean",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 1,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_asking_house_price_last_12m_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Sample count for the adjacent mean; zero means the house-type coverage is insufficient."
+                },
+                {
+                  "id": 52,
+                  "title": "Completed sales · data coverage",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 9,
+                    "w": 24,
+                    "h": 5
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "**No completed-sale count is available from the listing screener.** It observes asking listings and auction announcements, not signed transactions. The GREIX index below uses completed sales from a separate source. A sales KPI needs a verified transaction feed.",
+                    "code": false
+                  }
+                },
+                {
+                  "id": 44,
+                  "title": "German mortgage rates by fixation band (since 2003)",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "24y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 14,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_1_to_5",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · fixation 1–5 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_5_to_10",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · fixation 5–10 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "B",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_10",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · fixation over 10 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "C",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Official monthly Bundesbank new-business mortgage rates since the MFI survey began in January 2003, plotted at observation time. The published bands are over 1 to 5, over 5 to 10, and over 10 years; they are not exact 10-, 15-, or 20-year offers or government-bond maturities. The earlier bank survey used a different method and is intentionally excluded."
+                },
+                {
+                  "id": 45,
+                  "title": "German government-bond yields by original maturity",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "30y",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 14,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=5",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · 5 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=10",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · 10 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "B",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=15",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · 15 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "C",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=20",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Bundesbank · 20 years",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "D",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Monthly averages of official daily Bundesbank yields, plotted at observation time. The 15- and 20-year series start later than the 5- and 10-year series because those are the available source histories."
+                },
+                {
+                  "id": 53,
+                  "title": "MSCI World ETF proxy · annual EUR price return",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 22,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_msci_world_etf_proxy_annual_return_percent[36h])",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    }
+                  },
+                  "description": "Year-end to year-end EUR market-close return of EUNL.DE (Xetra), an MSCI World ETF proxy. Yahoo Finance chart JSON is ingested daily. This accumulating ETF reflects reinvested income and fund expenses, but is not the licensed MSCI index.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "year"
+                  }
+                },
+                {
+                  "id": 71,
+                  "title": "MSCI World ETF proxy · source and interpretation",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 22,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "**EUNL.DE (Xetra, EUR)** is an MSCI World ETF price proxy, not the licensed MSCI index. A daily job imports Yahoo Finance chart JSON, the feed used by Portfolio Performance. Its interface is undocumented and can fail; the last verified import remains available. Annual bars compare year-end market closes of an accumulating ETF; reinvested income is reflected in its price and fund expenses are embedded. Investor taxes and trading costs are excluded. [Portfolio Performance source](https://github.com/portfolio-performance/portfolio/blob/master/name.abuchen.portfolio/src/name/abuchen/portfolio/online/impl/YahooFinanceQuoteFeed.java).",
+                    "code": false
+                  }
+                },
+                {
+                  "id": 72,
+                  "title": "Population · Germany, historical",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "30y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 30,
+                    "w": 8,
+                    "h": 12
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/population-history?scope=country",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Germany",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Eurostat resident population on 1 January, annual observations since the source first provides them."
+                },
+                {
+                  "id": 73,
+                  "title": "Population · all Bundesländer, historical",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "30y",
+                  "gridPos": {
+                    "x": 8,
+                    "y": 30,
+                    "w": 16,
+                    "h": 12
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/population-history?scope=states",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "DE1",
+                          "text": "DE1",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE2",
+                          "text": "DE2",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE3",
+                          "text": "DE3",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE4",
+                          "text": "DE4",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE5",
+                          "text": "DE5",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE6",
+                          "text": "DE6",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE7",
+                          "text": "DE7",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE8",
+                          "text": "DE8",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DE9",
+                          "text": "DE9",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEA",
+                          "text": "DEA",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEB",
+                          "text": "DEB",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEC",
+                          "text": "DEC",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DED",
+                          "text": "DED",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEE",
+                          "text": "DEE",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEF",
+                          "text": "DEF",
+                          "type": "number"
+                        },
+                        {
+                          "selector": "DEG",
+                          "text": "DEG",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": [
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE1"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Baden-Württemberg"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE2"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Bayern"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE3"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Berlin"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE4"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Brandenburg"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE5"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Bremen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE6"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Hamburg"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE7"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Hessen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE8"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Mecklenburg-Vorpommern"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DE9"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Niedersachsen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEA"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Nordrhein-Westfalen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEB"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Rheinland-Pfalz"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEC"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Saarland"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DED"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Sachsen"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEE"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Sachsen-Anhalt"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEF"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Schleswig-Holstein"
+                          }
+                        ]
+                      },
+                      {
+                        "matcher": {
+                          "id": "byName",
+                          "options": "DEG"
+                        },
+                        "properties": [
+                          {
+                            "id": "displayName",
+                            "value": "Thüringen"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "description": "Eurostat published NUTS1 resident population on 1 January for all 16 Bundesländer. Only years with all 16 states are shown. Select any state above.",
+                  "transformations": [
+                    {
+                      "id": "filterFieldsByName",
+                      "options": {
+                        "include": {
+                          "pattern": "^(Time|${population_states:regex})$"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": 54,
+                  "title": "Population · Germany",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -379,16 +1108,239 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 0,
+                    "y": 43,
                     "w": 6,
                     "h": 5
                   },
                   "targets": [
                     {
-                      "expr": "screener_bi_listings",
+                      "expr": "screener_bi_macro_value{metric=\"population\",country=\"DE\"}",
                       "refId": "A",
-                      "legendFormat": "{{__name__}}",
                       "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Latest Eurostat annual population observation; check the source-period metric for its year."
+                },
+                {
+                  "id": 55,
+                  "title": "Population · Baden-Württemberg",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 43,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_population_state{state=\"DE1\"}",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Latest published Eurostat NUTS1 state observation."
+                },
+                {
+                  "id": 56,
+                  "title": "Population · Bayern",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 43,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_population_state{state=\"DE2\"}",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Latest published Eurostat NUTS1 state observation."
+                },
+                {
+                  "id": 57,
+                  "title": "Population · Hessen",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 43,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_population_state{state=\"DE7\"}",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Latest published Eurostat NUTS1 state observation."
+                },
+                {
+                  "id": 70,
+                  "title": "Residential units in buildings owned by private persons · 2022",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 48,
+                    "w": 12,
+                    "h": 7
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "# 24,926,768\n\nZensus 2022: **57.8%** of 43,106,589 residential units. This classifies the **owner of the building** as a private person; the separate condominium-association category is excluded. [Official Zensus table](https://ergebnisse.zensus2022.de/datenbank/online/url/d706e28e).",
+                    "code": false
+                  }
+                },
+                {
+                  "id": 58,
+                  "title": "Property distress · future proxy and coverage gate",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 48,
+                    "w": 12,
+                    "h": 7
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "**Future distress proxy:** new, deduplicated *residential foreclosure notices* first observed during a rolling 12 months ÷ Germany’s official year-end stock of residential dwellings × 100,000. Destatis [table 31231-0001](https://genesis.destatis.de/datenbank/online/statistic/31231/table/31231-0001) reports 43,951,556 dwellings in residential and non-residential buildings at 31 Dec 2025. Publish the rate only after all 16 state feeds have a complete 12-month observation window, stable notice IDs, and a verified residential-property classifier; show numerator, denominator vintage and court coverage beside it. The current appointment overview cannot establish a national foreclosure or insolvency rate. Median legal-owner age remains unavailable.",
+                    "code": false
+                  }
+                },
+                {
+                  "id": 46,
+                  "title": "Destatis house-price index · Germany (2025=100)",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "6y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 55,
+                    "w": 24,
+                    "h": 9
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=destatis&region=DE&segment=all",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "All dwellings",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=destatis&region=DE&segment=new",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "New dwellings",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "B",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=destatis&region=DE&segment=existing",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Existing dwellings",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "C",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
                     }
                   ],
                   "fieldConfig": {
@@ -397,31 +1349,1319 @@ spec:
                     },
                     "overrides": []
                   },
-                  "description": "Current property rows in the screener, not a count of the whole market.",
-                  "options": {
-                    "reduceOptions": {
-                      "calcs": [
-                        "lastNotNull"
+                  "description": "Official Destatis quarterly national HPI, nominal, rebased to 2025 annual average = 100. The public table currently exposes recent quarters; the Eurostat panel supplies longer national history."
+                },
+                {
+                  "id": 47,
+                  "title": "Eurostat house-price index · national comparison (2025=100)",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "22y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 64,
+                    "w": 24,
+                    "h": 9
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=eurostat&region=DE",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Germany",
+                          "type": "number"
+                        }
                       ],
-                      "fields": "",
-                      "values": false
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
                     },
-                    "orientation": "auto",
-                    "textMode": "auto",
-                    "colorMode": "value"
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=eurostat&region=AT",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Austria",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "B",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    },
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "timeseries",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=eurostat&region=FR",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "France",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "C",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Eurostat prc_hpi_q, all dwelling purchases, nominal quarterly indices rebased to each country's 2025 annual average = 100. Methodology is harmonised; national coverage begins at different dates."
+                },
+                {
+                  "id": 48,
+                  "title": "GREIX completed-sale apartment index · selected cities (2025=100)",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "yesoreyeram-infinity-datasource",
+                    "uid": "screener-rate-history"
+                  },
+                  "timeFrom": "27y",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 73,
+                    "w": 24,
+                    "h": 9
+                  },
+                  "targets": [
+                    {
+                      "type": "json",
+                      "source": "url",
+                      "parser": "backend",
+                      "format": "table",
+                      "root_selector": "rows",
+                      "url": "http://screener-web.real-estate-screener.svc:3000/api/house-index-history?source=greix&region=${greix_region:csv}&property=apartment",
+                      "url_options": {
+                        "method": "GET"
+                      },
+                      "columns": [
+                        {
+                          "selector": "time",
+                          "text": "Time",
+                          "type": "timestamp"
+                        },
+                        {
+                          "selector": "label",
+                          "text": "City",
+                          "type": "string"
+                        },
+                        {
+                          "selector": "value",
+                          "text": "Index",
+                          "type": "number"
+                        }
+                      ],
+                      "refId": "A",
+                      "datasource": {
+                        "type": "yesoreyeram-infinity-datasource",
+                        "uid": "screener-rate-history"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "transformations": [
+                    {
+                      "id": "partitionByValues",
+                      "options": {
+                        "fields": ["City"]
+                      }
+                    }
+                  ],
+                  "description": "Defaults are Stuttgart and Karlsruhe (Baden-Württemberg), Munich (Bayern), and Frankfurt and Wiesbaden (Hessen). These are city indices, not state-wide indices. Select any imported GREIX apartment cities above. Nominal, quality-adjusted completed-sale indices are rebased independently to each city's 2025 annual average = 100; they are not asking-price series."
+                },
+                {
+                  "id": 43,
+                  "title": "Micro data · listings and regional asking prices",
+                  "type": "row",
+                  "collapsed": false,
+                  "gridPos": {
+                    "x": 0,
+                    "y": 82,
+                    "w": 24,
+                    "h": 1
+                  },
+                  "panels": []
+                },
+                {
+                  "id": 59,
+                  "title": "Reutlingen · median €/m² by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 83,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_median_eur{region=\"Reutlingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Deduplicated first-seen listing cohorts. PLZ3 market basket, not an administrative district.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
                   }
                 },
                 {
-                  "id": 2,
-                  "title": "Median asking price",
+                  "id": 60,
+                  "title": "Tübingen · median €/m² by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 8,
+                    "y": 83,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_median_eur{region=\"Tübingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Deduplicated first-seen listing cohorts. PLZ3 market basket, not an administrative district.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 61,
+                  "title": "Stuttgarter Speckgürtel · median €/m² by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 16,
+                    "y": 83,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_median_eur{region=\"Stuttgarter Speckgürtel\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Deduplicated first-seen listing cohorts. PLZ3 market basket, not an administrative district.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 62,
+                  "title": "Reutlingen · median €/m² by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 91,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_median_eur{region=\"Reutlingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Deduplicated first-seen listing cohorts. PLZ3 market basket, not an administrative district.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 63,
+                  "title": "Tübingen · median €/m² by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 8,
+                    "y": 91,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_median_eur{region=\"Tübingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Deduplicated first-seen listing cohorts. PLZ3 market basket, not an administrative district.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 64,
+                  "title": "Stuttgarter Speckgürtel · median €/m² by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 16,
+                    "y": 91,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_median_eur{region=\"Stuttgarter Speckgürtel\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Deduplicated first-seen listing cohorts. PLZ3 market basket, not an administrative district.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 74,
+                  "title": "Reutlingen · cohort size by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 99,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_properties{region=\"Reutlingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 75,
+                  "title": "Tübingen · cohort size by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 8,
+                    "y": 99,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_properties{region=\"Tübingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 76,
+                  "title": "Stuttgarter Speckgürtel · cohort size by month",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 16,
+                    "y": 99,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_month_properties{region=\"Stuttgarter Speckgürtel\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "month"
+                  }
+                },
+                {
+                  "id": 77,
+                  "title": "Reutlingen · cohort size by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 107,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_properties{region=\"Reutlingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 78,
+                  "title": "Tübingen · cohort size by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 8,
+                    "y": 107,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_properties{region=\"Tübingen\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 79,
+                  "title": "Stuttgarter Speckgürtel · cohort size by quarter",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 16,
+                    "y": 107,
+                    "w": 8,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_price_per_sqm_by_region_quarter_properties{region=\"Stuttgarter Speckgürtel\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Number of deduplicated priced properties in the corresponding first-seen cohort; small cohorts have unstable medians.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "quarter"
+                  }
+                },
+                {
+                  "id": 65,
+                  "title": "Mean asking price by PLZ3 · first seen in last 12 months",
+                  "type": "barchart",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 115,
+                    "w": 24,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_average_asking_price_by_plz3_last_12m{plz3=~\"${plz3:regex}\"}[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Current deduplicated listings first seen in the past 365 days. All property types; asking prices, not sale proceeds.",
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "options": {
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    },
+                    "xField": "plz3"
+                  }
+                },
+                {
+                  "id": 5,
+                  "title": "Median asking price (all)",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 123,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_median_price_eur[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Median asking price of priced canonical properties. Rental and purchase offers may be mixed."
+                },
+                {
+                  "id": 6,
+                  "title": "Median asking price per m² (all)",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 6,
+                    "y": 123,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_median_price_per_sqm_eur[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Median over canonical properties with a price and positive living area."
+                },
+                {
+                  "id": 7,
+                  "title": "Priced properties (all)",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 123,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_priced_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  }
+                },
+                {
+                  "id": 11,
+                  "title": "Known properties by city",
+                  "type": "bargauge",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 128,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_properties_by_city[36h]) > 0",
+                      "refId": "A",
+                      "legendFormat": "{{city}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true
+                  }
+                },
+                {
+                  "id": 13,
+                  "title": "New current properties (24h)",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 128,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Deduplicated properties first seen in the 24 hours before the latest Gold snapshot."
+                },
+                {
+                  "id": 14,
+                  "title": "Average asking price per m² (all)",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 18,
+                    "y": 128,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_average_price_per_sqm_eur[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Mean asking price divided by usable living area across all deduplicated current and verified imported properties."
+                },
+                {
+                  "id": 16,
+                  "title": "Postal regions with known prices",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 136,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "count(last_over_time(lakehouse_screener_all_average_price_per_sqm_by_plz3[36h]) > 0)",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Three-digit postcode regions in the full verified corpus with priced properties and usable living area."
+                },
+                {
+                  "id": 17,
+                  "title": "New current properties by day",
+                  "type": "timeseries",
+                  "gridPos": {
+                    "x": 6,
+                    "y": 136,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])",
+                      "refId": "A",
+                      "legendFormat": "New unique properties"
+                    },
+                    {
+                      "expr": "last_over_time(lakehouse_screener_new_properties_24h[36h])",
+                      "refId": "B",
+                      "legendFormat": "Latest",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "One point per successful daily Gold run. History begins with this lakehouse metric, not with the original Metabase database."
+                },
+                {
+                  "id": 18,
+                  "title": "Average asking price per m² across all known properties",
+                  "type": "timeseries",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 144,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_average_price_per_sqm_eur[36h])",
+                      "refId": "A",
+                      "legendFormat": "All priced properties"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "description": "Daily snapshot of the combined verified corpus; first-seen cohort charts below show older listing periods."
+                },
+                {
+                  "id": 19,
+                  "title": "Average asking price per m² by postal region (all)",
+                  "type": "bargauge",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 144,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_average_price_per_sqm_by_plz3{plz3=~\"${plz3:regex}\"}[36h]) > 0",
+                      "refId": "A",
+                      "legendFormat": "{{plz3}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true
+                  },
+                  "description": "Combined deduplicated current and verified imported listings; select one or more PLZ3 regions above."
+                },
+                {
+                  "id": 20,
+                  "title": "Median asking price per m² · first-seen month",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 153,
+                    "w": 12,
+                    "h": 14
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_month[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "options": {
+                    "xField": "month",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Latest observed asking price per m² of deduplicated properties grouped by first-seen month; includes verified imported listings. Median limits distortion from small-area source outliers. See the cohort-size chart below before interpreting sparse periods. This is not a completed-sale price history."
+                },
+                {
+                  "id": 21,
+                  "title": "Median asking price per m² · first-seen quarter",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 153,
+                    "w": 12,
+                    "h": 14
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_median_price_per_sqm_by_quarter[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "options": {
+                    "xField": "quarter",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Latest observed asking price per m² of deduplicated properties grouped by first-seen quarter; includes verified imported listings. Median limits distortion from small-area source outliers. See the cohort-size chart below before interpreting sparse periods. This is not a completed-sale price history."
+                },
+                {
+                  "id": 22,
+                  "title": "Top postal regions by historical listing volume",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 176,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "(sum by(plz3)((last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]) > 0) * on(plz3,quarter) last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h])) / sum by(plz3)(last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]))) and on(plz3) topk(12, sum by(plz3)(last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h])))",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "options": {
+                    "xField": "plz3",
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Listing-count-weighted mean asking price per m² for the 12 busiest selected postal regions and first-seen quarters. Select regions or quarters above."
+                },
+                {
+                  "id": 23,
+                  "title": "Selected postal regions by first-seen quarter",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 185,
+                    "w": 24,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "sum by(quarter)((last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]) > 0) * on(plz3,quarter) last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h])) / sum by(quarter)(last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_plz3_quarter_properties{plz3=~\"${plz3:regex}\",quarter=~\"${cohort_quarter:regex}\"}[36h]))",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "currencyEUR"
+                    }
+                  },
+                  "options": {
+                    "xField": "quarter",
+                    "orientation": "vertical",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Listing-count-weighted historical asking price per m² by first-seen quarter for the selected postal regions."
+                },
+                {
+                  "id": 30,
+                  "title": "Live median asking price",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
                     "uid": "victoriametrics"
                   },
                   "gridPos": {
-                    "x": 6,
-                    "y": 0,
+                    "x": 0,
+                    "y": 194,
                     "w": 6,
                     "h": 5
                   },
@@ -454,16 +2694,16 @@ spec:
                   }
                 },
                 {
-                  "id": 3,
-                  "title": "Median price per m²",
+                  "id": 31,
+                  "title": "Live median price per m²",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
                     "uid": "victoriametrics"
                   },
                   "gridPos": {
-                    "x": 12,
-                    "y": 0,
+                    "x": 6,
+                    "y": 194,
                     "w": 6,
                     "h": 5
                   },
@@ -496,79 +2736,7 @@ spec:
                   }
                 },
                 {
-                  "id": 4,
-                  "title": "Upcoming auctions (fresh states)",
-                  "type": "stat",
-                  "datasource": {
-                    "type": "prometheus",
-                    "uid": "victoriametrics"
-                  },
-                  "gridPos": {
-                    "x": 18,
-                    "y": 0,
-                    "w": 6,
-                    "h": 5
-                  },
-                  "targets": [
-                    {
-                      "expr": "screener_bi_upcoming_auctions",
-                      "refId": "A",
-                      "legendFormat": "{{__name__}}",
-                      "instant": true
-                    }
-                  ],
-                  "fieldConfig": {
-                    "defaults": {
-                      "unit": "short"
-                    },
-                    "overrides": []
-                  },
-                  "description": "Announced appointments from each state's latest successful public overview, if imported in the past 48 hours. Check fresh-state coverage before treating this as a national total.",
-                  "options": {
-                    "reduceOptions": {
-                      "calcs": [
-                        "lastNotNull"
-                      ],
-                      "fields": "",
-                      "values": false
-                    },
-                    "orientation": "auto",
-                    "textMode": "auto",
-                    "colorMode": "value"
-                  }
-                },
-                {
-                  "id": 5,
-                  "title": "Property inventory over time",
-                  "type": "timeseries",
-                  "datasource": {
-                    "type": "prometheus",
-                    "uid": "victoriametrics"
-                  },
-                  "gridPos": {
-                    "x": 0,
-                    "y": 5,
-                    "w": 12,
-                    "h": 8
-                  },
-                  "targets": [
-                    {
-                      "expr": "screener_bi_listings",
-                      "refId": "A",
-                      "legendFormat": "{{__name__}}",
-                      "instant": false
-                    }
-                  ],
-                  "fieldConfig": {
-                    "defaults": {
-                      "unit": "short"
-                    },
-                    "overrides": []
-                  },
-                  "description": "Scraped count sampled every 30 seconds; this is not a full property history."
-                },
-                {
-                  "id": 6,
+                  "id": 34,
                   "title": "Upcoming appointments over time",
                   "type": "timeseries",
                   "datasource": {
@@ -577,7 +2745,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 5,
+                    "y": 194,
                     "w": 12,
                     "h": 8
                   },
@@ -598,8 +2766,8 @@ spec:
                   "description": "Future announced appointments in the most recently imported overview."
                 },
                 {
-                  "id": 7,
-                  "title": "Properties by provider",
+                  "id": 35,
+                  "title": "Current listings by provider",
                   "type": "bargauge",
                   "datasource": {
                     "type": "prometheus",
@@ -607,7 +2775,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 13,
+                    "y": 202,
                     "w": 12,
                     "h": 8
                   },
@@ -640,8 +2808,8 @@ spec:
                   }
                 },
                 {
-                  "id": 8,
-                  "title": "Properties by energy class",
+                  "id": 36,
+                  "title": "Current listings by energy class",
                   "type": "bargauge",
                   "datasource": {
                     "type": "prometheus",
@@ -649,7 +2817,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 13,
+                    "y": 202,
                     "w": 12,
                     "h": 8
                   },
@@ -682,7 +2850,7 @@ spec:
                   }
                 },
                 {
-                  "id": 9,
+                  "id": 37,
                   "title": "Upcoming auctions by postal prefix",
                   "type": "bargauge",
                   "datasource": {
@@ -691,7 +2859,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 21,
+                    "y": 210,
                     "w": 12,
                     "h": 8
                   },
@@ -724,7 +2892,7 @@ spec:
                   }
                 },
                 {
-                  "id": 10,
+                  "id": 38,
                   "title": "Cancelled appointments (fresh states)",
                   "type": "stat",
                   "datasource": {
@@ -733,7 +2901,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 12,
-                    "y": 21,
+                    "y": 210,
                     "w": 6,
                     "h": 5
                   },
@@ -766,7 +2934,845 @@ spec:
                   }
                 },
                 {
-                  "id": 11,
+                  "id": 41,
+                  "title": "Upcoming auctions by Bundesland",
+                  "type": "bargauge",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 218,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_upcoming_auctions_by_state",
+                      "refId": "A",
+                      "legendFormat": "{{state}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true,
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    }
+                  },
+                  "description": "Only states with a successful public overview in the past 48 hours appear; a valid zero-result state displays 0."
+                },
+                {
+                  "id": 80,
+                  "title": "Listing dynamics · observed inventory and collection quality",
+                  "type": "row",
+                  "collapsed": false,
+                  "gridPos": {
+                    "x": 0,
+                    "y": 227,
+                    "w": 24,
+                    "h": 1
+                  },
+                  "panels": []
+                },
+                {
+                  "id": 81,
+                  "title": "Median active listing age",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_median_active_listing_age_days[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "d"
+                    }
+                  },
+                  "description": "Median days since first seen for non-imported listings sighted in the last 48 hours; this is not time-to-sale."
+                },
+                {
+                  "id": 82,
+                  "title": "Listings with observed asking-price cut",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_price_cut_share_percent[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    }
+                  },
+                  "description": "Share of active priced source listings with at least one decrease between successive saved snapshots."
+                },
+                {
+                  "id": 83,
+                  "title": "Median largest observed cut",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_median_largest_price_cut_percent[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent"
+                    }
+                  },
+                  "description": "For listings with a recorded cut, median of each listing’s largest previous-to-next asking-price decrease."
+                },
+                {
+                  "id": 84,
+                  "title": "Priced listing cut sample",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 228,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_price_cut_sample[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Active source listings with at least one positive priced snapshot; duplicates across portals are not merged in this metric."
+                },
+                {
+                  "id": 85,
+                  "title": "Search success by source · last 7 days",
+                  "type": "bargauge",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 233,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(screener_bi_search_success_7d_percent[36h])",
+                      "refId": "A",
+                      "legendFormat": "{{provider}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percent",
+                      "min": 0,
+                      "max": 100
+                    }
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true
+                  },
+                  "description": "Completed successful search runs / all completed search runs by provider over seven days. A source with no attempts is absent rather than shown as 100%."
+                },
+                {
+                  "id": 86,
+                  "title": "Definitions and limits",
+                  "type": "text",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 233,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "options": {
+                    "mode": "markdown",
+                    "content": "**Listing age** is observed first-seen age of recently sighted listings, not a sale duration. **Price cuts** require two priced snapshots; changes before collection started are unknown. **Search success** measures query runs, not the fraction of website listings captured. Check each regional cohort-size chart before interpreting a price change.",
+                    "code": false
+                  }
+                },
+                {
+                  "id": 69,
+                  "title": "System metrics · freshness, coverage and inventory",
+                  "type": "row",
+                  "collapsed": false,
+                  "gridPos": {
+                    "x": 0,
+                    "y": 242,
+                    "w": 24,
+                    "h": 1
+                  },
+                  "panels": []
+                },
+                {
+                  "id": 66,
+                  "title": "Last successful Gold publish",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 243,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_snapshot_timestamp_seconds[36h]) * 1000",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "dateTimeAsIso"
+                    }
+                  },
+                  "description": "UTC timestamp of the last successful Gold metrics publish."
+                },
+                {
+                  "id": 67,
+                  "title": "Current listings classified as houses",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 243,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_classified_house_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Current deduplicated properties classified as detached, semi-detached, multi-family or terraced houses. Manually imported legacy listings remain in the historical corpus but are excluded from current inventory and lack verified house types. Use the all-properties KPI for the combined historical corpus."
+                },
+                {
+                  "id": 68,
+                  "title": "Properties with a known type",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 12,
+                    "y": 243,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_classified_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Coverage denominator for the identified-house count. Unknown property types are not counted as houses."
+                },
+                {
+                  "id": 1,
+                  "title": "All known properties",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 18,
+                    "y": 243,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_unique_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Deduplicated current and verified manually imported listings; the current inventory is shown separately below."
+                },
+                {
+                  "id": 2,
+                  "title": "All source listings",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 248,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_source_listings[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "All screener records in Bronze, including verified Freddy imports."
+                },
+                {
+                  "id": 3,
+                  "title": "Duplicates across all listings",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 6,
+                    "y": 248,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_duplicate_listings[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "All source listings minus all unique Silver property groups."
+                },
+                {
+                  "id": 4,
+                  "title": "Duplicate rate (all)",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 248,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_duplicate_rate[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percentunit",
+                      "min": 0,
+                      "max": 1
+                    }
+                  },
+                  "description": "Duplicates across the current and verified imported corpus divided by all source listings."
+                },
+                {
+                  "id": 8,
+                  "title": "Gold snapshot age",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 18,
+                    "y": 248,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "time() - last_over_time(lakehouse_screener_snapshot_timestamp_seconds[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "s",
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "green",
+                            "value": null
+                          },
+                          {
+                            "color": "orange",
+                            "value": 93600
+                          },
+                          {
+                            "color": "red",
+                            "value": 129600
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "description": "Daily Gold refresh runs around 04:00 UTC. Warning after 26 hours; no data after 36 hours."
+                },
+                {
+                  "id": 9,
+                  "title": "Known property corpus",
+                  "type": "timeseries",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 253,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "lakehouse_screener_all_unique_properties",
+                      "refId": "A",
+                      "legendFormat": "All unique properties"
+                    },
+                    {
+                      "expr": "lakehouse_screener_all_source_listings",
+                      "refId": "B",
+                      "legendFormat": "All source listings"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "One daily point per successful Gold materialization from the combined current and verified historical corpus."
+                },
+                {
+                  "id": 10,
+                  "title": "Duplicate rate across all listings",
+                  "type": "timeseries",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 253,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "lakehouse_screener_all_duplicate_rate",
+                      "refId": "A",
+                      "legendFormat": "Duplicate rate (all)"
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "percentunit",
+                      "min": 0,
+                      "max": 1
+                    }
+                  }
+                },
+                {
+                  "id": 12,
+                  "title": "Source coverage by provider",
+                  "type": "bargauge",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 261,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_sources_by_provider[36h]) > 0",
+                      "refId": "A",
+                      "legendFormat": "{{provider}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true
+                  },
+                  "description": "All Bronze records by provider, including verified imports and cross-portal duplicates."
+                },
+                {
+                  "id": 15,
+                  "title": "Properties awaiting LLM enrichment",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 261,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_llm_cache_pending_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short",
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "green",
+                            "value": null
+                          },
+                          {
+                            "color": "orange",
+                            "value": 1
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "description": "Properties in the latest Silver snapshot whose descriptions do not yet have a completed, validated LLM cache result. The separate LLM job retries these during the day; Silver applies completed results on its next daily refresh."
+                },
+                {
+                  "id": 24,
+                  "title": "Price-per-m² area exclusions",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 18,
+                    "y": 261,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_all_price_per_sqm_implausible_area_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Priced Silver properties reporting less than 10 m² of living area are retained as listings but excluded from price-per-m² averages and medians."
+                },
+                {
+                  "id": 25,
+                  "title": "Manually imported historical listings",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 269,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_manually_imported_listings[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Verified dated Freddy records imported into the screener but absent from current crawler observations."
+                },
+                {
+                  "id": 26,
+                  "title": "Current unique properties",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 6,
+                    "y": 269,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_unique_properties[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Active screener inventory only; manually imported archive-only listings are excluded."
+                },
+                {
+                  "id": 27,
+                  "title": "Current source listings",
+                  "type": "stat",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 269,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_source_listings[36h])",
+                      "refId": "A",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "description": "Active source rows only; verified archive-only imports remain in the all-listings KPIs above."
+                },
+                {
+                  "id": 29,
+                  "title": "Live screener listings",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 18,
+                    "y": 269,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_listings",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Current property rows in the screener, not a count of the whole market.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 32,
+                  "title": "Upcoming auctions (fresh states)",
+                  "type": "stat",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 0,
+                    "y": 274,
+                    "w": 6,
+                    "h": 5
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_upcoming_auctions",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Announced appointments from each state's latest successful public overview, if imported in the past 48 hours. Check fresh-state coverage before treating this as a national total.",
+                  "options": {
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "orientation": "auto",
+                    "textMode": "auto",
+                    "colorMode": "value"
+                  }
+                },
+                {
+                  "id": 33,
+                  "title": "Live property inventory over time",
+                  "type": "timeseries",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 274,
+                    "w": 12,
+                    "h": 8
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_listings",
+                      "refId": "A",
+                      "legendFormat": "{{__name__}}",
+                      "instant": false
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "description": "Scraped count sampled every 30 seconds; this is not a full property history."
+                },
+                {
+                  "id": 39,
                   "title": "Fresh state overviews (of 16)",
                   "type": "stat",
                   "datasource": {
@@ -775,7 +3781,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 18,
-                    "y": 21,
+                    "y": 274,
                     "w": 6,
                     "h": 5
                   },
@@ -790,7 +3796,19 @@ spec:
                   "fieldConfig": {
                     "defaults": {
                       "unit": "short",
-                      "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 16}]}
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "red",
+                            "value": null
+                          },
+                          {
+                            "color": "green",
+                            "value": 16
+                          }
+                        ]
+                      }
                     },
                     "overrides": []
                   },
@@ -809,112 +3827,8 @@ spec:
                   }
                 },
                 {
-                  "id": 12,
-                  "title": "German mortgage rates by fixation band (since 2003)",
-                  "type": "timeseries",
-                  "datasource": {
-                    "type": "yesoreyeram-infinity-datasource",
-                    "uid": "screener-rate-history"
-                  },
-                  "timeFrom": "24y",
-                  "gridPos": {
-                    "x": 0,
-                    "y": 29,
-                    "w": 12,
-                    "h": 8
-                  },
-                  "targets": [
-                    {
-                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_1_to_5",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · fixation 1–5 years", "type": "number"}],
-                      "refId": "A", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    },
-                    {
-                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_5_to_10",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · fixation 5–10 years", "type": "number"}],
-                      "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    },
-                    {
-                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/mortgage-history?band=over_10",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · fixation over 10 years", "type": "number"}],
-                      "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    }
-                  ],
-                  "fieldConfig": {
-                    "defaults": {
-                      "unit": "percent"
-                    },
-                    "overrides": []
-                  },
-                  "description": "Official monthly Bundesbank new-business mortgage rates since the MFI survey began in January 2003, plotted at observation time. The published bands are over 1 to 5, over 5 to 10, and over 10 years; they are not exact 10-, 15-, or 20-year offers or government-bond maturities. The earlier bank survey used a different method and is intentionally excluded."
-                },
-                {
-                  "id": 13,
-                  "title": "German government-bond yields by original maturity",
-                  "type": "timeseries",
-                  "datasource": {
-                    "type": "yesoreyeram-infinity-datasource",
-                    "uid": "screener-rate-history"
-                  },
-                  "timeFrom": "30y",
-                  "gridPos": {
-                    "x": 12,
-                    "y": 29,
-                    "w": 12,
-                    "h": 8
-                  },
-                  "targets": [
-                    {
-                      "type": "json",
-                      "source": "url",
-                      "parser": "backend",
-                      "format": "timeseries",
-                      "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=5",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 5 years", "type": "number"}],
-                      "refId": "A",
-                      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    },
-                    {
-                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=10",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 10 years", "type": "number"}],
-                      "refId": "B", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    },
-                    {
-                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=15",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 15 years", "type": "number"}],
-                      "refId": "C", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    },
-                    {
-                      "type": "json", "source": "url", "parser": "backend", "format": "timeseries", "root_selector": "rows",
-                      "url": "http://screener-web.real-estate-screener.svc:3000/api/bond-history?term=20",
-                      "url_options": {"method": "GET"},
-                      "columns": [{"selector": "time", "text": "Time", "type": "timestamp"}, {"selector": "value", "text": "Bundesbank · 20 years", "type": "number"}],
-                      "refId": "D", "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "screener-rate-history"}
-                    }
-                  ],
-                  "fieldConfig": {
-                    "defaults": {
-                      "unit": "percent"
-                    },
-                    "overrides": []
-                  },
-                  "description": "Monthly averages of official daily Bundesbank yields, plotted at observation time. The 15- and 20-year series start later than the 5- and 10-year series because those are the available source histories."
-                },
-                {
-                  "id": 14,
-                  "title": "Business metric query health",
+                  "id": 40,
+                  "title": "Screener query health",
                   "type": "stat",
                   "datasource": {
                     "type": "prometheus",
@@ -922,7 +3836,7 @@ spec:
                   },
                   "gridPos": {
                     "x": 0,
-                    "y": 37,
+                    "y": 282,
                     "w": 6,
                     "h": 5
                   },
@@ -955,25 +3869,163 @@ spec:
                   }
                 },
                 {
-                  "id": 15, "title": "Upcoming auctions by Bundesland", "type": "bargauge",
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "gridPos": {"x": 0, "y": 42, "w": 12, "h": 9},
-                  "targets": [{"expr": "screener_bi_upcoming_auctions_by_state", "refId": "A", "legendFormat": "{{state}}", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
-                  "description": "Only states with a successful public overview in the past 48 hours appear; a valid zero-result state displays 0."
+                  "id": 42,
+                  "title": "Fresh import by Bundesland",
+                  "type": "bargauge",
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "gridPos": {
+                    "x": 6,
+                    "y": 282,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "targets": [
+                    {
+                      "expr": "screener_bi_auction_state_fresh",
+                      "refId": "A",
+                      "legendFormat": "{{state}}",
+                      "instant": true
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short",
+                      "min": 0,
+                      "max": 1,
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "red",
+                            "value": null
+                          },
+                          {
+                            "color": "green",
+                            "value": 1
+                          }
+                        ]
+                      }
+                    },
+                    "overrides": []
+                  },
+                  "options": {
+                    "orientation": "horizontal",
+                    "displayMode": "gradient",
+                    "showUnfilled": true,
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    }
+                  },
+                  "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
                 },
                 {
-                  "id": 16, "title": "Fresh import by Bundesland", "type": "bargauge",
-                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
-                  "gridPos": {"x": 12, "y": 42, "w": 12, "h": 9},
-                  "targets": [{"expr": "screener_bi_auction_state_fresh", "refId": "A", "legendFormat": "{{state}}", "instant": true}],
-                  "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
-                  "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
-                  "description": "1 means the latest successful overview is under 48 hours old; 0 means missing or stale."
+                  "id": 87,
+                  "title": "Priced properties in first-seen month cohort",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 0,
+                    "y": 167,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_month_properties[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "xField": "month",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen month. A small count makes any cohort price statistic unstable."
+                },
+                {
+                  "id": 88,
+                  "title": "Priced properties in first-seen quarter cohort",
+                  "type": "barchart",
+                  "gridPos": {
+                    "x": 12,
+                    "y": 167,
+                    "w": 12,
+                    "h": 9
+                  },
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "victoriametrics"
+                  },
+                  "targets": [
+                    {
+                      "expr": "last_over_time(lakehouse_screener_historical_average_price_per_sqm_by_quarter_properties[36h]) > 0",
+                      "refId": "A",
+                      "instant": true,
+                      "format": "table"
+                    }
+                  ],
+                  "transformations": [
+                    {
+                      "id": "labelsToFields",
+                      "options": {
+                        "mode": "columns"
+                      }
+                    }
+                  ],
+                  "fieldConfig": {
+                    "defaults": {
+                      "unit": "short"
+                    }
+                  },
+                  "options": {
+                    "xField": "quarter",
+                    "orientation": "horizontal",
+                    "showValue": "never",
+                    "legend": {
+                      "showLegend": false
+                    },
+                    "tooltip": {
+                      "mode": "single"
+                    }
+                  },
+                  "description": "Deduplicated properties with positive asking price and at least 10 m² living area in this first-seen quarter. A small count makes any cohort price statistic unstable."
                 }
               ]
             }
+        # These dashboards keep the UIDs of the former Grafana.com imports so
+        # saved links survive. Their old selectors required absent labels or
+        # recording rules; the local versions query the metrics we scrape.
         node-exporter:
           json: |
             {
@@ -3834,9 +6886,9 @@ spec:
                 for: 0m
                 annotations:
                   summary: >-
-                    A Talos node has not matched the Kubernetes version pinned in git for a week
+                    A Talos node still runs a different Kubernetes version than the Git pin
                   description: >-
-                    talos-fleet-health found at least one node NOT running KUBERNETES_VERSION from versions.env, continuously for 8 days -- long enough that a routine wait for the Sunday upgrade window no longer explains it. Identify the node with the talos_fleet_node_info series and compare against `kubectl get plans -n cattle-system`.
+                    Every available fleet-health sample in the last 36 hours shows at least one kubelet below KUBERNETES_VERSION from versions.env (at least four checks are required). The talos-kubernetes Plan can say Complete=True when its selector matches zero nodes; that does not prove an upgrade ran. Compare `kubectl version`, node versions and `talos_fleet_node_info` with the pin. Check `kubectl get nodes -L talos.homelab/talos-version-ready`, the talos-version-gate Job, and recent talos-controlplane Jobs before investigating the Kubernetes Plan.
                 labels:
                   severity: warning
                 isPaused: false

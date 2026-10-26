@@ -1,0 +1,29 @@
+# Archive Dagster metadata with the existing lakehouse bucket credential.
+# The recovery workflow excludes this prefix from the object-data dataset;
+# its own CNPG dataset stages the base backup and WAL into restic.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: recovery
+  namespace: lakehouse
+spec:
+  retentionPolicy: "7d"
+  configuration:
+    destinationPath: s3://lakehouse-data/postgres/
+    endpointURL: http://seaweedfs-s3.seaweedfs.svc:8333 # nosonar
+    s3Credentials:
+      accessKeyId:
+        name: lakehouse-s3
+        key: access_key_id
+      secretAccessKey:
+        name: lakehouse-s3
+        key: secret_access_key
+    wal:
+      compression: gzip
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

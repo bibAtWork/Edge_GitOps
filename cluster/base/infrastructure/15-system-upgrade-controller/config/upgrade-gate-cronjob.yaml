@@ -65,6 +65,10 @@ spec:
               image: docker.io/rancher/kuberlr-kubectl:v8.1.2
               command: ["/bin/sh", "/scripts/gate.sh"]
               env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
                 - name: VM_IMPORT_URL
                   value: http://vmsingle-vmstack-victoria-metrics-k8s-stack.monitoring.svc:8428/api/v1/import/prometheus # nosonar
                 # A newest validated recovery point older than this refuses the

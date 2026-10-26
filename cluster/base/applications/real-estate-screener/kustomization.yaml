@@ -8,6 +8,10 @@ resources:
 - web.yaml
 - collector.yaml
 - macro.yaml
+- market-data.yaml
+- rental-pdf-import.yaml
+- akoga.yaml
+- etf-benchmark.yaml
 - auctions.yaml
 - access.yaml
 configMapGenerator:

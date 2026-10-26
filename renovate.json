@@ -40,6 +40,19 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "The system-upgrade-controller's kubectl Job image lives in a post-rendered ConfigMap string, not an image field the Kubernetes manager reads. Track it with the same dependency name as the working kuberlr gates so Renovate updates them together.",
+      "managerFilePatterns": [
+        "/^cluster/base/infrastructure/15-system-upgrade-controller/operator/helmrelease\\.yaml$/"
+      ],
+      "matchStrings": [
+        "SYSTEM_UPGRADE_JOB_KUBECTL_IMAGE:\\s*\\\"rancher/kuberlr-kubectl:(?<currentValue>v[\\d.]+)\\\""
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "docker.io/rancher/kuberlr-kubectl",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Grafana chart version fallback: native Flux extraction skips this large templated HelmRelease. Keep the built-in manager for all other charts and for supported image values; this manager only covers the missing chart pin.",
       "managerFilePatterns": [
         "/^cluster/base/infrastructure/04-grafana/helmrelease\\.yaml$/"
@@ -124,7 +137,7 @@
         "/cluster/base/.+\\.yaml$/"
       ],
       "matchStrings": [
-        "imageName:\\s*(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>[\\d.]+)"
+        "imageName:\\s*(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>[\\d.]+(?:-minimal-bookworm)?)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
@@ -229,7 +242,7 @@
       "description": "Keep CloudNativePG on the PostgreSQL 16 series. A major version change there is a database upgrade with its own migration path, not an image bump, and must never arrive as an automated PR.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/cloudnative-pg/postgresql"],
-      "allowedVersions": "<17"
+      "allowedVersions": "/^16\\.[0-9]+(?:-minimal-bookworm)?$/"
     },
     {
       "description": "The built-in kubernetes manager line-matches every `image:` field in any /cluster/.+\\.yaml$ file regardless of `kind:`, so without this it independently proposes bumps to the talosctl image tags inside the SUC Plan files (talos-controlplane/worker/on-demand/kubernetes-upgrade.yaml). Those are Kustomize `replacements` placeholders now (config/kustomization.yaml), not pins -- a bump from this manager would edit a value that gets overwritten at build time anyway, in an ungrouped PR unrelated to the versions.env-driven update.",
@@ -361,7 +374,7 @@
       ]
     },
     {
-      "description": "docker.io/rancher/kuberlr-kubectl is pinned independently in four unrelated files (05-cilium/bootstrap-rbac-cleanup.yaml and three system-upgrade-controller/kubescape cronjobs) -- each already tracked individually by the built-in kubernetes manager, but with no relationship between them a bump can land in one file's PR and not the other three, leaving the cluster running several different kubectl-wrapper versions for the same purpose with no reason. Grouped so every occurrence moves together in one PR. docker.io/library/python is deliberately NOT grouped the same way -- different services, different upgrade cadence, no shared-version rationale the way this single-purpose kubectl wrapper has.",
+      "description": "Group the kuberlr-kubectl images used by bootstrap, upgrade gates, and system-upgrade-controller Jobs. The Job image is a ConfigMap string tracked by a scoped custom manager; the other images use the built-in Kubernetes manager. They must move together so an upgrade Job never runs an older kubectl wrapper than the gates that authorized it.",
       "matchPackageNames": [
         "docker.io/rancher/kuberlr-kubectl"
       ],

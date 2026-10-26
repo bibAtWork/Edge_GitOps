@@ -106,7 +106,7 @@ spec:
             - name: TS_HOSTNAME
               value: homelab-router
             - name: TS_ROUTES
-              value: "192.168.178.200/32"
+              value: "192.168.178.200/32,192.168.178.100/32"
             - name: TS_USERSPACE
               value: "false"
             - name: TS_AUTH_ONCE

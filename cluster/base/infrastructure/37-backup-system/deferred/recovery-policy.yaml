@@ -24,20 +24,25 @@ data:
     paperless      important        important
     seaweedfs      important        important
     real-estate-screener important important
+    lakehouse       important        important
 
   # adapter
   #   restic-volume  snapshot clone of the volume -> restic, file level
   #   sqlite-volume  snapshot clone -> SQLite online backup of one file -> restic
   #   cnpg           a CNPG cluster's base backup and the WAL that makes it
   #                  consistent, from its barman archive into restic
+  #   s3-bucket      copy an application's object bucket, excluding its
+  #                  PostgreSQL archive, into restic and verify a restore
   # source
-  #   pvc:<namespace>/<claim> for the volume adapters, cnpg:<namespace>/<cluster>
+  #   pvc:<namespace>/<claim> for volumes, cnpg:<namespace>/<cluster> for DBs,
+  #   s3:<namespace>/<bucket> for object data
   # paths
   #   restic-volume  comma-separated directories on the volume; everything else
   #                  on it is derived and deliberately left out (see below)
   #   sqlite-volume  the database file
   #   cnpg           - for the shared recovery archive, or the dedicated S3
   #                  bucket name when an application must not hold its key
+  #   s3-bucket      - (the PostgreSQL archive prefix is excluded by adapter)
   datasets: |
     # dataset          application  adapter        source                            paths
     immich-media       immich       restic-volume  pvc:immich/immich-library-lh      upload,library,profile
@@ -47,6 +52,8 @@ data:
     filer-db           seaweedfs    cnpg           cnpg:seaweedfs/filer-meta-pg      -
     immich-db          immich       cnpg           cnpg:immich/immich-pg             -
     screener-db        real-estate-screener cnpg     cnpg:real-estate-screener/screener-pg screener-recovery
+    lakehouse-db       lakehouse    cnpg           cnpg:lakehouse/lakehouse-pg      lakehouse-data
+    lakehouse-objects  lakehouse    s3-bucket      s3:lakehouse/lakehouse-data      -
 
   # Whole volumes deliberately not a dataset above, and why -- ADR-011 kept a
   # table like this for the old pipeline (`not-backed-up`); it was dropped at
@@ -147,6 +154,9 @@ data:
     screener-db       1     select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'source_listings'
     screener-db       1     select count(*) from source_listings
     screener-db       1     select count(*) from listing_observations
+    lakehouse-db      1     select count(*) from runs
+    lakehouse-db      1     select count(*) from event_logs
+    lakehouse-db      1     select count(*) from asset_keys
 
   # Derived data inside the datasets' volumes, left out on purpose. A cache that
   # can hold unique user state is not a cache; these cannot.
