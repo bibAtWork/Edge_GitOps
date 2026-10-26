@@ -57,6 +57,49 @@ data:
     done
     log "cleared $LABEL from all nodes -- it must be re-earned by this run"
 
+    # The chart loads Job settings through envFrom at controller start. A
+    # ConfigMap change is intentionally NOT an automatic restart: a restart can
+    # requeue a failed Plan outside its staffed window. Refuse an upgrade until
+    # an operator has reviewed Plans and restarted the controller deliberately.
+    SETTINGS="$(kubectl get cm system-upgrade-controller-config -n cattle-system -o jsonpath='{.data.SYSTEM_UPGRADE_JOB_KUBECTL_IMAGE}' 2>/dev/null)"
+    GATE_IMAGE="$(kubectl get pod "$POD_NAME" -n longhorn-system -o jsonpath='{.spec.containers[?(@.name=="gate")].image}' 2>/dev/null)"
+    if [ -z "$SETTINGS" ] || [ -z "$GATE_IMAGE" ]; then
+      fail "cannot read the controller's kubectl image or this gate's image"
+    elif [ "${GATE_IMAGE#docker.io/}" != "${SETTINGS#docker.io/}" ]; then
+      fail "gate image $GATE_IMAGE differs from controller Job image $SETTINGS"
+    fi
+
+    LAST_CONFIG_WRITE="$(kubectl get cm system-upgrade-controller-config -n cattle-system --show-managed-fields -o jsonpath='{range .metadata.managedFields[*]}{.time}{"\n"}{end}' 2>/dev/null | sort | tail -n 1)"
+    CONTROLLERS="$(kubectl get pods -n cattle-system -l app.kubernetes.io/name=system-upgrade-controller -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name} {.status.containerStatuses[?(@.name=="system-upgrade-controller")].ready} {.status.containerStatuses[?(@.name=="system-upgrade-controller")].state.running.startedAt}{"\n"}{end}' 2>/dev/null)"
+    # One ready controller, started after every recorded ConfigMap write.
+    # RFC3339 UTC values compare lexically here because both are zero-padded.
+    set -- $CONTROLLERS
+    if [ -z "$LAST_CONFIG_WRITE" ] || [ "$#" -ne 3 ] || [ "${2:-}" != true ] || [ -z "${3:-}" ]; then
+      fail "cannot prove one ready controller loaded the current ConfigMap"
+    elif [ "$3" \< "$LAST_CONFIG_WRITE" ]; then
+      fail "controller started $3 before its ConfigMap was last written $LAST_CONFIG_WRITE; review Plans and restart in a staffed window"
+    fi
+
+    # Exercise the same kubectl wrapper that the upgrade Job will use, against
+    # a real node. Its selected client must be within one minor of BOTH the
+    # current API and the intended Kubernetes version, or the next upgrade is
+    # refused before SUC can start a Job.
+    if ! kubectl get node "$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" >/dev/null 2>&1; then
+      fail "bundled kubectl cannot get a node from the live API"
+    fi
+    CLIENT_MINOR="$(kubectl version --client -o json 2>/dev/null | sed -n 's/.*"minor"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\)".*/\1/p' | head -n 1)"
+    SERVER_MINOR="$(kubectl get --raw /version 2>/dev/null | sed -n 's/.*"minor"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\)".*/\1/p' | head -n 1)"
+    TARGET_VERSION="$(kubectl get cm talos-versions -n cattle-system -o jsonpath='{.data.KUBERNETES_VERSION}' 2>/dev/null)"
+    TARGET_MINOR="$(printf '%s' "$TARGET_VERSION" | sed -n 's/^v*1\.\([0-9][0-9]*\)\..*/\1/p')"
+    if [ -z "$CLIENT_MINOR" ] || [ -z "$SERVER_MINOR" ] || [ -z "$TARGET_MINOR" ]; then
+      fail "cannot establish kubectl client, live API, and target Kubernetes versions"
+    elif [ "$CLIENT_MINOR" -lt $((SERVER_MINOR - 1)) ] || [ "$CLIENT_MINOR" -gt $((SERVER_MINOR + 1)) ] ||
+         [ "$CLIENT_MINOR" -lt $((TARGET_MINOR - 1)) ] || [ "$CLIENT_MINOR" -gt $((TARGET_MINOR + 1)) ]; then
+      fail "kubectl 1.$CLIENT_MINOR is outside the one-minor skew of live 1.$SERVER_MINOR or target $TARGET_VERSION"
+    else
+      log "kubectl 1.$CLIENT_MINOR can reach a node and supports live 1.$SERVER_MINOR and target $TARGET_VERSION"
+    fi
+
     # ---------------------------------------------------------------
     # 1. Every application the policy declares is proven.
     # ---------------------------------------------------------------

@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: screener-market-data
+spec:
+  schedule: 0 5 * * 0
+  timeZone: Europe/Berlin
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          imagePullSecrets:
+          - name: ghcr-pull
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: market-data
+            image: ghcr.io/bibatwork/real-estate-screener:v1.14.0@sha256:896c67641d75eb7ea9e354ed26f68b50eb7aaa0bddbbd1c00b536bc86e500b65
+            imagePullPolicy: Always
+            args:
+            - market-data-sync
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: '1'
+                memory: 1Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: screener-pg-app
+                  key: uri
+          volumes:
+          - name: tmp
+            emptyDir:
+              sizeLimit: 64Mi
+          initContainers:
+          - name: migrate
+            image: ghcr.io/bibatwork/real-estate-screener:v1.14.0@sha256:896c67641d75eb7ea9e354ed26f68b50eb7aaa0bddbbd1c00b536bc86e500b65
+            args:
+            - migrate
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: screener-pg-app
+                  key: uri
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 500m
+                memory: 256Mi
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        metadata:
+          labels:
+            screener/worker: 'true'

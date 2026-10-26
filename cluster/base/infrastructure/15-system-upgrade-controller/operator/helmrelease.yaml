@@ -50,10 +50,10 @@ spec:
   values:
     # Image pinned per ADR-009, at the version already running in cattle-system.
     #
-    # kubectl.image is deliberately not pinned. SUC uses it only inside the
-    # upgrade Jobs it creates, so no pod runs it between upgrades and a pin
-    # could not be verified against anything -- and an unverifiable pin is the
-    # kind ADR-009 exists to prevent.
+    # The chart's kubectl image is v7.0.3, which cannot select a kubectl for
+    # Kubernetes 1.37. The upgrade Job fails before talosctl starts. Pin the
+    # same v8.1.2 wrapper used by the working upgrade gates; keep this in
+    # sync with their image when Renovate updates the kuberlr group.
     systemUpgradeController:
       image:
         repository: rancher/system-upgrade-controller
@@ -120,3 +120,4 @@ spec:
                 # trips StuckUpgradeJob (04-grafana/helmrelease.yaml) -- well
                 # before it can repeat a costly failure mode 14 times over.
                 SYSTEM_UPGRADE_JOB_BACKOFF_LIMIT: "5"
+                SYSTEM_UPGRADE_JOB_KUBECTL_IMAGE: "rancher/kuberlr-kubectl:v8.1.2"

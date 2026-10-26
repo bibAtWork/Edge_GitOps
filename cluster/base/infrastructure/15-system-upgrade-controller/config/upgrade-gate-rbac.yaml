@@ -58,6 +58,60 @@ subjects:
     name: upgrade-backup-gate
     namespace: longhorn-system
 ---
+# The gate reads its own Pod image, the controller's ConfigMap write time, and
+# the ready controller Pod start time before authorising any upgrade.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: upgrade-gate-controller-reader
+  namespace: cattle-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["system-upgrade-controller-config", "talos-versions"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: upgrade-gate-controller-reader
+  namespace: cattle-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: upgrade-gate-controller-reader
+subjects:
+  - kind: ServiceAccount
+    name: upgrade-backup-gate
+    namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: upgrade-gate-self-reader
+  namespace: longhorn-system
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: upgrade-gate-self-reader
+  namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: upgrade-gate-self-reader
+subjects:
+  - kind: ServiceAccount
+    name: upgrade-backup-gate
+    namespace: longhorn-system
+---
 # Nodes are cluster-scoped, so labelling one needs a ClusterRole. Scoped to
 # nodes only, and to the verbs required to read and label them -- notably NOT
 # delete, and nothing outside the core API.

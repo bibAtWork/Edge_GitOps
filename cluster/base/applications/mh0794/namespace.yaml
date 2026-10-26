@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mh0794
+  labels:
+    homelab.local/application: "true"
+    homelab.local/gateway-access: "false"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    homelab.local/recovery: stateless
+    homelab.local/recovery-reason: No persistent workloads have been deployed yet.
