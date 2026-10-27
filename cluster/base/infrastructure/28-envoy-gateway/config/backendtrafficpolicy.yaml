@@ -46,3 +46,34 @@ spec:
           limit:
             requests: 300
             unit: Minute
+  # A stale /oauth2/callback is rejected by Envoy before the backend sees it.
+  # Keep the 401 and offer a same-origin link to start a fresh flow. Scope this
+  # to Envoy-generated responses so application 401s keep their own messages;
+  # do not redirect automatically, because genuine authorization failures must
+  # remain visible instead of looping through OIDC.
+  responseOverride:
+    - match:
+        statusCodes:
+          - type: Value
+            value: 401
+      source: Local
+      response:
+        statusCode: 401
+        contentType: text/html; charset=utf-8
+        body:
+          type: Inline
+          inline: |
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Sign-in did not complete</title>
+              </head>
+              <body>
+                <h1>Sign-in did not complete</h1>
+                <p>This sign-in link may have expired, or access to this service may be denied.</p>
+                <p><a href="/">Start sign-in again</a></p>
+                <p>If access is denied again, contact the cluster administrator.</p>
+              </body>
+            </html>
