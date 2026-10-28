@@ -32,6 +32,11 @@ symptom has a one-hour cooldown. A recovered failed Job is not an active signal
 when a newer Job succeeded. The gate saves a bounded incident packet under
 `/home/cao/incidents`, then CAO launches an OpenCode triage session. Reports and
 handoffs are saved under `/home/cao/reports` and `/home/cao/handoffs`.
+The gate also reads `/health/ingestion`: it investigates a confirmed low-yield
+search or at least two exact plot-extraction mismatches among 20 labeled recent
+ImmoScout details. These are aggregate counts, not listing contents. Grafana
+sends one warning after 30 more minutes; CAO keeps its existing two-sample gate
+and cooldown to avoid duplicate investigations.
 
 The incident packet and handoff format use `schema_version: 1`. The RCA profile
 validates the triage handoff before use. A future PR member can consume an RCA

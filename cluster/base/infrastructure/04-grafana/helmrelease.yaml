@@ -7671,6 +7671,63 @@ spec:
             folder: Infrastructure
             interval: 5m
             rules:
+              # Two consecutive low-yield collector runs are evaluated against
+              # each search's own history by the application. A labeled source
+              # plot missing from extraction is exact evidence, not a nullable
+              # field-rate guess. One aggregate warning avoids per-search spam.
+              - uid: screener-ingestion-quality
+                title: ScreenerIngestionQualityDegraded
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        (sum(screener_ingestion_search_degraded) or vector(0))
+                        + (sum((screener_ingestion_plot_missing{provider="immoscout"} >= bool 2)
+                        * on(provider) (screener_ingestion_plot_labeled{provider="immoscout"} >= bool 20)) or vector(0))
+                        + (sum(screener_ingestion_query_success == bool 0) or vector(0))
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 30m
+                annotations:
+                  summary: Screener ingestion quality degraded
+                  description: >-
+                    A configured search had two fresh low-yield successes against its seven-day baseline,
+                    at least two recent ImmoScout records had a labeled Grundstück value that extraction missed,
+                    or the quality query failed. Inspect /health/ingestion on screener-web for the affected search
+                    and counts, then compare recent collector Jobs and retained source evidence. CAO-SRE records a
+                    read-only triage packet. The rule is one aggregate warning and clears when quality recovers.
+                labels:
+                  severity: warning
+                isPaused: false
               # One Certificate exists (homelab-wildcard-tls, gateway-system)
               # and it fronts every HTTPS listener, so min() over the family is
               # both the soonest expiry and the only one.
