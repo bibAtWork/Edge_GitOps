@@ -11,8 +11,6 @@ cao install /home/cao/agent-profiles/screener-triage.md
 cao install /home/cao/agent-profiles/screener-rca.md
 cao install /home/cao/agent-profiles/screener-triage-codex.md
 cao install /home/cao/agent-profiles/screener-rca-codex.md
-cao workflow validate /config/screener_crew.py
-
 cao-server --host 0.0.0.0 --port 9889 &
 server_pid=$!
 trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT INT TERM
@@ -26,6 +24,7 @@ until cao schedule list >/dev/null 2>&1; do
   fi
   sleep 2
 done
+cao workflow validate /config/screener_crew.py
 cao schedule remove screener-monitor >/dev/null 2>&1 || true
 cao schedule add /config/screener-monitor.md
 cao schedule remove screener-crew-controller >/dev/null 2>&1 || true
