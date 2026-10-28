@@ -2,8 +2,6 @@
 name: screener-triage
 description: Read-only incident triage for real-estate-screener
 role: sre_triage
-provider: opencode_cli
-model: google/gemini-2.5-flash
 allowedTools:
   - fs_read
   - fs_list

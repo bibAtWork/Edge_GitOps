@@ -13,6 +13,10 @@ configMapGenerator:
     namespace: cao-sre
     files:
       - entrypoint.sh=runtime/entrypoint.sh
+      - render_profiles.py=runtime/render_profiles.py
+      - codex-sre.config.toml=runtime/codex-sre.config.toml
+      - opencode-overlay.yaml=profiles/overlays/opencode.yaml
+      - codex-overlay.yaml=profiles/overlays/codex.yaml
       - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
       - screener_context.py=runtime/screener_context.py
