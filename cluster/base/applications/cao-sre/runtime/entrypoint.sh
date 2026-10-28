@@ -2,7 +2,7 @@
 set -eu
 
 mkdir -p /home/cao/reports /home/cao/handoffs /home/cao/incidents
-mkdir -p /home/cao/crew-queue /home/cao/.aws/cli-agent-orchestrator/workflows
+mkdir -p /home/cao/crew-queue /home/cao/crew-workflows
 mkdir -p /home/cao/.codex
 cp /config/codex-sre.config.toml /home/cao/.codex/sre_observer.config.toml
 chmod 0600 /home/cao/.codex/sre_observer.config.toml
@@ -11,8 +11,8 @@ cao install /home/cao/agent-profiles/screener-triage.md
 cao install /home/cao/agent-profiles/screener-rca.md
 cao install /home/cao/agent-profiles/screener-triage-codex.md
 cao install /home/cao/agent-profiles/screener-rca-codex.md
-cp /config/screener_crew.py /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
-cao workflow validate /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
+cp /config/screener_crew.py /home/cao/crew-workflows/screener_crew.py
+cao workflow validate /home/cao/crew-workflows/screener_crew.py
 
 cao-server --host 0.0.0.0 --port 9889 &
 server_pid=$!

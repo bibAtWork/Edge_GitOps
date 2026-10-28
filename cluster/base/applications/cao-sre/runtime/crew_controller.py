@@ -12,6 +12,7 @@ from pathlib import Path
 from screener_context import validate_packet
 
 QUEUE = Path(os.environ.get("CAO_CREW_QUEUE", "/home/cao/crew-queue"))
+WORKFLOW = "/home/cao/crew-workflows/screener_crew.py"
 MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
 QUOTA_DELAY = 5 * 60 * 60
@@ -67,7 +68,7 @@ def start(record):
     packet_path = Path(record["packet_path"])
     validate_packet(packet_path, incident_id, max_age_seconds=900)
     run_id = f"crew-{incident_id}"
-    result = command("workflow", "run", "screener_crew", "--run-id", run_id,
+    result = command("workflow", "run", WORKFLOW, "--run-id", run_id,
                      "--input", f"incident_id={incident_id}",
                      "--input", f"packet_path={packet_path}", "--detach", "--json")
     if result.returncode and run_status(run_id) is None:
