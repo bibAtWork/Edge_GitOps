@@ -117,6 +117,8 @@ spec:
           volumeMounts:
             - name: state
               mountPath: /home/cao
+            - name: workflows
+              mountPath: /home/cao/.aws/cli-agent-orchestrator/workflows
             - name: tmp
               mountPath: /tmp
             - name: config
@@ -126,6 +128,9 @@ spec:
         - name: state
           persistentVolumeClaim:
             claimName: cao-sre-state
+        - name: workflows
+          emptyDir:
+            sizeLimit: 16Mi
         - name: tmp
           emptyDir:
             sizeLimit: 1Gi

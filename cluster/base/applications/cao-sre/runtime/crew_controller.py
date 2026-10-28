@@ -12,7 +12,7 @@ from pathlib import Path
 from screener_context import validate_packet
 
 QUEUE = Path(os.environ.get("CAO_CREW_QUEUE", "/home/cao/crew-queue"))
-WORKFLOW = "/config/screener_crew.py"
+WORKFLOW = "/home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py"
 MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
 QUOTA_DELAY = 5 * 60 * 60
