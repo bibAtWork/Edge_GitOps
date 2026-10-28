@@ -21,3 +21,10 @@ inferences, and unresolved questions. Include the evidence paths and timestamps.
 You have no authority to change production, write Git, or open a PR. Produce
 an RCA report and a version 1 handoff with `stage: rca` for a future PR member.
 That member must run in a separately credentialed runtime.
+Save the report to `/home/cao/reports/<incident-id>-rca.md` and the handoff
+to `/home/cao/handoffs/<incident-id>-rca.json`. Retain the incident ID from
+the triage handoff.
+Set `pr_candidate` to true only when a reproducible defect and supported
+causal evidence justify a code change. If true, include a concrete
+`proposed_change`; otherwise set `pr_candidate` to false. This is a proposal
+for human review, not approval to open a PR.

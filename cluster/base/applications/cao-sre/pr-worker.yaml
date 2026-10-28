@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cao-sre-pr-worker
+  namespace: cao-sre
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cao-sre-pr-worker
+  namespace: cao-sre
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1900
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app: cao-sre-pr-worker
+        spec:
+          serviceAccountName: cao-sre-pr-worker
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-pull
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: agent
+              image: ghcr.io/bibatwork/cao-sre@sha256:751f47abb4247bf57b681310b6fc4d6961c4d4c77a423ffebd2d9948639e845c
+              command: [/bin/sh, /config/pr_worker_entrypoint.sh]
+              env:
+                - name: OPENCODE_CONFIG
+                  value: /config/opencode-pr.json
+                - name: GH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: cao-sre-pr-github
+                      key: token
+                - name: GOOGLE_GENERATIVE_AI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: cao-sre-model
+                      key: api-key
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 150m
+                  memory: 512Mi
+                limits:
+                  cpu: "2"
+                  memory: 2Gi
+              volumeMounts:
+                - name: state
+                  mountPath: /home/cao
+                - name: workspace
+                  mountPath: /workspace
+                - name: tmp
+                  mountPath: /tmp
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: handoff
+                  mountPath: /handoff
+                  readOnly: true
+          volumes:
+            - name: state
+              emptyDir:
+                sizeLimit: 512Mi
+            - name: workspace
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 512Mi
+            - name: config
+              configMap:
+                name: cao-sre-pr-code
+                defaultMode: 0555
+            - name: handoff
+              configMap:
+                name: cao-sre-pr-handoff
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cao-sre-pr-worker-egress
+  namespace: cao-sre
+spec:
+  endpointSelector:
+    matchLabels:
+      app: cao-sre-pr-worker
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

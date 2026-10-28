@@ -6,6 +6,5 @@ provider: opencode_cli
 script: /config/gate.py
 ---
 
-Investigate incident [[incident_id]] for real-estate-screener. Read the
-timestamped incident packet at [[packet_path]]. Signal: [[signal]]. Produce
-the triage report and version 1 handoff specified by your profile.
+The deterministic gate enqueues confirmed symptoms for the crew workflow.
+This flow does not directly launch an agent.

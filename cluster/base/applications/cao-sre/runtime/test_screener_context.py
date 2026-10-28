@@ -1,11 +1,15 @@
 """Offline checks for signal selection and repeat suppression."""
 
 import datetime as dt
+import json
 import unittest
 from unittest.mock import patch
 
+from crew_controller import failure_kind, reconcile
 from gate import decision
-from screener_context import detect_signals, redact, validate_handoff
+from pr_gate import validate as validate_pr_candidate
+from screener_context import (NAMESPACE, REQUIRED_OBSERVATIONS, detect_signals,
+                              now, redact, validate_handoff, validate_packet)
 
 
 class ScreenerSignalTests(unittest.TestCase):
@@ -79,6 +83,55 @@ class ScreenerSignalTests(unittest.TestCase):
             mocked_path.return_value.read_text.return_value = '{"schema_version":1,"incident_id":"test"}'
             with self.assertRaises(ValueError):
                 validate_handoff("handoff.json")
+
+    def test_packet_requires_successful_api_receipts(self):
+        observed = now().isoformat()
+        packet = {"schema_version": 1, "namespace": NAMESPACE, "incident_id": "test",
+                  "observed_at": observed,
+                  "tool_receipts": [{"method": "GET", "target": target,
+                                     "status": 200, "observed_at": observed}
+                                    for target in REQUIRED_OBSERVATIONS]}
+        with patch("screener_context.Path") as mocked_path:
+            mocked_path.return_value.read_text.return_value = json.dumps(packet)
+            self.assertEqual(validate_packet("packet.json", "test")["incident_id"], "test")
+            packet["tool_receipts"] = packet["tool_receipts"][1:]
+            mocked_path.return_value.read_text.return_value = json.dumps(packet)
+            with self.assertRaisesRegex(ValueError, "Missing collector receipt"):
+                validate_packet("packet.json", "test")
+
+    def test_recovery_classifies_known_failures_only(self):
+        self.assertEqual(failure_kind({"error": "usage limit reached"}), "quota")
+        self.assertEqual(failure_kind({"error": "connection reset"}), "connection")
+        self.assertIsNone(failure_kind({"error": "invalid handoff"}))
+
+    def test_unknown_workflow_failure_stops_for_review(self):
+        record = {"state": "running", "run_id": "crew-test", "attempts": 1,
+                  "started_at": 1}
+        with patch("crew_controller.run_status", return_value={"state": "failed",
+                                                            "error": "invalid handoff"}):
+            reconcile(record)
+        self.assertEqual(record["state"], "needs_review")
+
+    def test_quota_failure_waits_for_window_before_resume(self):
+        record = {"state": "running", "run_id": "crew-test", "attempts": 1,
+                  "started_at": 1}
+        with patch("crew_controller.time.time", return_value=100), patch(
+            "crew_controller.run_status", return_value={"state": "failed", "error": "usage limit reached"}
+        ):
+            reconcile(record)
+        self.assertEqual(record["state"], "waiting")
+        self.assertEqual(record["next_retry_at"], 100 + 5 * 60 * 60)
+
+    def test_pr_gate_rejects_healthy_rca(self):
+        handoff = {"schema_version": 1, "stage": "rca",
+                   "incident_id": "manual-20261028T210907Z-aafeb5",
+                   "summary": "No active incident", "report_path": "/reports/rca.md",
+                   "hypotheses": [{"evidence": "healthy checks"}],
+                   "pr_candidate": False}
+        with patch("pr_gate.Path") as mocked_path:
+            mocked_path.return_value.read_text.return_value = json.dumps(handoff)
+            with self.assertRaisesRegex(ValueError, "does not propose"):
+                validate_pr_candidate("rca.json")
 
 
 if __name__ == "__main__":

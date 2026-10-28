@@ -2,6 +2,7 @@
 set -eu
 
 mkdir -p /home/cao/reports /home/cao/handoffs /home/cao/incidents
+mkdir -p /home/cao/crew-queue /home/cao/.aws/cli-agent-orchestrator/workflows
 mkdir -p /home/cao/.codex
 cp /config/codex-sre.config.toml /home/cao/.codex/sre_observer.config.toml
 chmod 0600 /home/cao/.codex/sre_observer.config.toml
@@ -10,6 +11,8 @@ cao install /home/cao/agent-profiles/screener-triage.md
 cao install /home/cao/agent-profiles/screener-rca.md
 cao install /home/cao/agent-profiles/screener-triage-codex.md
 cao install /home/cao/agent-profiles/screener-rca-codex.md
+cp /config/screener_crew.py /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
+cao workflow validate /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
 
 cao-server --host 0.0.0.0 --port 9889 &
 server_pid=$!
@@ -26,4 +29,6 @@ until cao schedule list >/dev/null 2>&1; do
 done
 cao schedule remove screener-monitor >/dev/null 2>&1 || true
 cao schedule add /config/screener-monitor.md
+cao schedule remove screener-crew-controller >/dev/null 2>&1 || true
+cao schedule add /config/screener-crew-controller.md
 wait "$server_pid"

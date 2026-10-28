@@ -23,10 +23,11 @@ profile, flow, runbook and Python collector from a generated ConfigMap. The
 shared agent definitions in `profiles/` are rendered at startup with OpenCode
 and Codex overlays. CAO installs `screener-triage` and `screener-rca` for
 OpenCode, plus `screener-triage-codex` and `screener-rca-codex` for Codex.
-The scheduled monitor stays on OpenCode; the Codex variants can be launched
-manually from the same UI after authentication. The PR member profile is
-present as a contract but is deliberately
-not installed because it needs a separate pod and GitHub credentials.
+The scheduled monitor starts a durable crew workflow: OpenCode triage followed
+by Codex RCA. Both harness variants remain available for manual launches in
+the same UI. A PR member is available as a suspended one-shot Job template;
+it starts only when an operator supplies an actionable RCA and a scoped
+GitHub credential.
 OpenCode permits reading `/config` for the runbook and collector while denying
 edits there; other external directories still require approval.
 
@@ -35,8 +36,11 @@ only the `real-estate-screener` namespace and the application's internal health
 endpoint. A symptom must appear twice before launch, and the same unresolved
 symptom has a one-hour cooldown. A recovered failed Job is not an active signal
 when a newer Job succeeded. The gate saves a bounded incident packet under
-`/home/cao/incidents`, then CAO launches an OpenCode triage session. Reports and
-handoffs are saved under `/home/cao/reports` and `/home/cao/handoffs`.
+`/home/cao/incidents`, then enqueues it on the existing state volume. The
+five-minute controller starts the `screener_crew` workflow, validates the
+triage handoff before RCA, and validates the RCA handoff afterward. Reports
+and handoffs are saved under `/home/cao/reports` and `/home/cao/handoffs`.
+Only one scheduled crew run is active at a time.
 The gate also reads `/health/ingestion`: it investigates a confirmed low-yield
 search or at least two exact plot-extraction mismatches among 20 labeled recent
 ImmoScout details. These are aggregate counts, not listing contents. Grafana
@@ -47,6 +51,18 @@ The incident packet and handoff format use `schema_version: 1`. The RCA profile
 validates the triage handoff before use. A future PR member can consume an RCA
 handoff in a separate runtime with a scoped GitHub credential. CAO profiles are
 behavioral guidance; Kubernetes RBAC and runtime separation enforce permissions.
+The collector records GET receipts for seven required Kubernetes resource
+lists and both application health endpoints. The controller checks these
+receipts before starting an agent, and the workflow checks them on replay.
+They describe what the PoC collector returned; they are not tamperproof audit
+logs and do not cover API calls an agent makes independently.
+
+CAO's workflow journal replays completed steps after interruption. The
+controller waits five minutes after a recorded connection failure or five
+hours after a usage-window failure, then resumes the journaled run. It allows
+three attempts total. Unknown failures, missing journal state, and runs still
+active after 45 minutes go to `needs_review` without spawning a duplicate.
+Records live in `/home/cao/crew-queue`.
 To add another harness, add its pinned CLI and a small profile overlay. The
 handoff format does not depend on the harness. Codex uses a named CLI config
 profile with no interactive approvals. The pod's `RuntimeDefault` seccomp policy
@@ -105,6 +121,45 @@ access both harnesses' credentials.
    The pod's 2 GiB memory limit covers all concurrent sessions, so start with
    one active Codex session while observing memory use.
 
+5. Inspect automatic crew state with `cao schedule list`, `cao workflow runs`,
+   and the JSON records in `/home/cao/crew-queue`. A `needs_review` record
+   requires an operator to inspect the CAO journal; the controller does not
+   automatically reset it.
+
+## Isolated draft PR worker
+
+The suspended `cao-sre-pr-worker` CronJob is a template for one-shot Jobs.
+It has an ephemeral workspace, no Kubernetes service-account token, and egress
+limited to DNS plus HTTPS. It has no screener namespace RBAC. The worker
+receives the model key and a separate, repository-scoped GitHub token. Create
+a fine-grained token restricted to `bibAtWork/Edge_GitOps` with Contents and
+Pull requests write access, and store it in Secret `cao-sre-pr-github` as key
+`token`. GitHub requires the account owner to create that token in settings;
+never put its plaintext value in Git or chat.
+
+Only launch this Job after reviewing an actionable RCA. The RCA handoff must
+set `pr_candidate: true`, specify a concrete `proposed_change`, and include
+an evidenced hypothesis. Copy its two artifacts locally, create the input
+ConfigMap, then launch one Job:
+
+```sh
+kubectl -n cao-sre cp <cao-pod>:/home/cao/handoffs/<incident-id>-rca.json ./rca.json
+kubectl -n cao-sre cp <cao-pod>:/home/cao/reports/<incident-id>-rca.md ./rca-report.md
+kubectl -n cao-sre create configmap cao-sre-pr-handoff \
+  --from-file=rca.json=./rca.json --from-file=rca-report.md=./rca-report.md \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n cao-sre create job cao-sre-pr-<short-id> \
+  --from=cronjob/cao-sre-pr-worker
+```
+
+The entrypoint rejects an RCA without a supported PR candidate. It clones
+the GitOps repository, starts `screener-pr-draft` in its own CAO session,
+and may open a draft PR. A healthy or uncertain RCA does not trigger this
+stage. The repository has an active PR ruleset on `ops/talos_linux`, but that
+ruleset includes an administrator bypass. A token owned by a bypassing account
+could push or merge despite the profile instruction; review the credential's
+owner and remove that bypass before treating draft-only behavior as enforced.
+
 ## Scope and future crew
 
 The first step is triage, not remediation. The agent can list and read selected
@@ -119,10 +174,9 @@ For a crew, use `incident_id` and the versioned handoff file as the boundary:
 
 1. Triage decides whether there is an active incident and records evidence.
 2. RCA rechecks the evidence, tests hypotheses, and produces a cause analysis.
-3. A future PR member receives only the validated RCA handoff and a Git checkout
-   in an isolated pod with no Kubernetes token. It may open a draft PR, never
-   merge or deploy. The orchestrator can then coordinate the stages, but each
-   stage's credentials stay in its own runtime.
+3. The PR member receives an operator-selected RCA handoff and Git checkout
+   in a one-shot pod with no Kubernetes token. It may open a draft PR; the
+   operator decides whether to merge or deploy.
 
 The `config` Flux inventory includes this Kustomization. Keep its image digest
 pinned; a new build requires a digest update before Flux adopts it.

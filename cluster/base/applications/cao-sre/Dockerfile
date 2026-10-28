@@ -5,7 +5,7 @@ ARG OPENCODE_VERSION=1.19.4
 ARG CODEX_VERSION=0.165.0
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv tmux ca-certificates \
+    && apt-get install -y --no-install-recommends python3 python3-venv tmux ca-certificates git gh \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/cao-venv \
     && /opt/cao-venv/bin/pip install --no-cache-dir "cli-agent-orchestrator==${CAO_VERSION}" \

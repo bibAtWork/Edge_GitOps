@@ -48,7 +48,7 @@ def redact(value):
     return text
 
 
-def kube_get(path, raw=False):
+def kube_get(path, raw=False, receipts=None):
     if not TOKEN.exists():
         raise RuntimeError("Kubernetes service account token is unavailable")
     context = ssl.create_default_context(cafile=CA)
@@ -56,32 +56,55 @@ def kube_get(path, raw=False):
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN.read_text().strip()}"})
     with urllib.request.urlopen(request, timeout=8, context=context) as response:
         data = response.read(400_000)
+        if receipts is not None:
+            receipts.append({"method": "GET", "target": path, "status": response.status,
+                             "observed_at": stamp(now())})
     return data.decode("utf-8", "replace") if raw else json.loads(data)
 
 
-def resources(group, plural):
+def resources(group, plural, receipts=None):
     prefix = "/api/v1" if not group else f"/apis/{group}"
-    return kube_get(f"{prefix}/namespaces/{NAMESPACE}/{plural}").get("items", [])
+    return kube_get(f"{prefix}/namespaces/{NAMESPACE}/{plural}", receipts=receipts).get("items", [])
 
 
-def health_check():
+def health_check(receipts=None):
     try:
         with urllib.request.urlopen(HEALTH, timeout=5) as response:
             body = response.read(1200).decode("utf-8", "replace")
+            if receipts is not None:
+                receipts.append({"method": "GET", "target": "/health/checks",
+                                 "status": response.status, "observed_at": stamp(now())})
             return {"http_status": response.status, "body": redact(body)}
     except urllib.error.HTTPError as exc:
+        if receipts is not None:
+            receipts.append({"method": "GET", "target": "/health/checks",
+                             "status": exc.code, "observed_at": stamp(now())})
         return {"http_status": exc.code, "body": redact(exc.read(1200).decode("utf-8", "replace"))}
     except Exception as exc:
+        if receipts is not None:
+            receipts.append({"method": "GET", "target": "/health/checks",
+                             "status": None, "error_type": type(exc).__name__,
+                             "observed_at": stamp(now())})
         return {"observer_error": redact(exc)}
 
 
-def ingestion_check():
+def ingestion_check(receipts=None):
     try:
         with urllib.request.urlopen(INGESTION, timeout=8) as response:
+            if receipts is not None:
+                receipts.append({"method": "GET", "target": "/health/ingestion",
+                                 "status": response.status, "observed_at": stamp(now())})
             return {"http_status": response.status, "quality": json.loads(response.read(20000))}
     except urllib.error.HTTPError as exc:
+        if receipts is not None:
+            receipts.append({"method": "GET", "target": "/health/ingestion",
+                             "status": exc.code, "observed_at": stamp(now())})
         return {"http_status": exc.code}
     except Exception as exc:
+        if receipts is not None:
+            receipts.append({"method": "GET", "target": "/health/ingestion",
+                             "status": None, "error_type": type(exc).__name__,
+                             "observed_at": stamp(now())})
         return {"observer_error": redact(exc)}
 
 
@@ -137,7 +160,7 @@ def slim_cnpg(item):
     }
 
 
-def error_logs(pods):
+def error_logs(pods, receipts=None):
     web = sorted((p for p in pods if p["name"] and p["name"].startswith("screener-web-")),
                  key=lambda p: p.get("created") or "", reverse=True)
     troubled = sorted((p for p in pods if p["phase"] == "Failed" or p["restarts"] > 0),
@@ -148,7 +171,7 @@ def error_logs(pods):
         name = pod["name"]
         path = f"/api/v1/namespaces/{NAMESPACE}/pods/{urllib.parse.quote(name)}/log?tailLines=80&limitBytes=16000"
         try:
-            lines = kube_get(path, raw=True).splitlines()
+            lines = kube_get(path, raw=True, receipts=receipts).splitlines()
             matches = [redact(line[:500]) for line in lines
                        if re.search(r"error|failed|exception|panic|timeout", line, re.I)]
             result.append({"pod": name, "error_lines": matches[-12:]})
@@ -158,17 +181,18 @@ def error_logs(pods):
 
 
 def collect():
-    deployments = resources("apps/v1", "deployments")
-    replicasets = resources("apps/v1", "replicasets")
-    pods_raw = resources("", "pods")
-    jobs = resources("batch/v1", "jobs")
-    cronjobs = resources("batch/v1", "cronjobs")
-    events = resources("", "events")
-    cnpg = resources("postgresql.cnpg.io/v1", "clusters")
+    receipts = []
+    deployments = resources("apps/v1", "deployments", receipts)
+    replicasets = resources("apps/v1", "replicasets", receipts)
+    pods_raw = resources("", "pods", receipts)
+    jobs = resources("batch/v1", "jobs", receipts)
+    cronjobs = resources("batch/v1", "cronjobs", receipts)
+    events = resources("", "events", receipts)
+    cnpg = resources("postgresql.cnpg.io/v1", "clusters", receipts)
     pods = [slim_pod(p) for p in pods_raw]
     return {
         "schema_version": 1, "namespace": NAMESPACE, "observed_at": stamp(now()),
-        "health": health_check(), "ingestion": ingestion_check(),
+        "health": health_check(receipts), "ingestion": ingestion_check(receipts),
         "deployments": [slim_deployment(d) for d in deployments],
         "replicasets": [{"name": r.get("metadata", {}).get("name"),
                          "created": r.get("metadata", {}).get("creationTimestamp"),
@@ -188,7 +212,8 @@ def collect():
                     "reason": e.get("reason"), "object": e.get("involvedObject", {}).get("name"),
                     "message": redact(e.get("message", "")[:500])}
                    for e in sorted(events, key=lambda x: x.get("lastTimestamp") or x.get("eventTime") or "")[-25:]],
-        "logs": error_logs(pods),
+        "logs": error_logs(pods, receipts),
+        "tool_receipts": receipts,
     }
 
 
@@ -252,6 +277,44 @@ def write_packet(snapshot, incident_id, signal):
     return path
 
 
+REQUIRED_OBSERVATIONS = (
+    f"/apis/apps/v1/namespaces/{NAMESPACE}/deployments",
+    f"/apis/apps/v1/namespaces/{NAMESPACE}/replicasets",
+    f"/api/v1/namespaces/{NAMESPACE}/pods",
+    f"/apis/batch/v1/namespaces/{NAMESPACE}/jobs",
+    f"/apis/batch/v1/namespaces/{NAMESPACE}/cronjobs",
+    f"/api/v1/namespaces/{NAMESPACE}/events",
+    f"/apis/postgresql.cnpg.io/v1/namespaces/{NAMESPACE}/clusters",
+    "/health/checks",
+    "/health/ingestion",
+)
+
+
+def validate_packet(path, incident_id=None, max_age_seconds=None):
+    packet = json.loads(Path(path).read_text(encoding="utf-8"))
+    if packet.get("schema_version") != 1 or packet.get("namespace") != NAMESPACE:
+        raise ValueError("Unexpected packet schema or namespace")
+    if incident_id is not None and packet.get("incident_id") != incident_id:
+        raise ValueError("Packet incident ID mismatch")
+    observed = parse_time(packet.get("observed_at"))
+    if observed is None:
+        raise ValueError("Packet has no observation time")
+    if max_age_seconds is not None and abs((now() - observed).total_seconds()) > max_age_seconds:
+        raise ValueError("Packet is stale")
+    receipts = packet.get("tool_receipts", [])
+    for target in REQUIRED_OBSERVATIONS:
+        matching = [r for r in receipts if r.get("method") == "GET" and r.get("target") == target]
+        if not matching:
+            raise ValueError(f"Missing collector receipt: {target}")
+        if target.startswith("/api") and not any(r.get("status") == 200 for r in matching):
+            raise ValueError(f"Kubernetes GET did not succeed: {target}")
+        if not any(parse_time(r.get("observed_at")) and
+                   abs((observed - parse_time(r["observed_at"])).total_seconds()) <= 120
+                   for r in matching):
+            raise ValueError(f"Receipt time outside collection window: {target}")
+    return packet
+
+
 def validate_handoff(path):
     document = json.loads(Path(path).read_text(encoding="utf-8"))
     required = ("schema_version", "incident_id", "stage", "status", "summary", "hypotheses", "recommended_checks", "report_path")
@@ -267,9 +330,14 @@ def validate_handoff(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--validate-handoff")
+    parser.add_argument("--validate-packet")
     args = parser.parse_args()
     if args.validate_handoff:
         validate_handoff(args.validate_handoff)
+        print("valid")
+        return
+    if args.validate_packet:
+        validate_packet(args.validate_packet)
         print("valid")
         return
     snapshot = collect()
