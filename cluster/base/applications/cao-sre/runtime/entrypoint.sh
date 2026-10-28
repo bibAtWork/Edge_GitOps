@@ -2,6 +2,8 @@
 set -eu
 
 mkdir -p /home/cao/reports /home/cao/handoffs /home/cao/incidents
+mkdir -p /home/cao/.config/opencode
+cp /config/opencode.json /home/cao/.config/opencode/opencode.json
 cao install /config/screener-triage.md
 cao install /config/screener-rca.md
 

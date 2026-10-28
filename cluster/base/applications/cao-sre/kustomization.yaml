@@ -10,6 +10,7 @@ configMapGenerator:
     namespace: cao-sre
     files:
       - entrypoint.sh=runtime/entrypoint.sh
+      - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
       - screener_context.py=runtime/screener_context.py
       - screener-monitor.md=flows/screener-monitor.md

@@ -22,6 +22,8 @@ profile, flow, runbook and Python collector from a generated ConfigMap. The
 first profile is `screener-triage`; `screener-rca` is installed for manual crew
 experiments. The PR member profile is present as a contract but is deliberately
 not installed because it needs a separate pod and GitHub credentials.
+OpenCode permits reading `/config` for the runbook and collector while denying
+edits there; other external directories still require approval.
 
 The built-in CAO scheduled flow runs every ten minutes. Its Python gate reads
 only the `real-estate-screener` namespace and the application's internal health
