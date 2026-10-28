@@ -2,7 +2,7 @@ name: CAO SRE image
 
 on:
   push:
-    branches: [ops/talos_linux]
+    branches: [ops/talos_linux, 'codex/cao-sre-*']
     paths:
       - cluster/base/applications/cao-sre/**
       - .github/workflows/cao-sre-image.yml
