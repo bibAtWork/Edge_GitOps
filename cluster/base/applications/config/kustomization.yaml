@@ -10,3 +10,4 @@ resources:
   - ../lakehouse/deferred
 
   - ../sre-agent
+  - ../cao-sre

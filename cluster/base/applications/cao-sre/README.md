@@ -39,11 +39,10 @@ To try another harness later, add its pinned CLI to a worker image and set that
 member's `provider` field to CAO's provider identifier. The handoff format does
 not depend on OpenCode.
 
-## Build and activate
+## Build and deployment
 
-1. Build and publish the image. The included
-   `.github/workflows/cao-sre-image.yml` does this on `ops/talos_linux` and
-   prints the immutable image reference in the job summary. For a manual build,
+1. The included `.github/workflows/cao-sre-image.yml` builds the image and
+   prints its immutable reference in the job summary. For a manual rebuild,
    the registry account must have package write access:
 
    ```sh
@@ -51,14 +50,9 @@ not depend on OpenCode.
    docker push ghcr.io/bibatwork/cao-sre:poc-1
    ```
 
-2. Pin the published image by digest in `workloads.yaml`. The image contains
-   no secrets. The Deployment already references the independent `ghcr-pull`
-   Secret in `cao-sre`, which can pull a private package when its PAT has access.
-   There is no image build or registry push credential in this source snapshot.
-3. Add `../cao-sre` to `cluster/base/applications/config/kustomization.yaml`
-   after the image is available. This is intentionally not registered while the
-   tag is unpublished; doing so would create an `ImagePullBackOff` in production.
-4. Reconcile through Flux, which decrypts the SOPS Secret. Do not directly
+2. The published digest is pinned in `workloads.yaml`; the Deployment uses the
+   independent `ghcr-pull` Secret in `cao-sre` to pull it. Reconcile through
+   Flux, which decrypts the SOPS Secrets. Do not directly
    `kubectl apply -k` the encrypted source: that would install ciphertext as
    the model key. Check the RoleBinding and UI:
 
@@ -73,7 +67,7 @@ not depend on OpenCode.
    terminal grants shell access and is unauthenticated by default. Do not add
    a public HTTPRoute without an authenticated route and a WebSocket check.
 
-5. In the UI, launch `screener-triage` with a manual prompt, or check
+3. In the UI, launch `screener-triage` with a manual prompt, or check
    `cao schedule list` in the pod. To rehearse the historical recovered
    collector failure, prompt the agent to compare the failed Job with the most
    recent successful Job; it should identify recovery rather than claim an
@@ -98,7 +92,5 @@ For a crew, use `incident_id` and the versioned handoff file as the boundary:
    merge or deploy. The orchestrator can then coordinate the stages, but each
    stage's credentials stay in its own runtime.
 
-No CAO workload is deployed by this directory alone. The image must first be
-built and pinned by digest, and the Kustomization must then be registered in
-`cluster/base/applications/config/kustomization.yaml`. Keeping activation as a
-separate step prevents a broken image reference from reaching production.
+The `config` Flux inventory includes this Kustomization. Keep its image digest
+pinned; a new build requires a digest update before Flux adopts it.

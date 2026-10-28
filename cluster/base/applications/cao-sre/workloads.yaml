@@ -64,8 +64,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cao
-          # Publish the Dockerfile in this directory, then replace this tag with its digest.
-          image: ghcr.io/bibatwork/cao-sre:poc-1
+          image: ghcr.io/bibatwork/cao-sre@sha256:8bd1f00a2246be19dbc113d8be1c51e2f2d0d22edf85d13f591933e0fad37403
           imagePullPolicy: Always
           command: [/bin/sh, /config/entrypoint.sh]
           ports:
