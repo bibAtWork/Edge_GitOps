@@ -20,6 +20,12 @@ def compose(agent: str, harness: str, source: str, overlay: str) -> str:
     if any(line.startswith(("provider:", "model:", "codexProfile:")) for line in header):
         raise ValueError(f"{agent}: harness settings belong in overlays")
     if harness == "codex":
+        tool_index = next((i for i, line in enumerate(header) if line.startswith("allowedTools:")), None)
+        if tool_index is not None:
+            tool_end = tool_index + 1
+            while tool_end < len(header) and header[tool_end].startswith((" ", "\t")):
+                tool_end += 1
+            del header[tool_index:tool_end]
         header = [
             f"name: {agent}-codex" if line.startswith("name:") else line
             for line in header
