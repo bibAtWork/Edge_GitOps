@@ -33,7 +33,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
       - name: web
-        image: ghcr.io/bibatwork/real-estate-screener:v1.17.0@sha256:f8dfa8ca7ca9d2297d6aa7f00cc4a5a20b43ce405cca3f618e9fc1ec67983e55
+        image: ghcr.io/bibatwork/real-estate-screener:v1.19.0@sha256:497307f7293189b69a733d2a872610cc0b2fc96dc4b05c4e50c91ebaa255a04f
         imagePullPolicy: Always
         args:
         - serve
@@ -74,19 +74,27 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        - name: config
+          mountPath: /config
+          readOnly: true
         env:
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
               name: screener-pg-app
               key: uri
+        - name: SCREENER_CONFIG_PATH
+          value: /config/config.json
       volumes:
       - name: tmp
         emptyDir:
           sizeLimit: 64Mi
+      - name: config
+        configMap:
+          name: screener-config
       initContainers:
       - name: migrate
-        image: ghcr.io/bibatwork/real-estate-screener:v1.17.0@sha256:f8dfa8ca7ca9d2297d6aa7f00cc4a5a20b43ce405cca3f618e9fc1ec67983e55
+        image: ghcr.io/bibatwork/real-estate-screener:v1.19.0@sha256:497307f7293189b69a733d2a872610cc0b2fc96dc4b05c4e50c91ebaa255a04f
         args:
         - migrate
         env:
