@@ -53,8 +53,10 @@ spec:
     - group: gateway.envoyproxy.io
       kind: SecurityPolicy
       namespace: sre-agent
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: cao-sre
   to:
     - group: ""
       kind: Service
       name: opa
-
