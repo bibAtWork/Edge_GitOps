@@ -16,11 +16,16 @@ both the old and CAO copies when the shared upstream credential changes.
 
 ## Runtime
 
-CAO 2.5.0 and OpenCode 1.19.4 are pinned in [Dockerfile](Dockerfile). CAO runs
+CAO 2.5.0, OpenCode 1.19.4, and Codex CLI 0.165.0 are pinned in
+[Dockerfile](Dockerfile). CAO runs
 as one non-root pod with a 2 GiB Longhorn state volume. It mounts the GitOps
 profile, flow, runbook and Python collector from a generated ConfigMap. The
-first profile is `screener-triage`; `screener-rca` is installed for manual crew
-experiments. The PR member profile is present as a contract but is deliberately
+shared agent definitions in `profiles/` are rendered at startup with OpenCode
+and Codex overlays. CAO installs `screener-triage` and `screener-rca` for
+OpenCode, plus `screener-triage-codex` and `screener-rca-codex` for Codex.
+The scheduled monitor stays on OpenCode; the Codex variants can be launched
+manually from the same UI after authentication. The PR member profile is
+present as a contract but is deliberately
 not installed because it needs a separate pod and GitHub credentials.
 OpenCode permits reading `/config` for the runbook and collector while denying
 edits there; other external directories still require approval.
@@ -42,9 +47,12 @@ The incident packet and handoff format use `schema_version: 1`. The RCA profile
 validates the triage handoff before use. A future PR member can consume an RCA
 handoff in a separate runtime with a scoped GitHub credential. CAO profiles are
 behavioral guidance; Kubernetes RBAC and runtime separation enforce permissions.
-To try another harness later, add its pinned CLI to a worker image and set that
-member's `provider` field to CAO's provider identifier. The handoff format does
-not depend on OpenCode.
+To add another harness, add its pinned CLI and a small profile overlay. The
+handoff format does not depend on the harness. Codex uses a named CLI config
+profile with workspace-write sandboxing, no interactive approvals, and tool
+network access for Kubernetes and application-health queries. The Kubernetes
+read-only ServiceAccount and network policy remain the production access
+boundary. The same pod user can access both harnesses' credentials.
 
 ## Build and deployment
 
@@ -83,6 +91,16 @@ not depend on OpenCode.
    collector failure, prompt the agent to compare the failed Job with the most
    recent successful Job; it should identify recovery rather than claim an
    ongoing outage. Do not trigger a synthetic production failure for this test.
+
+4. To use the Codex variants with a ChatGPT subscription, sign in once inside
+   the pod with `kubectl -n cao-sre exec -it deploy/cao-sre -- codex login
+   --device-auth`, then check `kubectl -n cao-sre exec deploy/cao-sre -- codex
+   login status`. Device-code login must be enabled in the ChatGPT account or
+   workspace. The login cache lives in `/home/cao/.codex` on the persistent
+   volume and contains sensitive tokens; do not put it in GitOps or a ConfigMap.
+   You can then select `screener-triage-codex` or `screener-rca-codex` in CAO.
+   The pod's 2 GiB memory limit covers all concurrent sessions, so start with
+   one active Codex session while observing memory use.
 
 ## Scope and future crew
 

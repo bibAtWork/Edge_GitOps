@@ -1,0 +1,2 @@
+provider: opencode_cli
+model: google/gemini-2.5-flash

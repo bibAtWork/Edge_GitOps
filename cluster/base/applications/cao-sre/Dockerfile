@@ -2,13 +2,14 @@ FROM node:22-bookworm-slim
 
 ARG CAO_VERSION=2.5.0
 ARG OPENCODE_VERSION=1.19.4
+ARG CODEX_VERSION=0.165.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv tmux ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/cao-venv \
     && /opt/cao-venv/bin/pip install --no-cache-dir "cli-agent-orchestrator==${CAO_VERSION}" \
-    && npm install --global "opencode-ai@${OPENCODE_VERSION}" \
+    && npm install --global "opencode-ai@${OPENCODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
     && groupadd --gid 10001 cao \
     && useradd --uid 10001 --gid 10001 --home-dir /home/cao --create-home cao
 

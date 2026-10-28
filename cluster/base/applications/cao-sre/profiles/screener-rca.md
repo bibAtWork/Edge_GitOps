@@ -2,8 +2,6 @@
 name: screener-rca
 description: Read-only root cause analysis from a validated triage handoff
 role: sre_rca
-provider: opencode_cli
-model: google/gemini-2.5-flash
 allowedTools:
   - fs_read
   - fs_list
