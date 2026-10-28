@@ -12,7 +12,7 @@ from pathlib import Path
 from screener_context import validate_packet
 
 QUEUE = Path(os.environ.get("CAO_CREW_QUEUE", "/home/cao/crew-queue"))
-WORKFLOW = "/home/cao/crew-workflows/screener_crew.py"
+WORKFLOW = "/config/screener_crew.py"
 MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
 QUOTA_DELAY = 5 * 60 * 60
