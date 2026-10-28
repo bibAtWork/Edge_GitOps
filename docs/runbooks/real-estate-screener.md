@@ -61,7 +61,7 @@ reports restore evidence to VictoriaMetrics.
 ## Collection
 
 The configured searches are Eigenheim (Haus) in Waldenbuch and Investment
-(Heilbronn), each across ImmoScout24, Sparkasse, and Kleinanzeigen. Sparkasse
+(Heilbronn), each across ImmoScout24, Immowelt, Sparkasse, and Kleinanzeigen. Sparkasse
 searches use its current public JSON estate endpoint; the former
 `/immobilien/treffer` URLs redirect to the editorial homepage. The Sparkasse
 queries cover each named city rather than the former radius, and are bounded to
@@ -69,13 +69,16 @@ ten result pages. A redirect, invalid response, or larger result set fails the
 search visibly. Fredy still retrieves the exposé detail pages.
 
 Immo SWP is paused because its Fredy adapter provides search sightings but no
-detail fetcher. Immowelt is paused because the portal returned HTTP 403 to both
-the collector and a direct probe on 2026-10-20. Previous observations remain in
-PostgreSQL. The original URLs remain in Git history. Re-enable a paused provider
-after two consecutive manual collection runs produce successful search records
-and usable detail evidence. A zero-result search is acceptable only when the
-response is a real results page. For Immowelt, check that the portal permits the
-collector's access before restoring the schedule.
+detail fetcher. Immowelt's former `/classified-search` endpoint returned HTTP 403
+and remains disallowed by the portal. Its current public `/suche/...` pages were
+verified from the cluster on 2026-10-28. The collector reads visible result cards
+from those pages, applying numeric price, area, and room filters locally. The
+Waldenbuch page covers that locality and nearby cards, and the Heilbronn page
+covers multi-family houses in the city; neither reproduces the old radius search.
+Each page contributes only its visible first result page. Immowelt exposé pages
+still return HTTP 403, so these records have search-card excerpts and no detail
+refresh. Previous observations remain in PostgreSQL. If a page is blocked or its
+card structure changes, the search fails visibly rather than recording a false zero.
 Edit `cluster/base/applications/real-estate-screener/config/config.json` to
 change the portal search URLs. Collection runs every 30 minutes, is bounded to
 20 detail requests per run, and refreshes details after 24 hours.
