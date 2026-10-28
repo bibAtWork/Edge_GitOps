@@ -49,10 +49,13 @@ handoff in a separate runtime with a scoped GitHub credential. CAO profiles are
 behavioral guidance; Kubernetes RBAC and runtime separation enforce permissions.
 To add another harness, add its pinned CLI and a small profile overlay. The
 handoff format does not depend on the harness. Codex uses a named CLI config
-profile with workspace-write sandboxing, no interactive approvals, and tool
-network access for Kubernetes and application-health queries. The Kubernetes
-read-only ServiceAccount and network policy remain the production access
-boundary. The same pod user can access both harnesses' credentials.
+profile with no interactive approvals. The pod's `RuntimeDefault` seccomp policy
+blocks Codex's nested bubblewrap sandbox, so Codex runs commands without its
+own sandbox inside the constrained pod. Kubernetes RBAC, read-only mounts,
+non-root UID, and network policy are the enforced boundary. CAO's `allowedTools`
+list is omitted from Codex profiles because those CAO tool names do not map to
+Codex tools and CAO cannot enforce this list for Codex. The same pod user can
+access both harnesses' credentials.
 
 ## Build and deployment
 
