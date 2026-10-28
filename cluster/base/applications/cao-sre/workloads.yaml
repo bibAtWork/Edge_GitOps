@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cao-sre
+  labels:
+    homelab.local/application: 'true'
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    homelab.local/recovery: reconstructable
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cao-sre
+  namespace: cao-sre
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cao-sre-state
+  namespace: cao-sre
+  annotations:
+    homelab.local/recovery: reconstructable
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cao-sre
+  namespace: cao-sre
+  annotations:
+    reloader.stakater.com/auto: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cao-sre
+  template:
+    metadata:
+      labels:
+        app: cao-sre
+    spec:
+      serviceAccountName: cao-sre
+      imagePullSecrets:
+        - name: ghcr-pull
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cao
+          image: ghcr.io/bibatwork/cao-sre@sha256:8bd1f00a2246be19dbc113d8be1c51e2f2d0d22edf85d13f591933e0fad37403
+          imagePullPolicy: Always
+          command: [/bin/sh, /config/entrypoint.sh]
+          ports:
+            - name: ui
+              containerPort: 9889
+          env:
+            - name: GOOGLE_GENERATIVE_AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cao-sre-model
+                  key: api-key
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 150m
+              memory: 512Mi
+            limits:
+              cpu: '2'
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ui
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ui
+            initialDelaySeconds: 45
+            periodSeconds: 30
+          volumeMounts:
+            - name: state
+              mountPath: /home/cao
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: cao-sre-state
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: config
+          configMap:
+            name: cao-sre-code
+            defaultMode: 0555
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cao-sre
+  namespace: cao-sre
+spec:
+  selector:
+    app: cao-sre
+  ports:
+    - name: ui
+      port: 9889
+      targetPort: ui
