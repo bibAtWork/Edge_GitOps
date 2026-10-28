@@ -65,9 +65,13 @@ not depend on OpenCode.
    kubectl -n cao-sre port-forward service/cao-sre 9889:9889
    ```
 
-   Open `http://localhost:9889` through the port forward. CAO's WebSocket
-   terminal grants shell access and is unauthenticated by default. Do not add
-   a public HTTPRoute without an authenticated route and a WebSocket check.
+   Open `https://cao-sre.homelab.data-harness.org` through the cluster Gateway.
+   It uses the shared Keycloak OIDC client and OPA's app-operator/platform-admin
+   gate, including for the WebSocket terminal. The port forward remains useful
+   for local administration at `http://localhost:9889`. CAO trusts the exact
+   Gateway hostname; its WebSocket client IP filter accepts the Gateway's
+   changing pod IPs, so the Gateway authentication and Cilium ingress policy
+   are the external access boundary. Do not expose the Service directly.
 
 3. In the UI, launch `screener-triage` with a manual prompt, or check
    `cao schedule list` in the pod. To rehearse the historical recovered

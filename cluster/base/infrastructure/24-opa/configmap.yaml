@@ -79,6 +79,7 @@ data:
     # These have no native OIDC integration, so OPA is the only auth layer.
     admin_only_apps := {
         "sre-agent.homelab.data-harness.org",
+        "cao-sre.homelab.data-harness.org",
         "screener.homelab.data-harness.org",
         "lakehouse.homelab.data-harness.org",
         "canary.homelab.data-harness.org",
@@ -171,4 +172,3 @@ data:
     } if {
         jwt_payload.sub
     } else := {"allowed": true}
-

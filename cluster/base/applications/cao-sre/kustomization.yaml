@@ -5,6 +5,9 @@ resources:
   - access.yaml
   - model-secret.yaml
   - ghcr-pull-secret.yaml
+  - route.yaml
+  - securitypolicy.yaml
+  - oidc-secret-referencegrant.yaml
 configMapGenerator:
   - name: cao-sre-code
     namespace: cao-sre

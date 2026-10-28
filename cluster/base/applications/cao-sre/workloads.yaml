@@ -71,6 +71,11 @@ spec:
             - name: ui
               containerPort: 9889
           env:
+            - name: CAO_ALLOWED_HOSTS
+              value: cao-sre.homelab.data-harness.org
+            # Gateway OIDC and Cilium restrict ingress. Envoy pod IPs are dynamic.
+            - name: CAO_WS_ALLOWED_CLIENTS
+              value: '*'
             - name: GOOGLE_GENERATIVE_AI_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -138,4 +143,3 @@ spec:
     - name: ui
       port: 9889
       targetPort: ui
-
