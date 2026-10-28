@@ -4,6 +4,7 @@ metadata:
   name: cao-sre
   labels:
     homelab.local/application: 'true'
+    homelab.local/gateway-access: 'true'
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
   annotations:
@@ -71,6 +72,8 @@ spec:
             - name: ui
               containerPort: 9889
           env:
+            - name: OPENCODE_CONFIG
+              value: /config/opencode.json
             - name: CAO_ALLOWED_HOSTS
               value: cao-sre.homelab.data-harness.org
             # Gateway OIDC and Cilium restrict ingress. Envoy pod IPs are dynamic.
