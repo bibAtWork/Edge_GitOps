@@ -7,6 +7,13 @@ pull Secrets. The new Secrets were encrypted from the corresponding live
 credentials without printing or storing plaintext in this repository. Rotating
 those credentials later requires updating these Secrets too.
 
+The two encrypted manifests have a manual rotation owner. On a trusted admin
+machine with the cluster's offline age identity, use `sops set --value-stdin`
+to replace `stringData.api-key` in `model-secret.yaml` and
+`stringData[".dockerconfigjson"]` in `ghcr-pull-secret.yaml`. Pass a JSON-encoded
+string on stdin and keep plaintext credentials outside this repository. Rotate
+both the old and CAO copies when the shared upstream credential changes.
+
 ## Runtime
 
 CAO 2.5.0 and OpenCode 1.19.4 are pinned in [Dockerfile](Dockerfile). CAO runs
