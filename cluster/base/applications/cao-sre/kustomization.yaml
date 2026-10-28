@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - workloads.yaml
+  - access.yaml
+  - model-secret.yaml
+  - ghcr-pull-secret.yaml
+configMapGenerator:
+  - name: cao-sre-code
+    namespace: cao-sre
+    files:
+      - entrypoint.sh=runtime/entrypoint.sh
+      - gate.py=runtime/gate.py
+      - screener_context.py=runtime/screener_context.py
+      - screener-monitor.md=flows/screener-monitor.md
+      - screener-triage.md=profiles/screener-triage.md
+      - screener-rca.md=profiles/screener-rca.md
+      - screener-runbook.md=profiles/screener-runbook.md
+generatorOptions:
+  labels:
+    app.kubernetes.io/part-of: cao-sre

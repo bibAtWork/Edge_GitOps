@@ -1,0 +1,95 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cao-sre-reader
+  namespace: real-estate-screener
+rules:
+  - apiGroups: ['']
+    resources: [pods, pods/log, events, services, endpoints, persistentvolumeclaims]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cao-sre-reader
+  namespace: real-estate-screener
+subjects:
+  - kind: ServiceAccount
+    name: cao-sre
+    namespace: cao-sre
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cao-sre-reader
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cao-sre-egress
+  namespace: cao-sre
+spec:
+  endpointSelector:
+    matchLabels:
+      app: cao-sre
+  egress:
+    - toEntities: [kube-apiserver]
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: '53'
+              protocol: UDP
+            - port: '53'
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: real-estate-screener
+            app: screener-web
+      toPorts:
+        - ports:
+            - port: '3000'
+              protocol: TCP
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: '443'
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: screener-cao-sre-health
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      app: screener-web
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cao-sre
+            app: cao-sre
+      toPorts:
+        - ports:
+            - port: '3000'
+              protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cao-sre-isolation
+  namespace: cao-sre
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
