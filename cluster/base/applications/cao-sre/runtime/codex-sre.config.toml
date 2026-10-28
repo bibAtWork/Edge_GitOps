@@ -1,5 +1,4 @@
 approval_policy = "never"
-sandbox_mode = "workspace-write"
-
-[sandbox_workspace_write]
-network_access = true
+# RuntimeDefault seccomp prevents Codex's nested bubblewrap user namespace.
+# Kubernetes RBAC, read-only mounts, non-root UID, and network policy constrain this pod.
+sandbox_mode = "danger-full-access"
