@@ -4,7 +4,7 @@ on:
   push:
     branches: [ops/talos_linux, 'codex/cao-sre-*']
     paths:
-      - cluster/base/applications/cao-sre/**
+      - cluster/base/applications/cao-sre/Dockerfile
       - .github/workflows/cao-sre-image.yml
   workflow_dispatch:
 
