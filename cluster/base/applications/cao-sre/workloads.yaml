@@ -65,7 +65,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cao
-          image: ghcr.io/bibatwork/cao-sre@sha256:9a1da1c77614848025492c824fbb51a6995dbf59b1321bdae7ae0e936f6e0389
+          image: ghcr.io/bibatwork/cao-sre@sha256:751f47abb4247bf57b681310b6fc4d6961c4d4c77a423ffebd2d9948639e845c
           imagePullPolicy: Always
           command: [/bin/sh, /config/entrypoint.sh]
           ports:
