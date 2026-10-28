@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from screener_context import collect, detect_signals, write_packet
+from crew_controller import enqueue
 
 STATE = Path(os.environ.get("CAO_GATE_STATE", "/home/cao/monitor-state.json"))
 COOLDOWN_SECONDS = 60 * 60
@@ -42,15 +43,13 @@ def main():
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
         timestamp = int(time.time())
         selected, state = decision(signals, state, timestamp)
-        save_state(state)
         if selected:
             digest = hashlib.sha256(selected["key"].encode()).hexdigest()[:8]
             incident_id = f"screener-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(timestamp))}-{digest}"
             path = write_packet(snapshot, incident_id, selected)
-            result = {"execute": True, "output": {"incident_id": incident_id,
-                      "packet_path": str(path), "signal": selected["detail"]}}
-        else:
-            result = {"execute": False, "output": {}}
+            enqueue(incident_id, path)
+        save_state(state)
+        result = {"execute": False, "output": {}}
     except Exception as exc:
         print(f"gate observation failed: {exc}", file=sys.stderr)
         result = {"execute": False, "output": {}}

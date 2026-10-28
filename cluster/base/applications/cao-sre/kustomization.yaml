@@ -8,6 +8,7 @@ resources:
   - route.yaml
   - securitypolicy.yaml
   - oidc-secret-referencegrant.yaml
+  - pr-worker.yaml
 configMapGenerator:
   - name: cao-sre-code
     namespace: cao-sre
@@ -19,11 +20,21 @@ configMapGenerator:
       - codex-overlay.yaml=profiles/overlays/codex.yaml
       - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
+      - crew_controller.py=runtime/crew_controller.py
+      - screener_crew.py=runtime/screener_crew.py
       - screener_context.py=runtime/screener_context.py
       - screener-monitor.md=flows/screener-monitor.md
+      - screener-crew-controller.md=flows/screener-crew-controller.md
       - screener-triage.md=profiles/screener-triage.md
       - screener-rca.md=profiles/screener-rca.md
       - screener-runbook.md=profiles/screener-runbook.md
+  - name: cao-sre-pr-code
+    namespace: cao-sre
+    files:
+      - pr_worker_entrypoint.sh=runtime/pr_worker_entrypoint.sh
+      - pr_gate.py=runtime/pr_gate.py
+      - screener-pr-draft.md=profiles/screener-pr-draft.md
+      - opencode-pr.json=runtime/opencode-pr.json
 generatorOptions:
   labels:
     app.kubernetes.io/part-of: cao-sre
