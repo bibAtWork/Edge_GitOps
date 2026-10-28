@@ -52,6 +52,16 @@ class ScreenerSignalTests(unittest.TestCase):
         snapshot["ingestion"]["quality"]["plot"]["missing"] = 1
         self.assertEqual(detect_signals(snapshot), [])
 
+    def test_missing_quality_endpoint_is_visible_after_activation(self):
+        snapshot = {
+            "health": {"http_status": 200},
+            "ingestion": {"http_status": 404},
+            "deployments": [{"name": "screener-web", "desired": 1, "available": 1}],
+            "cnpg": [{"name": "screener-pg", "ready_instances": 1}],
+            "cronjobs": [], "jobs": [],
+        }
+        self.assertEqual([s["key"] for s in detect_signals(snapshot)], ["ingestion-quality-unavailable"])
+
     def test_resolution_clears_previous_incident(self):
         signal = [{"key": "database-unready", "detail": "no ready instance"}]
         _, state = decision(signal, {}, 10000)

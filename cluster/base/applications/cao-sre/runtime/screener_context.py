@@ -214,7 +214,7 @@ def detect_signals(snapshot, reference=None):
         if plot.get("labeled", 0) >= 20 and plot.get("missing", 0) >= 2:
             signals.append({"key": "plot-extraction-mismatch",
                             "detail": f"{plot['missing']} of {plot['labeled']} labeled ImmoScout plots were not extracted"})
-    elif ingestion.get("http_status") not in (None, 404) or ingestion.get("observer_error"):
+    elif "ingestion" in snapshot:
         signals.append({"key": "ingestion-quality-unavailable",
                         "detail": "The screener ingestion-quality endpoint is unavailable"})
     if not any(c.get("name") == "screener-pg" for c in snapshot.get("cnpg", [])):

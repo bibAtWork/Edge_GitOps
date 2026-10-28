@@ -7690,6 +7690,7 @@ spec:
                         + (sum((screener_ingestion_plot_missing{provider="immoscout"} >= bool 2)
                         * on(provider) (screener_ingestion_plot_labeled{provider="immoscout"} >= bool 20)) or vector(0))
                         + (sum(screener_ingestion_query_success == bool 0) or vector(0))
+                        + (absent_over_time(screener_ingestion_query_success[20m]) or vector(0))
                       instant: true
                       range: false
                       refId: A
