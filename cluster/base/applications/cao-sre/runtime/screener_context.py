@@ -20,6 +20,7 @@ PORT = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", "443")
 TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
 CA = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 HEALTH = "http://screener-web.real-estate-screener.svc:3000/health/checks"
+INGESTION = "http://screener-web.real-estate-screener.svc:3000/health/ingestion"
 INCIDENTS = Path(os.environ.get("CAO_INCIDENT_DIR", "/home/cao/incidents"))
 
 
@@ -70,6 +71,16 @@ def health_check():
             return {"http_status": response.status, "body": redact(body)}
     except urllib.error.HTTPError as exc:
         return {"http_status": exc.code, "body": redact(exc.read(1200).decode("utf-8", "replace"))}
+    except Exception as exc:
+        return {"observer_error": redact(exc)}
+
+
+def ingestion_check():
+    try:
+        with urllib.request.urlopen(INGESTION, timeout=8) as response:
+            return {"http_status": response.status, "quality": json.loads(response.read(20000))}
+    except urllib.error.HTTPError as exc:
+        return {"http_status": exc.code}
     except Exception as exc:
         return {"observer_error": redact(exc)}
 
@@ -157,7 +168,7 @@ def collect():
     pods = [slim_pod(p) for p in pods_raw]
     return {
         "schema_version": 1, "namespace": NAMESPACE, "observed_at": stamp(now()),
-        "health": health_check(),
+        "health": health_check(), "ingestion": ingestion_check(),
         "deployments": [slim_deployment(d) for d in deployments],
         "replicasets": [{"name": r.get("metadata", {}).get("name"),
                          "created": r.get("metadata", {}).get("creationTimestamp"),
@@ -192,6 +203,20 @@ def detect_signals(snapshot, reference=None):
     health = snapshot.get("health", {})
     if "http_status" in health and health["http_status"] != 200:
         signals.append({"key": "web-functionality", "detail": f"/health/checks returned HTTP {health['http_status']}"})
+    ingestion = snapshot.get("ingestion", {})
+    if ingestion.get("http_status") == 200:
+        quality = ingestion.get("quality", {})
+        for search in quality.get("searches", []):
+            if search.get("degraded"):
+                signals.append({"key": f"search-yield:{search['provider']}:{search['name']}",
+                                "detail": f"{search['name']} has two low-yield runs ({search.get('reason')})"})
+        plot = quality.get("plot", {})
+        if plot.get("labeled", 0) >= 20 and plot.get("missing", 0) >= 2:
+            signals.append({"key": "plot-extraction-mismatch",
+                            "detail": f"{plot['missing']} of {plot['labeled']} labeled ImmoScout plots were not extracted"})
+    elif ingestion.get("http_status") not in (None, 404) or ingestion.get("observer_error"):
+        signals.append({"key": "ingestion-quality-unavailable",
+                        "detail": "The screener ingestion-quality endpoint is unavailable"})
     if not any(c.get("name") == "screener-pg" for c in snapshot.get("cnpg", [])):
         signals.append({"key": "database-missing", "detail": "screener-pg CloudNativePG cluster is missing"})
     for cluster in snapshot.get("cnpg", []):

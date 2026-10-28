@@ -33,6 +33,25 @@ class ScreenerSignalTests(unittest.TestCase):
         self.assertIsNone(third)
         self.assertEqual(retrigger, signal[0])
 
+    def test_quality_incident_requires_confirmed_source_or_exact_plot_mismatch(self):
+        snapshot = {
+            "health": {"http_status": 200},
+            "deployments": [{"name": "screener-web", "desired": 1, "available": 1}],
+            "cnpg": [{"name": "screener-pg", "ready_instances": 1}],
+            "cronjobs": [], "jobs": [],
+            "ingestion": {"http_status": 200, "quality": {
+                "searches": [{"name": "Waldenbuch", "provider": "immowelt", "degraded": True,
+                              "reason": "two_empty_runs"}],
+                "plot": {"labeled": 40, "missing": 2},
+            }},
+        }
+        signals = detect_signals(snapshot)
+        self.assertEqual({signal["key"] for signal in signals},
+                         {"search-yield:immowelt:Waldenbuch", "plot-extraction-mismatch"})
+        snapshot["ingestion"]["quality"]["searches"][0]["degraded"] = False
+        snapshot["ingestion"]["quality"]["plot"]["missing"] = 1
+        self.assertEqual(detect_signals(snapshot), [])
+
     def test_resolution_clears_previous_incident(self):
         signal = [{"key": "database-unready", "detail": "no ready instance"}]
         _, state = decision(signal, {}, 10000)
