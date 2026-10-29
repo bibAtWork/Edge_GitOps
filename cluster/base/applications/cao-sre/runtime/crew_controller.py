@@ -12,6 +12,7 @@ from pathlib import Path
 from screener_context import validate_packet
 
 QUEUE = Path(os.environ.get("CAO_CREW_QUEUE", "/home/cao/crew-queue"))
+TERMINAL_LOGS = Path("/home/cao/.aws/cli-agent-orchestrator/logs/terminal")
 WORKFLOW = "/home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py"
 MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
@@ -52,8 +53,34 @@ def run_status(run_id):
     return json.loads(result.stdout)
 
 
-def failure_kind(status):
-    details = json.dumps(status, ensure_ascii=True).lower()
+def incident_terminal_text(record):
+    """Read bounded terminal evidence for this run without printing it."""
+    incident = record.get("incident_id")
+    if not incident:
+        return ""
+    started = record.get("started_at", record.get("created_at", 0))
+    matches = []
+    for path in TERMINAL_LOGS.glob("*"):
+        if path.suffix not in (".log", ".scrollback"):
+            continue
+        try:
+            stat = path.stat()
+            if stat.st_mtime < started - 120:
+                continue
+            with path.open("rb") as stream:
+                head = stream.read(64_000)
+                stream.seek(max(0, stat.st_size - 512_000))
+                tail = stream.read(512_000)
+                sample = (head + tail).decode("utf-8", "replace")
+            if incident in sample:
+                matches.append(sample)
+        except OSError:
+            continue
+    return "\n".join(matches)
+
+
+def failure_kind(status, terminal_text=""):
+    details = (json.dumps(status, ensure_ascii=True) + terminal_text).lower()
     if any(marker in details for marker in ("rate limit", "usage limit", "five-hour",
                                            "5h limit", "quota exceeded", "resets at")):
         return "quota"
@@ -111,8 +138,10 @@ def reconcile(record):
     if state == "completed":
         record["state"] = "completed"
         record["completed_at"] = current
-    elif state in ("failed", "cancelled"):
-        kind = failure_kind(status)
+    elif state == "cancelled":
+        record.update({"state": "needs_review", "reason": "cancelled"})
+    elif state == "failed":
+        kind = failure_kind(status, incident_terminal_text(record))
         if kind and record["attempts"] < MAX_ATTEMPTS:
             record.update({"state": "waiting", "reason": kind,
                            "next_retry_at": current + (QUOTA_DELAY if kind == "quota" else TRANSIENT_DELAY)})
