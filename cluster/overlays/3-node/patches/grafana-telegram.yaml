@@ -46,6 +46,16 @@ spec:
                   parse_mode: None
                   message: '{{ "{{" }} template "homelab.cve.message" . }}'
 
+          - orgId: 1
+            name: Telegram Listings
+            receivers:
+              - uid: screener-listing-telegram
+                type: telegram
+                disableResolveMessage: true
+                settings:
+                  bottoken: $TELEGRAM_BOT_TOKEN
+                  chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
+
       policies.yaml:
         apiVersion: 1
         policies:
