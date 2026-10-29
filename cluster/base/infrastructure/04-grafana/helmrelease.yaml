@@ -5131,10 +5131,7 @@ spec:
                   summary: >-
                     VictoriaLogs is read-only -- new logs are being rejected
                   description: >-
-                    VictoriaLogs is reachable but vl_storage_is_read_only is 1. Check
-                    vl_free_disk_space_bytes, the monitoring PVC and Longhorn volume;
-                    restore storage headroom before investigating collector retries.
-                    VictoriaLogsUnavailable covers missing scrape data separately.
+                    VictoriaLogs is reachable but vl_storage_is_read_only is 1. Check vl_free_disk_space_bytes, the monitoring PVC and Longhorn volume; restore storage headroom before investigating collector retries. VictoriaLogsUnavailable covers missing scrape data separately.
                 labels:
                   severity: critical
                 isPaused: false
@@ -5197,39 +5194,39 @@ spec:
                 title: ImageCriticalCVE
                 condition: B
                 data:
-                - refId: A
-                  relativeTimeRange:
-                    from: 900
-                    to: 0
-                  datasourceUid: victoriametrics
-                  model:
-                    expr: max by (image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0
-                    instant: true
-                    range: false
-                    refId: A
-                - refId: B
-                  datasourceUid: '-100'
-                  model:
-                    type: threshold
-                    refId: B
-                    conditions:
-                    - evaluator:
-                        params:
-                        - 0
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                        - A
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                    datasource:
-                      type: __expr__
-                      uid: '-100'
-                    expression: A
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: max by (image_registry, image_repository, image_digest) (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params:
+                              - 0
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params:
+                              - A
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
                 for: 1m
@@ -5246,44 +5243,46 @@ spec:
                 title: ImageHighCVE
                 condition: B
                 data:
-                - refId: A
-                  relativeTimeRange:
-                    from: 900
-                    to: 0
-                  datasourceUid: victoriametrics
-                  model:
-                    expr: >-
-                      (max by (image_registry, image_repository, image_digest)
-                        (last_over_time(cve_inventory_image_findings{severity="High"}[10m])) > 0)
-                      unless on (image_registry, image_repository, image_digest)
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
                         (max by (image_registry, image_repository, image_digest)
-                          (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0)
-                    instant: true
-                    range: false
-                    refId: A
-                - refId: B
-                  datasourceUid: '-100'
-                  model:
-                    type: threshold
-                    refId: B
-                    conditions:
-                    - evaluator:
-                        params:
-                        - 0
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                        - A
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                    datasource:
-                      type: __expr__
-                      uid: '-100'
-                    expression: A
+
+                          (last_over_time(cve_inventory_image_findings{severity="High"}[10m])) > 0)
+                        unless on (image_registry, image_repository, image_digest)
+
+                          (max by (image_registry, image_repository, image_digest)
+                            (last_over_time(cve_inventory_image_findings{severity="Critical"}[10m])) > 0)
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params:
+                              - 0
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params:
+                              - A
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
                 for: 1m
@@ -5300,47 +5299,46 @@ spec:
                 title: ImageNewCriticalCVE
                 condition: B
                 data:
-                - refId: A
-                  relativeTimeRange:
-                    from: 900
-                    to: 0
-                  datasourceUid: victoriametrics
-                  model:
-                    expr: last_over_time(cve_inventory_event{event_kind="new_critical"}[10m]) > 0
-                    instant: true
-                    range: false
-                    refId: A
-                - refId: B
-                  datasourceUid: '-100'
-                  model:
-                    type: threshold
-                    refId: B
-                    conditions:
-                    - evaluator:
-                        params:
-                        - 0
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                        - A
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                    datasource:
-                      type: __expr__
-                      uid: '-100'
-                    expression: A
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: last_over_time(cve_inventory_event{event_kind="new_critical"}[10m]) > 0
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params:
+                              - 0
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params:
+                              - A
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
                 for: 1m
                 annotations:
                   summary: ImageNewCriticalCVE
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: A newly observed Critical finding or newly available fixed version compared with the durable baseline.
-                    First installation seeds quietly; reports missing temporarily retain their previous baseline.
+                  description: A newly observed Critical finding or newly available fixed version compared with the durable baseline. First installation seeds quietly; reports missing temporarily retain their previous baseline.
                 labels:
                   severity: critical
                   cve_notification: event
@@ -5350,47 +5348,46 @@ spec:
                 title: ImageCVEFixAvailable
                 condition: B
                 data:
-                - refId: A
-                  relativeTimeRange:
-                    from: 900
-                    to: 0
-                  datasourceUid: victoriametrics
-                  model:
-                    expr: last_over_time(cve_inventory_event{event_kind="new_fix"}[10m]) > 0
-                    instant: true
-                    range: false
-                    refId: A
-                - refId: B
-                  datasourceUid: '-100'
-                  model:
-                    type: threshold
-                    refId: B
-                    conditions:
-                    - evaluator:
-                        params:
-                        - 0
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                        - A
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                    datasource:
-                      type: __expr__
-                      uid: '-100'
-                    expression: A
+                  - refId: A
+                    relativeTimeRange:
+                      from: 900
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: last_over_time(cve_inventory_event{event_kind="new_fix"}[10m]) > 0
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params:
+                              - 0
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params:
+                              - A
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
                 noDataState: OK
                 execErrState: Error
                 for: 1m
                 annotations:
                   summary: ImageCVEFixAvailable
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: A newly observed Critical finding or newly available fixed version compared with the durable baseline.
-                    First installation seeds quietly; reports missing temporarily retain their previous baseline.
+                  description: A newly observed Critical finding or newly available fixed version compared with the durable baseline. First installation seeds quietly; reports missing temporarily retain their previous baseline.
                 labels:
                   severity: warning
                   cve_notification: event
@@ -5400,48 +5397,46 @@ spec:
                 title: ImageCVEInventoryStale
                 condition: B
                 data:
-                - refId: A
-                  relativeTimeRange:
-                    from: 86400
-                    to: 0
-                  datasourceUid: victoriametrics
-                  model:
-                    expr: time() - max(last_over_time(cve_inventory_last_success_timestamp[1d]))
-                    instant: true
-                    range: false
-                    refId: A
-                - refId: B
-                  datasourceUid: '-100'
-                  model:
-                    type: threshold
-                    refId: B
-                    conditions:
-                    - evaluator:
-                        params:
-                        - 900
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                        - A
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                    datasource:
-                      type: __expr__
-                      uid: '-100'
-                    expression: A
+                  - refId: A
+                    relativeTimeRange:
+                      from: 86400
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: time() - max(last_over_time(cve_inventory_last_success_timestamp[1d]))
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params:
+                              - 900
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params:
+                              - A
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
                 noDataState: Alerting
                 execErrState: Error
                 for: 5m
                 annotations:
                   summary: ImageCVEInventoryStale
                   finding_count: '{{ "{{" }} printf "%.0f" $values.A.Value }}'
-                  description: The five-minute inventory has not successfully committed its baseline and published metrics for
-                    over 15 minutes, or has never reported. Check monitoring/cve-inventory Job logs, RBAC and VictoriaMetrics
-                    connectivity. Change detection is unreliable while this fires.
+                  description: The five-minute inventory has not successfully committed its baseline and published metrics for over 15 minutes, or has never reported. Check monitoring/cve-inventory Job logs, RBAC and VictoriaMetrics connectivity. Change detection is unreliable while this fires.
                 labels:
                   severity: warning
                 isPaused: false
@@ -5523,6 +5518,7 @@ spec:
                     model:
                       expr: >-
                         max_over_time((max(
+
                           (kube_job_status_failed{namespace="trivy-system"} > bool 0)
                           or
                           ((time() - kube_job_created{namespace="trivy-system"} > bool 180)
@@ -5559,11 +5555,7 @@ spec:
                 annotations:
                   summary: Trivy scan failed or could not start a Pod
                   description: >-
-                    A scan Job had a failed Pod or remained without an active or
-                    successful Pod for over three minutes in the last ten minutes.
-                    Check Jobs and FailedCreate events in trivy-system, especially
-                    ResourceQuota admission errors. An operator reporting Ready
-                    does not prove image scan coverage.
+                    A scan Job had a failed Pod or remained without an active or successful Pod for over three minutes in the last ten minutes. Check Jobs and FailedCreate events in trivy-system, especially ResourceQuota admission errors. An operator reporting Ready does not prove image scan coverage.
                 labels:
                   severity: warning
                 isPaused: false
@@ -6391,11 +6383,7 @@ spec:
                       # alert flapped on and off with it instead of firing
                       # steadily for a genuinely never-validated dataset.
                       expr: >-
-                        (time() - max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d]))) / 3600
-                        or
-                        (max by (application, dataset) (last_over_time(recovery_policy_dataset[2h])) * 0 + 999)
-                        unless on (application, dataset)
-                        (max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d])))
+                        (time() - max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d]))) / 3600 or (max by (application, dataset) (last_over_time(recovery_policy_dataset[2h])) * 0 + 999) unless on (application, dataset) (max by (application, dataset) (last_over_time(recovery_dataset_validated_timestamp[3d])))
                       instant: true
                       range: false
                       refId: A
@@ -6452,11 +6440,7 @@ spec:
                       # wrap as there too -- see RecoveryPointStale's comment;
                       # missed here identically on the first pass.
                       expr: >-
-                        (time() - max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d]))) / 3600
-                        or
-                        (max by (application, dataset) (last_over_time(recovery_policy_dataset[2h])) * 0 + 999)
-                        unless on (application, dataset)
-                        (max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d])))
+                        (time() - max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d]))) / 3600 or (max by (application, dataset) (last_over_time(recovery_policy_dataset[2h])) * 0 + 999) unless on (application, dataset) (max by (application, dataset) (last_over_time(recovery_dataset_remote_verified_timestamp[5d])))
                       instant: true
                       range: false
                       refId: A
@@ -7599,11 +7583,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        max((time() -
-                        kube_job_status_start_time{namespace="cattle-system",
-                        job_name=~"apply-talos-.*"}) unless on(job_name)
-                        kube_job_status_succeeded{namespace="cattle-system",
-                        job_name=~"apply-talos-.*"} == 1) or vector(0)
+                        max((time() - kube_job_status_start_time{namespace="cattle-system", job_name=~"apply-talos-.*"}) unless on(job_name) kube_job_status_succeeded{namespace="cattle-system", job_name=~"apply-talos-.*"} == 1) or vector(0)
                       instant: true
                       range: false
                       refId: A
@@ -7686,11 +7666,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        (sum(screener_ingestion_search_degraded) or vector(0))
-                        + (sum((screener_ingestion_plot_missing{provider="immoscout"} >= bool 2)
-                        * on(provider) (screener_ingestion_plot_labeled{provider="immoscout"} >= bool 20)) or vector(0))
-                        + (sum(screener_ingestion_query_success == bool 0) or vector(0))
-                        + (absent_over_time(screener_ingestion_query_success[20m]) or vector(0))
+                        (sum(screener_ingestion_search_degraded) or vector(0)) + (sum((screener_ingestion_plot_missing{provider="immoscout"} >= bool 2) * on(provider) (screener_ingestion_plot_labeled{provider="immoscout"} >= bool 20)) or vector(0)) + (sum(screener_ingestion_query_success == bool 0) or vector(0)) + (absent_over_time(screener_ingestion_query_success[20m]) or vector(0))
                       instant: true
                       range: false
                       refId: A
@@ -7721,11 +7697,7 @@ spec:
                 annotations:
                   summary: Screener ingestion quality degraded
                   description: >-
-                    A configured search had two fresh low-yield successes against its seven-day baseline,
-                    at least two recent ImmoScout records had a labeled Grundstück value that extraction missed,
-                    or the quality query failed. Inspect /health/ingestion on screener-web for the affected search
-                    and counts, then compare recent collector Jobs and retained source evidence. CAO-SRE records a
-                    read-only triage packet. The rule is one aggregate warning and clears when quality recovers.
+                    A configured search had two fresh low-yield successes against its seven-day baseline, at least two recent ImmoScout records had a labeled Grundstück value that extraction missed, or the quality query failed. Inspect /health/ingestion on screener-web for the affected search and counts, then compare recent collector Jobs and retained source evidence. CAO-SRE records a read-only triage packet. The rule is one aggregate warning and clears when quality recovers.
                 labels:
                   severity: warning
                 isPaused: false
@@ -8218,8 +8190,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        sum by (namespace, job_name) ((kube_job_status_failed{reason!=""} > 0)
-                        and on (namespace, job_name) (time() - kube_job_created < 86400))
+                        sum by (namespace, job_name) ((kube_job_status_failed{reason!=""} > 0) and on (namespace, job_name) (time() - kube_job_created < 86400))
                       instant: true
                       range: false
                       refId: A
@@ -8597,8 +8568,7 @@ spec:
                     datasourceUid: victoriametrics
                     model:
                       expr: >-
-                        histogram_quantile(0.99,
-                        sum by (le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))
+                        histogram_quantile(0.99, sum by (le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))
                       instant: true
                       range: false
                       refId: A
@@ -8703,6 +8673,7 @@ spec:
                     model:
                       expr: >-
                         WITH (
+
                           current_rs = max by (exported_namespace, owner_name) (
                             label_replace(trivy_resource_configaudits{severity="High",resource_kind="ReplicaSet"}, "replicaset", "$1", "resource_name", "(.*)")
                             * on (exported_namespace, replicaset) group_left (owner_name)
@@ -8719,8 +8690,8 @@ spec:
                           previous_other = sum by (exported_namespace, resource_kind, resource_name) (trivy_resource_configaudits{severity="High",resource_kind!="ReplicaSet"} offset 24h),
                           current = current_rs or current_other,
                           previous = previous_rs or previous_other
-                        )
-                        (current - on (exported_namespace, owner_name, resource_kind, resource_name)
+                        ) (current - on (exported_namespace, owner_name, resource_kind, resource_name)
+
                           (previous or on (exported_namespace, owner_name, resource_kind, resource_name) current * 0)) > 0
                       instant: true
                       range: false
@@ -8976,7 +8947,6 @@ spec:
         cpu: 100m
       limits:
         memory: 512Mi
-
     # The download-dashboards initContainer, which is why the grafana Deployment
     # failed require-resource-limits even though the grafana container above is
     # bounded. Kyverno checks every container in the spec, initContainers
@@ -9066,4 +9036,4 @@ spec:
       # chart update.
       registry: docker.io
       repository: grafana/grafana
-      tag: 13.2.4
+      tag: "13.3"
