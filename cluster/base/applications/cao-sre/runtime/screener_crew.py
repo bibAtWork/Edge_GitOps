@@ -11,7 +11,7 @@ from screener_context import validate_handoff, validate_packet
 
 INPUTS = {
     "incident_id": {"type": "string", "required": True},
-    "packet_path": {"type": "path", "required": True},
+    "packet_path": {"type": "string", "required": True},
 }
 
 ROOT = Path("/home/cao")
