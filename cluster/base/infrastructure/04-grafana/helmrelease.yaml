@@ -32,6 +32,15 @@ spec:
       existingSecret: grafana-admin
       userKey: admin-user
       passwordKey: admin-password
+    envValueFrom:
+      TELEGRAM_BOT_TOKEN:
+        secretKeyRef:
+          name: telegram-credentials
+          key: TELEGRAM_BOT_TOKEN
+      TELEGRAM_CHAT_ID:
+        secretKeyRef:
+          name: telegram-credentials
+          key: TELEGRAM_CHAT_ID
     # Keep downloaded dashboards/plugins ephemeral so deleted Git entries cannot
     # linger on disk. Persist only Grafana's database and alert notification state.
     # Local-path preserves the monitor's independence from Longhorn failures.
@@ -4944,6 +4953,18 @@ spec:
               "version": 1
             }
     alerting:
+      contactpoints.yaml:
+        apiVersion: 1
+        contactPoints:
+          - orgId: 1
+            name: Telegram Listings
+            receivers:
+              - uid: screener-listing-telegram
+                type: telegram
+                disableResolveMessage: true
+                settings:
+                  bottoken: $TELEGRAM_BOT_TOKEN
+                  chatid: $TELEGRAM_CHAT_ID
       templates.yaml:
         apiVersion: 1
         templates:
@@ -7728,6 +7749,63 @@ spec:
                     read-only triage packet. The rule is one aggregate warning and clears when quality recovers.
                 labels:
                   severity: warning
+                isPaused: false
+              # One short-lived alert instance per newly qualifying source listing.
+              # The rule's own contact routing preserves the existing policy tree
+              # and prevents all listings being collapsed into one Telegram message.
+              - uid: screener-listing-match
+                title: ScreenerListingMatch
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'screener_listing_notification_score'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [-2]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: 'New property match in {{ "{{" }} $labels.postal_code }}'
+                  description: >-
+                    {{ "{{" }} $labels.provider }} listing {{ "{{" }} $labels.source_id }} qualified because
+                    {{ "{{" }} $labels.reason }}. Score at qualification: {{ "{{" }} $values.A.Value }}
+                    (-1 means the 72764 postcode matched before a score was available).
+                    Open: {{ "{{" }} $labels.url }}
+                labels:
+                  severity: info
+                notification_settings:
+                  receiver: Telegram Listings
+                  group_by: [alertname, grafana_folder, provider, source_id]
+                  group_wait: 30s
+                  group_interval: 5m
+                  repeat_interval: 1d
                 isPaused: false
               # One Certificate exists (homelab-wildcard-tls, gateway-system)
               # and it fronts every HTTPS listener, so min() over the family is
