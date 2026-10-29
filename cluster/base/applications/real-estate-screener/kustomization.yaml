@@ -10,6 +10,7 @@ resources:
 - macro.yaml
 - market-data.yaml
 - rental-pdf-import.yaml
+- location-sync.yaml
 - akoga.yaml
 - etf-benchmark.yaml
 - auctions.yaml
