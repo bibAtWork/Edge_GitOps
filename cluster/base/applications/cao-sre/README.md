@@ -59,7 +59,10 @@ logs and do not cover API calls an agent makes independently.
 
 CAO's workflow journal replays completed steps after interruption. The
 controller waits five minutes after a recorded connection failure or five
-hours after a usage-window failure, then resumes the journaled run. It allows
+hours after a usage-window failure, then resumes the journaled run. It checks
+bounded terminal logs when CAO's failed-run status omits the provider's quota
+message. A CLI left running on a quota screen must first reach CAO's step
+timeout before a retry can be scheduled. It allows
 three attempts total. Unknown failures, missing journal state, and runs still
 active after 45 minutes go to `needs_review` without spawning a duplicate.
 Records live in `/home/cao/crew-queue`.

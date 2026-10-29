@@ -101,6 +101,7 @@ class ScreenerSignalTests(unittest.TestCase):
 
     def test_recovery_classifies_known_failures_only(self):
         self.assertEqual(failure_kind({"error": "usage limit reached"}), "quota")
+        self.assertEqual(failure_kind({"state": "failed"}, "Quota exceeded for metric: free_tier_requests"), "quota")
         self.assertEqual(failure_kind({"error": "connection reset"}), "connection")
         self.assertIsNone(failure_kind({"error": "invalid handoff"}))
 
