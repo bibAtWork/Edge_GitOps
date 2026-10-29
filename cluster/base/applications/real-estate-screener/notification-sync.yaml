@@ -5,6 +5,7 @@ metadata:
 spec:
   schedule: '10,40 * * * *'
   timeZone: Europe/Berlin
+  suspend: true
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 600
   successfulJobsHistoryLimit: 1
