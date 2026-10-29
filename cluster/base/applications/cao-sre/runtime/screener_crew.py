@@ -60,6 +60,22 @@ step(
     step_id="rca",
     timeout=1800,
 )
-checked_handoff(rca_path, incident_id, "rca")
+try:
+    checked_handoff(rca_path, incident_id, "rca")
+except (OSError, ValueError) as exc:
+    step(
+        "codex",
+        "screener-rca-codex",
+        f"The previous RCA turn ended without valid artifacts: {exc}. "
+        f"Create /home/cao/reports/{incident_id}-rca.md and {rca_path} now. "
+        "Write the version 1 JSON handoff with stage rca, status, summary, "
+        "hypotheses, recommended_checks, report_path, and pr_candidate=false "
+        "unless evidence supports a code change. Run the handoff validator "
+        "and check both files exist before ending your turn.",
+        recovery="idempotent",
+        step_id="rca-artifact-repair",
+        timeout=1800,
+    )
+    checked_handoff(rca_path, incident_id, "rca")
 emit_output({"incident_id": incident_id, "triage_handoff": str(triage_path),
              "rca_handoff": str(rca_path), "pr_stage": "requires_operator"})

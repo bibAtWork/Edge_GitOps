@@ -158,9 +158,24 @@ def main():
     print(json.dumps({"execute": False, "output": {}}))
 
 
+def schedule_tick():
+    """Return promptly; CAO runs flow scripts in a 30-second server call."""
+    QUEUE.mkdir(parents=True, exist_ok=True)
+    with (QUEUE / "controller.log").open("a", encoding="utf-8") as log:
+        subprocess.Popen((sys.executable, __file__, "--reconcile"),
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                         start_new_session=True, close_fds=True)
+    print(json.dumps({"execute": False, "output": {}}))
+
+
 if __name__ == "__main__":
     try:
-        main()
+        if sys.argv[1:] == ["--reconcile"]:
+            main()
+        elif not sys.argv[1:]:
+            schedule_tick()
+        else:
+            raise ValueError("Unknown controller option")
     except Exception as exc:
         print(f"crew reconciliation failed: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -24,6 +24,8 @@ That member must run in a separately credentialed runtime.
 Save the report to `/home/cao/reports/<incident-id>-rca.md` and the handoff
 to `/home/cao/handoffs/<incident-id>-rca.json`. Retain the incident ID from
 the triage handoff.
+Before ending your turn, run the handoff validator and confirm both exact
+paths exist. A summary promising to write them is incomplete.
 Set `pr_candidate` to true only when a reproducible defect and supported
 causal evidence justify a code change. If true, include a concrete
 `proposed_change`; otherwise set `pr_candidate` to false. This is a proposal
