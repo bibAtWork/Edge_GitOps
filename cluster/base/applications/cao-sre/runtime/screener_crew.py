@@ -38,8 +38,8 @@ triage_path = ROOT / "handoffs" / f"{incident_id}.json"
 rca_path = ROOT / "handoffs" / f"{incident_id}-rca.json"
 
 step(
-    "opencode_cli",
-    "screener-triage",
+    "codex",
+    "screener-triage-codex",
     f"Investigate incident {incident_id}. Read the packet at {packet_path}. "
     f"Write the report and triage handoff for this exact incident ID. "
     "Do not modify production or open a PR.",

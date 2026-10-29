@@ -23,7 +23,7 @@ profile, flow, runbook and Python collector from a generated ConfigMap. The
 shared agent definitions in `profiles/` are rendered at startup with OpenCode
 and Codex overlays. CAO installs `screener-triage` and `screener-rca` for
 OpenCode, plus `screener-triage-codex` and `screener-rca-codex` for Codex.
-The scheduled monitor starts a durable crew workflow: OpenCode triage followed
+The scheduled monitor starts a durable crew workflow: Codex triage followed
 by Codex RCA. Both harness variants remain available for manual launches in
 the same UI. A PR member is available as a suspended one-shot Job template;
 it starts only when an operator supplies an actionable RCA and a scoped
