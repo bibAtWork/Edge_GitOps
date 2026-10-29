@@ -4,6 +4,7 @@ set -eu
 incident_id=$(python3 /config/pr_gate.py /handoff/rca.json)
 mkdir -p /home/cao /workspace
 export GH_PROMPT_DISABLED=1
+gh auth setup-git --hostname github.com --force
 gh repo clone bibAtWork/Edge_GitOps /workspace/repo -- --branch ops/talos_linux --single-branch
 cd /workspace/repo
 git config user.name "cao-sre-pr-worker"
