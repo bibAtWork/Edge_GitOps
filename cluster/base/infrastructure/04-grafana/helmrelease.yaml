@@ -32,15 +32,6 @@ spec:
       existingSecret: grafana-admin
       userKey: admin-user
       passwordKey: admin-password
-    envValueFrom:
-      TELEGRAM_BOT_TOKEN:
-        secretKeyRef:
-          name: telegram-credentials
-          key: TELEGRAM_BOT_TOKEN
-      TELEGRAM_CHAT_ID:
-        secretKeyRef:
-          name: telegram-credentials
-          key: TELEGRAM_CHAT_ID
     # Keep downloaded dashboards/plugins ephemeral so deleted Git entries cannot
     # linger on disk. Persist only Grafana's database and alert notification state.
     # Local-path preserves the monitor's independence from Longhorn failures.
@@ -4953,18 +4944,6 @@ spec:
               "version": 1
             }
     alerting:
-      contactpoints.yaml:
-        apiVersion: 1
-        contactPoints:
-          - orgId: 1
-            name: Telegram Listings
-            receivers:
-              - uid: screener-listing-telegram
-                type: telegram
-                disableResolveMessage: true
-                settings:
-                  bottoken: $TELEGRAM_BOT_TOKEN
-                  chatid: $TELEGRAM_CHAT_ID
       templates.yaml:
         apiVersion: 1
         templates:
