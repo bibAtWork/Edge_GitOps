@@ -7780,7 +7780,7 @@ spec:
                 labels:
                   severity: info
                 notification_settings:
-                  receiver: Telegram
+                  receiver: Telegram Listings
                   group_by: [alertname, grafana_folder, provider, source_id]
                   group_wait: 30s
                   group_interval: 5m
