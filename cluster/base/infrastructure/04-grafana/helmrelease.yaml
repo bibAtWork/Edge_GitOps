@@ -7729,63 +7729,6 @@ spec:
                 labels:
                   severity: warning
                 isPaused: false
-              # One short-lived alert instance per newly qualifying source listing.
-              # The rule's own contact routing preserves the existing policy tree
-              # and prevents all listings being collapsed into one Telegram message.
-              - uid: screener-listing-match
-                title: ScreenerListingMatch
-                condition: B
-                data:
-                  - refId: A
-                    relativeTimeRange:
-                      from: 600
-                      to: 0
-                    datasourceUid: victoriametrics
-                    model:
-                      expr: 'screener_listing_notification_score'
-                      instant: true
-                      range: false
-                      refId: A
-                  - refId: B
-                    datasourceUid: '-100'
-                    model:
-                      type: threshold
-                      refId: B
-                      conditions:
-                        - evaluator:
-                            params: [-2]
-                            type: gt
-                          operator:
-                            type: and
-                          query:
-                            params: [A]
-                          reducer:
-                            params: []
-                            type: last
-                          type: query
-                      datasource:
-                        type: __expr__
-                        uid: '-100'
-                      expression: A
-                noDataState: OK
-                execErrState: Error
-                for: 0m
-                annotations:
-                  summary: 'New property match in {{ "{{" }} $labels.postal_code }}'
-                  description: >-
-                    {{ "{{" }} $labels.provider }} listing {{ "{{" }} $labels.source_id }} qualified because
-                    {{ "{{" }} $labels.reason }}. Score at qualification: {{ "{{" }} $values.A.Value }}
-                    (-1 means the 72764 postcode matched before a score was available).
-                    Open: {{ "{{" }} $labels.url }}
-                labels:
-                  severity: info
-                notification_settings:
-                  receiver: Telegram Listings
-                  group_by: [alertname, grafana_folder, provider, source_id]
-                  group_wait: 30s
-                  group_interval: 5m
-                  repeat_interval: 1d
-                isPaused: false
               # One Certificate exists (homelab-wildcard-tls, gateway-system)
               # and it fronts every HTTPS listener, so min() over the family is
               # both the soonest expiry and the only one.
@@ -9013,6 +8956,68 @@ spec:
                     The scan runs Sundays at 02:00, so 10 days means at least one run was missed entirely rather than merely delayed. Check `kubectl get cronjob kubescape-scan -n kubescape` and the last Job's logs. kubescape_scan_last_run_timestamp is appended by the job itself rather than emitted by kubescape, so this can also mean the publish step failed after a successful scan -- the report would still be in VictoriaLogs in that case.
                 labels:
                   severity: warning
+                isPaused: false
+          - orgId: 1
+            name: Listing Notifications
+            folder: Infrastructure
+            interval: 1m
+            rules:
+              # One short-lived alert instance per newly qualifying source listing.
+              # The rule's own contact routing preserves the existing policy tree
+              # and prevents all listings being collapsed into one Telegram message.
+              - uid: screener-listing-match
+                title: ScreenerListingMatch
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'screener_listing_notification_score'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [-2]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: 'New property match in {{ "{{" }} $labels.postal_code }}'
+                  description: >-
+                    {{ "{{" }} $labels.provider }} listing {{ "{{" }} $labels.source_id }} qualified because
+                    {{ "{{" }} $labels.reason }}. Score at qualification: {{ "{{" }} $values.A.Value }}
+                    (-1 means the 72764 postcode matched before a score was available).
+                    Open: {{ "{{" }} $labels.url }}
+                labels:
+                  severity: info
+                notification_settings:
+                  receiver: Telegram Listings
+                  group_by: [alertname, grafana_folder, provider, source_id]
+                  group_wait: 30s
+                  group_interval: 5m
+                  repeat_interval: 1d
                 isPaused: false
     initChownData:
       enabled: false
