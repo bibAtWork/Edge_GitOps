@@ -4959,6 +4959,15 @@ spec:
               Full findings and fixed versions: https://grafana.homelab.data-harness.org/dashboards?query=Trivy
               Updates: https://github.com/bibAtWork/Edge_GitOps/issues?q=is%3Aissue+is%3Aopen+Dependency+Dashboard
               {{ "{{" }} end }}
+          - orgId: 1
+            name: homelab-listings
+            template: |
+              {{ "{{" }} define "homelab.listings.message" -}}
+              {{ "{{" }} range .Alerts.Firing -}}
+              {{ "{{" }} .Annotations.summary }}
+              {{ "{{" }} .Annotations.description }}
+              {{ "{{" }} end -}}
+              {{ "{{" }} end }}
       rules.yaml:
         apiVersion: 1
         groups:
@@ -9012,6 +9021,56 @@ spec:
                 notification_settings:
                   receiver: Telegram Listings
                   group_by: [alertname, grafana_folder, provider, source_id]
+                  group_wait: 30s
+                  group_interval: 5m
+                  repeat_interval: 1d
+                isPaused: false
+              - uid: screener-weekly-top10
+                title: ScreenerWeeklyTop10
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'screener_weekly_top10 == 1'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 0m
+                annotations:
+                  summary: 'Weekly top 10 properties · {{ "{{" }} $labels.report_date }}'
+                  description: '{{ "{{" }} $labels.digest }}'
+                labels:
+                  severity: info
+                notification_settings:
+                  receiver: Telegram Listings
+                  group_by: [alertname, report_date]
                   group_wait: 30s
                   group_interval: 5m
                   repeat_interval: 1d

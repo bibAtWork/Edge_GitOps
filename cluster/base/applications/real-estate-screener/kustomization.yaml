@@ -11,6 +11,7 @@ resources:
 - market-data.yaml
 - rental-pdf-import.yaml
 - location-sync.yaml
+- weekly-top10.yaml
 - akoga.yaml
 - etf-benchmark.yaml
 - auctions.yaml

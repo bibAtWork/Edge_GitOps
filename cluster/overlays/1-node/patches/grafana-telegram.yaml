@@ -55,6 +55,8 @@ spec:
                 settings:
                   bottoken: $TELEGRAM_BOT_TOKEN
                   chatid: '-5517781513' # trunk-ignore(yamllint/quoted-strings)
+                  parse_mode: None
+                  message: '{{ "{{" }} template "homelab.listings.message" . }}'
 
       policies.yaml:
         apiVersion: 1
