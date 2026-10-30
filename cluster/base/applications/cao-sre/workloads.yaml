@@ -79,11 +79,6 @@ spec:
             # Gateway OIDC and Cilium restrict ingress. Envoy pod IPs are dynamic.
             - name: CAO_WS_ALLOWED_CLIENTS
               value: '*'
-            - name: GOOGLE_GENERATIVE_AI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: cao-sre-model
-                  key: api-key
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

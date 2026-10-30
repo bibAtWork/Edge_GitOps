@@ -1,8 +1,8 @@
 ---
 name: screener-monitor
 schedule: "*/10 * * * *"
-agent_profile: screener-triage
-provider: opencode_cli
+agent_profile: screener-triage-codex
+provider: codex
 script: /config/gate.py
 ---
 

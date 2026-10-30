@@ -1,2 +1,2 @@
 provider: opencode_cli
-model: google/gemini-2.5-flash
+model: opencode/mimo-v2.6-flash-free

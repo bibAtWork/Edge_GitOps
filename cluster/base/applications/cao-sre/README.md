@@ -2,17 +2,15 @@
 
 This PoC is independent of the existing `sre-agent` API, Holmes worker,
 proposer, dashboard, scan and namespace. It has its own `cao-sre` namespace,
-ServiceAccount, network policy, state volume and SOPS-encrypted model and GHCR
-pull Secrets. The new Secrets were encrypted from the corresponding live
-credentials without printing or storing plaintext in this repository. Rotating
-those credentials later requires updating these Secrets too.
+ServiceAccount, network policy, state volume and SOPS-encrypted GHCR pull
+Secret. The default OpenCode model is free and requires no model API key.
 
-The two encrypted manifests have a manual rotation owner. On a trusted admin
+The encrypted GHCR pull Secret has a manual rotation owner. On a trusted admin
 machine with the cluster's offline age identity, use `sops set --value-stdin`
-to replace `stringData.api-key` in `model-secret.yaml` and
-`stringData[".dockerconfigjson"]` in `ghcr-pull-secret.yaml`. Pass a JSON-encoded
-string on stdin and keep plaintext credentials outside this repository. Rotate
-both the old and CAO copies when the shared upstream credential changes.
+to replace `stringData[".dockerconfigjson"]` in `ghcr-pull-secret.yaml`. Pass a
+JSON-encoded string on stdin and keep plaintext credentials outside this
+repository. Rotate both the old and CAO copies when the shared upstream
+credential changes.
 
 ## Runtime
 
@@ -24,12 +22,17 @@ shared agent definitions in `profiles/` are rendered at startup with OpenCode
 and Codex overlays. CAO installs `screener-triage` and `screener-rca` for
 OpenCode, plus `screener-triage-codex` and `screener-rca-codex` for Codex.
 The scheduled monitor starts a durable crew workflow: Codex triage followed
-by Codex RCA. Both harness variants remain available for manual launches in
-the same UI. A PR member is available as a suspended one-shot Job template;
+by OpenCode RCA using `opencode/mimo-v2.6-flash-free`. Both harness variants
+remain available for manual launches in the same UI. A PR member is available
+as a suspended one-shot Job template;
 it starts only when an operator supplies an actionable RCA and a scoped
 GitHub credential.
 OpenCode permits reading `/config` for the runbook and collector while denying
 edits there; other external directories still require approval.
+OpenCode's free model is hosted by OpenCode. The redacted incident packet and
+agent prompts are sent to that service; free model availability and limits can
+change. The pod copies its OpenCode permission config into the global config
+path before CAO starts so terminal sessions inherit the intended rules.
 
 The built-in CAO scheduled flow runs every ten minutes. Its Python gate reads
 only the `real-estate-screener` namespace and the application's internal health
@@ -108,7 +111,7 @@ access both harnesses' credentials.
    changing pod IPs, so the Gateway authentication and Cilium ingress policy
    are the external access boundary. Do not expose the Service directly.
 
-3. In the UI, launch `screener-triage` with a manual prompt, or check
+3. In the UI, launch `screener-triage-codex` with a manual prompt, or check
    `cao schedule list` in the pod. To rehearse the historical recovered
    collector failure, prompt the agent to compare the failed Job with the most
    recent successful Job; it should identify recovery rather than claim an
@@ -134,7 +137,7 @@ access both harnesses' credentials.
 The suspended `cao-sre-pr-worker` CronJob is a template for one-shot Jobs.
 It has an ephemeral workspace, no Kubernetes service-account token, and egress
 limited to DNS plus HTTPS. It has no screener namespace RBAC. The worker
-receives the model key and a separate, repository-scoped GitHub token. Create
+uses the free OpenCode model and a separate, repository-scoped GitHub token. Create
 a fine-grained token restricted to `bibAtWork/Edge_GitOps` with Contents and
 Pull requests write access, and store it in Secret `cao-sre-pr-github` as key
 `token`. GitHub requires the account owner to create that token in settings;

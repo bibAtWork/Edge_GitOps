@@ -3,7 +3,6 @@ kind: Kustomization
 resources:
   - workloads.yaml
   - access.yaml
-  - model-secret.yaml
   - ghcr-pull-secret.yaml
   - route.yaml
   - securitypolicy.yaml

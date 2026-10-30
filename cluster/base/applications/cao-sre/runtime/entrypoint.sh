@@ -4,6 +4,8 @@ set -eu
 mkdir -p /home/cao/reports /home/cao/handoffs /home/cao/incidents
 mkdir -p /home/cao/crew-queue
 mkdir -p /home/cao/.codex
+mkdir -p /home/cao/.config/opencode
+cp /config/opencode.json /home/cao/.config/opencode/opencode.json
 cp /config/codex-sre.config.toml /home/cao/.codex/sre_observer.config.toml
 chmod 0600 /home/cao/.codex/sre_observer.config.toml
 python3 /config/render_profiles.py

@@ -384,7 +384,6 @@ def check_private_app_secrets(profile, docs):
         ("lakehouse", "lakehouse-s3"): ("Opaque", "access_key_id"),
     }
     if any(d["kind"] == "Namespace" and d["metadata"]["name"] == "cao-sre" for d in docs):
-        required[("cao-sre", "cao-sre-model")] = ("Opaque", "api-key")
         required[("cao-sre", "ghcr-pull")] = ("kubernetes.io/dockerconfigjson", ".dockerconfigjson")
     secrets = {(d["metadata"].get("namespace"), d["metadata"]["name"]): d
                for d in docs if d["kind"] == "Secret"}

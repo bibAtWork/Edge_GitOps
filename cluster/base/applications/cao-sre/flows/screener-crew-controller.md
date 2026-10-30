@@ -1,8 +1,8 @@
 ---
 name: screener-crew-controller
 schedule: "*/5 * * * *"
-agent_profile: screener-triage
-provider: opencode_cli
+agent_profile: screener-triage-codex
+provider: codex
 script: /config/crew_controller.py
 ---
 

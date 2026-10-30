@@ -49,11 +49,6 @@ spec:
                     secretKeyRef:
                       name: cao-sre-pr-github
                       key: token
-                - name: GOOGLE_GENERATIVE_AI_API_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: cao-sre-model
-                      key: api-key
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

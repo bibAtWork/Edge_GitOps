@@ -2,7 +2,8 @@
 set -eu
 
 incident_id=$(python3 /config/pr_gate.py /handoff/rca.json)
-mkdir -p /home/cao /workspace
+mkdir -p /home/cao/.config/opencode /workspace
+cp /config/opencode-pr.json /home/cao/.config/opencode/opencode.json
 export GH_PROMPT_DISABLED=1
 gh auth setup-git --hostname github.com
 gh repo clone bibAtWork/Edge_GitOps /workspace/repo -- --branch ops/talos_linux --single-branch
