@@ -8975,7 +8975,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'screener_listing_notification_score'
+                      expr: 'screener_listing_notification_score > 70 or screener_listing_notification_score{postal_code="72764"}'
                       instant: true
                       range: false
                       refId: A

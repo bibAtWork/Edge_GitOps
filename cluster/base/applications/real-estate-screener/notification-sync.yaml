@@ -34,7 +34,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: notification-sync
-            image: ghcr.io/bibatwork/real-estate-screener:v1.21.1@sha256:20ca5f6841b54043ef447899d75b58ad141d81aeb659d3968f349d0857db79f8
+            image: ghcr.io/bibatwork/real-estate-screener:v1.21.2@sha256:f8fd8a40a6c6d16b22205978bf5cb95cd129cd23eb0725a5e444f1f2b85bbebb
             imagePullPolicy: Always
             args: [notification-sync]
             resources:
@@ -56,7 +56,7 @@ spec:
                   key: uri
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.21.1@sha256:20ca5f6841b54043ef447899d75b58ad141d81aeb659d3968f349d0857db79f8
+            image: ghcr.io/bibatwork/real-estate-screener:v1.21.2@sha256:f8fd8a40a6c6d16b22205978bf5cb95cd129cd23eb0725a5e444f1f2b85bbebb
             args: [migrate]
             env:
             - name: DATABASE_URL
