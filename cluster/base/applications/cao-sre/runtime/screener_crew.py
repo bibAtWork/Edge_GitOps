@@ -50,8 +50,8 @@ step(
 checked_handoff(triage_path, incident_id, "triage")
 
 step(
-    "codex",
-    "screener-rca-codex",
+    "opencode_cli",
+    "screener-rca",
     f"Validate and investigate triage handoff {triage_path}. Recheck current state. "
     f"Write the RCA report and RCA handoff to {rca_path}. "
     "If evidence does not establish a root cause, say so. "
@@ -64,8 +64,8 @@ try:
     checked_handoff(rca_path, incident_id, "rca")
 except (OSError, ValueError) as exc:
     step(
-        "codex",
-        "screener-rca-codex",
+        "opencode_cli",
+        "screener-rca",
         f"The previous RCA turn ended without valid artifacts: {exc}. "
         f"Create /home/cao/reports/{incident_id}-rca.md and {rca_path} now. "
         "Write the version 1 JSON handoff with stage rca, status, summary, "

@@ -3,7 +3,7 @@ name: screener-pr-draft
 description: Draft PR author for an operator-approved screener RCA
 role: sre_pr
 provider: opencode_cli
-model: google/gemini-2.5-flash
+model: opencode/mimo-v2.6-flash-free
 allowedTools:
   - fs_read
   - fs_list
