@@ -54,7 +54,7 @@ spec:
                 disableResolveMessage: true
                 settings:
                   bottoken: $TELEGRAM_BOT_TOKEN
-                  chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
+                  chatid: '-5517781513' # trunk-ignore(yamllint/quoted-strings)
 
       policies.yaml:
         apiVersion: 1
