@@ -99,6 +99,8 @@ spec:
         apiVersion: 1
         deleteRules:
           - orgId: 1
+            uid: screener-listing-match
+          - orgId: 1
             uid: failed-pods-persisting
           - orgId: 1
             uid: recent-failed-recovery-drill

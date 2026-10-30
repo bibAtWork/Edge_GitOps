@@ -8962,11 +8962,10 @@ spec:
             folder: Infrastructure
             interval: 1m
             rules:
-              # One short-lived alert instance per newly qualifying source listing.
-              # The rule's own contact routing preserves the existing policy tree
-              # and prevents all listings being collapsed into one Telegram message.
-              - uid: screener-listing-match
-                title: ScreenerListingMatch
+              # First postcode evidence is exposed for four minutes, spanning
+              # several scrapes and one-minute evaluations without a polling Job.
+              - uid: screener-new-postcode-listing
+                title: ScreenerNewPostcodeListing
                 condition: B
                 data:
                   - refId: A
@@ -8975,7 +8974,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'screener_listing_notification_score > 70 or screener_listing_notification_score{postal_code="72764"}'
+                      expr: 'screener_new_postcode_listing{postal_code=~"72764|72766"} == 1'
                       instant: true
                       range: false
                       refId: A
@@ -8986,7 +8985,7 @@ spec:
                       refId: B
                       conditions:
                         - evaluator:
-                            params: [-2]
+                            params: [0]
                             type: gt
                           operator:
                             type: and
@@ -9004,12 +9003,10 @@ spec:
                 execErrState: Error
                 for: 0m
                 annotations:
-                  summary: 'New property match in {{ "{{" }} $labels.postal_code }}'
+                  summary: 'New property in {{ "{{" }} $labels.postal_code }}'
                   description: >-
-                    {{ "{{" }} $labels.provider }} listing {{ "{{" }} $labels.source_id }} qualified because
-                    {{ "{{" }} $labels.reason }}. Score at qualification: {{ "{{" }} $values.A.Value }}
-                    (-1 means the 72764 postcode matched before a score was available).
-                    Open: {{ "{{" }} $labels.url }}
+                    {{ "{{" }} $labels.provider }} listing {{ "{{" }} $labels.source_id }}:
+                    {{ "{{" }} $labels.url }}
                 labels:
                   severity: info
                 notification_settings:
