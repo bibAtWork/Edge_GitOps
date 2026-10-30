@@ -17,7 +17,7 @@ def validate(path):
     status = doc.get("status")
     if not isinstance(status, str) or not status.strip():
         raise ValueError("RCA status is required")
-    if status in ("healthy", "resolved", "uncertain"):
+    if status.strip().lower() in ("healthy", "resolved", "uncertain"):
         raise ValueError("RCA has no confirmed active problem for a PR")
     if doc.get("pr_candidate") is not True or not isinstance(doc.get("proposed_change"), str):
         raise ValueError("RCA does not propose a code change")
