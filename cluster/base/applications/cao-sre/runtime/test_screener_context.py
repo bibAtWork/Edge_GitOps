@@ -158,6 +158,18 @@ class ScreenerSignalTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "status is required"):
                 validate_pr_candidate("rca.json")
 
+    def test_pr_gate_rejects_non_candidate_rca(self):
+        handoff = {"schema_version": 1, "stage": "rca",
+                   "incident_id": "manual-20261028T210907Z-aafeb5",
+                   "status": "degraded",
+                   "summary": "Active incident", "report_path": "/reports/rca.md",
+                   "hypotheses": [{"evidence": "failing checks"}],
+                   "pr_candidate": False}
+        with patch("pr_gate.Path") as mocked_path:
+            mocked_path.return_value.read_text.return_value = json.dumps(handoff)
+            with self.assertRaisesRegex(ValueError, "does not propose"):
+                validate_pr_candidate("rca.json")
+
 
 if __name__ == "__main__":
     unittest.main()
