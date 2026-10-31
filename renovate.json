@@ -9,7 +9,7 @@
     "ops/talos_linux"
   ],
   "labels": ["renovate"],
-  "prHourlyLimit": 10,
+  "prHourlyLimit": 25,
   "minimumReleaseAge": "48 hours",
   "minimumReleaseAgeBehaviour": "timestamp-optional",
   "vulnerabilityAlerts": {
