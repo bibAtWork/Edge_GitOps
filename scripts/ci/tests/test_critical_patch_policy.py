@@ -62,12 +62,28 @@ class CriticalPatchPolicyTests(unittest.TestCase):
         after["talosctl_version"] = "1.14.5"
         self.assertEqual(self.changes(file, before, after), [])
 
-    def test_noncritical_grafana_minor_is_not_blocked(self):
+    def test_alerting_grafana_minor_requires_review(self):
         file = "cluster/base/infrastructure/04-grafana/helmrelease.yaml"
         before = {"kind": "HelmRelease", "metadata": {"name": "grafana"},
                   "spec": {"chart": {"spec": {"version": "10.2.0"}}}}
         after = {"kind": "HelmRelease", "metadata": {"name": "grafana"},
                  "spec": {"chart": {"spec": {"version": "10.3.0"}}}}
+        self.assertEqual(len(self.changes(file, before, after)), 1)
+
+    def test_resource_metrics_minor_requires_review(self):
+        file = "cluster/base/infrastructure/29-metrics-server/helmrelease.yaml"
+        before = {"kind": "HelmRelease", "metadata": {"name": "metrics-server"},
+                  "spec": {"values": {"image": {"tag": "v0.8.1"}}}}
+        after = {"kind": "HelmRelease", "metadata": {"name": "metrics-server"},
+                 "spec": {"values": {"image": {"tag": "v0.9.1"}}}}
+        self.assertEqual(len(self.changes(file, before, after)), 1)
+
+    def test_noncritical_application_minor_is_not_blocked(self):
+        file = "cluster/base/infrastructure/17-paperless-ngx/helmrelease.yaml"
+        before = {"kind": "HelmRelease", "metadata": {"name": "paperless"},
+                  "spec": {"chart": {"spec": {"version": "2.5.0"}}}}
+        after = {"kind": "HelmRelease", "metadata": {"name": "paperless"},
+                 "spec": {"chart": {"spec": {"version": "2.6.0"}}}}
         self.assertEqual(self.changes(file, before, after), [])
 
     def test_gate_refuses_critical_minor_before_manual_label_arrives(self):

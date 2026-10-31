@@ -82,8 +82,8 @@ divergence check fails the second, and a human is told rather than the drift goi
 
 **Only patch updates for critical components may auto-merge after CI passes.** This covers the
 platform paths declared in Renovate's `Patch-only critical platform manifests` rule: storage,
-networking, access, identity, policy, upgrade, backup, the VictoriaMetrics operator, and Immich's
-coupled chart and database. Critical tool updates outside those paths include Talos, Kubernetes,
+networking, DNS, access, identity, policy, upgrades, backup, monitoring, alerting, security
+detection, and Immich's coupled chart and database. Critical tool updates outside those paths include Talos, Kubernetes,
 Flux and Helm. The image gate reads the same path scope and compares actual version fields, so a
 minor update cannot merge during a label-order race. PostgreSQL's two-part `16.15 -> 16.16`
 maintenance release counts as a patch; a major database upgrade still requires review.
