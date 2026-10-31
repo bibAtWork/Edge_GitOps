@@ -299,9 +299,9 @@
       "addLabels": ["manual-review"]
     },
     {
-      "description": "Patch-only critical platform manifests: storage, networking, access, identity, policy, upgrade, backup, monitoring operator, and the coupled Immich stack. Minor and major changes require review; patch updates may pass the CI image gate.",
+      "description": "Patch-only critical platform manifests: storage, networking, DNS, access, identity, policy, upgrades, backup, monitoring, alerting, security detection, and the coupled Immich stack. Minor and major changes require review; patch updates may pass the CI image gate.",
       "matchFileNames": [
-        "/^cluster\\/base\\/infrastructure\\/(?:00-gateway-api|00-local-path-provisioner|01-seaweedfs|02-victoriametrics-stack|05-cilium|06-cert-manager|11-ingress-gateway|12-zot|14-tailscale-operator|15-system-upgrade-controller|16-immich|19-kyverno|24-opa|26-keycloak|28-envoy-gateway|32-longhorn|33-cloudnative-pg|37-backup-system)\\//",
+        "/^cluster\\/base\\/infrastructure\\/(?:00-gateway-api|00-local-path-provisioner|01-seaweedfs|02-victoriametrics-stack|03-otel-collector|04-grafana|05-cilium|06-cert-manager|08-external-dns|09-reloader|10-network-policies|11-ingress-gateway|12-zot|13-trivy-operator|14-tailscale-operator|15-system-upgrade-controller|16-immich|18-falco|19-kyverno|20-kubescape|21-flux-notifications|24-opa|26-keycloak|28-envoy-gateway|29-metrics-server|30-image-cve-alerts|31-cluster-rbac|32-longhorn|33-cloudnative-pg|35-node-exporter|36-talos-cve-watch|37-backup-system)\\//",
         "/^cluster\\/base\\/applications\\/(?:lakehouse|real-estate-screener)\\/deferred\\/postgres[.]yaml$/",
         "/^cluster\\/overlays\\/[^/]+\\/talos-machineconfigs\\//",
         "/^cluster\\/overlays\\/[^/]+\\/seaweedfs-collection-routing-job[.]yaml$/"
