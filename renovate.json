@@ -66,7 +66,7 @@
     },
     {
       "customType": "regex",
-      "description": "Longhorn image pins under values.image.longhorn and values.image.csi. The built-in helm-values/Flux heuristic only recognizes repository/tag blocks whose parent key ends in image, so manager, engine and the CSI sidecars are not extracted. This scoped fallback retains the existing longhorn group and manual-review policy.",
+      "description": "Longhorn image pins under values.image.longhorn and values.image.csi. The built-in helm-values/Flux heuristic only recognizes repository/tag blocks whose parent key ends in image, so manager, engine and the CSI sidecars are not extracted. This scoped fallback retains update coverage and the existing Longhorn group.",
       "managerFilePatterns": [
         "/^cluster/base/infrastructure/32-longhorn/helmrelease\\.yaml$/"
       ],
@@ -108,7 +108,7 @@
     },
     {
       "customType": "regex",
-      "description": "Talos version in versions.env -- the ONLY place this is tracked now. A Kustomize `replacements` block (config/kustomization.yaml) projects this into every SUC Plan's spec.version and talosctl image tag at build time, so there is no longer a separate manager for those; bumping this file is the whole update. The Factory installer tag in the machine configs (below) is the one pin Kustomize cannot reach and still needs its own manager. A bump here does NOT require regenerating SCHEMATIC_ID: the schematic ID is a content hash of the extension list and is independent of the Talos version -- the same ID serves v1.12.0 through v1.13.9. Only editing schematic.yaml changes it. The talos group is still never auto-merged, for the real reasons: the upgrade reboots nodes, and the Image Factory builds per (schematic, version) pair, so a brand-new release may have no image for these extensions yet. The Talos image workflow checks both.",
+      "description": "Talos version in versions.env -- the ONLY place this is tracked now. A Kustomize `replacements` block (config/kustomization.yaml) projects this into every SUC Plan's spec.version and talosctl image tag at build time, so there is no longer a separate manager for those; bumping this file is the whole update. The Factory installer tag in the machine configs (below) is the one pin Kustomize cannot reach and still needs its own manager. A bump here does NOT require regenerating SCHEMATIC_ID: the schematic ID is a content hash of the extension list and is independent of the Talos version -- the same ID serves v1.12.0 through v1.13.9. Only editing schematic.yaml changes it. Patch updates within the current Talos minor line may auto-merge only after the image gate and Talos image workflow pass; new minor lines require review.",
       "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/versions\\.env$/"],
       "matchStrings": ["TALOS_VERSION=(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",
@@ -116,7 +116,7 @@
     },
     {
       "customType": "regex",
-      "description": "Kubernetes control-plane/kubelet version in versions.env, upgraded independently of TALOS_VERSION via talosctl upgrade-k8s (plans/talos-kubernetes-upgrade.yaml). Grouped separately from talos and never auto-merged: the upgrade touches every node's control-plane components. This manager always proposes the newest kubernetes/kubernetes release it finds, with no notion of stepping one minor at a time -- Renovate has no setting for that on a raw regex-matched pin. talosctl upgrade-k8s only supports an N -> N or N -> N+1 minor step, so a PR from this manager that skips a minor is expected to fail the Talos image workflow's dedicated check, not something that check is a defensive fallback against.",
+      "description": "Kubernetes control-plane/kubelet version in versions.env, upgraded independently of TALOS_VERSION via talosctl upgrade-k8s (plans/talos-kubernetes-upgrade.yaml). Grouped separately from Talos: patch updates may auto-merge after both CI gates pass, while a new minor line requires review. This manager always proposes the newest kubernetes/kubernetes release it finds, with no notion of stepping one minor at a time -- Renovate has no setting for that on a raw regex-matched pin. talosctl upgrade-k8s only supports an N -> N or N -> N+1 minor step, so a PR from this manager that skips a minor is expected to fail the Talos image workflow's dedicated check, not something that check is a defensive fallback against.",
       "managerFilePatterns": ["/cluster/base/infrastructure/15-system-upgrade-controller/config/versions\\.env$/"],
       "matchStrings": ["KUBERNETES_VERSION=(?<currentValue>v[\\d.]+)"],
       "datasourceTemplate": "github-releases",
@@ -191,7 +191,7 @@
     },
     {
       "customType": "regex",
-      "description": "Immich's app image tag, overridden in the shared top-level controllers block (helmrelease.yaml) to run the real latest v2.x release independently of the chart's own stale appVersion default -- see that file's comment and docs/backlog.md. A bare `image: {tag: ...}` with no adjacent `repository:` is invisible to both the built-in kubernetes manager (needs a single combined repo:tag value) and the helm-values manager (needs repository+tag together): this had zero Renovate coverage until this manager, found on an audit of every HelmRelease-embedded image override in the repo (2026-09-19). Tracked against the app repo directly (github-releases), not one specific ghcr.io image, since server and machine-learning always share this one tag by construction. Grouped with the immich packageRule below so it lands in the same manual-review PR as the chart and the vectorchord DB image.",
+      "description": "Immich's app image tag, overridden in the shared top-level controllers block (helmrelease.yaml) to run the real latest v2.x release independently of the chart's own stale appVersion default -- see that file's comment and docs/backlog.md. A bare `image: {tag: ...}` with no adjacent `repository:` is invisible to both the built-in kubernetes manager (needs a single combined repo:tag value) and the helm-values manager (needs repository+tag together): this had zero Renovate coverage until this manager, found on an audit of every HelmRelease-embedded image override in the repo (2026-09-19). Tracked against the app repo directly (github-releases), not one specific ghcr.io image, since server and machine-learning always share this one tag by construction. Grouped with the immich packageRule below so it lands in the same CI-gated PR as the chart and the vectorchord DB image.",
       "managerFilePatterns": [
         "/cluster/base/infrastructure/16-immich/helmrelease\\.yaml$/"
       ],
@@ -203,7 +203,7 @@
     },
     {
       "customType": "regex",
-      "description": "CNPG's Barman Cloud plugin controller image, plugin-barman-cloud.yaml's values.image.tag -- tag-only, no repository, and the file isn't named helmrelease.yaml so even the paired-field helm-values manager could never reach it regardless of shape. Found on the same 2026-09-19 audit as the immich and kubernetes-mcp-server gaps above. Repository confirmed live (kubectl get pod -n cnpg-system), not guessed. Grouped with the sidecar image below per this file's own comment: 'move both tags together, in a reviewed PR'.",
+      "description": "CNPG's Barman Cloud plugin controller image, plugin-barman-cloud.yaml's values.image.tag -- tag-only, no repository, and the file isn't named helmrelease.yaml so even the paired-field helm-values manager could never reach it regardless of shape. Found on the same 2026-09-19 audit as the immich and kubernetes-mcp-server gaps above. Repository confirmed live (kubectl get pod -n cnpg-system), not guessed. Grouped with the sidecar image below per this file's own comment: 'move both tags together, in a single CI-gated PR'.",
       "managerFilePatterns": [
         "/cluster/base/infrastructure/33-cloudnative-pg/plugin-barman-cloud\\.yaml$/"
       ],
@@ -266,18 +266,14 @@
         "allowedVersions": "<110.0.0 || >110.0.0"
     },
     {
-      "description": "Group the CLUSTER's Talos updates into one PR: versions.env's TALOS_VERSION and the machineconfig installer tag. Those two must move together -- talos-image-check fails a PR where they disagree -- so splitting them would produce a PR that fails its own check. The talosctl IMAGE in the SUC Plans needs no manager of its own: it is the same Kustomize-replacements field as TALOS_VERSION (see config/kustomization.yaml), so it cannot drift. The workstation talosctl BINARY in bootstrap/ is deliberately NOT in this group -- see the talos-cli rule at the end of this list.",
+      "description": "Group the CLUSTER's Talos version and machineconfig installer pins in one PR. Patch updates within the current Talos minor line may auto-merge after the image gate and Talos image workflow pass; a new Talos minor line requires review. The workstation talosctl binary is grouped separately.",
       "matchPackageNames": ["siderolabs/talos"],
-      "groupName": "talos",
-      "automerge": false,
-      "addLabels": ["manual-review"]
+      "groupName": "talos"
     },
     {
-      "description": "Kubernetes control-plane version -- tracked and upgraded independently of Talos, never auto-merged (control-plane component upgrade).",
+      "description": "Kubernetes control-plane version is tracked separately from Talos. Patch updates may auto-merge after the image gate and Talos image workflow pass; minor version changes require review.",
       "matchPackageNames": ["kubernetes/kubernetes"],
-      "groupName": "kubernetes",
-      "automerge": false,
-      "addLabels": ["manual-review"]
+      "groupName": "kubernetes"
     },
     {
       "description": "Label major updates — CI workflow uses this to skip Trivy auto-merge",
@@ -290,6 +286,12 @@
       "matchUpdateTypes": ["minor", "patch"],
       "addLabels": ["minor-update"],
       "automerge": false
+    },
+    {
+      "description": "Talos 1.14.x to 1.15.x and Kubernetes 1.37.x to 1.38.x are semantic minor changes, not patch updates. Keep those and major changes under manual review; patch updates remain eligible for the CI image gate.",
+      "matchPackageNames": ["siderolabs/talos", "kubernetes/kubernetes"],
+      "matchUpdateTypes": ["minor", "major"],
+      "addLabels": ["manual-review"]
     },
     {
       "description": "Disable digest updates for Talos images",
@@ -321,18 +323,14 @@
       "automerge": false
     },
     {
-      "description": "Split the admin workstation's talosctl CLI out of the cluster Talos group. bootstrap/ansible/group_vars/all.yml pins a BINARY downloaded onto a laptop (roles/homelab-tools fetches talosctl-{os}-{arch} from the release). That is a different artifact from the cluster's OS version, it touches no node, and it cannot break an upgrade. The rule grouping all siderolabs/talos updates has a rationale written about the ghcr.io/siderolabs/talosctl IMAGE in the SUC Plans -- which genuinely is driven by the same Kustomize replacement as TALOS_VERSION. The workstation binary was swept in only because it resolves to the same GitHub release. Talos supports client/server skew (a reboot on 2026-09-05 printed 'server version 1.13.0 is older than client version 1.13.6' as a normal warning), so these need not move together -- and bundling them puts a laptop tool bump in the same PR that reboots the cluster.",
+      "description": "Keep the admin workstation talosctl binary separate from the cluster OS version. It does not reboot a node. Patch updates may auto-merge through the CI gate; a new Talos minor line remains manual-review through the version policy above.",
       "matchFileNames": [
         "bootstrap/ansible/group_vars/all.yml"
       ],
       "matchPackageNames": [
         "siderolabs/talos"
       ],
-      "groupName": "talos-cli",
-      "automerge": false,
-      "addLabels": [
-        "manual-review"
-      ]
+      "groupName": "talos-cli"
     },
     {
       "description": "Never bump the postgres backup client across a major. These three images run pg_dump against keycloak-pg, filer-meta-pg and immich-postgresql, and each must match its server's major: pg_dump emits SQL for its OWN version, with no target-version flag and no down-conversion, so a dump taken by a newer client can fail to replay into an older server. On 2026-09-05 Renovate moved all three to 18 -- two majors ahead of two of the servers. Nothing caught it, because the DUMP direction kept working and the read-back checks kept passing; the failure would have appeared for the first time during an actual restore. Renovate cannot know these versions are coupled to a server it never sees, so the coupling is enforced here. Patch and minor updates within the pinned major still flow normally.",
@@ -348,30 +346,22 @@
       "enabled": false
     },
     {
-      "description": "Never auto-merge a VectorChord bump, including a plain semver 'minor' one. postgres-cluster.yaml's own comment says Immich manages this extension itself and updates it on startup -- the deployed Immich version decides which VectorChord versions it accepts, a coupling Renovate cannot see from the tag alone. Grouped with the immich chart so both land in front of the same review rather than the image quietly auto-merging through the Trivy gate's minor-update path (found on code review, round 4, after a real minor bump -- 17-0.3.0 to 17-0.5.3 -- checked against the actual tag list). immich-app/immich (the app image tag override, added 2026-09-19) joins the same group for the same reason: a new app version and a new chart version are the same underlying decision and must not land as two independent, unreviewed-together PRs.",
+      "description": "Move the Immich chart, app image and VectorChord image together so compatible versions reach the same CI gate and rollout. Major updates remain outside auto-merge; minor and patch updates may merge only when the image gate and required checks pass.",
       "matchPackageNames": [
         "immich",
         "ghcr.io/immich-app/immich-charts/immich",
         "ghcr.io/tensorchord/cloudnative-vectorchord",
         "immich-app/immich"
       ],
-      "groupName": "immich",
-      "automerge": false,
-      "addLabels": [
-        "manual-review"
-      ]
+      "groupName": "immich"
     },
     {
-      "description": "CNPG's Barman Cloud plugin controller and sidecar images move as one -- plugin-barman-cloud.yaml's own comment: 'the sidecar is what runs inside every database pod, so a bump to it restarts each database once: move both tags together, in a reviewed PR.' Neither had any Renovate coverage until the two custom managers above; grouping them now, at the same time coverage starts, so they can never land as two separate PRs on two separate days.",
+      "description": "Move the CNPG Barman Cloud plugin controller and sidecar images together so every database pod receives the same release. Minor and patch updates may auto-merge only after the image gate and required checks pass.",
       "matchPackageNames": [
         "ghcr.io/cloudnative-pg/plugin-barman-cloud",
         "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar"
       ],
-      "groupName": "plugin-barman-cloud",
-      "automerge": false,
-      "addLabels": [
-        "manual-review"
-      ]
+      "groupName": "plugin-barman-cloud"
     },
     {
       "description": "Group the kuberlr-kubectl images used by bootstrap, upgrade gates, and system-upgrade-controller Jobs. The Job image is a ConfigMap string tracked by a scoped custom manager; the other images use the built-in Kubernetes manager. They must move together so an upgrade Job never runs an older kubectl wrapper than the gates that authorized it.",
@@ -381,7 +371,7 @@
       "groupName": "kuberlr-kubectl"
     },
     {
-      "description": "Never auto-merge the components that cannot be recovered from inside the cluster (ADR-009). A bad image in the network layer, the storage layer or remote access removes the means of fixing it: no CNI means no scheduling, no CSI means no volumes, and no Tailscale means no remote path in once the LAN one is gone. Size of the version step is irrelevant -- a patch can break a datapath as thoroughly as a major. manual-review is the label the Trivy auto-merge gate already refuses on, so this reuses that mechanism rather than adding one.",
+      "description": "Network, storage and remote-access components have high blast radius. Keep chart and image groups aligned, and let only minor/patch updates that pass the image gate and required CI checks auto-merge. Major updates remain manual.",
       "matchPackageNames": [
         "cilium",
         "longhorn",
@@ -389,10 +379,6 @@
         "/^quay[.]io/cilium//",
         "/^(docker[.]io/)?longhornio//",
         "/^(docker[.]io/)?tailscale//"
-      ],
-      "automerge": false,
-      "addLabels": [
-        "manual-review"
       ]
     },
     {
@@ -401,17 +387,15 @@
         "kyverno",
         "/^reg[.]kyverno[.]io/kyverno//"
       ],
-      "groupName": "kyverno",
-      "automerge": false
+      "groupName": "kyverno"
     },
     {
-      "description": "Tailscale's operator and proxy images ship as one release, with the chart. Grouped so they cannot diverge. Also carries manual-review from the unrecoverable-component rule -- losing the operator removes the remote path into the cluster.",
+      "description": "Tailscale's operator and proxy images ship as one release with the chart, so they are updated together and evaluated by the same CI gate.",
       "matchPackageNames": [
         "tailscale-operator",
         "/^(docker[.]io/)?tailscale//"
       ],
-      "groupName": "tailscale",
-      "automerge": false
+      "groupName": "tailscale"
     },
     {
       "description": "SeaweedFS ships as two separately-tracked packages that are really one release: the chart (01-seaweedfs/helmrelease.yaml) and the chrislusf/seaweedfs image the collection-routing Job pins for itself (cluster/overlays/1-node/seaweedfs-collection-routing-job.yaml, a different file, so the matchFileNames grouping style used elsewhere in this list does not reach it). Ungrouped, client (the Job) and server (the chart) can land on different days in different PRs and drift apart -- the same class of problem the file-based chart+image groups below exist to prevent. Found on code review (round 4).",
@@ -422,13 +406,12 @@
       "groupName": "seaweedfs"
     },
     {
-      "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it -- upstream csi-attacher and Longhorn's build of it are not interchangeable. A CSI driver assembled from mismatched sidecars fails at volume attach, which here means every workload with a PVC. Also carries manual-review from the unrecoverable-component rule.",
+      "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it. The image gate and required checks decide minor/patch auto-merge; major updates stay manual.",
       "matchPackageNames": [
         "longhorn",
         "/^(docker[.]io/)?longhornio//"
       ],
-      "groupName": "longhorn",
-      "automerge": false
+      "groupName": "longhorn"
     },
     {
       "description": "Move the victoria-metrics chart and its pinned images together. ADR-009 requires a chart and the images it packages to move in one change. The chart's appVersion and the pinned tags describe the same release, so a proposal that carries one without the other opens a window where the pin is a downgrade of the chart's own intent. Grouping by package file keeps them in a single branch whenever both updates are available together.",
@@ -438,9 +421,9 @@
       "groupName": "victoria-metrics"
     },
     {
-      "description": "The VictoriaMetrics operator image can require CRDs that only a newer stack chart supplies. Review operator image updates before they merge; other images in the chart keep their normal update path.",
+      "description": "The VictoriaMetrics operator image can require CRDs from the stack chart. Keep it grouped with the chart and let the image gate and required checks decide minor/patch auto-merge.",
       "matchPackageNames": ["victoriametrics/operator"],
-      "addLabels": ["manual-review"]
+      "groupName": "victoria-metrics"
     },
     {
       "description": "Move the grafana chart and its pinned images together. See the victoria-metrics rule above for the reasoning; ADR-009 requires this for every chart.",

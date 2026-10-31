@@ -45,6 +45,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
@@ -192,6 +193,50 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version_file=cluster/base/infrastructure/15-system-upgrade-controller/config/versions.env
+          if ! git diff --quiet "origin/${{ github.base_ref }}" HEAD -- "$version_file"; then
+            # Renovate adds labels through separate events. Check the versions
+            # directly so a new Talos/Kubernetes minor cannot slip through
+            # before its manual-review label arrives.
+            for key in TALOS_VERSION KUBERNETES_VERSION; do
+              previous=$(git show "origin/${{ github.base_ref }}:$version_file" | sed -n "s/^${key}=//p")
+              proposed=$(sed -n "s/^${key}=//p" "$version_file")
+              if [[ -z "$previous" || -z "$proposed" || "${previous%.*}" != "${proposed%.*}" ]]; then
+                echo "$key changes version line or is missing; manual review required"
+                exit 1
+              fi
+            done
+          fi
+
+          # The Talos image workflow is path-scoped and therefore cannot be a
+          # globally required branch check. For Talos/Kubernetes pin changes,
+          # require its latest run for this exact head commit to succeed before
+          # queuing auto-merge. This covers Factory image availability too.
+          if git diff --name-only "origin/${{ github.base_ref }}" HEAD | \
+              grep -Eq '^(cluster/base/infrastructure/15-system-upgrade-controller/config/versions[.]env|cluster/overlays/[^/]+/talos-machineconfigs/)'; then
+            verified=false
+            for attempt in $(seq 1 60); do
+              run=$(gh run list --repo "$GITHUB_REPOSITORY" \
+                --workflow talos-image-check.yml --branch "${{ github.head_ref }}" \
+                --event pull_request --limit 30 \
+                --json databaseId,headSha,status,conclusion,createdAt |
+                jq -c --arg head "${{ github.event.pull_request.head.sha }}" \
+                  '[.[] | select(.headSha == $head)] | sort_by(.createdAt, .databaseId) | last')
+              status=$(jq -r '.status // empty' <<<"$run")
+              conclusion=$(jq -r '.conclusion // empty' <<<"$run")
+              if [[ "$status" == completed ]]; then
+                if [[ "$conclusion" == success ]]; then verified=true; break; fi
+                echo "Talos image workflow finished with $conclusion; not auto-merging"
+                exit 1
+              fi
+              sleep 10
+            done
+            if [[ "$verified" != true ]]; then
+              echo 'Talos image workflow did not complete successfully within ten minutes'
+              exit 1
+            fi
+          fi
+
           # --auto, because this gate finishes before the checks the branch
           # ruleset requires. Six checks are required to merge into
           # ops/talos_linux, and this job reaches its merge step in about ten
