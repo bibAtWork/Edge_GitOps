@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '26'
       - name: Install the coverage policy YAML parser
         run: pip install --quiet -r .github/renovate-coverage/requirements.txt
       - name: Validate config and compare pins with native Renovate extraction
