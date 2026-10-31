@@ -262,7 +262,7 @@ jobs:
           # checks, so which case applies is a race decided by runner scheduling.
           # Try to queue first, and merge directly if there is nothing to queue.
           PR=${{ github.event.pull_request.number }}
-          SUBJECT="chore(deps): auto-merge minor update (Trivy CVE gate passed)"
+          SUBJECT="chore(deps): auto-merge CI-gated update"
           if gh pr merge "$PR" --auto --squash --subject "$SUBJECT" --delete-branch; then
             echo "auto-merge queued (or performed) for #$PR"
           else
