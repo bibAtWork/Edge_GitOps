@@ -2,7 +2,7 @@
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 # Found 2026-08-16: this workflow ran 5 times for the identical commit on a
 # single Renovate PR (confirmed via check-runs timestamps, all within ~2
@@ -21,14 +21,14 @@ on:
 # three Renovate PRs, the pattern is still 5 runs — 4 cancelled, 1 successful —
 # and a cancelled run has already claimed a runner and begun checking out.
 #
-# So the run itself is now skipped when a `labeled` event carries a label this
+# So the run itself is now skipped when a label event changes a label this
 # gate does not care about. A job skipped by `if:` allocates no runner at all,
 # where a cancelled one has already paid for itself.
 #
 # This does NOT reintroduce the ordering risk. The guard tests which label was
-# just added, never the order they arrive in: whenever `minor-update` or
-# `security` lands, that specific event runs the gate, and the `opened` event
-# still covers the case where Renovate applies labels atomically.
+# just changed, never the order they arrive in: adding `minor-update` or
+# `security`, or removing a stale `manual-review`, runs the gate. The `opened`
+# event still covers the case where Renovate applies labels atomically.
 #
 # The concurrency group is split for a reason that is easy to miss. Concurrency
 # is evaluated per workflow run, before any job `if:` — so without the split, an
@@ -39,8 +39,9 @@ on:
 concurrency:
   group: >-
     trivy-gate-${{ github.event.pull_request.number }}-${{
-      (github.event.action == 'labeled' &&
-       !contains(fromJSON('["minor-update","security"]'), github.event.label.name))
+      ((github.event.action == 'labeled' &&
+        !contains(fromJSON('["minor-update","security"]'), github.event.label.name)) ||
+       (github.event.action == 'unlabeled' && github.event.label.name != 'manual-review'))
       && 'ignored' || 'active' }}
   cancel-in-progress: true
 
@@ -54,15 +55,15 @@ jobs:
     # Only run on Renovate PRs that touch minor/patch or security
     # (vulnerability-alert) updates.
     #
-    # The middle clause is the deduplication: on a `labeled` event, proceed only
-    # if the label just added is one this gate acts on. Every other trigger type
-    # passes it untouched, so `opened` and `synchronize` behave exactly as
-    # before. The final clause is unchanged and still decides eligibility from
-    # the PR's full label set, not from whichever label happened to arrive.
+    # A label event runs only when it adds minor-update/security or removes
+    # manual-review. Opened and synchronize still run. The final clause decides
+    # eligibility from the PR's full label set, not from the changed label.
     if: |
       github.actor == 'renovate[bot]' &&
-      (github.event.action != 'labeled' ||
-       contains(fromJSON('["minor-update","security"]'), github.event.label.name)) &&
+      ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+       (github.event.action == 'labeled' &&
+        contains(fromJSON('["minor-update","security"]'), github.event.label.name)) ||
+       (github.event.action == 'unlabeled' && github.event.label.name == 'manual-review')) &&
       (contains(github.event.pull_request.labels.*.name, 'minor-update') ||
        contains(github.event.pull_request.labels.*.name, 'security'))
     runs-on: ubuntu-latest
