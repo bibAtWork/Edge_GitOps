@@ -245,6 +245,11 @@
       "allowedVersions": "/^16\\.[0-9]+(?:-minimal-bookworm)?$/"
     },
     {
+      "description": "PostgreSQL 16.15 to 16.16 is a maintenance patch in PostgreSQL's two-part versioning. Classify it as patch so the critical-component policy permits these fixes while keeping 16 to 17 manual.",
+      "matchPackageNames": ["ghcr.io/cloudnative-pg/postgresql"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<patch>\\d+)(?:-(?<compatibility>minimal-bookworm))?$"
+    },
+    {
       "description": "The built-in kubernetes manager line-matches every `image:` field in any /cluster/.+\\.yaml$ file regardless of `kind:`, so without this it independently proposes bumps to the talosctl image tags inside the SUC Plan files (talos-controlplane/worker/on-demand/kubernetes-upgrade.yaml). Those are Kustomize `replacements` placeholders now (config/kustomization.yaml), not pins -- a bump from this manager would edit a value that gets overwritten at build time anyway, in an ungrouped PR unrelated to the versions.env-driven update.",
       "matchManagers": ["kubernetes"],
       "matchFileNames": [
@@ -288,8 +293,19 @@
       "automerge": false
     },
     {
-      "description": "Talos 1.14.x to 1.15.x and Kubernetes 1.37.x to 1.38.x are semantic minor changes, not patch updates. Keep those and major changes under manual review; patch updates remain eligible for the CI image gate.",
-      "matchPackageNames": ["siderolabs/talos", "kubernetes/kubernetes"],
+      "description": "Critical versioned tools outside the platform manifests require review for minor and major updates. Patch updates remain eligible for the CI image gate.",
+      "matchPackageNames": ["siderolabs/talos", "kubernetes/kubernetes", "/^fluxcd\\//", "fluxcd/flux2", "helm/helm", "ghcr.io/cloudnative-pg/postgresql", "/^(docker[.]io\\/)?chrislusf\\/seaweedfs$/"],
+      "matchUpdateTypes": ["minor", "major"],
+      "addLabels": ["manual-review"]
+    },
+    {
+      "description": "Patch-only critical platform manifests: storage, networking, access, identity, policy, upgrade, backup, monitoring operator, and the coupled Immich stack. Minor and major changes require review; patch updates may pass the CI image gate.",
+      "matchFileNames": [
+        "/^cluster\\/base\\/infrastructure\\/(?:00-gateway-api|00-local-path-provisioner|01-seaweedfs|02-victoriametrics-stack|05-cilium|06-cert-manager|11-ingress-gateway|12-zot|14-tailscale-operator|15-system-upgrade-controller|16-immich|19-kyverno|24-opa|26-keycloak|28-envoy-gateway|32-longhorn|33-cloudnative-pg|37-backup-system)\\//",
+        "/^cluster\\/base\\/applications\\/(?:lakehouse|real-estate-screener)\\/deferred\\/postgres[.]yaml$/",
+        "/^cluster\\/overlays\\/[^/]+\\/talos-machineconfigs\\//",
+        "/^cluster\\/overlays\\/[^/]+\\/seaweedfs-collection-routing-job[.]yaml$/"
+      ],
       "matchUpdateTypes": ["minor", "major"],
       "addLabels": ["manual-review"]
     },
@@ -346,7 +362,7 @@
       "enabled": false
     },
     {
-      "description": "Move the Immich chart, app image and VectorChord image together so compatible versions reach the same CI gate and rollout. Major updates remain outside auto-merge; minor and patch updates may merge only when the image gate and required checks pass.",
+      "description": "Move the Immich chart, app image and VectorChord image together so compatible versions reach the same CI gate and rollout. Only patch updates may auto-merge; minor and major updates require review.",
       "matchPackageNames": [
         "immich",
         "ghcr.io/immich-app/immich-charts/immich",
@@ -356,7 +372,7 @@
       "groupName": "immich"
     },
     {
-      "description": "Move the CNPG Barman Cloud plugin controller and sidecar images together so every database pod receives the same release. Minor and patch updates may auto-merge only after the image gate and required checks pass.",
+      "description": "Move the CNPG Barman Cloud plugin controller and sidecar images together so every database pod receives the same release. Only patch updates may auto-merge after the image gate and required checks pass.",
       "matchPackageNames": [
         "ghcr.io/cloudnative-pg/plugin-barman-cloud",
         "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar"
@@ -371,7 +387,7 @@
       "groupName": "kuberlr-kubectl"
     },
     {
-      "description": "Network, storage and remote-access components have high blast radius. Keep chart and image groups aligned, and let only minor/patch updates that pass the image gate and required CI checks auto-merge. Major updates remain manual.",
+      "description": "Network, storage and remote-access components have high blast radius. Keep chart and image groups aligned; only patch updates that pass the image gate and required CI checks may auto-merge.",
       "matchPackageNames": [
         "cilium",
         "longhorn",
@@ -406,7 +422,7 @@
       "groupName": "seaweedfs"
     },
     {
-      "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it. The image gate and required checks decide minor/patch auto-merge; major updates stay manual.",
+      "description": "Longhorn's ten images move as one group. The four longhorn-* images are one release, and the six CSI sidecars are republished by longhornio and version-matched to it. Only patch updates may auto-merge after the image gate and required checks pass.",
       "matchPackageNames": [
         "longhorn",
         "/^(docker[.]io/)?longhornio//"
@@ -421,7 +437,7 @@
       "groupName": "victoria-metrics"
     },
     {
-      "description": "The VictoriaMetrics operator image can require CRDs from the stack chart. Keep it grouped with the chart and let the image gate and required checks decide minor/patch auto-merge.",
+      "description": "The VictoriaMetrics operator image can require CRDs from the stack chart. Keep it grouped with the chart; only patch updates may auto-merge after the image gate and required checks pass.",
       "matchPackageNames": ["victoriametrics/operator"],
       "groupName": "victoria-metrics"
     },

@@ -328,6 +328,77 @@ def semver(raw: Any) -> Optional[Tuple[int, int, int]]:
     return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
 
 
+def critical_file_patterns() -> List[re.Pattern[str]]:
+    """Use Renovate's critical file scope as the merge gate's source of truth."""
+    config = json.loads((REPO_ROOT / "renovate.json").read_text(encoding="utf-8"))
+    rule = next((r for r in config["packageRules"] if r.get("description", "").startswith(
+        "Patch-only critical platform manifests:")), None)
+    if rule is None:
+        raise ValueError("critical platform Renovate rule is missing")
+    return [re.compile(pattern[1:-1]) for pattern in rule["matchFileNames"]]
+
+
+def version_fields(docs: List[Any], keys: set[str]) -> Dict[str, str]:
+    """Read release versions from rendered-source YAML, including chart-only bumps."""
+    found: Dict[str, str] = {}
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                child = f"{path}.{key}" if path else str(key)
+                if key in keys and isinstance(value, (str, int, float)):
+                    found[child] = str(value)
+                else:
+                    walk(value, child)
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{path}[{index}]")
+
+    for index, doc in enumerate(docs):
+        walk(doc, doc_identity(doc, index))
+    return found
+
+
+def patch_version(raw: Optional[str], path: str) -> Optional[Tuple[int, int, int, str]]:
+    if raw is None:
+        return None
+    if path.endswith((".image", ".imageName")):
+        repo, raw = split_ref(raw.split("@", 1)[0])
+        if repo.endswith("cloudnative-pg/postgresql"):
+            match = re.fullmatch(r"(\d+)\.(\d+)(?:-(minimal-bookworm))?", raw)
+            if match:
+                return (int(match.group(1)), 0, int(match.group(2)),
+                        match.group(3) or "")
+            return None
+    version = semver(raw)
+    return (*version, "") if version else None
+
+
+def critical_version_changes(file: str, base_docs: List[Any],
+                             head_docs: List[Any],
+                             patterns: List[re.Pattern[str]]) -> List[Dict[str, str]]:
+    """Block non-patch changes independently of Renovate's label arrival order."""
+    tools_file = file == "bootstrap/ansible/group_vars/all.yml"
+    if not tools_file and not any(pattern.search(file) for pattern in patterns):
+        return []
+    keys = ({"talosctl_version", "kubectl_version", "flux_version", "helm_version"}
+            if tools_file else {"version", "tag", "image", "imageName"})
+    previous = version_fields(base_docs, keys)
+    proposed = version_fields(head_docs, keys)
+    changes: List[Dict[str, str]] = []
+    for path in sorted(previous.keys() | proposed.keys()):
+        old, new = previous.get(path), proposed.get(path)
+        if old == new:
+            continue
+        before, after = patch_version(old, path), patch_version(new, path)
+        if (before and after and before[:2] == after[:2]
+                and before[3] == after[3] and after > before):
+            continue
+        changes.append({"file": file, "path": path,
+                        "old": old or "(absent)", "new": new or "(absent)"})
+    return changes
+
+
 # ── Reference helpers ──────────────────────────────────────────────────────────
 
 def split_ref(ref: str) -> Tuple[str, str]:
@@ -435,6 +506,11 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
     if "manual-review" in labels:
         verdict["blockers"].append(
             "manual-review label present - human sign-off required")
+
+    for change in result.get("critical_changes", []):
+        verdict["blockers"].append(
+            f"critical component {change['file']}:{change['path']} changes "
+            f"{change['old']} -> {change['new']} outside a patch release")
 
     # ADR-009: a chart bump that moves appVersion past a static pin turns that
     # pin into a downgrade. It produces no image diff, so without this it is
@@ -595,7 +671,10 @@ def main() -> int:
 
     files = changed_yaml_files(args.base, args.head)
     result: Dict[str, Any] = {"files": files, "pairs": [], "added": [], "removed": [],
-                              "moves": [], "appversion": [], "render": []}
+                              "moves": [], "appversion": [], "render": [],
+                              "critical_changes": []}
+
+    critical_patterns = critical_file_patterns()
 
     repos_head = helm_repositories(args.head)
     repos_base = helm_repositories(args.base)
@@ -603,6 +682,8 @@ def main() -> int:
     for f in files:
         base_docs = load_docs(git_show(args.base, f))
         head_docs = load_docs(git_show(args.head, f))
+        result["critical_changes"].extend(
+            critical_version_changes(f, base_docs, head_docs, critical_patterns))
 
         # ── static ──
         # Paths are qualified by document identity. Without that, two CronJobs

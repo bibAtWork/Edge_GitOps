@@ -80,17 +80,19 @@ fails any change where they disagree. The cost is one grouping rule per componen
 failure mode when a rule is missing is benign — the chart and image arrive as two proposals, the
 divergence check fails the second, and a human is told rather than the drift going unseen.
 
-**Minor and patch updates for critical components may auto-merge after CI passes.** This includes
-network, storage and remote-access components. Their chart and image pins stay grouped, and the
-image gate blocks unscannable images, worsening CVE posture, repository moves and downgrades.
-This policy reduces routine review work, but CI cannot prove a CNI, CSI or remote-access update
-will work in the live datapath; recovery access outside the cluster remains necessary.
+**Only patch updates for critical components may auto-merge after CI passes.** This covers the
+platform paths declared in Renovate's `Patch-only critical platform manifests` rule: storage,
+networking, access, identity, policy, upgrade, backup, the VictoriaMetrics operator, and Immich's
+coupled chart and database. Critical tool updates outside those paths include Talos, Kubernetes,
+Flux and Helm. The image gate reads the same path scope and compares actual version fields, so a
+minor update cannot merge during a label-order race. PostgreSQL's two-part `16.15 -> 16.16`
+maintenance release counts as a patch; a major database upgrade still requires review.
 
-Talos and Kubernetes are narrower: only patch updates within the current minor line are
-auto-merge eligible. The merge workflow waits for the path-scoped Talos image check on the exact
-PR commit and compares version pins directly. New minor lines and all major updates require
-review. Images whose tags cannot be ordered and chart/pin mismatches across a major
-version also remain manual decisions.
+Talos and Kubernetes patch updates additionally wait for the path-scoped Talos image check on
+the exact PR commit. All critical minor and major updates require review. The image gate also
+blocks unscannable images, worsening CVE posture, repository moves and downgrades. CI cannot
+prove a CNI, CSI or remote-access update will work in the live datapath; recovery access outside
+the cluster remains necessary.
 
 **Every pin is verified against the running pod, not against the manifest.** Helm silently ignores
 values it does not recognise, so a pin at the wrong key path leaves the chart's `appVersion` in

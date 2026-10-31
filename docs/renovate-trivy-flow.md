@@ -122,9 +122,11 @@ flowchart TD
 - an `appVersion` that cannot be resolved, or a pin that cannot be ordered against it —
   the old `immich-postgresql` release pinned `17-vectorchord0.3.0-pgvectors0.3.0`, which was
   reported as unorderable rather than guessed at
-- the `manual-review` label, regardless of CVE posture. Renovate applies it to new Talos
-  and Kubernetes minor lines; patch updates within the current line are eligible for CI
-  auto-merge, including network, storage, access, database and monitoring components.
+- the `manual-review` label, regardless of CVE posture. Renovate applies it to every critical
+  component's minor and major updates. The gate compares versions in the critical platform
+  manifests directly as well, so label arrival order cannot permit a minor update to merge.
+  Only critical patch updates may auto-merge after CI passes. PostgreSQL's two-part maintenance
+  releases, such as `16.15 -> 16.16`, count as patches.
 
 Renovate itself does not merge these PRs. The Trivy workflow queues the merge only after
 the image gate passes; GitHub then waits for the branch's required checks. For PRs that
@@ -132,8 +134,7 @@ change Talos or Kubernetes version pins, the workflow also waits for the path-sc
 Talos image check on that exact commit. A missing Factory image, failed check or timeout
 prevents auto-merge. Talos `1.14.1 → 1.14.3` is a **patch** update and eligible;
 `1.14.1 → 1.15.0` is a **minor** update and requires review. The workflow
-compares the version pins directly as well as checking labels, so label arrival
-order cannot make a new Talos or Kubernetes minor line merge automatically.
+compares the Talos and Kubernetes version pins directly as well as checking labels.
 
 A genuinely chart-only update — the chart version moved and no image reference changed at
 either revision — still auto-merges on a `minor-update` label. The difference from the old
