@@ -122,7 +122,18 @@ flowchart TD
 - an `appVersion` that cannot be resolved, or a pin that cannot be ordered against it —
   the old `immich-postgresql` release pinned `17-vectorchord0.3.0-pgvectors0.3.0`, which was
   reported as unorderable rather than guessed at
-- the `manual-review` label (bootstrap-critical components), regardless of CVE posture
+- the `manual-review` label, regardless of CVE posture. Renovate applies it to new Talos
+  and Kubernetes minor lines; patch updates within the current line are eligible for CI
+  auto-merge, including network, storage, access, database and monitoring components.
+
+Renovate itself does not merge these PRs. The Trivy workflow queues the merge only after
+the image gate passes; GitHub then waits for the branch's required checks. For PRs that
+change Talos or Kubernetes version pins, the workflow also waits for the path-scoped
+Talos image check on that exact commit. A missing Factory image, failed check or timeout
+prevents auto-merge. Talos `1.14.1 → 1.14.3` is a **patch** update and eligible;
+`1.14.1 → 1.15.0` is a **minor** update and requires review. The workflow
+compares the version pins directly as well as checking labels, so label arrival
+order cannot make a new Talos or Kubernetes minor line merge automatically.
 
 A genuinely chart-only update — the chart version moved and no image reference changed at
 either revision — still auto-merges on a `minor-update` label. The difference from the old
@@ -144,8 +155,9 @@ age gate while its image had not. The `appVersion` check is what closes it.
 The global 48-hour release-age gate applies when Renovate's datasource provides a release
 timestamp. With `minimumReleaseAgeBehaviour: timestamp-optional`, updates without a
 supported timestamp (including GHCR and Quay container tags) can still open PRs; their
-publication age is not verified by Renovate. The normal CI and `manual-review` merge gates
-still apply. This policy is shared by all components rather than exempting individual charts.
+publication age is not verified by Renovate. The normal CI and version-specific
+`manual-review` gates still apply. This policy is shared by all components rather than
+exempting individual charts.
 
 ## 2. Continuous: scoped findings and change alerts
 

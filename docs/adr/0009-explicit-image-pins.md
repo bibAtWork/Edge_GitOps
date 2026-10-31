@@ -80,16 +80,17 @@ fails any change where they disagree. The cost is one grouping rule per componen
 failure mode when a rule is missing is benign — the chart and image arrive as two proposals, the
 divergence check fails the second, and a human is told rather than the drift going unseen.
 
-**Components that cannot be recovered from inside the cluster are never auto-merged.** Where a bad
-image would remove the means of fixing it — the network layer, the storage layer, remote
-access — updates require human sign-off regardless of how small the version step looks. This uses
-the existing `manual-review` label, which the auto-merge gate already treats as a refusal.
+**Minor and patch updates for critical components may auto-merge after CI passes.** This includes
+network, storage and remote-access components. Their chart and image pins stay grouped, and the
+image gate blocks unscannable images, worsening CVE posture, repository moves and downgrades.
+This policy reduces routine review work, but CI cannot prove a CNI, CSI or remote-access update
+will work in the live datapath; recovery access outside the cluster remains necessary.
 
-Automation is the default everywhere else. Four cases still reach a person, and each is a policy
-choice rather than an unhandled edge: the unrecoverable components above; any major version step,
-which is already never auto-merged; images whose tags cannot be ordered, where no proposal can be
-generated and only the divergence check will say so; and a pin deliberately held away from its
-chart, such as one carrying a security patch the chart has not yet shipped.
+Talos and Kubernetes are narrower: only patch updates within the current minor line are
+auto-merge eligible. The merge workflow waits for the path-scoped Talos image check on the exact
+PR commit and compares version pins directly. New minor lines and all major updates require
+review. Images whose tags cannot be ordered and chart/pin mismatches across a major
+version also remain manual decisions.
 
 **Every pin is verified against the running pod, not against the manifest.** Helm silently ignores
 values it does not recognise, so a pin at the wrong key path leaves the chart's `appVersion` in

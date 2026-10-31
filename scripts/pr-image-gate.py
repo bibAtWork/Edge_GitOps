@@ -434,7 +434,7 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
 
     if "manual-review" in labels:
         verdict["blockers"].append(
-            "manual-review label present - unrecoverable component, human sign-off required")
+            "manual-review label present - human sign-off required")
 
     # ADR-009: a chart bump that moves appVersion past a static pin turns that
     # pin into a downgrade. It produces no image diff, so without this it is
