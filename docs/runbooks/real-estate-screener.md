@@ -1,7 +1,10 @@
 # Real estate screener
 
 URL: <https://screener.homelab.data-harness.org>. Sign in through Keycloak with
-an app-operator/platform-admin account (or the existing administrator identity).
+a verified-email viewer, app-operator or platform-admin account. Personal
+favorites and sharing groups use the Keycloak identity; sharing membership and
+individual favorites are stored in PostgreSQL. A person must open the app once
+before a group owner can add them by exact email address.
 The Gateway terminates TLS using the existing wildcard certificate; external-dns
 manages the route's hostname. LAN/Tailscale reachability follows the other apps.
 

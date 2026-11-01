@@ -57,6 +57,26 @@ spec:
             - port: "8080"
               protocol: TCP
 ---
+# The screener validates forwarded access tokens against the internal JWKS.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-screener-jwks-ingress
+  namespace: keycloak
+spec:
+  endpointSelector:
+    matchLabels:
+      app: keycloak
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: screener-web
+            io.kubernetes.pod.namespace: real-estate-screener
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
 # Allow Paperless-ngx to reach Keycloak directly (internal service DNS) for
 # its OIDC discovery/token/userinfo calls. Needed because Paperless can't
 # reach Keycloak's external hostname through the gateway — same unresolved
