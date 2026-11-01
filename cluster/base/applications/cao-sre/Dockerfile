@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 
 ARG CAO_VERSION=2.5.0
 ARG OPENCODE_VERSION=1.19.4
