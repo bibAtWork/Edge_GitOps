@@ -14,7 +14,10 @@ def validate(path):
         raise ValueError("Invalid incident ID")
     if doc.get("schema_version") != 1 or doc.get("stage") != "rca":
         raise ValueError("A version 1 RCA handoff is required")
-    if doc.get("status") in ("healthy", "resolved", "uncertain"):
+    status = doc.get("status")
+    if not isinstance(status, str) or not status.strip():
+        raise ValueError("RCA status is required")
+    if status.strip().lower() in ("healthy", "resolved", "uncertain"):
         raise ValueError("RCA has no confirmed active problem for a PR")
     if doc.get("pr_candidate") is not True or not isinstance(doc.get("proposed_change"), str):
         raise ValueError("RCA does not propose a code change")
