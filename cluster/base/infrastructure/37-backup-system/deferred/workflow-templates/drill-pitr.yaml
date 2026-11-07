@@ -52,7 +52,7 @@ spec:
             valueFrom:
               path: /tmp/recovered-at
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        image: docker.io/rancher/kuberlr-kubectl:v9.0.1
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -165,7 +165,7 @@ spec:
 
     - name: cleanup
       container:
-        image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+        image: docker.io/rancher/kuberlr-kubectl:v9.0.1
         command: ["/bin/sh", "-c"]
         args:
           - kubectl delete clusters.postgresql.cnpg.io -n backup-system "drill-{{=sprig.trunc(8, workflow.uid)}}-pitr" --ignore-not-found --timeout=300s

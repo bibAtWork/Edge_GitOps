@@ -88,7 +88,7 @@ spec:
               # Jobs and the upgrade gates. It carries wget, which is all this
               # step needs now -- no jq, no python, no aws-cli, nothing installed
               # at runtime.
-              image: docker.io/rancher/kuberlr-kubectl:v8.1.2
+              image: docker.io/rancher/kuberlr-kubectl:v9.0.1
               command:
                 - /bin/sh
                 - -c
