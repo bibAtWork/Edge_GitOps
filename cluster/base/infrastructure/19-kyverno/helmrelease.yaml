@@ -81,16 +81,9 @@ spec:
           memory: 256Mi
 
     cleanupController:
-      image:
-        registry: reg.kyverno.io
-        repository: kyverno/cleanup-controller
-        tag: v1.19.2
-      resources:
-        requests:
-          cpu: 50m
-          memory: 128Mi
-        limits:
-          memory: 256Mi
+      # No CleanupPolicy or DeletingPolicy is installed. The idle controller
+      # generates roughly 384k self-authorization API calls per day.
+      enabled: false
 
     reportsController:
       image:

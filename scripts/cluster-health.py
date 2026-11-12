@@ -704,12 +704,11 @@ def print_report(results: List[Result], mode: str) -> None:
 # Anything not listed is still reported, but as independent rather than
 # compared, because a false critical trains people to ignore the check.
 APP_IMAGE_PATHS: Dict[str, List[str]] = {
-    # Every controller is one Kyverno release, versioned with the chart.
+    # Every enabled controller is one Kyverno release, versioned with the chart.
     "kyverno": [
         "admissionController.container.image.tag",
         "admissionController.initContainer.image.tag",
         "backgroundController.image.tag",
-        "cleanupController.image.tag",
         "reportsController.image.tag",
     ],
     # Operator and proxy ship together.
