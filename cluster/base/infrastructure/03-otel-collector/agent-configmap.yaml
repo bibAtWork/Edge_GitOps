@@ -53,6 +53,15 @@ data:
               parse_from: attributes.requestReceivedTimestamp
               layout_type: strptime
               layout: '%Y-%m-%dT%H:%M:%S.%fZ'
+          # json_parser retains every audit field in attributes while leaving
+          # the original JSON in body. VictoriaLogs otherwise stores each
+          # event twice: structured fields and the full JSON as _msg. Keep all
+          # attributes and use the request URI as a concise, readable message.
+          # If parsing fails or requestURI is absent, copy sends the original
+          # body onward rather than dropping the event.
+          - type: copy
+            from: attributes.requestURI
+            to: body
       otlp:
         protocols:
           grpc:
