@@ -1,0 +1,29 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: canary-job-cleanup
+policies:
+  - ../../../../cluster/base/infrastructure/19-kyverno/policies/canary-job-cleanup.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: delete-old-failed-canary-jobs
+    isDeletingPolicy: true
+    kind: Job
+    resources: [platform-canary/old-failed-canary]
+    result: pass
+  - policy: delete-old-failed-canary-jobs
+    isDeletingPolicy: true
+    kind: Job
+    resources: [platform-canary/future-failed-canary, platform-canary/old-failed-other, platform-canary/old-active-canary]
+    result: fail
+  - policy: delete-old-complete-canary-jobs
+    isDeletingPolicy: true
+    kind: Job
+    resources: [platform-canary/old-complete-canary]
+    result: pass
+  - policy: delete-old-complete-canary-jobs
+    isDeletingPolicy: true
+    kind: Job
+    resources: [platform-canary/old-failed-canary, platform-canary/old-active-canary]
+    result: fail

@@ -12,3 +12,5 @@ resources:
   - ../policies/verify-flux-images.yaml
   - ../policies/require-fsgroup-for-ephemeral-volumes.yaml
   - ../policies/argo-operator-workflow-scope.yaml
+  - ../policies/canary-job-cleanup.yaml
+  - ../policies/canary-job-cleanup-rbac.yaml

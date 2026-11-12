@@ -136,12 +136,13 @@ jobs:
       - name: Install the pinned Kyverno CLI
         uses: kyverno/action-install-cli@v0.2.0
         with:
-          release: v1.19.0
+          release: v1.19.2
       - name: Check Flux readiness policies against both profiles and regressions
         run: |
           kyverno test .github/policies/tests/flux-config-readiness --require-tests
           kyverno test .github/policies/tests/flux-operator-readiness --require-tests
           kyverno test .github/policies/tests/internet-egress-scope --require-tests
+          kyverno test .github/policies/tests/canary-job-cleanup --require-tests
       - name: Verify rendered Reloader Deployment security and resources
         run: python3 scripts/ci/check_reloader_render.py
       - name: Verify Longhorn chart and image cohort
