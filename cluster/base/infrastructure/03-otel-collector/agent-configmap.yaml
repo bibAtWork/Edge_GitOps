@@ -76,6 +76,32 @@ data:
                 - targets: ["hubble-metrics.kube-system.svc:9965"]
 
     processors:
+      # The filter sees only parsed API audit records in logs/audit. Successful
+      # renewals and report reads are repetitive; failed calls, writes to
+      # reports, other principals, and all container logs remain visible.
+      filter/audit-routine:
+        error_mode: ignore
+        log_conditions:
+          - >-
+            log.attributes["apiVersion"] == "audit.k8s.io/v1" and
+            log.attributes["stage"] == "ResponseComplete" and
+            log.attributes["responseStatus"]["code"] == 200 and
+            log.attributes["objectRef"]["apiGroup"] == "coordination.k8s.io" and
+            log.attributes["objectRef"]["resource"] == "leases" and
+            (log.attributes["verb"] == "get" or log.attributes["verb"] == "update") and
+            (
+              IsMatch(log.attributes["user"]["username"], "^system:serviceaccount:kyverno:kyverno-(admission|background|cleanup|reports)-controller$") or
+              IsMatch(log.attributes["user"]["username"], "^system:serviceaccount:longhorn-system:longhorn-(csi-)?service-account$")
+            )
+          - >-
+            log.attributes["apiVersion"] == "audit.k8s.io/v1" and
+            log.attributes["stage"] == "ResponseComplete" and
+            log.attributes["responseStatus"]["code"] == 200 and
+            log.attributes["user"]["username"] == "system:serviceaccount:kyverno:kyverno-reports-controller" and
+            (
+              (log.attributes["verb"] == "get" and log.attributes["objectRef"]["apiGroup"] == "wgpolicyk8s.io" and log.attributes["objectRef"]["resource"] == "policyreports") or
+              (log.attributes["verb"] == "list" and log.attributes["objectRef"]["apiGroup"] == "reports.kyverno.io" and log.attributes["objectRef"]["resource"] == "ephemeralreports")
+            )
       batch:
         timeout: 10s
         send_batch_size: 1024
@@ -114,8 +140,12 @@ data:
           processors: [memory_limiter, batch, resource]
           exporters: [prometheusremotewrite]
         logs:
-          receivers: [filelog, filelog/audit, otlp]
+          receivers: [filelog, otlp]
           processors: [memory_limiter, batch, resource]
+          exporters: [otlp/gateway]
+        logs/audit:
+          receivers: [filelog/audit]
+          processors: [memory_limiter, filter/audit-routine, batch, resource]
           exporters: [otlp/gateway]
         traces:
           receivers: [otlp]
