@@ -85,7 +85,7 @@ machine:
     extraConfig:
       imageGCHighThresholdPercent: 65
       imageGCLowThresholdPercent: 55
-      imageMaximumGCAge: 336h
+      imageMaximumGCAge: 168h
     # Bind-mounts the PARENT of the user volumes, not each volume. With rshared
     # propagation any number of /var/mnt/* user volumes are carried into the
     # kubelet container automatically, so adding a disk later needs no change
