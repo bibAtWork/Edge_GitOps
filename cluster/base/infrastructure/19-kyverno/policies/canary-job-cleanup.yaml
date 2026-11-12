@@ -1,0 +1,43 @@
+# Use the current CEL DeletingPolicy API; the older CleanupPolicy API is deprecated.
+# Scope deletion to the synthetic canary CronJob so production failure evidence is retained.
+apiVersion: policies.kyverno.io/v1
+kind: NamespacedDeletingPolicy
+metadata:
+  name: delete-old-failed-canary-jobs
+  namespace: platform-canary
+spec:
+  schedule: "17 2 * * *"
+  deletionPropagationPolicy: Background
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        operations: ["*"]
+        resources: [jobs]
+        scope: Namespaced
+  conditions:
+    - name: synthetic-canary-only
+      expression: "has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(r, r.kind == 'CronJob' && r.name == 'platform-canary-synthetic')"
+    - name: failed-for-thirty-days
+      expression: "has(object.status.conditions) && object.status.conditions.exists(c, c.type == 'Failed' && c.status == 'True') && time.now() - timestamp(object.metadata.creationTimestamp) > duration('720h')"
+---
+apiVersion: policies.kyverno.io/v1
+kind: NamespacedDeletingPolicy
+metadata:
+  name: delete-old-complete-canary-jobs
+  namespace: platform-canary
+spec:
+  schedule: "23 2 * * *"
+  deletionPropagationPolicy: Background
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        operations: ["*"]
+        resources: [jobs]
+        scope: Namespaced
+  conditions:
+    - name: synthetic-canary-only
+      expression: "has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(r, r.kind == 'CronJob' && r.name == 'platform-canary-synthetic')"
+    - name: complete-for-seven-days
+      expression: "has(object.status.conditions) && object.status.conditions.exists(c, c.type == 'Complete' && c.status == 'True') && time.now() - timestamp(object.metadata.creationTimestamp) > duration('168h')"
