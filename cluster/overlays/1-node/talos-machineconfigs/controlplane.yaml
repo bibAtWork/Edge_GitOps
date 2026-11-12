@@ -85,12 +85,12 @@ machine:
     nodeIP:
       validSubnets:
         - 192.168.178.0/24
-    # imageFs shares the node disk, but kubelet's default 85/80% thresholds
-    # leave a large unused-image cache while the host disk fills. Reclaim old
-    # unused images after 14 days and cap the cache at 35/25% of imageFs.
+    # imageFs shares the node disk with volumes. The default 85/80% thresholds
+    # let the unused-image cache grow too far; 35/25% tried to reclaim below
+    # the non-image baseline. Use attainable host-wide thresholds instead.
     extraConfig:
-      imageGCHighThresholdPercent: 35
-      imageGCLowThresholdPercent: 25
+      imageGCHighThresholdPercent: 65
+      imageGCLowThresholdPercent: 55
       imageMaximumGCAge: 336h
     # Bind-mounts the PARENT of the user volumes, not each volume. With rshared
     # propagation any number of /var/mnt/* user volumes are carried into the

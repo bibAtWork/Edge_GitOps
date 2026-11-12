@@ -81,10 +81,10 @@ machine:
     nodeIP:
       validSubnets:
         - 192.168.178.0/24
-    # Keep image cache bounded on each node, including schedulable control planes.
+    # Keep image cache bounded on each shared-filesystem node.
     extraConfig:
-      imageGCHighThresholdPercent: 35
-      imageGCLowThresholdPercent: 25
+      imageGCHighThresholdPercent: 65
+      imageGCLowThresholdPercent: 55
       imageMaximumGCAge: 336h
     # Bind-mounts the PARENT of the user volumes, not each volume. With rshared
     # propagation any number of /var/mnt/* user volumes are carried into the
