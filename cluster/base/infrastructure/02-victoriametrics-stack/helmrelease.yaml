@@ -116,10 +116,12 @@ spec:
     vlsingle:
       enabled: true
       spec:
-        retentionPeriod: "90d"
+        # Audit ingestion currently dominates this store. Keep one month of
+        # searchable logs within the 40Gi PVC; the disk cap remains a safety net.
+        retentionPeriod: "30d"
         # Keep headroom when ingestion exceeds the time-based retention estimate.
         # VictoriaLogs drops the oldest daily partitions above this threshold;
-        # the 90-day limit still applies independently.
+        # the 30-day limit still applies independently.
         extraArgs:
           retention.maxDiskUsagePercent: "80"
         resources:
