@@ -64,7 +64,9 @@ def cases():
         else:
             c["securityContext"] = {"readOnlyRootFilesystem": False}
         add(policy, "noncompliant", bad, "fail", action=action)
-        for namespace in SYSTEM_NAMESPACES:
+        excluded = SYSTEM_NAMESPACES + (("trivy-system", "real-estate-screener")
+                                        if policy == "require-readonly-rootfs" else ())
+        for namespace in excluded:
             bad["metadata"]["namespace"] = namespace
             add(policy, f"excluded namespace {namespace}", bad, "skip", action=action)
         bad["metadata"]["namespace"] = "default"
@@ -73,6 +75,18 @@ def cases():
             init = pod()
             init["spec"]["initContainers"] = [c]
             add(policy, "noncompliant init image/container", init, "fail", action=action)
+
+    for namespace in ("trivy-system", "real-estate-screener"):
+        good = pod()
+        good["metadata"]["namespace"] = namespace
+        add("require-readonly-rootfs-initial-namespaces", f"{namespace} compliant", good,
+            "pass", action="Deny")
+        bad = deepcopy(good)
+        bad["spec"]["containers"][0]["securityContext"]["readOnlyRootFilesystem"] = False
+        add("require-readonly-rootfs-initial-namespaces", f"{namespace} writable", bad,
+            "fail", action="Deny")
+    add("require-readonly-rootfs-initial-namespaces", "other namespace remains audited",
+        pod(), "skip", action="Deny")
 
     for image, expected in (("nginx", "fail"), ("registry.example:5000/nginx", "fail"),
                             ("registry.example:5000/nginx:1", "pass"),

@@ -8,13 +8,22 @@ admission controller's HelmRelease. It requires Python with PyYAML and network
 access to the official release download; no kubeconfig or secrets are needed.
 Set `KYVERNO_CLI` to a local matching CLI binary to avoid downloading it again.
 
-The 133 fixtures in `scripts/ci/kyverno_policy_cases.py` cover the ten validation
+The fixtures in `scripts/ci/kyverno_policy_cases.py` cover validation
 and mutation policies: compliant and noncompliant resources, regular and init
 containers, namespace exclusions, recovery identities, CREATE/UPDATE/DELETE,
 Workflow arguments and preservation of explicit revision-history limits. Audit
 policy failures are checked as failures, while their Audit action is preserved.
 Add both pass and fail fixtures for a new ValidatingPolicy; CI rejects missing
 coverage. Compare the whole mutated object when adding mutation cases.
+
+`require-readonly-rootfs` remains in Audit for namespaces still carrying
+violations. `require-readonly-rootfs-initial-namespaces` denies writable-root
+pods in `trivy-system` and `real-estate-screener`; these were selected after
+checking all live pods, Deployments, StatefulSets, DaemonSets and CronJobs for
+the setting. Before adding another namespace, check both its current policy
+reports and every workload template, then add admission pass/fail fixtures for
+it. A failing rollout can be reverted by removing that namespace from the
+enforcement selector and returning it to the Audit selector in the same PR.
 
 When upgrading Kyverno, record the Linux and Windows x86_64 archive SHA256 sums
 from the official release's `checksums.txt` in

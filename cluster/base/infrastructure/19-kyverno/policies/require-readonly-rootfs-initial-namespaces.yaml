@@ -1,0 +1,36 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-readonly-rootfs-initial-namespaces
+  annotations:
+    policies.kyverno.io/title: Enforce Read-Only Root Filesystem in Compliant Namespaces
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      First enforcement phase for namespaces whose live pods and workload
+      templates already satisfy the audited read-only-root-filesystem rule.
+spec:
+  validationActions:
+    - Deny
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - trivy-system
+            - real-estate-screener
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  validations:
+    - message: 'Containers should set securityContext.readOnlyRootFilesystem: true.'
+      expression: >-
+        object.spec.containers.all(c, has(c.securityContext) &&
+        has(c.securityContext.readOnlyRootFilesystem) &&
+        c.securityContext.readOnlyRootFilesystem)

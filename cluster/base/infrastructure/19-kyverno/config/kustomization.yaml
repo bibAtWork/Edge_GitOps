@@ -5,6 +5,7 @@ resources:
   - ../policies/require-resource-limits.yaml
   - ../policies/disallow-latest-tag.yaml
   - ../policies/require-readonly-rootfs.yaml
+  - ../policies/require-readonly-rootfs-initial-namespaces.yaml
   - ../policies/restrict-hostpath-volumes.yaml
   - ../policies/require-probes.yaml
   - ../policies/set-revision-history-limit.yaml

@@ -24,6 +24,9 @@ spec:
         - kube-system
         - flux-system
         - kyverno
+        # Enforced by require-readonly-rootfs-initial-namespaces.
+        - trivy-system
+        - real-estate-screener
     resourceRules:
     - apiGroups:
       - ''
