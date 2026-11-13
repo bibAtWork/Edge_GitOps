@@ -18,6 +18,7 @@ MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
 QUOTA_DELAY = 5 * 60 * 60
 RUN_DEADLINE = 45 * 60
+MAX_RETRY_PACKET_AGE = 2 * 60 * 60
 INCIDENT_PATTERN = re.compile(r"screener-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\Z")
 
 
@@ -108,6 +109,14 @@ def start(record):
 def resume(record):
     if record["attempts"] >= MAX_ATTEMPTS:
         record.update({"state": "needs_review", "reason": "retry_limit"})
+        return
+    try:
+        validate_packet(record["packet_path"], record["incident_id"],
+                        max_age_seconds=MAX_RETRY_PACKET_AGE)
+    except (OSError, ValueError, KeyError):
+        # Never replay a long quota wait against hours-old cluster evidence.
+        # A persistent symptom will be observed by the gate as a new incident.
+        record.update({"state": "needs_review", "reason": "stale_incident"})
         return
     log_path = QUEUE / f"{record['incident_id']}.resume.log"
     with log_path.open("a", encoding="utf-8") as log:

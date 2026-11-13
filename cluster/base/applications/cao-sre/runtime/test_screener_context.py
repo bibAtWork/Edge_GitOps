@@ -123,6 +123,18 @@ class ScreenerSignalTests(unittest.TestCase):
         self.assertEqual(record["state"], "waiting")
         self.assertEqual(record["next_retry_at"], 100 + 5 * 60 * 60)
 
+    def test_stale_quota_retry_is_quarantined_without_starting_agent(self):
+        record = {"state": "waiting", "run_id": "crew-test", "attempts": 1,
+                  "incident_id": "screener-20261031T185000Z-aabbccdd",
+                  "packet_path": "/home/cao/incidents/old.json", "next_retry_at": 100}
+        with patch("crew_controller.time.time", return_value=101), patch(
+            "crew_controller.validate_packet", side_effect=ValueError("Packet is stale")
+        ), patch("crew_controller.subprocess.Popen") as spawned:
+            reconcile(record)
+        self.assertEqual((record["state"], record["reason"]),
+                         ("needs_review", "stale_incident"))
+        spawned.assert_not_called()
+
     def test_pr_gate_rejects_healthy_rca(self):
         handoff = {"schema_version": 1, "stage": "rca",
                    "incident_id": "manual-20261028T210907Z-aafeb5",
