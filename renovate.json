@@ -228,6 +228,13 @@
   ],
   "packageRules": [
     {
+      "description": "The cao-sre runtime uses a supported Node LTS base. Keep the allowed major lines explicit so Renovate cannot propose Current, Alpha, or EOL images; review this list when Node 28 reaches LTS.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node", "docker.io/library/node"],
+      "matchFileNames": ["cluster/base/applications/cao-sre/Dockerfile"],
+      "allowedVersions": "/^(?:22|24|26)-bookworm-slim$/"
+    },
+    {
       "description": "Deploy first-party bibatwork GHCR images without the 48-hour release-age delay; upstream dependencies retain the global wait.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["/^ghcr\\.io\\/bibatwork\\//"],
