@@ -338,6 +338,16 @@ def critical_file_patterns() -> List[re.Pattern[str]]:
     return [re.compile(pattern[1:-1]) for pattern in rule["matchFileNames"]]
 
 
+def major_only_file_patterns() -> List[re.Pattern[str]]:
+    """Keep the application major-only scope aligned with Renovate."""
+    config = json.loads((REPO_ROOT / "renovate.json").read_text(encoding="utf-8"))
+    rule = next((r for r in config["packageRules"] if r.get("description", "").startswith(
+        "Major-only Immich and Paperless manifests:")), None)
+    if rule is None:
+        raise ValueError("major-only application Renovate rule is missing")
+    return [re.compile(pattern[1:-1]) for pattern in rule["matchFileNames"]]
+
+
 def version_fields(docs: List[Any], keys: set[str]) -> Dict[str, str]:
     """Read release versions from rendered-source YAML, including chart-only bumps."""
     found: Dict[str, str] = {}
@@ -374,12 +384,27 @@ def patch_version(raw: Optional[str], path: str) -> Optional[Tuple[int, int, int
     return (*version, "") if version else None
 
 
+def vectorchord_version(raw: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
+    """Parse <Postgres major>-<VectorChord semver> without conflating majors."""
+    if not raw:
+        return None
+    repo, tag = split_ref(raw.split("@", 1)[0])
+    if not repo.endswith("tensorchord/cloudnative-vectorchord"):
+        return None
+    match = re.fullmatch(r"(\d+)-(\d+)\.(\d+)\.(\d+)", tag)
+    return tuple(map(int, match.groups())) if match else None
+
+
 def critical_version_changes(file: str, base_docs: List[Any],
                              head_docs: List[Any],
-                             patterns: List[re.Pattern[str]]) -> List[Dict[str, str]]:
-    """Block non-patch changes independently of Renovate's label arrival order."""
+                             patterns: List[re.Pattern[str]],
+                             major_patterns: Optional[List[re.Pattern[str]]] = None) -> List[Dict[str, str]]:
+    """Enforce patch-only or major-only review before Renovate labels arrive."""
     tools_file = file == "bootstrap/ansible/group_vars/all.yml"
-    if not tools_file and not any(pattern.search(file) for pattern in patterns):
+    patch_only = tools_file or any(pattern.search(file) for pattern in patterns)
+    major_patterns = major_patterns if major_patterns is not None else major_only_file_patterns()
+    major_only = any(pattern.search(file) for pattern in major_patterns)
+    if not patch_only and not major_only:
         return []
     keys = ({"talosctl_version", "kubectl_version", "flux_version", "helm_version"}
             if tools_file else {"version", "tag", "image", "imageName"})
@@ -390,9 +415,15 @@ def critical_version_changes(file: str, base_docs: List[Any],
         old, new = previous.get(path), proposed.get(path)
         if old == new:
             continue
+        old_vector, new_vector = vectorchord_version(old), vectorchord_version(new)
+        if (major_only and not patch_only and old_vector and new_vector
+                and old_vector[:2] == new_vector[:2] and new_vector >= old_vector):
+            continue
         before, after = patch_version(old, path), patch_version(new, path)
-        if (before and after and before[:2] == after[:2]
-                and before[3] == after[3] and after > before):
+        if (before and after and before[3] == after[3]
+                and ((patch_only and before[:2] == after[:2] and after > before)
+                     or (major_only and not patch_only and before[0] == after[0]
+                         and after >= before))):
             continue
         changes.append({"file": file, "path": path,
                         "old": old or "(absent)", "new": new or "(absent)"})
@@ -510,7 +541,7 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
     for change in result.get("critical_changes", []):
         verdict["blockers"].append(
             f"critical component {change['file']}:{change['path']} changes "
-            f"{change['old']} -> {change['new']} outside a patch release")
+            f"{change['old']} -> {change['new']} requires review under the version policy")
 
     # ADR-009: a chart bump that moves appVersion past a static pin turns that
     # pin into a downgrade. It produces no image diff, so without this it is
@@ -556,7 +587,12 @@ def evaluate(result: Dict[str, Any], trivy: str, crane: str,
     for pair in deduped.values():
         old, new = pair["old"], pair["new"]
         ov, nv = semver(split_ref(old)[1]), semver(split_ref(new)[1])
+        old_vector, new_vector = vectorchord_version(old), vectorchord_version(new)
+        if old_vector and new_vector:
+            ov, nv = old_vector, new_vector
         is_minor = bool(ov and nv and ov[0] == nv[0])
+        if old_vector and new_vector:
+            is_minor = bool(old_vector[:2] == new_vector[:2])
         old_cvss = scan_image(old, trivy)
         new_cvss = scan_image(new, trivy)
         row = {**pair, "is_minor": is_minor, "old_cvss": old_cvss, "new_cvss": new_cvss}
@@ -675,6 +711,7 @@ def main() -> int:
                               "critical_changes": []}
 
     critical_patterns = critical_file_patterns()
+    major_patterns = major_only_file_patterns()
 
     repos_head = helm_repositories(args.head)
     repos_base = helm_repositories(args.base)
@@ -683,7 +720,8 @@ def main() -> int:
         base_docs = load_docs(git_show(args.base, f))
         head_docs = load_docs(git_show(args.head, f))
         result["critical_changes"].extend(
-            critical_version_changes(f, base_docs, head_docs, critical_patterns))
+            critical_version_changes(f, base_docs, head_docs,
+                                     critical_patterns, major_patterns))
 
         # ── static ──
         # Paths are qualified by document identity. Without that, two CronJobs
