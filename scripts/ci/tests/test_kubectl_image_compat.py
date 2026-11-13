@@ -24,6 +24,14 @@ class KubectlImageCompatibility(unittest.TestCase):
             guard.bundled_versions(output.replace('"gitVersion":"v1.36.4"',
                                                   '"gitVersion":"v1.35.8"'))
 
+        # Rancher v9 names bundled binaries by minor, while earlier images
+        # included the patch in the path. Both must report a matching client.
+        minor_path = output.replace("kubectl1.36.4", "kubectl1.36")
+        self.assertEqual(guard.bundled_versions(minor_path), {"v1.36.4"})
+        with self.assertRaisesRegex(ValueError, "disagree"):
+            guard.bundled_versions(minor_path.replace('"gitVersion":"v1.36.4"',
+                                                      '"gitVersion":"v1.35.8"'))
+
     def test_live_gate_images_track_controller_job_image(self):
         # configured_image checks every gate against the controller setting.
         # Do not pin a version here: Renovate updates all of these together.
