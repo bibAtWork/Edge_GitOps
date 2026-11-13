@@ -24,7 +24,7 @@ GATES = (
 WATCHED = ("cluster/base/infrastructure/15-system-upgrade-controller/",
            ".github/workflows/gitops-lint.yml", "scripts/ci/kubectl_image_compat.py")
 VERSION = re.compile(r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
-BINARY = re.compile(r"^/usr/bin/kubectl(?P<version>1\.\d+\.\d+)$")
+BINARY = re.compile(r"^/usr/bin/kubectl(?P<minor_version>1\.\d+)(?:\.(?P<patch>\d+))?$")
 
 
 def minor(version):
@@ -75,7 +75,10 @@ def bundled_versions(output):
         lines = record.splitlines()
         binary = BINARY.fullmatch(lines[0].strip()) if lines else None
         reported = re.search(r'"gitVersion"\s*:\s*"(v\d+\.\d+\.\d+)"', record)
-        if not binary or not reported or reported.group(1) != "v" + binary.group("version"):
+        if (not binary or not reported
+                or not reported.group(1).startswith("v" + binary.group("minor_version") + ".")
+                or (binary.group("patch") is not None
+                    and reported.group(1) != "v" + binary.group("minor_version") + "." + binary.group("patch"))):
             raise ValueError(f"bundled kubectl path and reported version disagree: {record[:120]!r}")
         result.add(reported.group(1))
     if not result:
