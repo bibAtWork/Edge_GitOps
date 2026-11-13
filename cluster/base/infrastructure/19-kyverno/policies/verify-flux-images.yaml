@@ -58,10 +58,11 @@ spec:
       cosign:
         keyless:
           identities:
+            # Kyverno 1.19 accepts a list in the CRD but its verifier rejects
+            # multiple identities. One anchored identity regexp accepts only
+            # the two release workflow tags verified by CI.
             - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.11.0
-            - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.17.0
+              subjectRegExp: '^https://github\.com/fluxcd/gha-workflows/\.github/workflows/controller-release\.yaml@refs/tags/v0\.(11|17)\.0$'
         ctlog:
           url: https://rekor.sigstore.dev
   validationConfigurations:
