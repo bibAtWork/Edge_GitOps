@@ -8,6 +8,7 @@ from cao_workflow import emit_output, get_inputs, step
 
 sys.path.insert(0, "/config")
 from screener_context import validate_handoff, validate_packet
+from feedback import record_candidate
 
 INPUTS = {
     "incident_id": {"type": "string", "required": True},
@@ -77,5 +78,6 @@ except (OSError, ValueError) as exc:
         timeout=1800,
     )
     checked_handoff(rca_path, incident_id, "rca")
+record_candidate(packet_path, rca_path, incident_id)
 emit_output({"incident_id": incident_id, "triage_handoff": str(triage_path),
              "rca_handoff": str(rca_path), "pr_stage": "requires_operator"})

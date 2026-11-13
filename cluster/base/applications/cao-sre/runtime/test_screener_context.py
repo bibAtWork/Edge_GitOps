@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from crew_controller import failure_kind, reconcile
 from gate import decision
+from feedback import observe_recovery, prior_lessons, record_candidate
 from pr_gate import validate as validate_pr_candidate
 from screener_context import (NAMESPACE, REQUIRED_OBSERVATIONS, detect_signals,
                               now, redact, validate_handoff, validate_packet)
@@ -134,6 +135,31 @@ class ScreenerSignalTests(unittest.TestCase):
         self.assertEqual((record["state"], record["reason"]),
                          ("needs_review", "stale_incident"))
         spawned.assert_not_called()
+
+    def test_lesson_reuse_requires_confirmed_cause_and_two_healthy_observations(self):
+        incident = "screener-20261031T185000Z-aabbccdd"
+        packet = {"observed_at": "2026-10-31T18:50:00Z", "signal": {"key": "database-unready"}}
+        handoff = {"schema_version": 1, "incident_id": incident, "stage": "rca",
+                   "summary": "Database was unavailable", "hypotheses": [
+                       {"cause": "database restart", "evidence": "One ready replica returned later"}],
+                   "recommended_checks": ["Check CNPG readiness"], "root_cause_confirmed": True,
+                   "scope": "application"}
+        with patch("feedback.LESSONS") as lessons, patch("feedback.save") as saved, patch(
+            "feedback.validate_packet", return_value=packet
+        ), patch("feedback.validate_handoff", return_value=handoff):
+            path = lessons.__truediv__.return_value
+            path.exists.return_value = False
+            record_candidate("packet", "handoff", incident)
+            state = saved.call_args.args[1]
+            lessons.glob.return_value = [path]
+            path.read_text.side_effect = lambda **_: json.dumps(state)
+            saved.side_effect = lambda _path, document: state.update(document)
+            self.assertEqual(prior_lessons("database-unready"), [])
+            observe_recovery({"database-unready"})
+            observe_recovery(set())
+            self.assertEqual(prior_lessons("database-unready"), [])
+            observe_recovery(set())
+            self.assertEqual(prior_lessons("database-unready")[0]["cause"], "database restart")
 
     def test_pr_gate_rejects_healthy_rca(self):
         handoff = {"schema_version": 1, "stage": "rca",

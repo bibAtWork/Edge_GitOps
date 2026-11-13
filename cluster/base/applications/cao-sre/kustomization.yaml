@@ -20,6 +20,7 @@ configMapGenerator:
       - codex-overlay.yaml=profiles/overlays/codex.yaml
       - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
+      - feedback.py=runtime/feedback.py
       - metrics.py=runtime/metrics.py
       - crew_controller.py=runtime/crew_controller.py
       - screener_crew.py=runtime/screener_crew.py

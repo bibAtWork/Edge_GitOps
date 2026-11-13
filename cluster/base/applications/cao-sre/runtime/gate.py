@@ -10,6 +10,7 @@ from pathlib import Path
 
 from screener_context import collect, detect_signals, write_packet
 from crew_controller import enqueue
+from feedback import observe_recovery, prior_lessons
 
 STATE = Path(os.environ.get("CAO_GATE_STATE", "/home/cao/monitor-state.json"))
 STATUS = Path(os.environ.get("CAO_GATE_STATUS", "/home/cao/gate-status.json"))
@@ -47,12 +48,14 @@ def main():
     try:
         snapshot = collect()
         signals = detect_signals(snapshot)
+        observe_recovery({signal["key"] for signal in signals})
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
         selected, state = decision(signals, state, timestamp)
         if selected:
             digest = hashlib.sha256(selected["key"].encode()).hexdigest()[:8]
             incident_id = f"screener-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(timestamp))}-{digest}"
-            path = write_packet(snapshot, incident_id, selected)
+            path = write_packet(snapshot, incident_id, selected,
+                                prior=prior_lessons(selected["key"]))
             enqueue(incident_id, path)
         save_state(state)
         status["last_success"] = timestamp
