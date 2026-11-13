@@ -102,6 +102,16 @@ spec:
           memory: 256Mi
 
     reportsController:
+      # Background scans already persist findings in PolicyReports. Re-emitting
+      # every known violation as a Warning Event on each scan generates hundreds
+      # of repetitive API writes per minute. Keep PolicyError events; admission
+      # controller events for new violations are unchanged.
+      featuresOverride:
+        omitEvents:
+          eventTypes:
+            - PolicyApplied
+            - PolicySkipped
+            - PolicyViolation
       image:
         registry: reg.kyverno.io
         repository: kyverno/reports-controller
