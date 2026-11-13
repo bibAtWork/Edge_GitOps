@@ -12,6 +12,7 @@ from screener_context import collect, detect_signals, write_packet
 from crew_controller import enqueue
 
 STATE = Path(os.environ.get("CAO_GATE_STATE", "/home/cao/monitor-state.json"))
+STATUS = Path(os.environ.get("CAO_GATE_STATUS", "/home/cao/gate-status.json"))
 COOLDOWN_SECONDS = 60 * 60
 
 
@@ -37,11 +38,16 @@ def save_state(state):
 
 
 def main():
+    timestamp = int(time.time())
+    try:
+        status = json.loads(STATUS.read_text(encoding="utf-8")) if STATUS.exists() else {}
+    except (OSError, ValueError):
+        status = {}
+    status["last_attempt"] = timestamp
     try:
         snapshot = collect()
         signals = detect_signals(snapshot)
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
-        timestamp = int(time.time())
         selected, state = decision(signals, state, timestamp)
         if selected:
             digest = hashlib.sha256(selected["key"].encode()).hexdigest()[:8]
@@ -49,10 +55,16 @@ def main():
             path = write_packet(snapshot, incident_id, selected)
             enqueue(incident_id, path)
         save_state(state)
+        status["last_success"] = timestamp
         result = {"execute": False, "output": {}}
     except Exception as exc:
         print(f"gate observation failed: {exc}", file=sys.stderr)
         result = {"execute": False, "output": {}}
+    finally:
+        STATUS.parent.mkdir(parents=True, exist_ok=True)
+        temporary = STATUS.with_suffix(".tmp")
+        temporary.write_text(json.dumps(status), encoding="utf-8")
+        os.replace(temporary, STATUS)
     print(json.dumps(result))
 
 
