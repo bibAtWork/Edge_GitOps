@@ -1,7 +1,6 @@
 ---
 name: screener-triage
 description: Read-only incident triage for real-estate-screener
-role: sre_triage
 allowedTools:
   - fs_read
   - fs_list

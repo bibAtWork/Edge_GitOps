@@ -1,7 +1,6 @@
 ---
 name: screener-rca
 description: Read-only root cause analysis from a validated triage handoff
-role: sre_rca
 allowedTools:
   - fs_read
   - fs_list
