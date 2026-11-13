@@ -3,11 +3,12 @@
 import datetime as dt
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from crew_controller import failure_kind, reconcile
 from gate import decision
 from feedback import observe_recovery, prior_lessons, record_candidate
+from metrics import snapshot as metrics_snapshot
 from pr_gate import validate as validate_pr_candidate
 from screener_context import (NAMESPACE, REQUIRED_OBSERVATIONS, detect_signals,
                               now, redact, validate_handoff, validate_packet)
@@ -160,6 +161,16 @@ class ScreenerSignalTests(unittest.TestCase):
             self.assertEqual(prior_lessons("database-unready"), [])
             observe_recovery(set())
             self.assertEqual(prior_lessons("database-unready")[0]["cause"], "database restart")
+
+    def test_metrics_do_not_expose_incident_ids(self):
+        with patch("metrics.QUEUE") as queue, patch("metrics.GATE_STATUS") as gate_status:
+            record = queue.glob.return_value = [MagicMock()]
+            record[0].read_text.return_value = json.dumps(
+                {"state": "needs_review", "incident_id": "private-incident"})
+            gate_status.read_text.side_effect = OSError("absent")
+            text = metrics_snapshot()
+            self.assertIn('cao_sre_crew_records{state="needs_review"} 1', text)
+            self.assertNotIn("private-incident", text)
 
     def test_pr_gate_rejects_healthy_rca(self):
         handoff = {"schema_version": 1, "stage": "rca",
