@@ -429,7 +429,7 @@ spec:
           - name: files
           - name: bytes
       container:
-        image: docker.io/rclone/rclone:1.75.2
+        image: docker.io/rclone/rclone:1.76.0
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -495,7 +495,7 @@ spec:
             valueFrom:
               path: /tmp/record.json
       container:
-        image: docker.io/rclone/rclone:1.75.2
+        image: docker.io/rclone/rclone:1.76.0
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -695,7 +695,7 @@ spec:
           duration: 30s
           factor: "2"
       container:
-        image: docker.io/rclone/rclone:1.75.2
+        image: docker.io/rclone/rclone:1.76.0
         command: ["/bin/sh", "-c"]
         args:
           - |

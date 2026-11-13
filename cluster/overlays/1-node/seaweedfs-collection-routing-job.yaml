@@ -42,7 +42,7 @@ spec:
       initContainers:
         # Wait until the base bucket-init job has created all buckets.
         - name: wait-for-buckets
-          image: amazon/aws-cli:2.38.6
+          image: amazon/aws-cli:2.40.0
           env:
             - name: AWS_DEFAULT_REGION
               value: us-east-1
@@ -74,7 +74,7 @@ spec:
               drop: [ALL]
       containers:
         - name: configure-collections
-          image: chrislusf/seaweedfs:4.48
+          image: chrislusf/seaweedfs:4.53
           command:
             - /bin/sh
             - -c

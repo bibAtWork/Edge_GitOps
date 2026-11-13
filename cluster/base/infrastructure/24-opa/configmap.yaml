@@ -75,8 +75,9 @@ data:
     # To add an admin, append their Keycloak email to this set.
     admin_emails := {"admin@homelab.internal"}
 
-    # Apps that require an admin JWT even for browser (non-Bearer) access.
-    # These have no native OIDC integration, so OPA is the only auth layer.
+    # Apps that require an operator/admin JWT even for browser access.
+    # The screener has a narrow viewer exception below; its write API also
+    # verifies the forwarded Keycloak JWT and checks each resource in PostgreSQL.
     admin_only_apps := {
         "sre-agent.homelab.data-harness.org",
         "cao-sre.homelab.data-harness.org",
@@ -105,6 +106,17 @@ data:
     # requests it, so jwt_payload.groups is reliably present here. Viewer is
     # deliberately excluded because Hubble exposes live cluster internals.
     admin_only_apps_allowed_groups := {"platform-admin", "app-operator"}
+
+    # The screener verifies the forwarded Keycloak access token itself for
+    # personal favorites and sharing. Allow the existing reader tier to use
+    # it without granting that tier access to other admin-only applications.
+    viewer_allowed_apps := {"screener.homelab.data-harness.org"}
+
+    is_viewer_on_allowed_app if {
+        req_http.host in viewer_allowed_apps
+        some g in jwt_payload.groups
+        g == "viewer"
+    }
 
     has_operator_or_above if {
         some g in jwt_payload.groups
@@ -166,6 +178,7 @@ data:
         req_http.host in admin_only_apps
         not is_admin
         not has_operator_or_above
+        not is_viewer_on_allowed_app
     } else := {
         "allowed": true,
         "headers": identity_headers,

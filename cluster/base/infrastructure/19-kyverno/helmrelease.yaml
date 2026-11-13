@@ -25,6 +25,15 @@ spec:
       remediateLastFailure: true
     cleanupOnFail: true
   values:
+    # Kyverno's TTL permission checker probes every discoverable resource each
+    # reconciliation, even without TTL labels. At 1m this controller generated
+    # 384,480 successful SelfSubjectAccessReviews in 24h (2026-11-12).
+    # A 15m TTL resolution is sufficient here; scheduled DeletingPolicies run
+    # on their own cron schedule and are not delayed by this setting.
+    features:
+      ttlController:
+        reconciliationInterval: 15m
+
     # Images pinned per ADR-009, at the versions already running. These move
     # as one group -- they are a single product release, and bumping one
     # alone would put mismatched components in the same deployment.
@@ -93,6 +102,16 @@ spec:
           memory: 256Mi
 
     reportsController:
+      # Background scans already persist findings in PolicyReports. Re-emitting
+      # every known violation as a Warning Event on each scan generates hundreds
+      # of repetitive API writes per minute. Keep PolicyError events; admission
+      # controller events for new violations are unchanged.
+      featuresOverride:
+        omitEvents:
+          eventTypes:
+            - PolicyApplied
+            - PolicySkipped
+            - PolicyViolation
       image:
         registry: reg.kyverno.io
         repository: kyverno/reports-controller

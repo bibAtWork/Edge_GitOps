@@ -58,7 +58,7 @@ spec:
       image:
         registry: quay.io
         repository: kiwigrid/k8s-sidecar
-        tag: 2.14.1
+        tag: 2.14.3
       resources:
         requests:
           cpu: 10m
@@ -9184,4 +9184,4 @@ spec:
       # chart update.
       registry: docker.io
       repository: grafana/grafana
-      tag: 13.2.5
+      tag: 13.3.1

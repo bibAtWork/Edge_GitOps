@@ -94,6 +94,25 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
+  name: screener-keycloak-jwks-egress
+  namespace: real-estate-screener
+spec:
+  endpointSelector:
+    matchLabels:
+      app: screener-web
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: keycloak
+        app: keycloak
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
   name: screener-lakehouse-bi-export
   namespace: real-estate-screener
 spec:

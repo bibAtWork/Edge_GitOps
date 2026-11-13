@@ -3,43 +3,63 @@
   "detailRefreshHours": 24,
   "detailDelayMs": 2500,
   "maxDetailsPerRun": 20,
+  "purposes": [
+    { "id": "eigenheim", "name": "Eigenheim" },
+    { "id": "investment-heilbronn", "name": "Investment (Heilbronn)" }
+  ],
   "searches": [
     {
+      "id": "eigenheim-immoscout",
+      "purposeId": "eigenheim",
       "name": "Eigenheim (Haus) - ImmoScout24",
       "provider": "immoscout",
       "url": "https://www.immobilienscout24.de/Suche/radius/haus-kaufen?centerofsearchaddress=B%C3%B6blingen%20(Kreis);;;;;Waldenbuch;&numberofrooms=4.0-&price=50000.0&livingspace=90.0-&constructionyear=1800-&exclusioncriteria=unbuilthome&ground=300.0-&geocoordinates=48.63836;9.13957;30.0&sorting=2&enteredFrom=result_list"
     },
     {
+      "id": "eigenheim-immowelt",
+      "purposeId": "eigenheim",
       "name": "Eigenheim (Haus) - Immowelt public page",
       "provider": "immowelt",
       "url": "https://www.immowelt.de/suche/kaufen/haus/baden-wurttemberg/waldenbuch-71111/ad08de5267/?priceMin=50000&spaceMin=90&plotSpaceMin=300&numberOfRoomsMin=3"
     },
     {
+      "id": "eigenheim-sparkasse",
+      "purposeId": "eigenheim",
       "name": "Eigenheim (Haus) - Sparkasse",
       "provider": "sparkasse",
       "url": "https://immobilien.sparkasse.de/api/immobilien-api/estates?regionalSearch=Waldenbuch&estateTypeGroupingIds=396&offerType=2&minPrice=50000&maxPrice=900000&minSpace=90&minRooms=3&pageSize=50&sort=3"
     },
     {
+      "id": "eigenheim-kleinanzeigen",
+      "purposeId": "eigenheim",
       "name": "Eigenheim (Haus) - Kleinanzeigen",
       "provider": "kleinanzeigen",
       "url": "https://www.kleinanzeigen.de/s-haus-kaufen/waldenbuch/preis:50000/c208l10526r30+haus_kaufen.baujahr_i:1800%2C+haus_kaufen.grundstuecksflaeche_d:300%2C+haus_kaufen.qm_d:90%2C"
     },
     {
+      "id": "investment-heilbronn-immoscout",
+      "purposeId": "investment-heilbronn",
       "name": "Investment (Heilbronn) - ImmoScout24",
       "provider": "immoscout",
       "url": "https://www.immobilienscout24.de/Suche/radius/immobilie-kaufen?centerofsearchaddress=Heilbronn%3B74078%3B%3B%3B%3B%3B&price=50000.0-900000.0&livingspace=150.0-&constructionyear=1800-&geocoordinates=49.17511%3B9.16162%3B25.0"
     },
     {
+      "id": "investment-heilbronn-immowelt",
+      "purposeId": "investment-heilbronn",
       "name": "Investment (Heilbronn) - Immowelt public page",
       "provider": "immowelt",
       "url": "https://www.immowelt.de/suche/kaufen/haus/mehrfamilienhaus/baden-wurttemberg/heilbronn-74072/ad08de5420/?priceMin=50000&priceMax=900000&spaceMin=150"
     },
     {
+      "id": "investment-heilbronn-sparkasse",
+      "purposeId": "investment-heilbronn",
       "name": "Investment (Heilbronn) - Sparkasse",
       "provider": "sparkasse",
       "url": "https://immobilien.sparkasse.de/api/immobilien-api/estates?regionalSearch=Heilbronn&estateTypeGroupingIds=396&estateSubTypeIds=67,68&offerType=2&minPrice=50000&maxPrice=900000&minSpace=150&pageSize=50&sort=3"
     },
     {
+      "id": "investment-heilbronn-kleinanzeigen",
+      "purposeId": "investment-heilbronn",
       "name": "Investment (Heilbronn) - Kleinanzeigen",
       "provider": "kleinanzeigen",
       "url": "https://www.kleinanzeigen.de/s-haus-kaufen/74078/preis:50000:900000/c208l9239r20+haus_kaufen.baujahr_i:1800%2C+haus_kaufen.qm_d:150%2C"
