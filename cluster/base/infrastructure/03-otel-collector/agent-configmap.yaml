@@ -77,8 +77,9 @@ data:
 
     processors:
       # The filter sees only parsed API audit records in logs/audit. Successful
-      # renewals and report reads are repetitive; failed calls, writes to
-      # reports, other principals, and all container logs remain visible.
+      # Lease reads and report reads are repetitive. Keep every Lease write:
+      # a successful update to an unexpected Lease must remain visible in
+      # VictoriaLogs, along with failures, report writes and container logs.
       filter/audit-routine:
         error_mode: ignore
         log_conditions:
@@ -88,7 +89,7 @@ data:
             log.attributes["responseStatus"]["code"] == 200 and
             log.attributes["objectRef"]["apiGroup"] == "coordination.k8s.io" and
             log.attributes["objectRef"]["resource"] == "leases" and
-            (log.attributes["verb"] == "get" or log.attributes["verb"] == "update") and
+            log.attributes["verb"] == "get" and
             (
               IsMatch(log.attributes["user"]["username"], "^system:serviceaccount:kyverno:kyverno-(admission|background|cleanup|reports)-controller$") or
               IsMatch(log.attributes["user"]["username"], "^system:serviceaccount:longhorn-system:longhorn-(csi-)?service-account$")
