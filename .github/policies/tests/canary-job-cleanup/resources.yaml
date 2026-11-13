@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: old-failed-canary
+  namespace: platform-canary
+  creationTimestamp: "2020-01-01T00:00:00Z"
+  ownerReferences:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: platform-canary-synthetic
+      uid: 11111111-1111-1111-1111-111111111111
+status:
+  conditions:
+    - type: Failed
+      status: "True"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: old-complete-canary
+  namespace: platform-canary
+  creationTimestamp: "2020-01-01T00:00:00Z"
+  ownerReferences:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: platform-canary-synthetic
+      uid: 11111111-1111-1111-1111-111111111111
+status:
+  conditions:
+    - type: Complete
+      status: "True"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: future-failed-canary
+  namespace: platform-canary
+  creationTimestamp: "2099-01-01T00:00:00Z"
+  ownerReferences:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: platform-canary-synthetic
+      uid: 11111111-1111-1111-1111-111111111111
+status:
+  conditions:
+    - type: Failed
+      status: "True"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: old-failed-other
+  namespace: platform-canary
+  creationTimestamp: "2020-01-01T00:00:00Z"
+  ownerReferences:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: unrelated
+      uid: 22222222-2222-2222-2222-222222222222
+status:
+  conditions:
+    - type: Failed
+      status: "True"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: old-active-canary
+  namespace: platform-canary
+  creationTimestamp: "2020-01-01T00:00:00Z"
+  ownerReferences:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: platform-canary-synthetic
+      uid: 11111111-1111-1111-1111-111111111111
+status:
+  active: 1

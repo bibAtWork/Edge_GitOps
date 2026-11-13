@@ -81,6 +81,11 @@ machine:
     nodeIP:
       validSubnets:
         - 192.168.178.0/24
+    # Keep image cache bounded on each shared-filesystem node.
+    extraConfig:
+      imageGCHighThresholdPercent: 65
+      imageGCLowThresholdPercent: 55
+      imageMaximumGCAge: 168h
     # Bind-mounts the PARENT of the user volumes, not each volume. With rshared
     # propagation any number of /var/mnt/* user volumes are carried into the
     # kubelet container automatically, so adding a disk later needs no change
@@ -334,7 +339,7 @@ cluster:
               hostNetwork: true
               containers:
                 - name: cilium-install
-                  image: quay.io/cilium/cilium-cli:v0.20.2
+                  image: quay.io/cilium/cilium-cli:v0.20.3
                   env:
                     - name: KUBERNETES_SERVICE_HOST
                       valueFrom:

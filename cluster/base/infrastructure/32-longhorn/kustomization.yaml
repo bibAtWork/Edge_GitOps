@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - helmrelease.yaml
+  - snapshot-controller.yaml
   - storageclass.yaml
   # Longhorn's default backup target, kept empty: Longhorn backups ended at the
   # ADR-012 cutover. See the file for why it is not simply removed.

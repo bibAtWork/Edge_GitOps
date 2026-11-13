@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: reloader
-      version: 2.2.19
+      version: 2.2.20
       sourceRef:
         kind: HelmRepository
         name: stakater
@@ -29,7 +29,7 @@ spec:
     # appVersion, and Renovate can propose updates against it.
     image:
       repository: ghcr.io/stakater/reloader
-      tag: v1.4.23
+      tag: v1.4.24
     reloader:
       watchGlobally: true
       deployment:

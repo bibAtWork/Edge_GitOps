@@ -5,7 +5,8 @@
 # and signatures have been checked the same way.
 #
 # Flux signs through a reusable workflow. Admission trusts the exact reusable
-# workflow tag, GitHub Actions issuer, and official ghcr.io/fluxcd repositories.
+# workflow tags used by the current and next release, GitHub Actions issuer,
+# and official ghcr.io/fluxcd repositories.
 # Kyverno 1.19's CEL verifier does not enforce the certificate's caller-repo
 # extension, so CI additionally checks that claim and the release tag/ref for
 # every rendered image. If Flux changes the workflow tag, update this file only
@@ -57,8 +58,11 @@ spec:
       cosign:
         keyless:
           identities:
+            # Kyverno 1.19 accepts a list in the CRD but its verifier rejects
+            # multiple identities. One anchored identity regexp accepts only
+            # the two release workflow tags verified by CI.
             - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.11.0
+              subjectRegExp: '^https://github\.com/fluxcd/gha-workflows/\.github/workflows/controller-release\.yaml@refs/tags/v0\.(11|17)\.0$'
         ctlog:
           url: https://rekor.sigstore.dev
   validationConfigurations:

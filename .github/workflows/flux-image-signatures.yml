@@ -21,7 +21,7 @@ jobs:
 
       # Keep this version pinned. Updating the verifier is an explicit trust
       # change and should be reviewed with the policy it validates.
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: v3.1.4
 
@@ -30,7 +30,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          identity='https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.11.0'
+          # Accept only the two exact upstream signer versions used across the
+          # current and proposed Flux releases. The issuer, component repo,
+          # workflow trigger/name, and image tag remain independently pinned.
+          identity_regex='^https://github\.com/fluxcd/gha-workflows/\.github/workflows/controller-release\.yaml@refs/tags/v0\.(11|17)\.0$'
           expected_components=(
             helm-controller
             image-automation-controller
@@ -66,7 +69,7 @@ jobs:
 
             cosign verify \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              --certificate-identity "$identity" \
+              --certificate-identity-regexp "$identity_regex" \
               --certificate-github-workflow-trigger push \
               --certificate-github-workflow-name release \
               --certificate-github-workflow-repository "fluxcd/$component" \
