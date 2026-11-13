@@ -167,6 +167,13 @@
   ],
   "packageRules": [
     {
+      "description": "Screener workload image fields are transformed from the single Kustomize newTag pin; only the Kustomize manager should update that version.",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": ["ghcr.io/bibatwork/real-estate-screener"],
+      "matchFileNames": ["cluster/base/applications/real-estate-screener/*.yaml"],
+      "enabled": false
+    },
+    {
       "description": "Keep CloudNativePG on the PostgreSQL 16 series. A major version change there is a database upgrade with its own migration path, not an image bump, and must never arrive as an automated PR.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/cloudnative-pg/postgresql"],
