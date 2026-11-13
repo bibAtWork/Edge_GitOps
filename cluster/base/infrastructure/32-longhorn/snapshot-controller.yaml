@@ -37,6 +37,17 @@ spec:
     installCRDs: true
     # A Helm uninstall must not erase existing VolumeSnapshot objects.
     keepCRDs: true
+    # The controller and CRDs alone cannot create a Longhorn CSI snapshot.
+    # Use an in-cluster snapshot; off-cluster backups belong to the recovery
+    # system, not to a CSI VolumeSnapshotClass with type: bak.
+    volumeSnapshotClasses:
+      - name: longhorn-snapshot
+        annotations:
+          snapshot.storage.kubernetes.io/is-default-class: "true"
+        driver: driver.longhorn.io
+        deletionPolicy: Delete
+        parameters:
+          type: snap
     controller:
       replicaCount: 1
       revisionHistoryLimit: 3
