@@ -66,11 +66,13 @@ spec:
       containers:
         - name: cao
           image: ghcr.io/bibatwork/cao-sre@sha256:751f47abb4247bf57b681310b6fc4d6961c4d4c77a423ffebd2d9948639e845c
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           command: [/bin/sh, /config/entrypoint.sh]
           ports:
             - name: ui
               containerPort: 9889
+            - name: metrics
+              containerPort: 9890
           env:
             - name: OPENCODE_CONFIG
               value: /config/opencode.json
@@ -112,8 +114,6 @@ spec:
           volumeMounts:
             - name: state
               mountPath: /home/cao
-            - name: workflows
-              mountPath: /home/cao/.aws/cli-agent-orchestrator/workflows
             - name: tmp
               mountPath: /tmp
             - name: config
@@ -123,9 +123,6 @@ spec:
         - name: state
           persistentVolumeClaim:
             claimName: cao-sre-state
-        - name: workflows
-          emptyDir:
-            sizeLimit: 16Mi
         - name: tmp
           emptyDir:
             sizeLimit: 1Gi
@@ -139,6 +136,8 @@ kind: Service
 metadata:
   name: cao-sre
   namespace: cao-sre
+  labels:
+    app: cao-sre
 spec:
   selector:
     app: cao-sre
@@ -146,3 +145,6 @@ spec:
     - name: ui
       port: 9889
       targetPort: ui
+    - name: metrics
+      port: 9890
+      targetPort: metrics

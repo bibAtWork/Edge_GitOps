@@ -8,6 +8,7 @@ resources:
   - securitypolicy.yaml
   - oidc-secret-referencegrant.yaml
   - pr-worker.yaml
+  - monitoring.yaml
 configMapGenerator:
   - name: cao-sre-code
     namespace: cao-sre
@@ -19,6 +20,7 @@ configMapGenerator:
       - codex-overlay.yaml=profiles/overlays/codex.yaml
       - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
+      - metrics.py=runtime/metrics.py
       - crew_controller.py=runtime/crew_controller.py
       - screener_crew.py=runtime/screener_crew.py
       - screener_context.py=runtime/screener_context.py
