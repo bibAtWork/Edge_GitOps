@@ -21,3 +21,8 @@ configMapGenerator:
   files:
   - config/config.json
   - config/macro.config.json
+images:
+- name: ghcr.io/bibatwork/real-estate-screener
+  # One immutable image for web, collectors, all scheduled imports and their
+  # migration init containers. Renovate tracks this Kustomize newTag.
+  newTag: v1.29.13@sha256:63616b8fdee97af76d7f6124329d6b13365edd923b3ea3b04239257943506391

@@ -234,7 +234,12 @@ def covers(pin, dep, text, config):
     if dep["datasource"] == "pypi":
         values.add(str(dep.get("currentValue", "")).removeprefix("=="))
     name, tag, digest = image_parts(pin.value)
-    if pin.datasource == "docker" and pin.field.rsplit(".", 1)[-1] in ("image", "imageName"):
+    if pin.datasource == "docker" and pin.field.rsplit(".", 1)[-1] == "newTag" and "@" in pin.value:
+        # Kustomize accepts tag@digest in one newTag field. Renovate may expose
+        # those parts separately, while the source inventory preserves the literal.
+        new_tag, new_digest = pin.value.split("@", 1)
+        values_match = pin.value in values or (new_tag in values and new_digest in values)
+    elif pin.datasource == "docker" and pin.field.rsplit(".", 1)[-1] in ("image", "imageName"):
         values_match = bool(tag and tag in values or digest and digest in values)
     else:
         values_match = pin.value in values or pin.value.removeprefix("v") in values
@@ -271,6 +276,25 @@ def coverage_errors(pins, extracted, files, config, exceptions):
     by_key = {(p.file, p.field): p for p in pins}
     covered = {(p.file, p.field) for p in pins if any(
         covers(p, d, files[p.file], config) for d in extracted.get(p.file, []))}
+    # An untagged image in a Kustomize resource is not a deployed floating tag
+    # when its local kustomization transforms it to a tracked immutable newTag.
+    # Require both an explicit resource entry and a Renovate-covered transform.
+    for file, source in files.items():
+        if not file.endswith("/kustomization.yaml"):
+            continue
+        manifest = yaml.safe_load(source)
+        if not isinstance(manifest, dict):
+            continue
+        directory = Path(file).parent
+        resources = {str((directory / item).as_posix()) for item in manifest.get("resources", [])
+                     if isinstance(item, str)}
+        transformed = {entry.get("name") for index, entry in enumerate(manifest.get("images", []))
+                       if isinstance(entry, dict) and (file, f"images[{index}].newTag") in covered
+                       and entry.get("name") and "@sha256:" in str(entry.get("newTag", ""))}
+        for pin in pins:
+            if pin.file in resources and pin.name in transformed and not any(image_parts(pin.value)[1:]):
+                if pin.datasource == "docker" and pin.field.rsplit(".", 1)[-1] in ("image", "imageName"):
+                    covered.add((pin.file, pin.field))
     decisions = {}
     for entry in exceptions:
         key = (entry["file"], entry["field"])

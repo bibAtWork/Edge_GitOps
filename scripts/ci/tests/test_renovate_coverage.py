@@ -132,6 +132,30 @@ class RenovateCoverage(unittest.TestCase):
         self.dep.pop("currentValue")
         self.assertTrue(self.errors())
 
+    def test_kustomize_transform_covers_only_its_declared_untagged_resources(self):
+        image = "ghcr.io/example/app"
+        digest = "sha256:" + "a" * 64
+        directory = "cluster/base/applications/example/"
+        kustomization = directory + "kustomization.yaml"
+        workload = directory + "workload.yaml"
+        unlisted = directory + "unlisted.yaml"
+        files = {
+            kustomization: ("resources:\n- workload.yaml\nimages:\n- name: " + image
+                            + "\n  newTag: v1.2.3@" + digest + "\n"),
+            workload: "kind: Pod\nspec: {containers: [{image: " + image + "}]}\n",
+            unlisted: "kind: Pod\nspec: {containers: [{image: " + image + "}]}\n",
+        }
+        dep = {"manager": "kustomize", "datasource": "docker", "depName": image,
+               "currentValue": "v1.2.3", "currentDigest": digest}
+        pins = coverage.inventory(files)
+        errors = coverage.coverage_errors(pins, {kustomization: [dep]}, files, {}, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn(unlisted, errors[0])
+        files.pop(unlisted)
+        pins = coverage.inventory(files)
+        self.assertEqual(coverage.coverage_errors(pins, {kustomization: [dep]}, files, {}, []), [])
+        self.assertTrue(coverage.coverage_errors(pins, {kustomization: [{**dep, "currentDigest": "sha256:wrong"}]}, files, {}, []))
+
     def test_init_containers_lists_and_multi_document_images_are_inventoried(self):
         text = "kind: Pod\nspec: {initContainers: [{image: 'busybox:1.2'}]}\n---\nkind: Job\nspec: {image: 'nginx:1.3'}"
         pins = coverage.inventory({self.file: text})
