@@ -122,11 +122,12 @@ flowchart TD
 - an `appVersion` that cannot be resolved, or a pin that cannot be ordered against it —
   the old `immich-postgresql` release pinned `17-vectorchord0.3.0-pgvectors0.3.0`, which was
   reported as unorderable rather than guessed at
-- the `manual-review` label, regardless of CVE posture. Renovate applies it to every critical
-  component's minor and major updates. The gate compares versions in the critical platform
-  manifests directly as well, so label arrival order cannot permit a minor update to merge.
-  Only critical patch updates may auto-merge after CI passes. PostgreSQL's two-part maintenance
-  releases, such as `16.15 -> 16.16`, count as patches.
+- the `manual-review` label, regardless of CVE posture. Most critical platform components
+  require review for minor and major updates; Immich and Paperless require review only for
+  major updates. The gate compares versions in those manifests directly as well, so label
+  arrival order cannot permit a disallowed update to merge. Allowed updates still need to
+  pass the image gate and required CI checks. PostgreSQL's two-part maintenance releases,
+  such as `16.15 -> 16.16`, count as patches.
 
 Renovate itself does not merge these PRs. The Trivy workflow queues the merge only after
 the image gate passes; GitHub then waits for the branch's required checks. For PRs that
