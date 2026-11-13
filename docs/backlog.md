@@ -35,14 +35,18 @@ runbook records successful post-rotation verification and consumer checks.
 **Open.** Scheduled recovery points, promotion, retention, isolated restore tests
 and AWS/PITR drills exist. The steps that replace a production volume or database
 are still marked **not drilled** in [the recovery runbook](runbooks/backup-recovery.md).
-There is also no documented or rehearsed `talosctl rollback` procedure in the repo.
+The [Talos rollback procedure](runbooks/talos-rollback-rehearsal.md) is
+documented but has not been rehearsed.
 Lowering a version pin and running an upgrade is a different operation.
 
 Plan a controlled recovery rehearsal with an isolated application cutover and a
 separate Talos rollback exercise. Include maintenance timing, stopping writers,
 application-level checks, escrow access and the route back if validation fails.
-The node currently runs Talos v1.14.1 and Kubernetes v1.37.0; the old claims that
-upgrades never ran or that it still runs v1.13.6 are obsolete.
+Read-only preflight on 2026-11-13 found the node on Talos v1.14.4 and
+Kubernetes v1.37.1 while both upgrade Plans claim later versions are Complete.
+The previous EFI slot is not verified. Resolve those blockers before any
+single-node rollback outage; the existing AWS and PITR scratch drills do not
+substitute for a production cutover.
 
 **Complete when:** both procedures have dated evidence covering the final cutover
 or rollback and the application checks, and their runbooks reflect what was tested.
