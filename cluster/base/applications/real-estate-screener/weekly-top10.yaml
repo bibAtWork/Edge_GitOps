@@ -35,7 +35,7 @@ spec:
               type: RuntimeDefault
           containers:
           - name: weekly-top10
-            image: ghcr.io/bibatwork/real-estate-screener:v1.23.0@sha256:f1f7b497dfc70b432ee51f6ad36a3fbafa08fcf83c67070f4b52f43506f03515
+            image: ghcr.io/bibatwork/real-estate-screener
             imagePullPolicy: Always
             args: [weekly-top10]
             resources:
@@ -57,7 +57,7 @@ spec:
                   key: uri
           initContainers:
           - name: migrate
-            image: ghcr.io/bibatwork/real-estate-screener:v1.23.0@sha256:f1f7b497dfc70b432ee51f6ad36a3fbafa08fcf83c67070f4b52f43506f03515
+            image: ghcr.io/bibatwork/real-estate-screener
             args: [migrate]
             env:
             - name: DATABASE_URL

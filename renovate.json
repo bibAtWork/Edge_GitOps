@@ -241,6 +241,13 @@
       "minimumReleaseAge": null
     },
     {
+      "description": "Screener workload image fields are transformed from the single Kustomize newTag pin; only the Kustomize manager should update that version.",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": ["ghcr.io/bibatwork/real-estate-screener"],
+      "matchFileNames": ["cluster/base/applications/real-estate-screener/*.yaml"],
+      "enabled": false
+    },
+    {
       "description": "The SRE API, Holmes, and OpenCode images are released under one version by a single source commit. Update all three together so a rollout never mixes incompatible workers and API versions.",
       "matchPackageNames": ["/^ghcr\\.io\\/bibatwork\\/sre-agent-(api|holmes|opencode)$/"],
       "groupName": "sre-agent"
