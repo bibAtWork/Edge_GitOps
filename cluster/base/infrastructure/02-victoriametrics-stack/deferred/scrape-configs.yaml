@@ -163,6 +163,24 @@ spec:
     - port: metrics-port
       path: /metrics
 ---
+# Background policy failures are emitted by the reports controller, not by
+# the admission controller scraped above. Keep both sources for policy review.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: kyverno-reports
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - kyverno
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kyverno-reports-controller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+---
 # Grafana exposes login and alert metrics at /metrics on its HTTP port.
 # With Keycloak SSO as the primary auth method, native POST logins are anomalous.
 apiVersion: operator.victoriametrics.com/v1beta1

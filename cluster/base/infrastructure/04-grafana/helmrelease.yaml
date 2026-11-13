@@ -4943,6 +4943,52 @@ spec:
               "uid": "resource-efficiency",
               "version": 1
             }
+        kyverno-audit-review:
+          json: |
+            {
+              "uid": "kyverno-audit-review",
+              "title": "Kyverno | Audit policy review",
+              "description": "Non-paging view of background Audit policy failures. Counters count repeated evaluations, not unique current findings. Inspect PolicyReports for current resource-level results.",
+              "tags": ["kyverno", "security", "audit"],
+              "timezone": "browser",
+              "schemaVersion": 39,
+              "version": 1,
+              "refresh": "15m",
+              "time": {"from": "now-24h", "to": "now"},
+              "templating": {"list": []},
+              "panels": [
+                {
+                  "id": 1,
+                  "title": "Background Audit failures by policy, kind and namespace (24h evaluations)",
+                  "type": "table",
+                  "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                  "targets": [
+                    {
+                      "expr": "sum by (policy_name, resource_kind, resource_namespace) (increase(kyverno_validating_policy_results_total{result=\"fail\",policy_validation_mode=\"Audit\",execution_cause=\"background_scan\"}[24h]))",
+                      "instant": true,
+                      "refId": "A"
+                    }
+                  ]
+                },
+                {
+                  "id": 2,
+                  "title": "Background Audit failure evaluations by policy",
+                  "type": "timeseries",
+                  "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12},
+                  "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+                  "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+                  "targets": [
+                    {
+                      "expr": "sum by (policy_name) (increase(kyverno_validating_policy_results_total{result=\"fail\",policy_validation_mode=\"Audit\",execution_cause=\"background_scan\"}[1h]))",
+                      "legendFormat": "{{policy_name}}",
+                      "refId": "A"
+                    }
+                  ]
+                }
+              ]
+            }
     alerting:
       templates.yaml:
         apiVersion: 1
@@ -5702,14 +5748,14 @@ spec:
               # continuously on 23 failures per 5m, essentially all of them the
               # accepted read-only-rootfs and probe baselines.
               #
-              # policy_validation_mode is a real label on this metric, carrying
-              # `enforce` or `audit`. Keying on it means a new Audit policy adds
-              # nothing here and a policy promoted to Enforce is picked up
-              # automatically -- there is no list to keep in step, which is the
-              # thing that actually failed last time.
+              # Kyverno 1.19 emits validating and image-validating counters with
+              # result="fail" and policy_validation_mode="Deny". The old
+              # kyverno_policy_results_total/rule_result/enforce selector
+              # matched no live series. Audit-mode findings stay in the
+              # non-paging dashboard and PolicyReports.
               #
-              # What it now means: an Enforce policy recorded a failure. Since
-              # Enforce blocks at admission, that is either a resource that
+              # What it now means: a Deny policy recorded a failure. Since
+              # Deny blocks at admission, that is either a resource that
               # predates enforcement or a rejected request -- both worth
               # knowing, and both currently 0.
               - uid: kyverno-policy-violation
@@ -5722,7 +5768,7 @@ spec:
                       to: 0
                     datasourceUid: victoriametrics
                     model:
-                      expr: 'sum(increase(kyverno_policy_results_total{rule_result="fail", policy_validation_mode="enforce"}[5m])) or vector(0)'
+                      expr: 'sum by (policy_name, resource_kind, resource_namespace) (increase({__name__=~"kyverno_(validating|image_validating)_policy_results_total",result="fail",policy_validation_mode="Deny"}[5m])) or vector(0)'
                       instant: true
                       range: false
                       refId: A
@@ -5752,9 +5798,9 @@ spec:
                 for: 0m
                 annotations:
                   summary: >-
-                    Kyverno policy violation in {{ "{{" }} $labels.namespace }}/{{ "{{" }} $labels.resource_namespace }}
+                    Kyverno Deny violation: {{ "{{" }} $labels.policy_name }} in {{ "{{" }} $labels.resource_namespace }}
                   description: >-
-                    Policy {{ "{{" }} $labels.policy_name }} failed for resource {{ "{{" }} $labels.resource_kind }}/{{ "{{" }} $labels.resource_name }} in namespace {{ "{{" }} $labels.resource_namespace }}. Check: kubectl get policyreport -A
+                    Policy {{ "{{" }} $labels.policy_name }} failed for a {{ "{{" }} $labels.resource_kind }} in namespace {{ "{{" }} $labels.resource_namespace }}. Check: kubectl get policyreport -A
                 labels:
                   severity: warning
                 isPaused: false
