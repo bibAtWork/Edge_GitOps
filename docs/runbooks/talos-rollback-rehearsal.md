@@ -8,6 +8,18 @@ selects the previous installed Talos image and reboots. The previous slot's
 version and compatibility with the currently running Kubernetes version must
 be established before this rehearsal is scheduled. The CLI offers no dry-run.
 
+**Read-only preflight on 2026-11-13: blocked.** The node reports Talos v1.14.4
+and Kubernetes v1.37.1, while the `talos-controlplane` Plan reports v1.14.5
+Complete and `talos-kubernetes` reports v1.37.2 Complete. Talos
+`BootedEntries` exposes only the current `talos-v1.14.4.efi` entry, so the
+previous rollback target is unverified. The live machine configuration still
+names a v1.13.9 installer image; that value is not evidence of either the
+running image or a safe return image. Resolve the Plan/node discrepancy and
+verify both EFI slots plus a v1.14.4 installer for schematic
+`613e1592b2da41ae5e265e8789429f22e121aab91cb4deb6bc3c0b6262961245`
+from the out-of-band console before scheduling any reboot. No rollback was
+attempted during this preflight.
+
 Run this only in a staffed maintenance window outside the control-plane Plan's
 Sunday 12:00–14:00 UTC upgrade window. Budget for two node reboots and leave
 time to recover with the out-of-band console. Record actual start/end times,
@@ -26,7 +38,10 @@ its own dated evidence.
    `talosctl -n 192.168.178.100 etcd snapshot <offline-snapshot-path>`.
 2. Record `talosctl -n 192.168.178.100 version --short`, `kubectl get node
    talos-1ps-0l8 -o wide`, `talosctl -n 192.168.178.100 etcd status`, and the
-   current `talos-controlplane` Plan version. Identify the **previous installed
+   current `talos-controlplane` and `talos-kubernetes` Plan versions. Both Plan
+   target versions and completion labels must agree with the live node and API
+   server before this exercise; a Complete condition alone is insufficient.
+   Identify the **previous installed
    slot's version** from reliable node/console evidence and verify it supports
    the running Kubernetes version and required system extensions. If that
    evidence is unavailable, stop; `talosctl rollback` is not a version picker.
