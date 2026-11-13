@@ -112,6 +112,7 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+              ephemeral-storage: 2Gi
             limits:
               # 512Mi, measured rather than guessed: the server idles at 24Mi and
               # the database is memory-mapped rather than read whole. The first
@@ -122,6 +123,9 @@ spec:
               # Explicit because ten namespaces carry a LimitRange that would
               # otherwise default this to 256Mi and OOM it mid-download.
               memory: 512Mi
+              # The cache is bounded at 2Gi and temporary extraction at 4Gi.
+              # Leave room for logs and filesystem metadata as well.
+              ephemeral-storage: 7Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -134,7 +138,10 @@ spec:
             sizeLimit: 2Gi
         - name: tmp
           emptyDir:
-            sizeLimit: 1Gi
+            # A large image scan exceeded 1Gi on 2026-11-05 and evicted this
+            # pod, although the node had no disk pressure. Trivy removes its
+            # temporary layer files after each scan; keep a bounded headroom.
+            sizeLimit: 4Gi
 ---
 apiVersion: v1
 kind: Service
