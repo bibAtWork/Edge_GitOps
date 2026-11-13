@@ -30,7 +30,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          identity='https://github.com/fluxcd/gha-workflows/.github/workflows/controller-release.yaml@refs/tags/v0.11.0'
+          # Accept only the two exact upstream signer versions used across the
+          # current and proposed Flux releases. The issuer, component repo,
+          # workflow trigger/name, and image tag remain independently pinned.
+          identity_regex='^https://github\.com/fluxcd/gha-workflows/\.github/workflows/controller-release\.yaml@refs/tags/v0\.(11|17)\.0$'
           expected_components=(
             helm-controller
             image-automation-controller
@@ -66,7 +69,7 @@ jobs:
 
             cosign verify \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              --certificate-identity "$identity" \
+              --certificate-identity-regexp "$identity_regex" \
               --certificate-github-workflow-trigger push \
               --certificate-github-workflow-name release \
               --certificate-github-workflow-repository "fluxcd/$component" \
