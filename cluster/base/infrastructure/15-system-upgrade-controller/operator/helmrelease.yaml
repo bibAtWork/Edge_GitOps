@@ -120,4 +120,4 @@ spec:
                 # trips StuckUpgradeJob (04-grafana/helmrelease.yaml) -- well
                 # before it can repeat a costly failure mode 14 times over.
                 SYSTEM_UPGRADE_JOB_BACKOFF_LIMIT: "5"
-                SYSTEM_UPGRADE_JOB_KUBECTL_IMAGE: "rancher/kuberlr-kubectl:v8.1.2"
+                SYSTEM_UPGRADE_JOB_KUBECTL_IMAGE: "rancher/kuberlr-kubectl:v9.0.2"

@@ -25,8 +25,10 @@ class KubectlImageCompatibility(unittest.TestCase):
                                                   '"gitVersion":"v1.35.8"'))
 
     def test_live_gate_images_track_controller_job_image(self):
-        self.assertEqual(guard.normalized(guard.configured_image()),
-                         "rancher/kuberlr-kubectl:v8.1.2")
+        # configured_image checks every gate against the controller setting.
+        # Do not pin a version here: Renovate updates all of these together.
+        self.assertRegex(guard.normalized(guard.configured_image()),
+                         r"^rancher/kuberlr-kubectl:v\d+\.\d+\.\d+$")
 
 
 if __name__ == "__main__":
