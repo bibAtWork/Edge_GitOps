@@ -43,7 +43,7 @@ launch, and the same unresolved
 symptom has a one-hour cooldown. A recovered failed Job is not an active signal
 when a newer Job succeeded. The gate saves a bounded incident packet under
 `/home/cao/incidents`, then enqueues it on the existing state volume. The
-five-minute controller starts the `screener_crew` workflow, validates the
+one-minute controller starts the `screener_crew` workflow, validates the
 triage handoff before RCA, and validates the RCA handoff afterward. Reports
 and handoffs are saved under `/home/cao/reports` and `/home/cao/handoffs`.
 Only one scheduled crew run is active at a time. The gate and queue expose
@@ -68,12 +68,15 @@ logs and do not cover API calls an agent makes independently.
 
 CAO's workflow journal replays completed steps after interruption. The
 controller waits five minutes after a recorded connection failure or five
-hours after a usage-window failure, then resumes the journaled run. It checks
+hours after a usage-window failure, then resumes the journaled run only if the
+overall runtime limit has not elapsed. It checks
 bounded terminal logs when CAO's failed-run status omits the provider's quota
-message. A CLI left running on a quota screen must first reach CAO's step
-timeout before a retry can be scheduled. It allows
-three attempts total. Unknown failures, missing journal state, and runs still
-active after 45 minutes go to `needs_review` without spawning a duplicate.
+message. Each agent step has a bounded timeout; the controller cancels a run
+that remains active at 20 minutes, including its in-flight terminal. It allows
+three attempts within that deadline. Unknown failures and expired runs go to
+`needs_review`. If the journal is unavailable, the controller retains the
+running slot and retries cancellation at the deadline rather than starting a
+second writer.
 Records live in `/home/cao/crew-queue`. Before a retry, the controller rejects
 packets older than two hours; the gate creates a new incident if the symptom
 persists. An old waiting run becomes `needs_review` instead of replaying.

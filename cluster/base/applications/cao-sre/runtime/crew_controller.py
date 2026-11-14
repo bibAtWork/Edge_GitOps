@@ -17,7 +17,7 @@ WORKFLOW = "/home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py"
 MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
 QUOTA_DELAY = 5 * 60 * 60
-RUN_DEADLINE = 45 * 60
+RUN_DEADLINE = 20 * 60
 MAX_RETRY_PACKET_AGE = 2 * 60 * 60
 INCIDENT_PATTERN = re.compile(r"screener-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\Z")
 
@@ -101,9 +101,11 @@ def start(record):
                      "--input", f"packet_path={packet_path}", "--detach", "--json")
     if result.returncode and run_status(run_id) is None:
         raise RuntimeError(f"Workflow submission failed: {result.stderr[-500:]}")
+    started = int(time.time())
     record.update({"run_id": run_id, "packet_path": str(packet_path),
                    "state": "running", "attempts": 1,
-                   "started_at": int(time.time()), "next_retry_at": 0})
+                   "started_at": started,
+                   "first_started_at": started, "next_retry_at": 0})
 
 
 def resume(record):
@@ -127,12 +129,29 @@ def resume(record):
                    "started_at": int(time.time()), "next_retry_at": 0})
 
 
+def cancel_expired(record, current):
+    """Cancel the CAO run, retaining ownership if cancellation cannot be confirmed."""
+    result = command("workflow", "cancel", record["run_id"], timeout=30)
+    if result.returncode:
+        latest = run_status(record["run_id"])
+        if latest and latest.get("state") == "completed":
+            record.update({"state": "completed", "completed_at": current})
+        else:
+            record["reason"] = "cancel_failed"
+    else:
+        record.update({"state": "needs_review", "reason": "runtime_limit"})
+
+
 def reconcile(record):
     current = int(time.time())
     if record["state"] in ("completed", "needs_review"):
         return
     if record["state"] == "queued":
         start(record)
+        return
+    first_started = record.get("first_started_at", record.get("started_at", current))
+    if record["state"] == "waiting" and current - first_started >= RUN_DEADLINE:
+        record.update({"state": "needs_review", "reason": "runtime_limit"})
         return
     if record["state"] == "waiting" and current >= record.get("next_retry_at", 0):
         resume(record)
@@ -141,7 +160,12 @@ def reconcile(record):
         return
     status = run_status(record["run_id"])
     if status is None:
-        record.update({"state": "needs_review", "reason": "journal_unavailable"})
+        if current - first_started >= RUN_DEADLINE:
+            cancel_expired(record, current)
+        else:
+            # Keep ownership; starting another writer while the journal is
+            # unavailable could duplicate the investigation.
+            record["reason"] = "journal_unavailable"
         return
     state = status.get("state")
     if state == "completed":
@@ -151,14 +175,17 @@ def reconcile(record):
         record.update({"state": "needs_review", "reason": "cancelled"})
     elif state == "failed":
         kind = failure_kind(status, incident_terminal_text(record))
-        if kind and record["attempts"] < MAX_ATTEMPTS:
+        if current - first_started >= RUN_DEADLINE:
+            record.update({"state": "needs_review", "reason": "runtime_limit"})
+        elif kind and record["attempts"] < MAX_ATTEMPTS:
             record.update({"state": "waiting", "reason": kind,
                            "next_retry_at": current + (QUOTA_DELAY if kind == "quota" else TRANSIENT_DELAY)})
         else:
             record.update({"state": "needs_review", "reason": kind or state})
-    elif current - record.get("started_at", current) > RUN_DEADLINE:
-        # An unknown live outcome must not spawn a duplicate writer.
-        record.update({"state": "needs_review", "reason": "running_past_deadline"})
+    elif current - first_started >= RUN_DEADLINE:
+        # CAO also sweeps the in-flight terminal; merely changing queue state
+        # would leave the agent running beyond the policy limit.
+        cancel_expired(record, current)
 
 
 def main():

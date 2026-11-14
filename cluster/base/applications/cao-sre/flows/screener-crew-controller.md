@@ -1,6 +1,6 @@
 ---
 name: screener-crew-controller
-schedule: "*/5 * * * *"
+schedule: "* * * * *"
 agent_profile: screener-triage-codex
 provider: codex
 script: /config/crew_controller.py

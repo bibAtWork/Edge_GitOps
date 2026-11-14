@@ -138,6 +138,38 @@ class ScreenerSignalTests(unittest.TestCase):
                          ("needs_review", "stale_incident"))
         spawned.assert_not_called()
 
+    def test_runtime_limit_cancels_live_workflow(self):
+        record = {"state": "running", "run_id": "crew-test", "attempts": 1,
+                  "first_started_at": 100, "started_at": 900}
+        with patch("crew_controller.time.time", return_value=1300), patch(
+            "crew_controller.run_status", return_value={"state": "running"}
+        ), patch("crew_controller.command", return_value=MagicMock(returncode=0)) as command:
+            reconcile(record)
+        command.assert_called_once_with("workflow", "cancel", "crew-test", timeout=30)
+        self.assertEqual((record["state"], record["reason"]),
+                         ("needs_review", "runtime_limit"))
+
+    def test_runtime_limit_prevents_late_retry(self):
+        record = {"state": "waiting", "run_id": "crew-test", "attempts": 1,
+                  "first_started_at": 100, "started_at": 900, "next_retry_at": 1200}
+        with patch("crew_controller.time.time", return_value=1300), patch(
+            "crew_controller.resume"
+        ) as resume:
+            reconcile(record)
+        resume.assert_not_called()
+        self.assertEqual((record["state"], record["reason"]),
+                         ("needs_review", "runtime_limit"))
+
+    def test_missing_journal_does_not_release_live_run(self):
+        record = {"state": "running", "run_id": "crew-test", "attempts": 1,
+                  "first_started_at": 100, "started_at": 100}
+        with patch("crew_controller.time.time", return_value=200), patch(
+            "crew_controller.run_status", return_value=None
+        ):
+            reconcile(record)
+        self.assertEqual((record["state"], record["reason"]),
+                         ("running", "journal_unavailable"))
+
     def test_native_outcome_is_redacted_and_replay_does_not_duplicate(self):
         incident = "screener-20261031T185000Z-aabbccdd"
         handoff = {"summary": "Auth failure token=sensitive", "root_cause_confirmed": True}

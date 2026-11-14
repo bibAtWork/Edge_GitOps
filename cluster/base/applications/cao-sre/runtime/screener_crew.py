@@ -46,7 +46,7 @@ step(
     "Do not modify production or open a PR.",
     recovery="idempotent",
     step_id="triage",
-    timeout=1800,
+    timeout=420,
 )
 checked_handoff(triage_path, incident_id, "triage")
 
@@ -59,7 +59,7 @@ step(
     "Do not modify production or open a PR.",
     recovery="idempotent",
     step_id="rca",
-    timeout=1800,
+    timeout=420,
 )
 try:
     checked_handoff(rca_path, incident_id, "rca")
@@ -75,7 +75,7 @@ except (OSError, ValueError) as exc:
         "and check both files exist before ending your turn.",
         recovery="idempotent",
         step_id="rca-artifact-repair",
-        timeout=1800,
+        timeout=180,
     )
     checked_handoff(rca_path, incident_id, "rca")
 rca = checked_handoff(rca_path, incident_id, "rca")
