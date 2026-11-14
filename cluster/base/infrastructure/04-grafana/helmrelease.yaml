@@ -7873,6 +7873,64 @@ spec:
                   group_interval: 10m
                   repeat_interval: 6h
                 isPaused: false
+          # vmalert does not notify in this cluster. Monitor both deterministic
+          # gates in Grafana, but keep this self-health alert human-routed.
+          - orgId: 1
+            name: CAO Gate Health
+            folder: Infrastructure
+            interval: 1m
+            rules:
+              - uid: cao-sre-gates-stale
+                title: CaoSreGatesStale
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 3600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        ((time() - max(cao_sre_gate_last_success_timestamp_seconds) > bool 1800) or vector(1))
+                        +
+                        ((time() - max(cao_sre_infra_gate_last_success_timestamp_seconds) > bool 1800) or vector(1))
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 10m
+                annotations:
+                  summary: One or both CAO investigation gates have stopped observing
+                  description: >-
+                    The screener or infrastructure gate has not completed a
+                    successful scheduled observation for 30 minutes. Check
+                    CAO schedules, pod health, and gate logs; do not launch
+                    an agent from this alert because the gate itself may be broken.
+                labels:
+                  severity: warning
+                isPaused: false
           - orgId: 1
             name: Platform Health
             folder: Infrastructure
