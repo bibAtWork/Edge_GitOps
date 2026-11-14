@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 class GrafanaAlertTemplateSafety(unittest.TestCase):
+    def test_alert_rule_uids_fit_grafana_limit(self):
+        release = yaml.safe_load(
+            (ROOT / "cluster/base/infrastructure/04-grafana/helmrelease.yaml")
+            .read_text(encoding="utf-8")
+        )
+        groups = release["spec"]["values"]["alerting"]["rules.yaml"]["groups"]
+        offenders = [f"{group['name']}/{rule['uid']}" for group in groups
+                     for rule in group["rules"] if len(rule["uid"]) > 40]
+        self.assertEqual(offenders, [])
+
     def test_alert_rules_contain_no_unescaped_go_templates(self):
         release = yaml.safe_load(
             (ROOT / "cluster/base/infrastructure/04-grafana/helmrelease.yaml")

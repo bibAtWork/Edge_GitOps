@@ -7683,7 +7683,7 @@ spec:
             folder: Infrastructure
             interval: 1m
             rules:
-              - uid: real-estate-screener-unavailable
+              - uid: screener-unavailable
                 title: RealEstateScreenerUnavailable
                 condition: B
                 data:
@@ -7737,7 +7737,7 @@ spec:
                   group_interval: 10m
                   repeat_interval: 6h
                 isPaused: false
-              - uid: real-estate-screener-functionality-failed
+              - uid: screener-functionality-failed
                 title: RealEstateScreenerFunctionalityFailed
                 condition: B
                 data:
