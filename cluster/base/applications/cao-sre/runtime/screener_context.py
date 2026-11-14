@@ -266,11 +266,10 @@ def detect_signals(snapshot, reference=None):
     return signals
 
 
-def write_packet(snapshot, incident_id, signal, prior=None):
+def write_packet(snapshot, incident_id, signal):
     INCIDENTS.mkdir(parents=True, exist_ok=True)
     packet = {**snapshot, "incident_id": incident_id, "signal": signal,
-              "capabilities": ["read-only Kubernetes", "app health", "redacted error logs"],
-              "prior_lessons": prior or []}
+              "capabilities": ["read-only Kubernetes", "app health", "redacted error logs"]}
     path = INCIDENTS / f"{incident_id}.json"
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")

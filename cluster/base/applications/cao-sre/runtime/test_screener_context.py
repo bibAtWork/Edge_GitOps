@@ -1,14 +1,15 @@
 """Offline checks for signal selection and repeat suppression."""
 
 import datetime as dt
+import io
 import json
 import unittest
 from unittest.mock import MagicMock, patch
 
 from crew_controller import failure_kind, reconcile
 from gate import decision
-from feedback import observe_recovery, prior_lessons, record_candidate
 from metrics import snapshot as metrics_snapshot
+from native_learning import report_outcome
 from pr_gate import validate as validate_pr_candidate
 from screener_context import (NAMESPACE, REQUIRED_OBSERVATIONS, detect_signals,
                               now, redact, validate_handoff, validate_packet)
@@ -137,30 +138,55 @@ class ScreenerSignalTests(unittest.TestCase):
                          ("needs_review", "stale_incident"))
         spawned.assert_not_called()
 
-    def test_lesson_reuse_requires_confirmed_cause_and_two_healthy_observations(self):
+    def test_runtime_limit_cancels_live_workflow(self):
+        record = {"state": "running", "run_id": "crew-test", "attempts": 1,
+                  "first_started_at": 100, "started_at": 900}
+        with patch("crew_controller.time.time", return_value=1300), patch(
+            "crew_controller.run_status", return_value={"state": "running"}
+        ), patch("crew_controller.command", return_value=MagicMock(returncode=0)) as command:
+            reconcile(record)
+        command.assert_called_once_with("workflow", "cancel", "crew-test", timeout=30)
+        self.assertEqual((record["state"], record["reason"]),
+                         ("needs_review", "runtime_limit"))
+
+    def test_runtime_limit_prevents_late_retry(self):
+        record = {"state": "waiting", "run_id": "crew-test", "attempts": 1,
+                  "first_started_at": 100, "started_at": 900, "next_retry_at": 1200}
+        with patch("crew_controller.time.time", return_value=1300), patch(
+            "crew_controller.resume"
+        ) as resume:
+            reconcile(record)
+        resume.assert_not_called()
+        self.assertEqual((record["state"], record["reason"]),
+                         ("needs_review", "runtime_limit"))
+
+    def test_missing_journal_does_not_release_live_run(self):
+        record = {"state": "running", "run_id": "crew-test", "attempts": 1,
+                  "first_started_at": 100, "started_at": 100}
+        with patch("crew_controller.time.time", return_value=200), patch(
+            "crew_controller.run_status", return_value=None
+        ):
+            reconcile(record)
+        self.assertEqual((record["state"], record["reason"]),
+                         ("running", "journal_unavailable"))
+
+    def test_native_outcome_is_redacted_and_replay_does_not_duplicate(self):
         incident = "screener-20261031T185000Z-aabbccdd"
-        packet = {"observed_at": "2026-10-31T18:50:00Z", "signal": {"key": "database-unready"}}
-        handoff = {"schema_version": 1, "incident_id": incident, "stage": "rca",
-                   "summary": "Database was unavailable", "hypotheses": [
-                       {"cause": "database restart", "evidence": "One ready replica returned later"}],
-                   "recommended_checks": ["Check CNPG readiness"], "root_cause_confirmed": True,
-                   "scope": "application"}
-        with patch("feedback.LESSONS") as lessons, patch("feedback.save") as saved, patch(
-            "feedback.validate_packet", return_value=packet
-        ), patch("feedback.validate_handoff", return_value=handoff):
-            path = lessons.__truediv__.return_value
-            path.exists.return_value = False
-            record_candidate("packet", "handoff", incident)
-            state = saved.call_args.args[1]
-            lessons.glob.return_value = [path]
-            path.read_text.side_effect = lambda **_: json.dumps(state)
-            saved.side_effect = lambda _path, document: state.update(document)
-            self.assertEqual(prior_lessons("database-unready"), [])
-            observe_recovery({"database-unready"})
-            observe_recovery(set())
-            self.assertEqual(prior_lessons("database-unready"), [])
-            observe_recovery(set())
-            self.assertEqual(prior_lessons("database-unready")[0]["cause"], "database restart")
+        handoff = {"summary": "Auth failure token=sensitive", "root_cause_confirmed": True}
+        with patch("native_learning.urllib.request.urlopen", side_effect=[
+            io.BytesIO(b'{"outcomes":[]}'), io.BytesIO(b'{"id":1}'),
+        ]) as opened:
+            report_outcome(incident, handoff)
+        posted = json.loads(opened.call_args_list[1].args[0].data)
+        self.assertEqual(posted["session_name"], incident)
+        self.assertEqual(posted["agent_profile"], "screener-rca")
+        self.assertTrue(posted["success"])
+        self.assertNotIn("sensitive", posted["friction_notes"])
+        with patch("native_learning.urllib.request.urlopen", return_value=io.BytesIO(
+            json.dumps({"outcomes": [{"task_label": f"{incident}: rca"}]}).encode()
+        )) as opened:
+            report_outcome(incident, handoff)
+        self.assertEqual(opened.call_count, 1)
 
     def test_metrics_do_not_expose_incident_ids(self):
         with patch("metrics.QUEUE") as queue, patch("metrics.GATE_STATUS") as gate_status:

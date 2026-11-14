@@ -15,6 +15,7 @@ cao install /home/cao/agent-profiles/screener-triage.md
 cao install /home/cao/agent-profiles/screener-rca.md
 cao install /home/cao/agent-profiles/screener-triage-codex.md
 cao install /home/cao/agent-profiles/screener-rca-codex.md
+cao install retrospector --provider opencode_cli
 install -m 0644 /config/screener_crew.py /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
 install -m 0644 /config/screener-monitor.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-monitor.md
 install -m 0644 /config/screener-crew-controller.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-crew-controller.md

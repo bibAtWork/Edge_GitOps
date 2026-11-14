@@ -76,6 +76,10 @@ spec:
           env:
             - name: OPENCODE_CONFIG
               value: /config/opencode.json
+            - name: CAO_MEMORY_LEARNING_ENABLED
+              value: 'true'
+            - name: CAO_MEMORY_INSTRUCTION_PROMOTION_ENABLED
+              value: 'false'
             - name: CAO_ALLOWED_HOSTS
               value: cao-sre.homelab.data-harness.org
             # Gateway OIDC and Cilium restrict ingress. Envoy pod IPs are dynamic.
