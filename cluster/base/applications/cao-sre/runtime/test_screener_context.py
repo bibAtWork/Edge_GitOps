@@ -10,6 +10,7 @@ from crew_controller import failure_kind, reconcile
 from gate import decision
 from metrics import snapshot as metrics_snapshot
 from native_learning import report_outcome
+from recovery import complete_observation, observe, register, verified_prior_causes
 from pr_gate import validate as validate_pr_candidate
 from screener_context import (NAMESPACE, REQUIRED_OBSERVATIONS, detect_signals,
                               now, redact, validate_handoff, validate_packet)
@@ -187,6 +188,41 @@ class ScreenerSignalTests(unittest.TestCase):
         )) as opened:
             report_outcome(incident, handoff)
         self.assertEqual(opened.call_count, 1)
+
+    def test_prior_cause_requires_confirmed_rca_and_two_healthy_observations(self):
+        incident = "screener-20261031T185000Z-aabbccdd"
+        packet = {"signal": {"key": "database-unready"}}
+        handoff = {"incident_id": incident, "stage": "rca",
+                   "root_cause_confirmed": True,
+                   "hypotheses": [{"cause": "database restart", "evidence": "ready replicas recovered"}]}
+        with patch("recovery.STATE") as state_dir, patch("recovery.HANDOFFS") as handoffs, patch(
+            "recovery.validate_packet", return_value=packet
+        ), patch("recovery.validate_handoff", return_value=handoff), patch(
+            "recovery.save"
+        ) as saved:
+            state_path = state_dir.__truediv__.return_value
+            state_path.exists.return_value = False
+            register("packet", "handoff", incident)
+            record = saved.call_args.args[1]
+            state_dir.glob.return_value = [state_path]
+            state_path.read_text.side_effect = lambda **_: json.dumps(record)
+            saved.side_effect = lambda _path, value: record.update(value)
+            self.assertEqual(verified_prior_causes("database-unready"), [])
+            observe({"database-unready"})
+            observe(set())
+            self.assertEqual(verified_prior_causes("database-unready"), [])
+            observe(set())
+            self.assertEqual(verified_prior_causes("database-unready")[0]["cause"],
+                             "database restart")
+            self.assertTrue(handoffs.__truediv__.called)
+
+    def test_recovery_does_not_count_blind_application_observations(self):
+        self.assertFalse(complete_observation({"health": {"http_status": 200},
+                                                "ingestion": {"http_status": 503}}))
+        self.assertFalse(complete_observation({"health": {"observer_error": "timeout"},
+                                                "ingestion": {"http_status": 200}}))
+        self.assertTrue(complete_observation({"health": {"http_status": 200},
+                                               "ingestion": {"http_status": 200}}))
 
     def test_metrics_do_not_expose_incident_ids(self):
         with patch("metrics.QUEUE") as queue, patch("metrics.GATE_STATUS") as gate_status:

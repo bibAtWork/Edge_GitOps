@@ -86,9 +86,14 @@ the workflow permits its journal to replay later without changing the evidence.
 CAO's native self-learning is enabled for this repeated workflow. Once the RCA
 handoff validates, the workflow writes one redacted, replay-safe outcome to
 CAO's SQLite outcome store and hands its session to the built-in retrospector.
-The retrospector may store an evidence-based lesson in `screener-rca` agent
-memory; it can also store none. CAO recalls relevant lessons for later agent
-sessions. The former custom lesson files and packet injection are removed.
+The retrospector may store an evidence-based investigation lesson in
+`screener-rca` agent memory; it can also store none. CAO recalls relevant
+lessons for later agent sessions. The former custom lesson files are removed.
+The separate deterministic recovery check stores only counters: a confirmed
+RCA cause appears as `verified_prior_causes` in a later packet only after two
+complete observations find its symptom absent. The cause and evidence are read
+from the original handoff, not copied into another learning store. Both native
+lessons and prior causes remain hypotheses for a new incident.
 Outcomes and lessons are advisory, not authorization to remediate. Automatic
 promotion of lessons into standing profile instructions remains disabled.
 To add another harness, add its pinned CLI and a small profile overlay. The
