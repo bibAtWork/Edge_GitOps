@@ -31,6 +31,81 @@ roleRef:
   kind: Role
   name: cao-sre-reader
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cao-sre-infra-reader
+  namespace: platform-canary
+rules:
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cao-sre-infra-reader
+  namespace: platform-canary
+subjects:
+  - kind: ServiceAccount
+    name: cao-sre
+    namespace: cao-sre
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cao-sre-infra-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cao-sre-infra-reader
+  namespace: backup-system
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflows]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cao-sre-infra-reader
+  namespace: backup-system
+subjects:
+  - kind: ServiceAccount
+    name: cao-sre
+    namespace: cao-sre
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cao-sre-infra-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cao-sre-infra-reader
+  namespace: longhorn-system
+rules:
+  - apiGroups: [longhorn.io]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cao-sre-infra-reader
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: cao-sre
+    namespace: cao-sre
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cao-sre-infra-reader
+---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

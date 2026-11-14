@@ -9,7 +9,7 @@ from screener_context import redact
 OUTCOMES_URL = "http://127.0.0.1:9889/outcomes"
 
 
-def report_outcome(incident_id, handoff):
+def report_outcome(incident_id, handoff, workflow_name="screener_crew", agent_profile="screener-rca"):
     """Record one native CAO outcome, including after a journal replay."""
     label = f"{incident_id}: rca"
     query = urllib.parse.urlencode({"session_name": incident_id, "limit": 50})
@@ -20,8 +20,8 @@ def report_outcome(incident_id, handoff):
     confirmed = handoff.get("root_cause_confirmed") is True
     note = redact(str(handoff.get("summary", ""))).replace("\n", " ")[:600]
     payload = json.dumps({"session_name": incident_id, "task_label": label,
-                          "success": confirmed, "workflow_name": "screener_crew",
-                          "agent_profile": "screener-rca", "friction_notes": note}).encode("utf-8")
+                          "success": confirmed, "workflow_name": workflow_name,
+                          "agent_profile": agent_profile, "friction_notes": note}).encode("utf-8")
     request = urllib.request.Request(OUTCOMES_URL, data=payload,
                                      headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(request, timeout=5) as response:

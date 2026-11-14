@@ -1,4 +1,4 @@
-# CAO SRE PoC for real-estate-screener
+# CAO SRE crews for screener and infrastructure alerts
 
 This PoC is independent of the existing `sre-agent` API, Holmes worker,
 proposer, dashboard, scan and namespace. It has its own `cao-sre` namespace,
@@ -34,7 +34,7 @@ agent prompts are sent to that service; free model availability and limits can
 change. The pod copies its OpenCode permission config into the global config
 path before CAO starts so terminal sessions inherit the intended rules.
 
-The built-in CAO scheduled flow runs every ten minutes. Its Python gate reads
+The screener CAO scheduled flow runs every ten minutes. Its Python gate reads
 only the `real-estate-screener` namespace and the application's internal health
 endpoint. Startup installs both flow files on the state volume before adding
 their schedules, so a ConfigMap rotation cannot leave a persisted schedule
@@ -43,7 +43,7 @@ before launch. Each active episode launches only one investigation and is
 rearmed after two healthy observations. A recovered failed Job is not an active signal
 when a newer Job succeeded. The gate saves a bounded incident packet under
 `/home/cao/incidents`, then enqueues it on the existing state volume. The
-one-minute controller starts the `screener_crew` workflow, validates the
+one-minute controller starts the matching crew workflow, validates the
 triage handoff before RCA, and validates the RCA handoff afterward. Reports
 and handoffs are saved under `/home/cao/reports` and `/home/cao/handoffs`.
 Only one scheduled crew run is active at a time. The gate and queue expose
@@ -54,8 +54,11 @@ Kubernetes alerts cover pod and Deployment availability.
 Grafana also sends `RealEstateScreenerUnavailable` and
 `RealEstateScreenerFunctionalityFailed` to the internal, bearer-protected
 `/alerts` webhook on port 9891. It sends them to Telegram in the same contact
-point. The webhook accepts only those two alert names, stores only bounded alert
-state, and removes a resolved alert. The gate confirms a functionality failure
+point. The webhook accepts only the named screener and infrastructure alert
+types, stores only bounded alert identity and target labels, and removes a
+resolved alert. The screener gate uses only its two alert names; the separate
+infrastructure gate uses only the four infrastructure names. The screener
+gate confirms a functionality failure
 against its fresh application observation; an unavailable scrape is also
 investigated when the Deployment is healthy. A Grafana-confirmed signal starts
 one crew run per active episode, while the existing two-observation gate remains
@@ -68,11 +71,17 @@ offline age identity, generate a new random token and use
 with the JSON-encoded token on stdin. The CAO Secret and Grafana Secret are
 rendered from the same encrypted source, so they cannot drift.
 
-Recovery, Longhorn and platform-canary alerts remain human-routed. The current
-crew can only inspect the screener namespace; those alerts need separate
-read-only collectors, profiles and permissions before agent routing is safe.
-The canary metric must also be present in VictoriaMetrics before its alert is
-ported from the blackholed VMRule.
+`PlatformCanarySyntheticFailed`, `RecoveryPointStale`,
+`RecoveryOffsiteStale`, and `LonghornDiskNotReady` also go to Telegram and
+the same authenticated webhook. The independent infrastructure gate accepts
+only those four names, captures a bounded status packet from the affected
+namespace, and enqueues an `infra_crew` run. Its ServiceAccount has read-only
+access only to canary Jobs/Pods, backup Workflows, and Longhorn Nodes. It
+cannot read Secrets or logs. The workflow uses separate infrastructure
+triage/RCA profiles and records outcomes through CAO's native learning API.
+No agent can mutate production; a proposed change still needs operator review.
+The infrastructure gate and screener gate share a single-run controller, so
+simultaneous incidents queue instead of launching parallel investigators.
 
 The gate also reads `/health/ingestion`: it investigates a confirmed low-yield
 search or at least two exact plot-extraction mismatches among 20 labeled recent

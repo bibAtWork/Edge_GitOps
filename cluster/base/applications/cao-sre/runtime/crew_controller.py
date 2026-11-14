@@ -9,17 +9,28 @@ import sys
 import time
 from pathlib import Path
 
-from screener_context import validate_packet
+from screener_context import validate_packet as validate_screener_packet
+from infra_context import validate_packet as validate_infra_packet
+
+# Preserve the existing screener validator hook used by controller tests.
+validate_packet = validate_screener_packet
 
 QUEUE = Path(os.environ.get("CAO_CREW_QUEUE", "/home/cao/crew-queue"))
 TERMINAL_LOGS = Path("/home/cao/.aws/cli-agent-orchestrator/logs/terminal")
-WORKFLOW = "/home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py"
+WORKFLOWS = {
+    "screener": "/home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py",
+    "infra": "/home/cao/.aws/cli-agent-orchestrator/workflows/infra_crew.py",
+}
 MAX_ATTEMPTS = 3
 TRANSIENT_DELAY = 5 * 60
 QUOTA_DELAY = 5 * 60 * 60
 RUN_DEADLINE = 20 * 60
 MAX_RETRY_PACKET_AGE = 2 * 60 * 60
-INCIDENT_PATTERN = re.compile(r"screener-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\Z")
+INCIDENT_PATTERN = re.compile(r"(screener|infra)-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\Z")
+
+
+def packet_validator(incident_id):
+    return validate_infra_packet if incident_id.startswith("infra-") else validate_packet
 
 
 def save(path, document):
@@ -32,7 +43,7 @@ def save(path, document):
 def enqueue(incident_id, packet_path):
     if not INCIDENT_PATTERN.fullmatch(incident_id):
         raise ValueError("Invalid scheduled incident ID")
-    validate_packet(packet_path, incident_id, max_age_seconds=900)
+    packet_validator(incident_id)(packet_path, incident_id, max_age_seconds=900)
     path = QUEUE / f"{incident_id}.json"
     if path.exists():
         return path
@@ -94,9 +105,10 @@ def failure_kind(status, terminal_text=""):
 def start(record):
     incident_id = record["incident_id"]
     packet_path = Path(record["packet_path"])
-    validate_packet(packet_path, incident_id, max_age_seconds=900)
+    packet_validator(incident_id)(packet_path, incident_id, max_age_seconds=900)
     run_id = f"crew-{incident_id}"
-    result = command("workflow", "run", WORKFLOW, "--run-id", run_id,
+    workflow = WORKFLOWS[incident_id.split("-", 1)[0]]
+    result = command("workflow", "run", workflow, "--run-id", run_id,
                      "--input", f"incident_id={incident_id}",
                      "--input", f"packet_path={packet_path}", "--detach", "--json")
     if result.returncode and run_status(run_id) is None:
@@ -113,7 +125,7 @@ def resume(record):
         record.update({"state": "needs_review", "reason": "retry_limit"})
         return
     try:
-        validate_packet(record["packet_path"], record["incident_id"],
+        packet_validator(record["incident_id"])(record["packet_path"], record["incident_id"],
                         max_age_seconds=MAX_RETRY_PACKET_AGE)
     except (OSError, ValueError, KeyError):
         # Never replay a long quota wait against hours-old cluster evidence.
@@ -197,7 +209,8 @@ def main():
         except BlockingIOError:
             print(json.dumps({"execute": False, "output": {}}))
             return
-        paths = sorted(QUEUE.glob("screener-*.json"))
+        paths = sorted(path for path in QUEUE.glob("*.json")
+                       if INCIDENT_PATTERN.fullmatch(path.stem))
         active = 0
         for path in paths:
             record = json.loads(path.read_text(encoding="utf-8"))
