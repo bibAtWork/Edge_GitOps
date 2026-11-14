@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Enqueue one read-only infrastructure investigation per firing episode."""
 
 import hashlib
