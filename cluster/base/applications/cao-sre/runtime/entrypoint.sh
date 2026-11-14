@@ -6,6 +6,7 @@ mkdir -p /home/cao/crew-queue
 mkdir -p /home/cao/.codex
 mkdir -p /home/cao/.config/opencode
 mkdir -p /home/cao/.aws/cli-agent-orchestrator/workflows
+mkdir -p /home/cao/.aws/cli-agent-orchestrator/flows
 cp /config/opencode.json /home/cao/.config/opencode/opencode.json
 cp /config/codex-sre.config.toml /home/cao/.codex/sre_observer.config.toml
 chmod 0600 /home/cao/.codex/sre_observer.config.toml
@@ -15,6 +16,8 @@ cao install /home/cao/agent-profiles/screener-rca.md
 cao install /home/cao/agent-profiles/screener-triage-codex.md
 cao install /home/cao/agent-profiles/screener-rca-codex.md
 install -m 0644 /config/screener_crew.py /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
+install -m 0644 /config/screener-monitor.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-monitor.md
+install -m 0644 /config/screener-crew-controller.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-crew-controller.md
 python3 /config/metrics.py &
 metrics_pid=$!
 cao-server --host 0.0.0.0 --port 9889 &
@@ -32,7 +35,7 @@ until cao schedule list >/dev/null 2>&1; do
 done
 cao workflow validate /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
 cao schedule remove screener-monitor >/dev/null 2>&1 || true
-cao schedule add /config/screener-monitor.md
+cao schedule add /home/cao/.aws/cli-agent-orchestrator/flows/screener-monitor.md
 cao schedule remove screener-crew-controller >/dev/null 2>&1 || true
-cao schedule add /config/screener-crew-controller.md
+cao schedule add /home/cao/.aws/cli-agent-orchestrator/flows/screener-crew-controller.md
 wait "$server_pid"
