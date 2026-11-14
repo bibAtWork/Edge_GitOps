@@ -4,10 +4,15 @@ import datetime as dt
 import io
 import json
 import unittest
+import urllib.error
+import urllib.request
+from http.server import HTTPServer
+from threading import Thread
 from unittest.mock import MagicMock, patch
 
+from alert_webhook import Handler, active_alerts, apply_notification
 from crew_controller import failure_kind, reconcile
-from gate import decision
+from gate import decision, with_alerts
 from metrics import snapshot as metrics_snapshot
 from native_learning import report_outcome
 from recovery import complete_observation, observe, register, verified_prior_causes
@@ -30,7 +35,7 @@ class ScreenerSignalTests(unittest.TestCase):
         }
         self.assertEqual(detect_signals(snapshot, dt.datetime(2026, 10, 27, 22, 10, tzinfo=dt.timezone.utc)), [])
 
-    def test_persistent_failure_and_cooldown(self):
+    def test_persistent_failure_creates_one_incident(self):
         signal = [{"key": "web-functionality", "detail": "HTTP 503"}]
         first, state = decision(signal, {}, 10000)
         second, state = decision(signal, state, 10600)
@@ -39,7 +44,76 @@ class ScreenerSignalTests(unittest.TestCase):
         self.assertIsNone(first)
         self.assertEqual(second, signal[0])
         self.assertIsNone(third)
-        self.assertEqual(retrigger, signal[0])
+        self.assertIsNone(retrigger)
+
+    def test_grafana_alert_starts_once_and_rearms_after_resolution(self):
+        alert = "RealEstateScreenerFunctionalityFailed"
+        signal = with_alerts([{"key": "web-functionality", "detail": "HTTP 503"}], {alert: {}})
+        first, state = decision(signal, {}, 10000)
+        repeated, state = decision(signal, state, 15000)
+        self.assertEqual(first["confirmed_alert"], alert)
+        self.assertIsNone(repeated)
+        _, state = decision([], state, 15100)
+        transient, state = decision(signal, state, 15150)
+        self.assertIsNone(transient)
+        _, state = decision([], state, 15160)
+        _, state = decision([], state, 15170)
+        new_episode, _ = decision(signal, state, 15200)
+        self.assertEqual(new_episode["key"], "web-functionality")
+
+    def test_unavailable_alert_groups_correlated_health_failure(self):
+        signals = [{"key": "web-unavailable", "detail": "no replicas"},
+                   {"key": "web-functionality", "detail": "HTTP 503"},
+                   {"key": "database-unready", "detail": "no ready instance"}]
+        enriched = with_alerts(signals, {
+            "RealEstateScreenerUnavailable": {},
+            "RealEstateScreenerFunctionalityFailed": {},
+        })
+        self.assertEqual([s["key"] for s in enriched], ["web-unavailable"])
+        self.assertEqual(enriched[0]["confirmed_alert"], "RealEstateScreenerUnavailable")
+
+    def test_alert_webhook_allowlist_resolution_and_expiry(self):
+        payload = {"alerts": [
+            {"status": "firing", "fingerprint": "one", "labels": {
+                "alertname": "RealEstateScreenerUnavailable",
+                "url": "untrusted"}},
+            {"status": "firing", "labels": {"alertname": "FalcoCriticalEvent"}},
+        ]}
+        state = apply_notification({}, payload, 10000)
+        self.assertEqual(set(state), {"RealEstateScreenerUnavailable"})
+        self.assertNotIn("untrusted", json.dumps(state))
+        self.assertEqual(active_alerts(state, 10000 + 8 * 60 * 60 + 1), {})
+        stale_resolution = {"alerts": [{"status": "resolved", "fingerprint": "old",
+                                         "labels": {"alertname": "RealEstateScreenerUnavailable"}}]}
+        self.assertEqual(apply_notification(state, stale_resolution, 10100), state)
+        payload["alerts"][0]["status"] = "resolved"
+        self.assertEqual(apply_notification(state, payload, 10200), {})
+
+    def test_alert_webhook_requires_bearer_and_rejects_malformed_body(self):
+        with patch("alert_webhook.TOKEN", "test-only-token"), patch(
+            "alert_webhook.read_state", return_value={}
+        ), patch("alert_webhook.save_state") as saved:
+            server = HTTPServer(("127.0.0.1", 0), Handler)
+            thread = Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_port}/alerts"
+                body = json.dumps({"alerts": [{"status": "firing", "fingerprint": "one",
+                    "labels": {"alertname": "RealEstateScreenerUnavailable"}}]}).encode()
+                with self.assertRaises(urllib.error.HTTPError) as unauthorized:
+                    urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=2)
+                self.assertEqual(unauthorized.exception.code, 401)
+                unauthorized.exception.close()
+                saved.assert_not_called()
+                request = urllib.request.Request(url, data=body,
+                    headers={"Authorization": "Bearer test-only-token"})
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 204)
+                self.assertIn("RealEstateScreenerUnavailable", saved.call_args.args[0])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
     def test_quality_incident_requires_confirmed_source_or_exact_plot_mismatch(self):
         snapshot = {
@@ -75,6 +149,7 @@ class ScreenerSignalTests(unittest.TestCase):
         _, state = decision(signal, {}, 10000)
         _, state = decision(signal, state, 10600)
         _, state = decision([], state, 11200)
+        _, state = decision([], state, 11300)
         new_first, state = decision(signal, state, 11800)
         self.assertIsNone(new_first)
         self.assertEqual(state["database-unready"]["seen"], 1)

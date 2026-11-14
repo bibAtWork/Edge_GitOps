@@ -7675,6 +7675,122 @@ spec:
           #   - Both Trivy rules matched severity="CRITICAL". The label value is
           #     title case, "Critical". They could not have matched even with a
           #     working notifier. Corrected below.
+          # The screener alert pair is also sent to the read-only CAO crew.
+          # Other infrastructure rules retain their human-only route until
+          # domain-specific evidence collectors and permissions exist.
+          - orgId: 1
+            name: Screener SRE Triggers
+            folder: Infrastructure
+            interval: 1m
+            rules:
+              - uid: real-estate-screener-unavailable
+                title: RealEstateScreenerUnavailable
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(up{job="real-estate-screener"}) or vector(0)'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 10m
+                annotations:
+                  summary: Screener metrics scrape has been unavailable for ten minutes
+                  description: >-
+                    Check screener-web readiness and its /metrics endpoint, then
+                    the OTel Prometheus receiver. CAO compares the alert with
+                    current Deployment and health evidence before investigating.
+                labels:
+                  severity: warning
+                  namespace: real-estate-screener
+                notification_settings:
+                  receiver: Telegram + CAO Screener
+                  group_by: [alertname]
+                  group_wait: 1m
+                  group_interval: 10m
+                  repeat_interval: 6h
+                isPaused: false
+              - uid: real-estate-screener-functionality-failed
+                title: RealEstateScreenerFunctionalityFailed
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 600
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: 'min(screener_last_health_check_success{job="real-estate-screener"})'
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [1]
+                            type: lt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: OK
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: Screener database functionality checks are failing
+                  description: >-
+                    /health/checks cannot verify its schema or listing, macro
+                    or auction views. CAO validates the live endpoint and checks
+                    recent database and deployment evidence.
+                labels:
+                  severity: warning
+                  namespace: real-estate-screener
+                notification_settings:
+                  receiver: Telegram + CAO Screener
+                  group_by: [alertname]
+                  group_wait: 1m
+                  group_interval: 10m
+                  repeat_interval: 6h
+                isPaused: false
           - orgId: 1
             name: Platform Health
             folder: Infrastructure

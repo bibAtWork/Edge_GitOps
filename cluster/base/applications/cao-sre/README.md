@@ -38,9 +38,9 @@ The built-in CAO scheduled flow runs every ten minutes. Its Python gate reads
 only the `real-estate-screener` namespace and the application's internal health
 endpoint. Startup installs both flow files on the state volume before adding
 their schedules, so a ConfigMap rotation cannot leave a persisted schedule
-pointing at a deleted timestamped mount. A symptom must appear twice before
-launch, and the same unresolved
-symptom has a one-hour cooldown. A recovered failed Job is not an active signal
+pointing at a deleted timestamped mount. A local symptom must appear twice
+before launch. Each active episode launches only one investigation and is
+rearmed after two healthy observations. A recovered failed Job is not an active signal
 when a newer Job succeeded. The gate saves a bounded incident packet under
 `/home/cao/incidents`, then enqueues it on the existing state volume. The
 one-minute controller starts the `screener_crew` workflow, validates the
@@ -50,11 +50,31 @@ Only one scheduled crew run is active at a time. The gate and queue expose
 aggregate metrics on port 9890. A warning fires if no successful gate
 observation has occurred for 30 minutes plus a 10-minute hold. General
 Kubernetes alerts cover pod and Deployment availability.
+
+Grafana also sends `RealEstateScreenerUnavailable` and
+`RealEstateScreenerFunctionalityFailed` to the internal, bearer-protected
+`/alerts` webhook on port 9891. It sends them to Telegram in the same contact
+point. The webhook accepts only those two alert names, stores only bounded alert
+state, and removes a resolved alert. The gate confirms a functionality failure
+against its fresh application observation; an unavailable scrape is also
+investigated when the Deployment is healthy. A Grafana-confirmed signal starts
+one crew run per active episode, while the existing two-observation gate remains
+the fallback for Kubernetes and application symptoms. Correlated web and
+functionality failures produce one incident. The webhook credential is one SOPS
+source rendered into the monitoring and CAO namespaces; rotate that source and
+reconcile both namespaces together.
+
+Recovery, Longhorn and platform-canary alerts remain human-routed. The current
+crew can only inspect the screener namespace; those alerts need separate
+read-only collectors, profiles and permissions before agent routing is safe.
+The canary metric must also be present in VictoriaMetrics before its alert is
+ported from the blackholed VMRule.
+
 The gate also reads `/health/ingestion`: it investigates a confirmed low-yield
 search or at least two exact plot-extraction mismatches among 20 labeled recent
 ImmoScout details. These are aggregate counts, not listing contents. Grafana
-sends one warning after 30 more minutes; CAO keeps its existing two-sample gate
-and cooldown to avoid duplicate investigations.
+sends one warning after 30 more minutes; CAO keeps its two-sample gate and
+episode deduplication to avoid duplicate investigations.
 
 The incident packet and handoff format use `schema_version: 1`. The RCA profile
 validates the triage handoff before use. A future PR member can consume an RCA

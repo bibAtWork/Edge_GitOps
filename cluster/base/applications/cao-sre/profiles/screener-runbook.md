@@ -6,6 +6,7 @@ This mounted excerpt gives the incident agent stable starting context.
 - Namespace: `real-estate-screener`.
 - Web: `screener-web`; internal readiness: `http://screener-web.real-estate-screener.svc:3000/health/checks`.
 - Metrics: same service at `/metrics`; `screener_last_health_check_success` is the functionality signal.
+- `RealEstateScreenerUnavailable` means Grafana could not see the screener scrape. If the web Deployment and application health are healthy, investigate the metrics path or OTel receiver rather than calling the application down. `RealEstateScreenerFunctionalityFailed` is corroborated against the current `/health/checks` response before CAO starts.
 - Ingestion quality: `/health/ingestion` reports configured search yields and exact labeled-plot extraction mismatches. It is deliberately separate from Kubernetes readiness. A source needs two fresh low-yield successes against six or more historic runs before it is degraded; sparse searches remain quiet.
 - PostgreSQL: CloudNativePG cluster `screener-pg`; web readiness includes schema and query checks.
 - Collector: CronJob `screener-collector`, every 30 minutes, can fail because of upstream portals as well as application faults.

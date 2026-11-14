@@ -15,6 +15,10 @@ spec:
         secretKeyRef:
           name: telegram-credentials
           key: TELEGRAM_BOT_TOKEN
+      CAO_ALERT_WEBHOOK_TOKEN:
+        secretKeyRef:
+          name: cao-alert-webhook
+          key: token
 
     # Reloader restarts Grafana whenever telegram-credentials is rotated.
     podAnnotations:
@@ -57,6 +61,25 @@ spec:
                   chatid: '-5517781513' # trunk-ignore(yamllint/quoted-strings)
                   parse_mode: None
                   message: '{{ "{{" }} template "homelab.listings.message" . }}'
+
+          - orgId: 1
+            name: Telegram + CAO Screener
+            receivers:
+              - uid: telegram-screener-sre
+                type: telegram
+                disableResolveMessage: false
+                settings:
+                  bottoken: $TELEGRAM_BOT_TOKEN
+                  chatid: '-1004444712571' # trunk-ignore(yamllint/quoted-strings)
+              - uid: cao-screener-webhook
+                type: webhook
+                disableResolveMessage: false
+                settings:
+                  url: http://cao-sre.cao-sre.svc.cluster.local:9891/alerts
+                  httpMethod: POST
+                  authorization_scheme: Bearer
+                  authorization_credentials: $CAO_ALERT_WEBHOOK_TOKEN
+                  maxAlerts: '10'
 
       policies.yaml:
         apiVersion: 1

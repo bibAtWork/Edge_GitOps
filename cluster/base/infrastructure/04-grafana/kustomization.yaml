@@ -1,7 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - ../../secrets/cao-alert-webhook/monitoring
   - helmrelease.yaml
+  - alert-webhook-egress.yaml
   - falco-dashboard-reader.yaml
   - alert-state-pvc.yaml
   - admin-secret.yaml
