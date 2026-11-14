@@ -21,17 +21,23 @@ configMapGenerator:
       - codex-overlay.yaml=profiles/overlays/codex.yaml
       - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
+      - infra_gate.py=runtime/infra_gate.py
+      - infra_context.py=runtime/infra_context.py
       - alert_webhook.py=runtime/alert_webhook.py
       - native_learning.py=runtime/native_learning.py
       - recovery.py=runtime/recovery.py
       - metrics.py=runtime/metrics.py
       - crew_controller.py=runtime/crew_controller.py
       - screener_crew.py=runtime/screener_crew.py
+      - infra_crew.py=runtime/infra_crew.py
       - screener_context.py=runtime/screener_context.py
       - screener-monitor.md=flows/screener-monitor.md
+      - infra-monitor.md=flows/infra-monitor.md
       - screener-crew-controller.md=flows/screener-crew-controller.md
       - screener-triage.md=profiles/screener-triage.md
       - screener-rca.md=profiles/screener-rca.md
+      - infra-triage.md=profiles/infra-triage.md
+      - infra-rca.md=profiles/infra-rca.md
       - screener-runbook.md=profiles/screener-runbook.md
   - name: cao-sre-pr-code
     namespace: cao-sre

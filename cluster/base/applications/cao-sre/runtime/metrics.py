@@ -9,13 +9,16 @@ from pathlib import Path
 
 QUEUE = Path(os.environ.get("CAO_CREW_QUEUE", "/home/cao/crew-queue"))
 GATE_STATUS = Path(os.environ.get("CAO_GATE_STATUS", "/home/cao/gate-status.json"))
+INFRA_STATUS = Path(os.environ.get("CAO_INFRA_GATE_STATUS", "/home/cao/infra-gate-status.json"))
 STATES = ("queued", "running", "waiting", "completed", "needs_review")
 
 
 def snapshot():
     counts = Counter()
     latest_completion = 0
-    for path in QUEUE.glob("screener-*.json"):
+    for path in QUEUE.glob("*.json"):
+        if not path.name.startswith(("screener-", "infra-")):
+            continue
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -29,6 +32,10 @@ def snapshot():
         gate = json.loads(GATE_STATUS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         gate = {}
+    try:
+        infra = json.loads(INFRA_STATUS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        infra = {}
     lines = [
         "# HELP cao_sre_gate_last_success_timestamp_seconds Last successful gate observation.",
         "# TYPE cao_sre_gate_last_success_timestamp_seconds gauge",
@@ -36,6 +43,9 @@ def snapshot():
         "# HELP cao_sre_gate_last_attempt_timestamp_seconds Last gate observation attempt.",
         "# TYPE cao_sre_gate_last_attempt_timestamp_seconds gauge",
         f"cao_sre_gate_last_attempt_timestamp_seconds {int(gate.get('last_attempt') or 0)}",
+        "# HELP cao_sre_infra_gate_last_success_timestamp_seconds Last successful infrastructure gate observation.",
+        "# TYPE cao_sre_infra_gate_last_success_timestamp_seconds gauge",
+        f"cao_sre_infra_gate_last_success_timestamp_seconds {int(infra.get('last_success') or 0)}",
         "# HELP cao_sre_crew_records Number of durable incident records by state.",
         "# TYPE cao_sre_crew_records gauge",
     ]

@@ -48,14 +48,16 @@ def redact(value):
     return text
 
 
-def kube_get(path, raw=False, receipts=None):
+def kube_get(path, raw=False, receipts=None, max_bytes=400_000):
     if not TOKEN.exists():
         raise RuntimeError("Kubernetes service account token is unavailable")
     context = ssl.create_default_context(cafile=CA)
     url = f"https://{API}:{PORT}{path}"
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN.read_text().strip()}"})
     with urllib.request.urlopen(request, timeout=8, context=context) as response:
-        data = response.read(400_000)
+        data = response.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ValueError("Kubernetes response exceeds collector limit")
         if receipts is not None:
             receipts.append({"method": "GET", "target": path, "status": response.status,
                              "observed_at": stamp(now())})

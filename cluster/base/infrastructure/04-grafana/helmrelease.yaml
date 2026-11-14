@@ -6439,6 +6439,12 @@ spec:
                     The newest recovery point in which this dataset passed its restore test is older than the 24-hour RPO. Backups may still be running and finishing -- a point only counts once its restore test has passed. Look at the latest recovery-point-<application> Workflow in backup-system: a FAILED point keeps the logs of its failed steps in the configmap logs-<workflow>.
                 labels:
                   severity: critical
+                notification_settings:
+                  receiver: Telegram + CAO
+                  group_by: [alertname, application, dataset]
+                  group_wait: 1m
+                  group_interval: 10m
+                  repeat_interval: 6h
                 isPaused: false
               - uid: recovery-offsite-stale
                 title: RecoveryOffsiteStale
@@ -6500,6 +6506,12 @@ spec:
                     No recovery point of this dataset has been promoted to the AWS vault and verified there for more than 48 hours, so losing the house now would lose more than the offsite RPO allows. Either there was no validated point to promote (see RecoveryPointStale), or promotion failed or was refused (see RecoveryPromotionRefused). Look at the latest promote-<application> Workflow in backup-system. Pending points stay pending and are promoted by the next successful run.
                 labels:
                   severity: critical
+                notification_settings:
+                  receiver: Telegram + CAO
+                  group_by: [alertname, application, dataset]
+                  group_wait: 1m
+                  group_interval: 10m
+                  repeat_interval: 6h
                 isPaused: false
               - uid: recovery-point-failed
                 title: RecoveryPointFailed
@@ -7339,6 +7351,12 @@ spec:
                     Longhorn has marked a disk not ready, so no volume backed by it can attach and every stateful pod using one will stay Pending or CrashLooping. Read the reason from the condition_reason label on longhorn_disk_status. DiskFilesystemChanged means the diskUUID Longhorn recorded no longer matches the longhorn-disk.cfg on the filesystem -- which happens when the disk is replaced, reformatted, or re-initialised underneath it, and Longhorn then refuses it rather than risk writing replicas onto the wrong storage. Compare the diskUUID in nodes.longhorn.io status.diskStatus against the on-disk longhorn-disk.cfg. If the filesystem genuinely is the original, restoring the recorded UUID into that file re-adopts the disk with its replicas intact; if it genuinely is a new disk, the replicas are gone and the volumes must be restored from backup.
                 labels:
                   severity: critical
+                notification_settings:
+                  receiver: Telegram + CAO
+                  group_by: [alertname]
+                  group_wait: 1m
+                  group_interval: 10m
+                  repeat_interval: 6h
                 isPaused: false
               - uid: longhorn-not-schedulable
                 title: LonghornNodeNotSchedulable
@@ -7731,7 +7749,7 @@ spec:
                   severity: warning
                   namespace: real-estate-screener
                 notification_settings:
-                  receiver: Telegram + CAO Screener
+                  receiver: Telegram + CAO
                   group_by: [alertname]
                   group_wait: 1m
                   group_interval: 10m
@@ -7785,7 +7803,7 @@ spec:
                   severity: warning
                   namespace: real-estate-screener
                 notification_settings:
-                  receiver: Telegram + CAO Screener
+                  receiver: Telegram + CAO
                   group_by: [alertname]
                   group_wait: 1m
                   group_interval: 10m
@@ -7848,6 +7866,12 @@ spec:
                     export path before attributing the failure to the Gateway.
                 labels:
                   severity: critical
+                notification_settings:
+                  receiver: Telegram + CAO
+                  group_by: [alertname]
+                  group_wait: 1m
+                  group_interval: 10m
+                  repeat_interval: 6h
                 isPaused: false
           - orgId: 1
             name: Platform Health

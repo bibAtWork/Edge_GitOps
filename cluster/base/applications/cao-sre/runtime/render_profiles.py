@@ -5,7 +5,7 @@ from pathlib import Path
 
 CONFIG = Path("/config")
 OUTPUT = Path("/home/cao/agent-profiles")
-AGENTS = ("screener-triage", "screener-rca")
+AGENTS = ("screener-triage", "screener-rca", "infra-triage", "infra-rca")
 HARNESSES = ("opencode", "codex")
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Receive only the two Grafana screener alerts used by the read-only crew."""
+"""Receive allowlisted Grafana alerts for the read-only SRE crews."""
 
 import hmac
 import json
@@ -10,7 +10,10 @@ from pathlib import Path
 
 STATE = Path(os.environ.get("CAO_ALERT_STATE", "/home/cao/alert-state.json"))
 TOKEN = os.environ.get("CAO_ALERT_WEBHOOK_TOKEN", "")
-ALLOWED = frozenset(("RealEstateScreenerUnavailable", "RealEstateScreenerFunctionalityFailed"))
+SCREENER = frozenset(("RealEstateScreenerUnavailable", "RealEstateScreenerFunctionalityFailed"))
+INFRA = frozenset(("PlatformCanarySyntheticFailed", "RecoveryPointStale",
+                   "RecoveryOffsiteStale", "LonghornDiskNotReady"))
+ALLOWED = SCREENER | INFRA
 MAX_BYTES = 16_384
 MAX_AGE = 8 * 60 * 60  # The contact point repeats firing notifications every six hours.
 
@@ -18,8 +21,8 @@ MAX_AGE = 8 * 60 * 60  # The contact point repeats firing notifications every si
 def active_alerts(state, timestamp):
     if not isinstance(state, dict):
         return {}
-    return {name: value for name, value in state.items()
-            if name in ALLOWED and isinstance(value, dict)
+    return {key: value for key, value in state.items()
+            if isinstance(value, dict) and value.get("alertname", key) in ALLOWED
             and isinstance(value.get("updated_at"), int)
             and 0 <= timestamp - value["updated_at"] <= MAX_AGE}
 
@@ -39,12 +42,27 @@ def apply_notification(state, payload, timestamp):
         fingerprint = alert.get("fingerprint", "")
         if not isinstance(fingerprint, str) or len(fingerprint) > 128:
             raise ValueError("Invalid fingerprint")
+        if name in INFRA and not fingerprint:
+            raise ValueError("Missing infrastructure fingerprint")
+        labels = alert["labels"]
+        application = labels.get("application", "")
+        dataset = labels.get("dataset", "")
+        if any(not isinstance(value, str) or len(value) > 80 or
+               not all(c.isalnum() or c in "._-" for c in value)
+               for value in (application, dataset)):
+            raise ValueError("Invalid resource labels")
+        if name.startswith("Recovery") and (not application or not dataset):
+            # No target identity means the crew cannot establish what is stale.
+            continue
+        key = name if name in SCREENER else f"{name}:{fingerprint}"
         if alert.get("status") == "firing":
-            current[name] = {"fingerprint": fingerprint, "updated_at": timestamp}
+            current[key] = {"fingerprint": fingerprint, "updated_at": timestamp,
+                            "alertname": name, "application": application,
+                            "dataset": dataset}
         elif alert.get("status") == "resolved":
             # A delayed resolved notification must not clear a newer firing.
-            if current.get(name, {}).get("fingerprint") == fingerprint:
-                current.pop(name, None)
+            if current.get(key, {}).get("fingerprint") == fingerprint:
+                current.pop(key, None)
         else:
             raise ValueError("Invalid alert status")
     return current

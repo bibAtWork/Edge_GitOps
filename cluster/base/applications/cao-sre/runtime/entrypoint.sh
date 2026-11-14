@@ -15,9 +15,15 @@ cao install /home/cao/agent-profiles/screener-triage.md
 cao install /home/cao/agent-profiles/screener-rca.md
 cao install /home/cao/agent-profiles/screener-triage-codex.md
 cao install /home/cao/agent-profiles/screener-rca-codex.md
+cao install /home/cao/agent-profiles/infra-triage.md
+cao install /home/cao/agent-profiles/infra-rca.md
+cao install /home/cao/agent-profiles/infra-triage-codex.md
+cao install /home/cao/agent-profiles/infra-rca-codex.md
 cao install retrospector --provider opencode_cli
 install -m 0644 /config/screener_crew.py /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
+install -m 0644 /config/infra_crew.py /home/cao/.aws/cli-agent-orchestrator/workflows/infra_crew.py
 install -m 0644 /config/screener-monitor.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-monitor.md
+install -m 0644 /config/infra-monitor.md /home/cao/.aws/cli-agent-orchestrator/flows/infra-monitor.md
 install -m 0644 /config/screener-crew-controller.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-crew-controller.md
 python3 /config/metrics.py &
 metrics_pid=$!
@@ -37,8 +43,11 @@ until cao schedule list >/dev/null 2>&1; do
   sleep 2
 done
 cao workflow validate /home/cao/.aws/cli-agent-orchestrator/workflows/screener_crew.py
+cao workflow validate /home/cao/.aws/cli-agent-orchestrator/workflows/infra_crew.py
 cao schedule remove screener-monitor >/dev/null 2>&1 || true
 cao schedule add /home/cao/.aws/cli-agent-orchestrator/flows/screener-monitor.md
+cao schedule remove infra-monitor >/dev/null 2>&1 || true
+cao schedule add /home/cao/.aws/cli-agent-orchestrator/flows/infra-monitor.md
 cao schedule remove screener-crew-controller >/dev/null 2>&1 || true
 cao schedule add /home/cao/.aws/cli-agent-orchestrator/flows/screener-crew-controller.md
 wait "$server_pid"

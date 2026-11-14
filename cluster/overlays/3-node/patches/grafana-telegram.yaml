@@ -63,7 +63,7 @@ spec:
                   message: '{{ "{{" }} template "homelab.listings.message" . }}'
 
           - orgId: 1
-            name: Telegram + CAO Screener
+            name: Telegram + CAO
             receivers:
               - uid: telegram-screener-sre
                 type: telegram
