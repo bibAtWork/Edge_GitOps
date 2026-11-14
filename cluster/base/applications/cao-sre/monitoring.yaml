@@ -13,21 +13,3 @@ spec:
       relabelConfigs:
         - targetLabel: job
           replacement: cao-sre
----
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMRule
-metadata:
-  name: cao-sre-gate
-  namespace: cao-sre
-spec:
-  groups:
-    - name: cao-sre
-      rules:
-        - alert: CaoSreGateStale
-          expr: time() - cao_sre_gate_last_success_timestamp_seconds > 1800
-          for: 10m
-          labels:
-            severity: warning
-          annotations:
-            summary: The SRE investigation gate has not observed the screener recently
-            description: Check CAO schedules and the gate log. The gate normally runs every ten minutes; this alert requires over thirty minutes without a successful observation.
