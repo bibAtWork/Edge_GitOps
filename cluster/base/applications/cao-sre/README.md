@@ -62,7 +62,11 @@ one crew run per active episode, while the existing two-observation gate remains
 the fallback for Kubernetes and application symptoms. Correlated web and
 functionality failures produce one incident. The webhook credential is one SOPS
 source rendered into the monitoring and CAO namespaces; rotate that source and
-reconcile both namespaces together.
+reconcile both namespaces together. On a trusted admin machine with the
+offline age identity, generate a new random token and use
+`sops set --value-stdin cluster/base/secrets/cao-alert-webhook-source/secret.yaml '["stringData"]["token"]'`
+with the JSON-encoded token on stdin. The CAO Secret and Grafana Secret are
+rendered from the same encrypted source, so they cannot drift.
 
 Recovery, Longhorn and platform-canary alerts remain human-routed. The current
 crew can only inspect the screener namespace; those alerts need separate
