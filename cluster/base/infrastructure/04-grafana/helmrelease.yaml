@@ -7791,6 +7791,64 @@ spec:
                   group_interval: 10m
                   repeat_interval: 6h
                 isPaused: false
+          # OTel's Prometheus exporter maps the canary's unit "1" gauge to
+          # platform_canary_synthetic_success_ratio. The old VMRule queried
+          # the unexported name and could not notify through blackholed vmalert.
+          - orgId: 1
+            name: Synthetic Availability
+            folder: Infrastructure
+            interval: 1m
+            rules:
+              - uid: platform-canary-synthetic-failed
+                title: PlatformCanarySyntheticFailed
+                condition: B
+                data:
+                  - refId: A
+                    relativeTimeRange:
+                      from: 1800
+                      to: 0
+                    datasourceUid: victoriametrics
+                    model:
+                      expr: >-
+                        (1 - max_over_time(platform_canary_synthetic_success_ratio[15m]))
+                        or absent_over_time(platform_canary_synthetic_success_ratio[15m])
+                      instant: true
+                      range: false
+                      refId: A
+                  - refId: B
+                    datasourceUid: '-100'
+                    model:
+                      type: threshold
+                      refId: B
+                      conditions:
+                        - evaluator:
+                            params: [0]
+                            type: gt
+                          operator:
+                            type: and
+                          query:
+                            params: [A]
+                          reducer:
+                            params: []
+                            type: last
+                          type: query
+                      datasource:
+                        type: __expr__
+                        uid: '-100'
+                      expression: A
+                noDataState: Alerting
+                execErrState: Error
+                for: 5m
+                annotations:
+                  summary: Platform canary cannot verify TLS, routing and OIDC
+                  description: >-
+                    No successful synthetic check has been exported for 15
+                    minutes. Inspect the platform-canary-synthetic CronJob,
+                    its latest Job log, the canary route and the OTel metric
+                    export path before attributing the failure to the Gateway.
+                labels:
+                  severity: critical
+                isPaused: false
           - orgId: 1
             name: Platform Health
             folder: Infrastructure
