@@ -43,7 +43,10 @@ when a newer Job succeeded. The gate saves a bounded incident packet under
 five-minute controller starts the `screener_crew` workflow, validates the
 triage handoff before RCA, and validates the RCA handoff afterward. Reports
 and handoffs are saved under `/home/cao/reports` and `/home/cao/handoffs`.
-Only one scheduled crew run is active at a time.
+Only one scheduled crew run is active at a time. The gate and queue expose
+aggregate metrics on port 9890. A warning fires if no successful gate
+observation has occurred for 30 minutes plus a 10-minute hold. General
+Kubernetes alerts cover pod and Deployment availability.
 The gate also reads `/health/ingestion`: it investigates a confirmed low-yield
 search or at least two exact plot-extraction mismatches among 20 labeled recent
 ImmoScout details. These are aggregate counts, not listing contents. Grafana
@@ -68,13 +71,29 @@ message. A CLI left running on a quota screen must first reach CAO's step
 timeout before a retry can be scheduled. It allows
 three attempts total. Unknown failures, missing journal state, and runs still
 active after 45 minutes go to `needs_review` without spawning a duplicate.
-Records live in `/home/cao/crew-queue`.
+Records live in `/home/cao/crew-queue`. Before a retry, the controller rejects
+packets older than two hours; the gate creates a new incident if the symptom
+persists. An old waiting run becomes `needs_review` instead of replaying.
+The controller requires a packet no older than 15 minutes for an initial run;
+the workflow permits its journal to replay later without changing the evidence.
+
+After RCA, the workflow writes a bounded outcome summary under
+`/home/cao/lessons`. A cause is eligible for reuse only when RCA explicitly
+confirms it with evidence and the gate later observes the symptom absent twice.
+At most three matching past causes appear as historical hypotheses in a later
+incident packet. Unconfirmed outcomes remain reviewable but are not reused.
+These records do not authorize remediation or modify agent profiles. CAO's
+native self-learning can replace this small feedback store after its memory
+and promotion behavior has been reviewed; unattended instruction promotion
+remains disabled.
 To add another harness, add its pinned CLI and a small profile overlay. The
 handoff format does not depend on the harness. Codex uses a named CLI config
 profile with no interactive approvals. The pod's `RuntimeDefault` seccomp policy
 blocks Codex's nested bubblewrap sandbox, so Codex runs commands without its
 own sandbox inside the constrained pod. Kubernetes RBAC, read-only mounts,
-non-root UID, and network policy are the enforced boundary. CAO's `allowedTools`
+non-root UID, and network policy are the enforced boundary. The OpenCode
+profiles use explicit `allowedTools`; the old undefined custom roles caused
+CAO to warn about an unrestricted fallback. CAO's `allowedTools`
 list is omitted from Codex profiles because those CAO tool names do not map to
 Codex tools and CAO cannot enforce this list for Codex. The same pod user can
 access both harnesses' credentials.

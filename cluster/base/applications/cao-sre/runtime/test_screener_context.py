@@ -3,10 +3,12 @@
 import datetime as dt
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from crew_controller import failure_kind, reconcile
 from gate import decision
+from feedback import observe_recovery, prior_lessons, record_candidate
+from metrics import snapshot as metrics_snapshot
 from pr_gate import validate as validate_pr_candidate
 from screener_context import (NAMESPACE, REQUIRED_OBSERVATIONS, detect_signals,
                               now, redact, validate_handoff, validate_packet)
@@ -122,6 +124,53 @@ class ScreenerSignalTests(unittest.TestCase):
             reconcile(record)
         self.assertEqual(record["state"], "waiting")
         self.assertEqual(record["next_retry_at"], 100 + 5 * 60 * 60)
+
+    def test_stale_quota_retry_is_quarantined_without_starting_agent(self):
+        record = {"state": "waiting", "run_id": "crew-test", "attempts": 1,
+                  "incident_id": "screener-20261031T185000Z-aabbccdd",
+                  "packet_path": "/home/cao/incidents/old.json", "next_retry_at": 100}
+        with patch("crew_controller.time.time", return_value=101), patch(
+            "crew_controller.validate_packet", side_effect=ValueError("Packet is stale")
+        ), patch("crew_controller.subprocess.Popen") as spawned:
+            reconcile(record)
+        self.assertEqual((record["state"], record["reason"]),
+                         ("needs_review", "stale_incident"))
+        spawned.assert_not_called()
+
+    def test_lesson_reuse_requires_confirmed_cause_and_two_healthy_observations(self):
+        incident = "screener-20261031T185000Z-aabbccdd"
+        packet = {"observed_at": "2026-10-31T18:50:00Z", "signal": {"key": "database-unready"}}
+        handoff = {"schema_version": 1, "incident_id": incident, "stage": "rca",
+                   "summary": "Database was unavailable", "hypotheses": [
+                       {"cause": "database restart", "evidence": "One ready replica returned later"}],
+                   "recommended_checks": ["Check CNPG readiness"], "root_cause_confirmed": True,
+                   "scope": "application"}
+        with patch("feedback.LESSONS") as lessons, patch("feedback.save") as saved, patch(
+            "feedback.validate_packet", return_value=packet
+        ), patch("feedback.validate_handoff", return_value=handoff):
+            path = lessons.__truediv__.return_value
+            path.exists.return_value = False
+            record_candidate("packet", "handoff", incident)
+            state = saved.call_args.args[1]
+            lessons.glob.return_value = [path]
+            path.read_text.side_effect = lambda **_: json.dumps(state)
+            saved.side_effect = lambda _path, document: state.update(document)
+            self.assertEqual(prior_lessons("database-unready"), [])
+            observe_recovery({"database-unready"})
+            observe_recovery(set())
+            self.assertEqual(prior_lessons("database-unready"), [])
+            observe_recovery(set())
+            self.assertEqual(prior_lessons("database-unready")[0]["cause"], "database restart")
+
+    def test_metrics_do_not_expose_incident_ids(self):
+        with patch("metrics.QUEUE") as queue, patch("metrics.GATE_STATUS") as gate_status:
+            record = queue.glob.return_value = [MagicMock()]
+            record[0].read_text.return_value = json.dumps(
+                {"state": "needs_review", "incident_id": "private-incident"})
+            gate_status.read_text.side_effect = OSError("absent")
+            text = metrics_snapshot()
+            self.assertIn('cao_sre_crew_records{state="needs_review"} 1', text)
+            self.assertNotIn("private-incident", text)
 
     def test_pr_gate_rejects_healthy_rca(self):
         handoff = {"schema_version": 1, "stage": "rca",
