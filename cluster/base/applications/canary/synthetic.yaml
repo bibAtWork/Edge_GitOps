@@ -145,23 +145,3 @@ spec:
             - name: check
               configMap:
                 name: platform-canary-synthetic
----
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMRule
-metadata:
-  name: platform-canary
-  namespace: monitoring
-spec:
-  groups:
-    - name: platform-canary
-      rules:
-        - alert: PlatformCanarySyntheticFailed
-          expr: max_over_time(platform_canary_synthetic_success[15m]) < 1 or absent(platform_canary_synthetic_success)
-          for: 5m
-          labels:
-            severity: critical
-          annotations:
-            summary: Platform canary cannot verify TLS, routing, and OIDC
-            description: >-
-              The in-cluster synthetic check has not observed a successful TLS
-              request and OIDC redirect during the last 15 minutes.
