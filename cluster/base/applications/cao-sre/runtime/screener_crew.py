@@ -8,7 +8,7 @@ from cao_workflow import emit_output, get_inputs, step
 
 sys.path.insert(0, "/config")
 from screener_context import validate_handoff, validate_packet
-from feedback import record_candidate
+from native_learning import report_outcome
 
 INPUTS = {
     "incident_id": {"type": "string", "required": True},
@@ -78,6 +78,18 @@ except (OSError, ValueError) as exc:
         timeout=1800,
     )
     checked_handoff(rca_path, incident_id, "rca")
-record_candidate(packet_path, rca_path, incident_id)
+rca = checked_handoff(rca_path, incident_id, "rca")
+report_outcome(incident_id, rca)
+step(
+    "opencode_cli",
+    "retrospector",
+    f"Review native CAO outcomes for session {incident_id}, workflow screener_crew, "
+    "agent screener-rca. Store at most one reusable, evidence-based lesson for "
+    "screener-rca if it changes future investigations; otherwise store none. "
+    "Do not read incident files, logs, secrets, or production resources.",
+    recovery="idempotent",
+    step_id="retrospect",
+    timeout=120,
+)
 emit_output({"incident_id": incident_id, "triage_handoff": str(triage_path),
              "rca_handoff": str(rca_path), "pr_stage": "requires_operator"})

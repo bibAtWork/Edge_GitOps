@@ -80,15 +80,14 @@ persists. An old waiting run becomes `needs_review` instead of replaying.
 The controller requires a packet no older than 15 minutes for an initial run;
 the workflow permits its journal to replay later without changing the evidence.
 
-After RCA, the workflow writes a bounded outcome summary under
-`/home/cao/lessons`. A cause is eligible for reuse only when RCA explicitly
-confirms it with evidence and the gate later observes the symptom absent twice.
-At most three matching past causes appear as historical hypotheses in a later
-incident packet. Unconfirmed outcomes remain reviewable but are not reused.
-These records do not authorize remediation or modify agent profiles. CAO's
-native self-learning can replace this small feedback store after its memory
-and promotion behavior has been reviewed; unattended instruction promotion
-remains disabled.
+CAO's native self-learning is enabled for this repeated workflow. Once the RCA
+handoff validates, the workflow writes one redacted, replay-safe outcome to
+CAO's SQLite outcome store and hands its session to the built-in retrospector.
+The retrospector may store an evidence-based lesson in `screener-rca` agent
+memory; it can also store none. CAO recalls relevant lessons for later agent
+sessions. The former custom lesson files and packet injection are removed.
+Outcomes and lessons are advisory, not authorization to remediate. Automatic
+promotion of lessons into standing profile instructions remains disabled.
 To add another harness, add its pinned CLI and a small profile overlay. The
 handoff format does not depend on the harness. Codex uses a named CLI config
 profile with no interactive approvals. The pod's `RuntimeDefault` seccomp policy
