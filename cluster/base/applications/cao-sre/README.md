@@ -36,7 +36,10 @@ path before CAO starts so terminal sessions inherit the intended rules.
 
 The built-in CAO scheduled flow runs every ten minutes. Its Python gate reads
 only the `real-estate-screener` namespace and the application's internal health
-endpoint. A symptom must appear twice before launch, and the same unresolved
+endpoint. Startup installs both flow files on the state volume before adding
+their schedules, so a ConfigMap rotation cannot leave a persisted schedule
+pointing at a deleted timestamped mount. A symptom must appear twice before
+launch, and the same unresolved
 symptom has a one-hour cooldown. A recovered failed Job is not an active signal
 when a newer Job succeeded. The gate saves a bounded incident packet under
 `/home/cao/incidents`, then enqueues it on the existing state volume. The
