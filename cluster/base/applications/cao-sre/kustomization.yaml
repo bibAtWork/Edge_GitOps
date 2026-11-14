@@ -21,6 +21,7 @@ configMapGenerator:
       - opencode.json=runtime/opencode.json
       - gate.py=runtime/gate.py
       - native_learning.py=runtime/native_learning.py
+      - recovery.py=runtime/recovery.py
       - metrics.py=runtime/metrics.py
       - crew_controller.py=runtime/crew_controller.py
       - screener_crew.py=runtime/screener_crew.py
