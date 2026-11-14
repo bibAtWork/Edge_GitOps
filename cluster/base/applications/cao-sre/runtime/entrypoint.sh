@@ -21,9 +21,11 @@ install -m 0644 /config/screener-monitor.md /home/cao/.aws/cli-agent-orchestrato
 install -m 0644 /config/screener-crew-controller.md /home/cao/.aws/cli-agent-orchestrator/flows/screener-crew-controller.md
 python3 /config/metrics.py &
 metrics_pid=$!
+python3 /config/alert_webhook.py &
+alert_pid=$!
 cao-server --host 0.0.0.0 --port 9889 &
 server_pid=$!
-trap 'kill "$server_pid" "$metrics_pid" 2>/dev/null || true; wait "$server_pid" "$metrics_pid" 2>/dev/null || true' EXIT INT TERM
+trap 'kill "$server_pid" "$metrics_pid" "$alert_pid" 2>/dev/null || true; wait "$server_pid" "$metrics_pid" "$alert_pid" 2>/dev/null || true' EXIT INT TERM
 
 attempt=0
 until cao schedule list >/dev/null 2>&1; do

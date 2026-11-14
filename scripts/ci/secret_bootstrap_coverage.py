@@ -14,6 +14,7 @@ MANUAL_SOPS_RUNBOOKS = {
     "cluster/base/secrets/google-gemini-api-key.yaml": "cluster/base/applications/sre-agent/README.md",
     "cluster/base/secrets/ghcr-pull-secret.yaml": "cluster/base/applications/sre-agent/README.md",
     "cluster/base/applications/cao-sre/ghcr-pull-secret.yaml": "cluster/base/applications/cao-sre/README.md",
+    "cluster/base/secrets/cao-alert-webhook-source/secret.yaml": "cluster/base/applications/cao-sre/README.md",
     "cluster/base/secrets/lakehouse-s3-secret.yaml": "docs/runbooks/lakehouse.md",
     "cluster/base/applications/real-estate-screener/recovery-object-store.yaml": "docs/runbooks/real-estate-screener.md",
 }

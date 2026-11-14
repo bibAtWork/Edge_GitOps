@@ -93,3 +93,22 @@ metadata:
 spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cao-sre-grafana-alerts
+  namespace: cao-sre
+spec:
+  endpointSelector:
+    matchLabels:
+      app: cao-sre
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: grafana
+      toPorts:
+        - ports:
+            - port: '9891'
+              protocol: TCP

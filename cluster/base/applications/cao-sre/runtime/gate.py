@@ -11,21 +11,27 @@ from pathlib import Path
 from screener_context import collect, detect_signals, write_packet
 from crew_controller import enqueue
 from recovery import complete_observation, observe, verified_prior_causes
+from alert_webhook import active_alerts, read_state
 
 STATE = Path(os.environ.get("CAO_GATE_STATE", "/home/cao/monitor-state.json"))
 STATUS = Path(os.environ.get("CAO_GATE_STATUS", "/home/cao/gate-status.json"))
-COOLDOWN_SECONDS = 60 * 60
 
 
 def decision(signals, state, timestamp):
     present = {s["key"] for s in signals}
-    state = {key: value for key, value in state.items() if key in present}
+    for key in list(state):
+        if key not in present:
+            state[key]["clear_seen"] = state[key].get("clear_seen", 0) + 1
+            if state[key]["clear_seen"] >= 2:
+                del state[key]
     selected = None
     for signal in signals:
         key = signal["key"]
-        entry = state.setdefault(key, {"seen": 0, "sent_at": 0})
+        entry = state.setdefault(key, {"seen": 0, "sent_at": 0, "clear_seen": 0})
+        entry["clear_seen"] = 0
         entry["seen"] += 1
-        if entry["seen"] >= 2 and timestamp - entry["sent_at"] >= COOLDOWN_SECONDS and selected is None:
+        required = 1 if signal.get("confirmed_alert") else 2
+        if entry["seen"] >= required and not entry["sent_at"] and selected is None:
             selected = signal
             entry["sent_at"] = timestamp
     return selected, state
@@ -38,6 +44,28 @@ def save_state(state):
     os.replace(temporary, STATE)
 
 
+def with_alerts(signals, firing):
+    """Corroborate Grafana with fresh cluster evidence and avoid duplicate causes."""
+    signals = [dict(signal) for signal in signals]
+    if "RealEstateScreenerUnavailable" in firing:
+        web = next((s for s in signals if s["key"] in ("web-missing", "web-unavailable")), None)
+        if web is None:
+            # A healthy web Deployment with no scrape is itself worth triage.
+            web = {"key": "metric-scrape-unavailable",
+                   "detail": "Grafana reports the screener metrics scrape unavailable"}
+            signals.insert(0, web)
+        web["confirmed_alert"] = "RealEstateScreenerUnavailable"
+        # One service outage should not create separate health or DB incidents.
+        # Their evidence remains in the packet for the agent to inspect.
+        signals = [s for s in signals
+                   if s["key"] not in ("web-functionality", "database-missing", "database-unready")]
+    elif "RealEstateScreenerFunctionalityFailed" in firing:
+        functionality = next((s for s in signals if s["key"] == "web-functionality"), None)
+        if functionality is not None:
+            functionality["confirmed_alert"] = "RealEstateScreenerFunctionalityFailed"
+    return signals
+
+
 def main():
     timestamp = int(time.time())
     try:
@@ -48,6 +76,8 @@ def main():
     try:
         snapshot = collect()
         signals = detect_signals(snapshot)
+        firing = active_alerts(read_state(), timestamp)
+        signals = with_alerts(signals, firing)
         if complete_observation(snapshot):
             observe({signal["key"] for signal in signals})
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
