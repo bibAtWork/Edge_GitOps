@@ -7920,7 +7920,9 @@ spec:
                       expression: A
                 noDataState: Alerting
                 execErrState: Error
-                for: 10m
+                # A newly installed ten-minute flow may wait until its next
+                # cron tick before its first success metric appears.
+                for: 15m
                 annotations:
                   summary: One or both CAO investigation gates have stopped observing
                   description: >-
