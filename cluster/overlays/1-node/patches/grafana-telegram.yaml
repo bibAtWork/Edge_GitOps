@@ -123,6 +123,10 @@ spec:
       deleteRules.yaml:
         apiVersion: 1
         deleteRules:
+          # Grafana retains a provisioned rule when its UID changes. Remove the
+          # previous screener availability rule so it cannot notify twice.
+          - orgId: 1
+            uid: real-estate-screener-unavailable
           - orgId: 1
             uid: screener-listing-match
           - orgId: 1
