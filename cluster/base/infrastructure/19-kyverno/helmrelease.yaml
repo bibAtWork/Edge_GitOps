@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: kyverno
-      version: 3.9.2
+      version: 3.10.0
       sourceRef:
         kind: HelmRepository
         name: kyverno
@@ -42,12 +42,12 @@ spec:
         image:
           registry: reg.kyverno.io
           repository: kyverno/kyverno
-          tag: v1.19.2
+          tag: v1.20.0
       initContainer:
         image:
           registry: reg.kyverno.io
           repository: kyverno/kyvernopre
-          tag: v1.19.2
+          tag: v1.20.0
       replicas: 1
       # Must be able to run on a cordoned node.
       #
@@ -81,7 +81,7 @@ spec:
       image:
         registry: reg.kyverno.io
         repository: kyverno/background-controller
-        tag: v1.19.2
+        tag: v1.20.0
       resources:
         requests:
           cpu: 50m
@@ -93,7 +93,7 @@ spec:
       image:
         registry: reg.kyverno.io
         repository: kyverno/cleanup-controller
-        tag: v1.19.2
+        tag: v1.20.0
       resources:
         requests:
           cpu: 50m
@@ -115,7 +115,7 @@ spec:
       image:
         registry: reg.kyverno.io
         repository: kyverno/reports-controller
-        tag: v1.19.2
+        tag: v1.20.0
       resources:
         requests:
           cpu: 50m
