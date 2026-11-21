@@ -44,7 +44,7 @@ step("opencode_cli", "infra-rca",
      f"Validate and investigate {triage}. Recheck current state with read-only commands. "
      f"Write RCA report and handoff to {rca_path}. Distinguish cause from correlation. "
      "Do not change production or open a PR.",
-     recovery="idempotent", step_id="rca", timeout=420)
+     recovery="idempotent", step_id="rca", timeout=600)
 rca = checked_handoff(rca_path, incident_id, "rca")
 report_outcome(incident_id, rca, workflow_name="infra_crew", agent_profile="infra-rca")
 step("opencode_cli", "retrospector",

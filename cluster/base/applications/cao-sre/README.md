@@ -104,7 +104,7 @@ controller waits five minutes after a recorded connection failure or five
 hours after a usage-window failure, then resumes the journaled run only if the
 overall runtime limit has not elapsed. It checks
 bounded terminal logs when CAO's failed-run status omits the provider's quota
-message. Each agent step has a bounded timeout; the controller cancels a run
+message. RCA has a 600-second step timeout; the controller still cancels a run
 that remains active at 20 minutes, including its in-flight terminal. It allows
 three attempts within that deadline. Unknown failures and expired runs go to
 `needs_review`. If the journal is unavailable, the controller retains the
