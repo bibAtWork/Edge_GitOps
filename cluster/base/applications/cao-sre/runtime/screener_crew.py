@@ -60,7 +60,7 @@ step(
     "Do not modify production or open a PR.",
     recovery="idempotent",
     step_id="rca",
-    timeout=420,
+    timeout=600,
 )
 try:
     checked_handoff(rca_path, incident_id, "rca")
