@@ -77,6 +77,11 @@ def judge_exclusion(returncode, stdout, stderr, expected):
     return None if expected == "skip" and returncode == 0 and not stdout.strip() and not stderr.strip() else "missing policy report"
 
 
+def cli_version_matches(output, version):
+    expected = {f"Version: {version}", f"Version: {version.removeprefix('v')}"}
+    return any(line.strip() in expected for line in output.splitlines())
+
+
 def install_cli(directory, version):
     override = os.environ.get("KYVERNO_CLI")
     if override:
@@ -106,7 +111,7 @@ def install_cli(directory, version):
         binary.write_bytes(content)
         binary.chmod(0o755)
     found = subprocess.run([str(binary), "version"], capture_output=True, text=True, check=True).stdout
-    if f"Version: {version.removeprefix('v')}\n" not in found.replace("\r\n", "\n"):
+    if not cli_version_matches(found, version):
         raise ValueError(f"CLI must match admission controller {version}; got {found.strip()}")
     return binary
 
