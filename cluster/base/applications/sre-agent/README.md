@@ -85,8 +85,8 @@ empty model response; a live dry run of the application's `investigate()` functi
 with the new settings produced a report on 2026-10-17. Model availability still
 needs monitoring after rollout.
 
-The three deployments request 250m CPU and 576Mi RAM; their configured limits total
-2.5 CPUs and 1792Mi RAM. The hourly trigger adds up to 100m/64Mi. No Ollama or GPU.
+The three deployments request 250m CPU and 768Mi RAM; their configured limits total
+2.5 CPUs and 2048Mi RAM. The hourly trigger adds up to 100m/64Mi. No Ollama or GPU.
 These are budgets, not measured runtime consumption. Workers use bounded disk
 scratch space; the single-replica SQLite API uses a 2Gi Longhorn PVC with fsGroup.
 
