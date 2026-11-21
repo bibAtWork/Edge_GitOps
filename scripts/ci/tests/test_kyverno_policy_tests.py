@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kyverno_policy_tests import check_coverage, judge_exclusion, judge_mutation, judge_report  # noqa: E402
+from kyverno_policy_tests import check_coverage, cli_version_matches, judge_exclusion, judge_mutation, judge_mutation_output, judge_report  # noqa: E402
 
 
 def report(result="pass", process="admission review"):
@@ -12,6 +12,12 @@ def report(result="pass", process="admission review"):
 
 
 class KyvernoPolicyTests(unittest.TestCase):
+    def test_cli_version_accepts_exact_upstream_formats(self):
+        self.assertTrue(cli_version_matches("Version: 1.20.0\n", "v1.20.0"))
+        self.assertTrue(cli_version_matches("Version: v1.20.0\n", "v1.20.0"))
+        self.assertFalse(cli_version_matches("Version: v1.20.1\n", "v1.20.0"))
+        self.assertFalse(cli_version_matches("Version: v1.20.0-rc.1\n", "v1.20.0"))
+
     def test_expected_results(self):
         for result in ("pass", "fail", "skip"):
             self.assertIsNone(judge_report(report(result), "fixture", result))
@@ -55,3 +61,9 @@ class KyvernoPolicyTests(unittest.TestCase):
         changed = deepcopy(expected)
         changed["spec"]["replicas"] = 0
         self.assertIsNotNone(judge_mutation(changed, expected))
+
+    def test_excluded_mutation_requires_no_output(self):
+        expected = {"spec": {"revisionHistoryLimit": 10}}
+        self.assertIsNone(judge_mutation_output([], expected, excluded=True))
+        self.assertIsNotNone(judge_mutation_output([expected], expected, excluded=True))
+        self.assertIsNotNone(judge_mutation_output([], expected))

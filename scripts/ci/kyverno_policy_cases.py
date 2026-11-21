@@ -199,5 +199,6 @@ def cases():
     for namespace in SYSTEM_NAMESPACES:
         obj = controller()
         obj["metadata"]["namespace"] = namespace
-        add("set-revision-history-limit", f"excluded {namespace}", obj, deepcopy(obj))
+        add("set-revision-history-limit", f"excluded {namespace}", obj, deepcopy(obj),
+            expect_no_output=True)
     return result

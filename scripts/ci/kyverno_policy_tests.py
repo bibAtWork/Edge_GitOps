@@ -66,7 +66,20 @@ def judge_report(report, policy, expected, process="admission review"):
 
 
 def judge_mutation(resource, expected):
-    return None if resource == expected else "mutated resource differs from the entire expected object"
+    if resource == expected:
+        return None
+    if not isinstance(resource, dict):
+        return f"expected one mutated resource, got {type(resource).__name__}: {resource!r}"
+    actual_history = resource.get("spec", {}).get("revisionHistoryLimit")
+    expected_history = expected.get("spec", {}).get("revisionHistoryLimit")
+    return ("mutated resource differs from the entire expected object: "
+            f"revisionHistoryLimit expected {expected_history!r}, got {actual_history!r}")
+
+
+def judge_mutation_output(resources, expected, excluded=False):
+    if excluded:
+        return None if not resources else "excluded mutation produced an output resource"
+    return judge_mutation(resources[0] if len(resources) == 1 else resources, expected)
 
 
 def judge_exclusion(returncode, stdout, stderr, expected):
@@ -75,6 +88,11 @@ def judge_exclusion(returncode, stdout, stderr, expected):
     # with a clean exit. Every validation policy also has evaluated pass/fail
     # fixtures, so a broken file cannot silently pass through exclusions alone.
     return None if expected == "skip" and returncode == 0 and not stdout.strip() and not stderr.strip() else "missing policy report"
+
+
+def cli_version_matches(output, version):
+    expected = {f"Version: {version}", f"Version: {version.removeprefix('v')}"}
+    return any(line.strip() in expected for line in output.splitlines())
 
 
 def install_cli(directory, version):
@@ -106,7 +124,7 @@ def install_cli(directory, version):
         binary.write_bytes(content)
         binary.chmod(0o755)
     found = subprocess.run([str(binary), "version"], capture_output=True, text=True, check=True).stdout
-    if f"Version: {version.removeprefix('v')}\n" not in found.replace("\r\n", "\n"):
+    if not cli_version_matches(found, version):
         raise ValueError(f"CLI must match admission controller {version}; got {found.strip()}")
     return binary
 
@@ -141,10 +159,11 @@ def evaluate(binary, policy_path, policy, case, directory):
     # counts; compilation/CLI errors never satisfy a negative fixture.
     try:
         if mutating:
-            if process.returncode != 0 or not output.exists():
+            if process.returncode != 0:
                 return f"mutation failed: {process.stdout} {process.stderr}"
-            docs = [d for d in yaml.safe_load_all(output.read_text(encoding="utf-8")) if d is not None]
-            return judge_mutation(docs[0] if len(docs) == 1 else docs, case["expected"])
+            docs = ([d for d in yaml.safe_load_all(output.read_text(encoding="utf-8")) if d is not None]
+                    if output.exists() else [])
+            return judge_mutation_output(docs, case["expected"], case.get("expect_no_output", False))
         if not process.stdout.strip():
             return judge_exclusion(process.returncode, process.stdout, process.stderr, case["expected"])
         label = "background scan" if policy["spec"].get("evaluation", {}).get("background", {}).get("enabled", True) else "admission review"
