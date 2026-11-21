@@ -24,10 +24,6 @@ spec:
   # The API server applies its default of ten before the webhook runs. A
   # Deployment that explicitly asks for ten is indistinguishable at admission.
   matchConditions:
-    - name: exclude-system-namespaces
-      expression: >-
-        has(object.metadata.namespace) &&
-        !(object.metadata.namespace in ['kube-system', 'flux-system', 'kyverno'])
     - name: uses-kubernetes-default
       expression: >-
         has(object.spec.revisionHistoryLimit) &&
