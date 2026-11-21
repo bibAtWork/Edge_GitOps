@@ -232,10 +232,9 @@ Hubble-verified rollout catch different classes of mistake:
   `k8s-metacollector` component** (`collectors.kubernetes.enabled: true`) neither visible
   in a values-file read nor obviously named. Both caught live via Hubble within minutes of
   applying, both fixed before merging.
-- **SeaweedFS's own setup Jobs** (`seaweedfs-bucket-init`, `seaweedfs-collection-routing`)
-  carry only `batch.kubernetes.io/job-name`-style labels, not
-  `app.kubernetes.io/name=seaweedfs` — the label-scoped same-namespace rule never covered
-  them. Surfaced only after `allow-cluster-internal` was deleted *entirely* (the last of
+- **SeaweedFS's bucket-init Job** carries only `batch.kubernetes.io/job-name`-style
+  labels, not `app.kubernetes.io/name=seaweedfs` — the label-scoped same-namespace rule
+  never covered it. Surfaced only after `allow-cluster-internal` was deleted *entirely* (the last of
   26 exclusions), since until then it was still silently covering this one remaining gap.
 
 **Egress remains what it always was — genuinely segmented, no cluster-wide equivalent.**

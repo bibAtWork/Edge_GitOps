@@ -51,9 +51,9 @@ spec:
     # nothing reported the gap because from Helm's side every upgrade applied
     # cleanly and the release stayed Ready.
     #
-    # The freeze was visible as a split brain: the collection-routing Job pins the
-    # image separately, Renovate DOES track that one, and it had reached 4.45 --
-    # so a 4.45 client was running against 4.40 servers.
+    # The freeze was visible as a split brain: the former collection-routing Job
+    # pinned its image separately, and Renovate had advanced it to 4.45 while the
+    # server remained at 4.40. The obsolete Job has since been removed.
     #
     # Removing the field keeps the linter satisfied: it fails on a literal
     # `tag: latest` line, and an absent tag matches nothing.
