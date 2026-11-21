@@ -76,6 +76,12 @@ def judge_mutation(resource, expected):
             f"revisionHistoryLimit expected {expected_history!r}, got {actual_history!r}")
 
 
+def judge_mutation_output(resources, expected, excluded=False):
+    if excluded:
+        return None if not resources else "excluded mutation produced an output resource"
+    return judge_mutation(resources[0] if len(resources) == 1 else resources, expected)
+
+
 def judge_exclusion(returncode, stdout, stderr, expected):
     # matchConstraints exclusions emit no report; matchConditions exclusions
     # emit a skip result. Empty output is allowed ONLY for an expected exclusion
@@ -153,10 +159,11 @@ def evaluate(binary, policy_path, policy, case, directory):
     # counts; compilation/CLI errors never satisfy a negative fixture.
     try:
         if mutating:
-            if process.returncode != 0 or not output.exists():
+            if process.returncode != 0:
                 return f"mutation failed: {process.stdout} {process.stderr}"
-            docs = [d for d in yaml.safe_load_all(output.read_text(encoding="utf-8")) if d is not None]
-            return judge_mutation(docs[0] if len(docs) == 1 else docs, case["expected"])
+            docs = ([d for d in yaml.safe_load_all(output.read_text(encoding="utf-8")) if d is not None]
+                    if output.exists() else [])
+            return judge_mutation_output(docs, case["expected"], case.get("expect_no_output", False))
         if not process.stdout.strip():
             return judge_exclusion(process.returncode, process.stdout, process.stderr, case["expected"])
         label = "background scan" if policy["spec"].get("evaluation", {}).get("background", {}).get("enabled", True) else "admission review"

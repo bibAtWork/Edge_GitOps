@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kyverno_policy_tests import check_coverage, cli_version_matches, judge_exclusion, judge_mutation, judge_report  # noqa: E402
+from kyverno_policy_tests import check_coverage, cli_version_matches, judge_exclusion, judge_mutation, judge_mutation_output, judge_report  # noqa: E402
 
 
 def report(result="pass", process="admission review"):
@@ -61,3 +61,9 @@ class KyvernoPolicyTests(unittest.TestCase):
         changed = deepcopy(expected)
         changed["spec"]["replicas"] = 0
         self.assertIsNotNone(judge_mutation(changed, expected))
+
+    def test_excluded_mutation_requires_no_output(self):
+        expected = {"spec": {"revisionHistoryLimit": 10}}
+        self.assertIsNone(judge_mutation_output([], expected, excluded=True))
+        self.assertIsNotNone(judge_mutation_output([expected], expected, excluded=True))
+        self.assertIsNotNone(judge_mutation_output([], expected))
