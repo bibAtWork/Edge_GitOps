@@ -135,7 +135,7 @@ spec:
           emptyDir:
             sizeLimit: 20Gi
       container:
-        image: docker.io/restic/restic:0.19.1
+        image: docker.io/restic/restic:0.20.0
         command: ["/bin/sh", "-c"]
         args:
           - |
