@@ -66,7 +66,14 @@ def judge_report(report, policy, expected, process="admission review"):
 
 
 def judge_mutation(resource, expected):
-    return None if resource == expected else "mutated resource differs from the entire expected object"
+    if resource == expected:
+        return None
+    if not isinstance(resource, dict):
+        return f"expected one mutated resource, got {type(resource).__name__}: {resource!r}"
+    actual_history = resource.get("spec", {}).get("revisionHistoryLimit")
+    expected_history = expected.get("spec", {}).get("revisionHistoryLimit")
+    return ("mutated resource differs from the entire expected object: "
+            f"revisionHistoryLimit expected {expected_history!r}, got {actual_history!r}")
 
 
 def judge_exclusion(returncode, stdout, stderr, expected):
