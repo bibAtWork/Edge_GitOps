@@ -44,7 +44,7 @@ spec:
         sizeLimit: 20Gi
   containers:
     - name: restic
-      image: docker.io/restic/restic:0.19.1
+      image: docker.io/restic/restic:0.20.0
       command: ["sleep", "86400"]
       envFrom:
         - secretRef:
@@ -73,7 +73,7 @@ spec:
             - ALL
 
     - name: restic-aws
-      image: docker.io/restic/restic:0.19.1
+      image: docker.io/restic/restic:0.20.0
       command: ["sleep", "86400"]
       envFrom:
         - secretRef:

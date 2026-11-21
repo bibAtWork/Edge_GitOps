@@ -97,7 +97,7 @@ spec:
             valueFrom:
               path: /tmp/out/datasets
       container:
-        image: docker.io/restic/restic:0.19.1
+        image: docker.io/restic/restic:0.20.0
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -272,7 +272,7 @@ spec:
               path: /tmp/out/removed
       activeDeadlineSeconds: 14400
       container:
-        image: docker.io/restic/restic:0.19.1
+        image: docker.io/restic/restic:0.20.0
         command: ["/bin/sh", "-c"]
         args:
           - |
