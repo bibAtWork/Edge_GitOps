@@ -26,7 +26,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: prepare-home
-          image: docker.io/dagster/dagster-k8s:1.13.30@sha256:97501f446455fb486cb3009ee83406cc98fd2ed4873bfeb2705b5bab1f731a8b
+          image: docker.io/dagster/dagster-k8s:1.13.31@sha256:b6c159eaca626f9a291effaa0e1f7ea9c8986bd8c9099124488367e099da1653
           command: [sh, -c, 'cp /dagster-config/dagster.yaml /dagster-home/dagster.yaml && cp /dagster-config/workspace.yaml /dagster-home/workspace.yaml']
           securityContext:
             allowPrivilegeEscalation: false
@@ -47,7 +47,7 @@ spec:
               mountPath: /dagster-home
       containers:
         - name: web
-          image: docker.io/dagster/dagster-k8s:1.13.30@sha256:97501f446455fb486cb3009ee83406cc98fd2ed4873bfeb2705b5bab1f731a8b
+          image: docker.io/dagster/dagster-k8s:1.13.31@sha256:b6c159eaca626f9a291effaa0e1f7ea9c8986bd8c9099124488367e099da1653
           command: [dagster-webserver, -h, 0.0.0.0, -p, '3000', -w, workspace.yaml]
           workingDir: /dagster-home
           ports:
@@ -97,7 +97,7 @@ spec:
             - name: tmp
               mountPath: /tmp
         - name: daemon
-          image: docker.io/dagster/dagster-k8s:1.13.30@sha256:97501f446455fb486cb3009ee83406cc98fd2ed4873bfeb2705b5bab1f731a8b
+          image: docker.io/dagster/dagster-k8s:1.13.31@sha256:b6c159eaca626f9a291effaa0e1f7ea9c8986bd8c9099124488367e099da1653
           command: [dagster-daemon, run]
           workingDir: /dagster-home
           env:
