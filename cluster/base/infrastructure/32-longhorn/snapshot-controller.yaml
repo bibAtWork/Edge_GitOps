@@ -19,7 +19,7 @@ spec:
       chart: snapshot-controller
       # 5.4.0 ships the v8.7.0 controller and CRDs. Longhorn 1.13 still runs
       # csi-snapshotter v8.6.0; GroupSnapshot remains disabled below.
-      version: "5.4.0"
+      version: "5.4.1"
       sourceRef:
         kind: HelmRepository
         name: piraeus-charts
