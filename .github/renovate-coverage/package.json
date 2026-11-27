@@ -2,6 +2,6 @@
   "name": "edge-gitops-renovate-coverage",
   "private": true,
   "dependencies": {
-    "renovate": "44.261.2"
+    "renovate": "44.262.0"
   }
 }
